@@ -77,6 +77,22 @@ REQ-B11. Read-only visibility only — no bd write calls beyond what Phase 1 alr
   with BEADS.md's plain wave-id lookup — folding it into `beads-status` would be branching for
   its own sake, not real reuse.
 
+### Post-research corrections (02-RESEARCH.md, superseding conflicting decisions above)
+- **D-03 (revised):** planner's `<files_to_read>` block is closed/hardcoded — BEADS-RECALL.md is
+  NOT auto-read the way D-03 assumed. Add a `plan:pre` `contributions[]` entry (`into: "planner"`,
+  confirmed-working slot per RESEARCH.md finding 3) that points the planner at BEADS-RECALL.md.
+- **D-09/D-10 (revised):** `execute:wave:pre` has no working contribution-render slot in
+  `execute-phase.md` — a `contributions[]` text fragment will not reach the composed executor
+  prompt there (unlike `plan:pre`). Drop the fragment approach; `beads-status`'s
+  `execute:wave:pre` branch instead explicitly instructs the orchestrator to paste wave-status
+  text (issue ids/titles/status) into each executor's composed prompt itself — the pattern the
+  one first-party capability that works at this point (`claude-orchestration`) actually uses.
+- **D-01 (revised):** no PLAN.md exists yet at `plan:pre` time, so "phase's expected
+  `files_modified`" doesn't exist as a field to compare against. `beads-recall`'s file-path tier
+  instead greps the phase's ROADMAP.md section text + CONTEXT.md for file paths/module names
+  mentioned there. Weaker signal than a real files_modified list, available pre-plan. Epic/label
+  match (D-01's second tier) and the "Unscoped" fallback (D-02) are unchanged.
+
 ### Claude's Discretion
 - Exact BEADS-RECALL.md/BEADS.md markdown formatting beyond the locked column/field lists above.
 - Whether the fragment's status list is inline prose or a small table — pick whichever reads
