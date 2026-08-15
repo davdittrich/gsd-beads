@@ -1,23 +1,23 @@
 ---
 phase: 03-enforcement
-fixed_at: 2026-08-15T18:10:00Z
+fixed_at: 2026-08-15T18:40:00Z
 review_path: .planning/phases/03-enforcement/03-REVIEW.md
 iteration: 1
-findings_in_scope: 5
-fixed: 5
+findings_in_scope: 7
+fixed: 7
 skipped: 0
 status: all_fixed
 ---
 
 # Phase 3: Code Review Fix Report
 
-**Fixed at:** 2026-08-15T18:10:00Z
+**Fixed at:** 2026-08-15T18:40:00Z
 **Source review:** .planning/phases/03-enforcement/03-REVIEW.md
 **Iteration:** 1
 
 **Summary:**
-- Findings in scope: 5 (fix_scope: critical_warning -- 1 critical + 4 warnings; IN-01/IN-02 excluded)
-- Fixed: 5
+- Findings in scope: 7 (all of REVIEW.md's CR-01/WR-01..04/IN-01/IN-02, plus one net-new finding from an independent agy/Gemini adversarial review -- see New-01)
+- Fixed: 7
 - Skipped: 0
 
 ## Fixed Issues
@@ -58,18 +58,36 @@ status: all_fixed
 
 **Note on CR-01/WR-03 commit consolidation:** both findings modify the same function (`check_shipmd_patch`) in the same file in immediately adjacent lines (its docstring and its three `print()` call sites) -- they could not be split into two commits without interactive hunk-level surgery of a single already-merged docstring paragraph. They are committed together as `eee6db7`; each finding's actual code change is called out separately above and both are independently verifiable in that commit's diff.
 
+### New-01: `ship_override`'s `git commit --amend` unconditionally rewrites HEAD, assuming it's always unpushed (found by independent agy/Gemini adversarial review, not in original REVIEW.md)
+
+**Files modified:** `.gsd/capabilities/beads/scripts/sync.py`, `.gsd/capabilities/beads/tests/test_sync.py`
+**Commit:** `2657519`
+**Applied fix:** Added `_head_already_pushed(project_root)`, which compares `HEAD` against its upstream via `git rev-list --count @{u}..HEAD`. When the count is `0` (HEAD has no unpushed commits -- already on the remote), `ship_override` refuses the amend, prints a diagnostic explaining why (ship retry after a prior run already completed `push_branch`), and returns `git_ok=False` instead of silently diverging local history from `origin` and failing the next push with no traceable cause. Fails open (proceeds with the amend as before) when no upstream is configured or either `git` call errors -- a targeted guard against this one known failure mode, not a general git-state validator. Three new tests: refuses-and-still-tries-bd-comment, proceeds-normally-when-unpushed, proceeds-normally-when-no-upstream.
+
+### IN-01: `filter_open_ids` duplicated `BEADS_RECALL_STATUSES` instead of reusing it
+
+**Files modified:** `.gsd/capabilities/beads/scripts/sync.py`
+**Commit:** `f19b447`
+**Applied fix:** Replaced the hardcoded `"open,in_progress,blocked,deferred"` literal with `BEADS_RECALL_STATUSES`, exactly as the review's suggested fix specified.
+
+### IN-02: `BD_TIMEOUT` reused for unrelated `git` calls
+
+**Files modified:** `.gsd/capabilities/beads/scripts/sync.py`
+**Commit:** `f19b447`
+**Applied fix:** Introduced a separate `GIT_TIMEOUT` constant (review's Option 2) and repointed all three `git` subprocess call sites in `ship_override`/`_head_already_pushed` (the original amend call plus the two new rev-parse/rev-list calls New-01 added) to use it. `BD_TIMEOUT` now stays exclusively `bd`-scoped, matching its docstring.
+
 ## Skipped Issues
 
-None -- all 5 in-scope findings were fixed.
+None -- all 7 in-scope findings were fixed.
 
 ## Notes for the developer
 
-- **IN-01/IN-02** were out of `fix_scope` (`critical_warning`) and left untouched, per the review: `filter_open_ids`'s hardcoded status string duplicating `BEADS_RECALL_STATUSES`, and `BD_TIMEOUT` being reused for the unrelated `git commit --amend` call in `ship_override`.
 - **Pre-existing latent bug found while verifying WR-02, not fixed (out of REVIEW.md's scope):** `rewrite_plan` unconditionally prepends a new `beads_epic:` line whenever `epic_created=True`, without first removing a stale one already present in frontmatter. In the stale-epic-replacement path this fix adds test coverage for, the plan file ends up with two `beads_epic:` lines (the new one first, so `BEADS_EPIC_RE.search` -- and therefore every real caller -- still resolves correctly, which is why this was not treated as a regression blocking the fix). Worth a follow-up ticket to strip the old line during rewrite.
+- **agy/Gemini independent adversarial review also flagged (Info, not fixed):** no automated/idempotent patch-*re*apply mechanism -- `GSD-CORE-PATCH.md` is manual paste-back instructions; a careless reapply could double-insert `ship.md`'s steps 8/9. Speculative/low-likelihood since reapplication is a manual, reviewed action. Worth a follow-up ticket if patch reapplication becomes a recurring operational task.
 - **Pre-existing test flakiness observed, not caused by this session's changes:** `TestShipPreGenericDispatch`'s three live `gsd-tools.cjs` subprocess tests fail intermittently when run in-place inside this active repo (`ENOENT: process.cwd failed ... the current working directory was likely removed`), but pass when the same baseline `sync.py`/`test_sync.py` pair (checked out from commit `5e1ee91`, pre-dating this session) are run from an isolated scratch copy. This points to a cwd race from something else running concurrently in this session's environment (background scheduled tasks / other worktrees), not to any of the four fix commits above -- confirmed by running the identical test class against both the pre-fix and post-fix `sync.py` with the same result.
 
 ---
 
-_Fixed: 2026-08-15T18:10:00Z_
-_Fixer: Claude (gsd-code-fixer)_
+_Fixed: 2026-08-15T18:40:00Z_
+_Fixer: Claude (gsd-code-fixer, plus manual New-01/IN-01/IN-02 follow-up)_
 _Iteration: 1_
