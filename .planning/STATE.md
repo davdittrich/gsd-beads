@@ -6,9 +6,9 @@ current_phase: 02
 current_phase_name: Visibility
 status: complete
 stopped_at: Phase 2 closed — SC1/SC3 verified, SC2 (B8) mechanism proven but literal prompt-grep deferred to Phase 3's first real wave
-last_updated: "2026-08-15T14:35:00.000Z"
+last_updated: "2026-08-15T14:45:00.000Z"
 last_activity: 2026-08-15
-last_activity_desc: Phase 2 executed (2/2 plans, 39/39 tests), goal-verified 2/3 criteria hard-pass, 1 deferred (WINDOWS.md #1/#2, open)
+last_activity_desc: Quick task 260815-mm8 fixed both pre-existing Phase 1 defects (gsd-beads-uh1, gsd-beads-bgb), 41/41 tests green
 progress:
   total_phases: 2
   completed_phases: 2
@@ -106,7 +106,16 @@ None yet.
   just local install; no roadmap phase currently owns this. See memory
   `gsd-beads-ships-as-github-plugin`.
 
-- [Backlog] Phase 1 sync.py: create_issues resolves each plan's epic independently (no shared phase-level epic when beads_epic isn't pre-set), and the orphan sweep auto-closes a sibling plan's issue when two plans intentionally share one epic -- discovered during 02-02's live trace, unticketed, unfixed
+- ~~[Backlog] Phase 1 sync.py: create_issues resolves each plan's epic independently...~~ FIXED
+  quick task 260815-mm8 (`gsd-beads-uh1`, `gsd-beads-bgb`, both closed): `resolve_epic` now
+  phase-scoped via `resolve_phase_epic`; `find_orphans` orphan detection now epic-scoped via
+  `collect_epic_task_ids`. 41/41 tests green.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260815-mm8 | Fix gsd-beads-uh1 (create_issues epic-per-plan) and gsd-beads-bgb (orphan sweep closes sibling issue) | 2026-08-15 | cb0741e | [260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per](./quick/260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per/) |
 
 ## Deferred Items
 
