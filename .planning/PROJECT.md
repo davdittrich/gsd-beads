@@ -75,8 +75,11 @@ The closest shipped analogue for shape and degrade-cleanly behavior is
 
 Binding model: phase ↔ epic, `PLAN.md` task ↔ issue (bound by an explicit `beads-id:`, never by
 title), task dependency ↔ `bd dep add`, requirement id ↔ issue label. In `authoritative` mode
-beads owns task *status*; `PLAN.md` owns task *content* — no field is owned twice, which is what
-makes divergence (B10) detectable rather than a merge problem.
+beads owns task *status* AND task *content* (title/description) — content originates in
+`PLAN.md` at first sync, but the bd issue is authoritative from then on; `PLAN.md`'s task text
+is not re-edited to follow later bd edits. Content divergence (B10) is therefore defined as a
+`PLAN.md` task description that no longer matches its issue's content at the time the issue was
+last synced from `PLAN.md`, not an ongoing two-way merge.
 
 ## Constraints
 
@@ -96,7 +99,7 @@ makes divergence (B10) detectable rather than a merge problem.
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
 | Overlay capability (`beads`), not a gsd-core fork | Forking buys maintenance of 79 skills / 45 capabilities to add one integration and diverges from upstream permanently; overlays are a supported, tested extension point | — Pending |
-| `beads.sync_mode` defaults to `authoritative` for status only | Splits ownership so beads owns status and `PLAN.md` owns content — no field owned twice, so divergence is detectable rather than a merge conflict | — Pending |
+| `beads.sync_mode` defaults to `authoritative` for status and content | Discuss-phase 1 reversal (2026-08-15) of the original status-only split: bd is the single editable record post-creation, `PLAN.md` is not re-synced from it — avoids a two-way content merge while keeping one authoritative owner | — Pending |
 | Gate predicates read only generated artifact frontmatter (`BEADS.md`), never query `bd` directly | The only two shipped predicate kinds are `command-exists` and `artifact-frontmatter-equals`; no predicate calls an external tool | — Pending |
 | `gates[].onError: skip`, never `halt` | A missing/unreadable `BEADS.md` (capability disabled, `bd` absent, first run) must never strand a finished phase — the gate blocks only on a known bad state | — Pending |
 
