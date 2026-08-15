@@ -43,6 +43,15 @@
       "type": "boolean",
       "default": true,
       "description": "When true, ship:pre blocks on blocking_open>0 or diverged>0 in BEADS.md."
+    },
+    "beads.epic_per": {
+      "type": "enum",
+      "values": [
+        "phase",
+        "milestone"
+      ],
+      "default": "phase",
+      "description": "phase (default): one epic per phase, as today. milestone: one epic shared across every phase in the current milestone (D-10: forward-only, does not retroactively fold existing per-phase epics; D-11: read fresh at each epic-creation call site)."
     }
   },
   "steps": [

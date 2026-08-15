@@ -63,6 +63,11 @@ SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->"
 # current/last-active phase from STATE.md's frontmatter -- single-token
 # style matching BEADS_EPIC_RE.
 CURRENT_PHASE_RE = re.compile(r"^current_phase:\s*(\S+)\s*$", re.MULTILINE)
+# B14: beads.epic_per=milestone's title source, STATE.md's milestone:/
+# milestone_name: frontmatter keys -- single-token style matching
+# BEADS_EPIC_RE/CURRENT_PHASE_RE.
+MILESTONE_RE = re.compile(r"^milestone:\s*(\S+)\s*$", re.MULTILINE)
+MILESTONE_NAME_RE = re.compile(r"^milestone_name:\s*(\S+)\s*$", re.MULTILINE)
 
 
 def run_bd(argv, timeout=BD_TIMEOUT):
@@ -459,7 +464,85 @@ def get_phase_header(roadmap_path, phase_num):
     return m.group(1).strip()
 
 
-def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir):
+def read_epic_per(project_root):
+    """B14/D-11: return the `beads.epic_per` value read fresh from
+    `.planning/config.json` -- "phase" when the file is absent, malformed
+    (`json.JSONDecodeError`), or carries no `beads.epic_per` key. This is
+    `sync.py`'s first-ever direct `config.json` read (RESEARCH's Config
+    Schema Mechanism, Pattern 3 option (a)) -- required because D-11 needs
+    the value re-read at each epic-creation call site, not resolved once by
+    the calling SKILL.md's config gate."""
+    config_path = confined(project_root, ".planning", "config.json")
+    if not config_path.exists():
+        return "phase"
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return "phase"
+    return cfg.get("beads", {}).get("epic_per", "phase")
+
+
+def milestone_epic_title(state_path):
+    """B14: return "Milestone {milestone}: {milestone_name}" from STATE.md's
+    frontmatter (RESEARCH's Open Question 1 recommendation) -- empty string
+    for either component when its key is absent from the frontmatter."""
+    text = Path(state_path).read_text(encoding="utf-8")
+    fm_match = FRONTMATTER_RE.match(text)
+    frontmatter = fm_match.group(1) if fm_match else ""
+    milestone_m = MILESTONE_RE.search(frontmatter)
+    milestone = milestone_m.group(1) if milestone_m else ""
+    name_m = MILESTONE_NAME_RE.search(frontmatter)
+    milestone_name = name_m.group(1) if name_m else ""
+    return f"Milestone {milestone}: {milestone_name}"
+
+
+def resolve_milestone_epic(project_root):
+    """B14: return one epic id shared across every phase in the current
+    milestone. Scans every plan's `beads_epic` frontmatter value across
+    every phase directory under `.planning/phases/` (collect_all_task_files'
+    cross-phase scan technique) as untrusted candidate data, then confirms
+    each candidate via a live `bd show --json` title match against
+    `milestone_epic_title()` -- the D-10 forward-only guard: an existing
+    per-phase epic's title is always a verbatim ROADMAP phase header
+    (get_phase_header), never this function's computed milestone title, so
+    it structurally can never be reused here even though its id is
+    discoverable by the same scan. Creates a fresh epic only when no
+    candidate's live title matches.
+    """
+    state_path = confined(project_root, ".planning", "STATE.md")
+    title = milestone_epic_title(state_path)
+
+    phases_root = confined(project_root, ".planning", "phases")
+    candidate_ids = []
+    if phases_root.is_dir():
+        for phase_dir in sorted(p for p in phases_root.iterdir() if p.is_dir()):
+            for plan_path in discover_plan_files(phase_dir).values():
+                try:
+                    _, plan_frontmatter, _ = parse_plan(plan_path)
+                except (OSError, UnicodeDecodeError):
+                    continue
+                m = BEADS_EPIC_RE.search(plan_frontmatter)
+                if m and m.group(1) not in candidate_ids:
+                    candidate_ids.append(m.group(1))
+
+    for candidate_id in candidate_ids:
+        check = run_bd(["bd", "show", candidate_id, "--json"])
+        if check.returncode != 0:
+            continue
+        try:
+            data = json.loads(check.stdout)
+        except json.JSONDecodeError:
+            continue
+        if data.get("title") == title:
+            return candidate_id
+
+    result = run_bd(["bd", "create", title, "--type", "epic", "--silent"])
+    if result.returncode != 0:
+        raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root):
     """Return (epic_id, needs_write, stale_epic_id). Resolve-by-id first,
     create only on confirmed absence -- never by title (B4/B5 pattern
     applied to the epic level too).
@@ -476,6 +559,12 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir):
     resolved successfully. The caller reports this the same way
     `resolve_issue`'s `divergent` flag is reported, so a resync after an
     external epic deletion never forks the phase across epics silently.
+
+    B14/D-11: when `beads.epic_per` (read fresh here via `read_epic_per`) is
+    `"milestone"`, resolution routes to `resolve_milestone_epic` and skips
+    the phase-scoped path entirely -- a mid-milestone config change never
+    disturbs a phase already mid-flight, since each call re-reads the
+    config independently.
     """
     stale_epic_id = None
     m = BEADS_EPIC_RE.search(frontmatter)
@@ -486,6 +575,10 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir):
             return epic_id, False, None
         # stored epic id no longer resolves in bd -- fall through and create fresh
         stale_epic_id = epic_id
+
+    if read_epic_per(project_root) == "milestone":
+        epic_id = resolve_milestone_epic(project_root)
+        return epic_id, True, stale_epic_id
 
     shared_epic_id = resolve_phase_epic(phase_dir)
     if shared_epic_id is not None:
@@ -744,7 +837,7 @@ def create_issues(plan_arg):
     # that case: degrade to the same fail-open notice, not a crash.
     try:
         epic_id, epic_created, stale_epic_id = resolve_epic(
-            frontmatter, roadmap_path, phase_num, plan_path.parent
+            frontmatter, roadmap_path, phase_num, plan_path.parent, project_root
         )
         if stale_epic_id is not None:
             print(
