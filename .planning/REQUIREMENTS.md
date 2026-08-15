@@ -33,7 +33,7 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 
 ### Visibility (F2, F4 — planner/executor see live beads state)
 
-- [ ] **B7**: The planner sees open issues before planning. With an open issue touching a file in
+- [x] **B7**: The planner sees open issues before planning. With an open issue touching a file in
   the phase's scope, `BEADS-RECALL.md` exists before the planner runs and names that issue.
 
 - [ ] **B8**: The executor's prompt carries live issue state. The `execute:wave:pre` fragment is
@@ -90,7 +90,7 @@ None identified — all 14 requirements extracted from the PRD are in v1 scope.
 | B4 | Phase 1 | Complete |
 | B5 | Phase 1 | Complete |
 | B6 | Phase 1 | Complete |
-| B7 | Phase 2 | Pending |
+| B7 | Phase 2 | Complete |
 | B8 | Phase 2 | Pending |
 | B11 | Phase 2 | Pending |
 | B9 | Phase 3 | Pending |

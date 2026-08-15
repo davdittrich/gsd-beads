@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 2
+current_phase: 02
 current_phase_name: Visibility
-status: planned
-stopped_at: Phase 2 planned, plan-gate passed
-last_updated: "2026-08-15T14:10:00.000Z"
+status: executing
+stopped_at: Completed 02-01-PLAN.md
+last_updated: "2026-08-15T13:15:22.459Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 2 researched, planned (2 plans), plan-checker verified all 3 success criteria PASS
 progress:
   total_phases: 2
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 5
+  completed_plans: 4
 ---
 
 # Project State
@@ -24,16 +24,16 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 2 — Visibility
+**Current focus:** Phase 02 — Visibility
 
 ## Current Position
 
-Phase: 2 — Visibility
-Plan: 02-01-PLAN.md, 02-02-PLAN.md (0/2 executed)
+Phase: 02 (Visibility) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-08-15 — Researched, planned, plan-checker verified (1 blocker + 2 warnings found and fixed: added 02-VALIDATION.md, resolved RESEARCH.md open question, strengthened B7 live-prompt verification)
+Last activity: 2026-08-15 — Phase 02 execution started
 
-Progress: [████████████████████] 3/3 plans (100%)
+Progress: [████████████████████] 3/3 plans ([████████░░] 80%)
 
 ## Performance Metrics
 
@@ -61,6 +61,7 @@ Progress: [████████████████████] 3/3 pla
 |------|----------|-------|-------|
 | Phase 01 P01 | 8min | 2 tasks | 7 files |
 | Phase 01 P02 | 12min | 3 tasks | 4 files |
+| Phase 02 P01 | 13min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -72,14 +73,19 @@ Recent decisions affecting current work:
 - [Phase 2]: `execute:wave:pre` has no working `contributions[]` render slot in `execute-phase.md`
   (unlike `plan:pre`) — B8's wave-status visibility uses a steps-only orchestrator-instruction
   pattern instead (D-09/D-10 revised in 02-CONTEXT.md)
+
 - [Phase 2]: planner's `<files_to_read>` is a closed hardcoded list — BEADS-RECALL.md reaches the
   planner via a `plan:pre` `contributions[]` pointer (`into: "planner"`), not automatic inclusion
   (D-03 revised)
+
 - Overlay capability (`beads`), not a gsd-core fork
 - `beads.sync_mode` defaults to `authoritative` for status AND content (D-01, reversed from status-only during discuss-phase); `PLAN.md` is never re-synced from later bd edits
 - [Phase 1]: real `bd` v1.2.1 CLI diverges from initial research in three ways (no `--id`, hierarchical child ids, `bd list --parent` hides closed by default) — full detail in PROJECT.md Key Decisions
 - [Phase 1]: gsd-core project-scope capability consent is a whole-bundle content hash — any post-consent file edit silently deactivates it; re-run `capability install --scope project` after any such edit, every phase
 - [Phase 1]: PLAN.md task schema is XML `<task type="...">` elements, never markdown `### Task N:` headings (corrected from an earlier wrong assumption)
+- [Phase ?]: [Phase 2, 02-01]: D-01 revised confirmed in implementation -- bd has no structured file-path field, so beads-recall's scope matching is two concrete techniques (cross-phase <beads-id> reverse lookup + bd --desc-contains fallback), not one generic comparison
+- [Phase ?]: [Phase 2, 02-01]: The phase-being-planned's file-scope signal comes from ROADMAP.md section text + CONTEXT.md mentions (regex path-token extraction), since no PLAN.md exists yet for it at plan:pre time
+- [Phase ?]: [Phase 2, 02-01]: recall-pointer.md contribution fragment is a static pointer only (Pattern 1) -- names BEADS-RECALL.md's path pattern generically, never embeds live per-invocation issue data
 
 ### Pending Todos
 
@@ -104,6 +110,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T11:37:09.167Z
-Stopped at: Phase 2 context gathered
-Resume file: .planning/phases/02-visibility/02-CONTEXT.md
+Last session: 2026-08-15T13:15:22.453Z
+Stopped at: Completed 02-01-PLAN.md
+Resume file: None
