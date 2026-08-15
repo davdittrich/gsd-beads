@@ -304,6 +304,40 @@ class TestCreateIssues(unittest.TestCase):
         self.assertEqual(len(parents), 1)
 
 
+class TestPhaseScopedEpic(unittest.TestCase):
+    """gsd-beads-uh1: two plans in one phase, neither pre-set with
+    beads_epic, sync to exactly one shared epic -- resolve_epic falls back
+    to resolve_phase_epic (a sibling plan's already-recorded epic) before
+    ever creating a fresh one."""
+
+    @mock.patch("subprocess.run")
+    def test_second_plan_in_phase_reuses_first_plans_epic_when_neither_preset_one(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_a_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_b_text = plan_a_text.replace("plan: 01", "plan: 02", 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = _write_plan_workspace(Path(tmp), plan_a_text)
+            plan_b = plan_a.parent / "01-02-PLAN.md"
+            plan_b.write_text(plan_b_text, encoding="utf-8")
+
+            exit_a = sync.create_issues(str(plan_a))
+            exit_b = sync.create_issues(str(plan_b))
+
+            text_a = plan_a.read_text(encoding="utf-8")
+            text_b = plan_b.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_a, 0)
+        self.assertEqual(exit_b, 0)
+        epic_creates = TestCreateIssues._create_argvs(mock_run.call_args_list, "epic")
+        self.assertEqual(len(epic_creates), 1)
+
+        epic_a = sync.BEADS_EPIC_RE.search(text_a).group(1)
+        epic_b = sync.BEADS_EPIC_RE.search(text_b).group(1)
+        self.assertEqual(epic_a, epic_b)
+
+
 class TestDependencyMapping(unittest.TestCase):
     """B2: dependency edges come only from intra-plan order and plan-level
     depends_on -- the `wave` frontmatter key is never read as an edge
