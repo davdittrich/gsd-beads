@@ -173,6 +173,92 @@ class TestEndToEndTracer(unittest.TestCase):
             self.assertEqual(children[0]["id"], issue_id)
 
 
+class TestLiveDependencies(unittest.TestCase):
+    """B2 proven against a real bd database: bd ready excludes a blocked
+    task until its blocker closes. Named apart from TestEndToEndTracer so a
+    -k filter targeting one class never accidentally picks up the other."""
+
+    @unittest.skipUnless(_bd_on_path(), "bd binary not found on PATH")
+    def test_ready_excludes_blocked_tasks_until_blockers_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planning_dir = tmp_path / ".planning"
+            phase_dir = planning_dir / "phases" / "01-substrate"
+            phase_dir.mkdir(parents=True)
+            (planning_dir / "STATE.md").write_text(
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            (planning_dir / "ROADMAP.md").write_text(
+                "### Phase 1: Substrate\nGoal.\n", encoding="utf-8"
+            )
+            plan_copy = phase_dir / "01-01-PLAN.md"
+            plan_copy.write_text(_three_task_plan_text(), encoding="utf-8")
+
+            init = subprocess.run(
+                ["bd", "init", "--prefix", "livedep"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(init.returncode, 0, init.stderr)
+
+            result = subprocess.run(
+                [sys.executable, str(Path(sync.__file__)), "create-issues", str(plan_copy)],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            new_text = plan_copy.read_text(encoding="utf-8")
+            ids = [m.strip() for m in sync.BEADS_ID_RE.findall(new_text)]
+            self.assertEqual(len(ids), 3, ids)
+            task1_id, task2_id, task3_id = ids
+
+            epic_id = sync.BEADS_EPIC_RE.search(new_text).group(1)
+            listed = subprocess.run(
+                ["bd", "list", "--parent", epic_id, "--json"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(listed.returncode, 0, listed.stderr)
+            self.assertEqual(len(json.loads(listed.stdout)), 3)
+
+            def _ready_ids():
+                r = subprocess.run(
+                    ["bd", "ready", "--json"],
+                    cwd=tmp_path,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                self.assertEqual(r.returncode, 0, r.stderr)
+                return {row["id"] for row in json.loads(r.stdout)}
+
+            ready_before = _ready_ids()
+            self.assertIn(task1_id, ready_before)
+            self.assertNotIn(task2_id, ready_before)
+            self.assertNotIn(task3_id, ready_before)
+
+            close1 = subprocess.run(
+                ["bd", "close", task1_id, "--reason", "task 1 done"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(close1.returncode, 0, close1.stderr)
+
+            ready_after = _ready_ids()
+            self.assertIn(task2_id, ready_after)
+            self.assertNotIn(task3_id, ready_after)
+
+
 class TestCreateIssues(unittest.TestCase):
     """B1: syncing a plan builds one epic-create argv (no stored epic yet)
     and one task-create argv per task lacking a <beads-id>, every task-create
