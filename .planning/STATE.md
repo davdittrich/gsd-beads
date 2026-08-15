@@ -2,10 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 4
-status: completed
+status: Awaiting next milestone
 stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-08-15T22:49:39.524Z"
+last_updated: "2026-08-15T23:15:22.554Z"
 last_activity: 2026-08-16
 last_activity_desc: Phase 4 complete
 progress:
@@ -13,6 +12,7 @@ progress:
   completed_phases: 4
   total_plans: 11
   completed_plans: 11
+current_phase: 4
 current_phase_name: Adoption
 ---
 
@@ -28,12 +28,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 4
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-08-16 — Phase 4 complete
-
-Progress: [████████████████████] 3/3 plans ([██████████] 100%)
+Phase: Milestone v1.0 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-16 — Milestone v1.0 completed and archived
 
 ## Performance Metrics
 
@@ -151,3 +149,7 @@ Items acknowledged and carried forward from previous milestone close:
 Last session: 2026-08-15T22:32:09.132Z
 Stopped at: Completed 04-03-PLAN.md
 Resume file: None
+
+## Operator Next Steps
+
+- Start the next milestone with /gsd-new-milestone
