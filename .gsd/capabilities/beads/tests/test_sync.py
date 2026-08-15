@@ -1357,11 +1357,10 @@ class TestBeadsMdRegeneration(unittest.TestCase):
             self.assertIn("epic: regen-epic", text)
             self.assertIn("open: 1", text)
             self.assertIn("closed: 1", text)
-            self.assertIn("blocking_open: 0", text)
-            self.assertIn("diverged: 0", text)
+            self.assertIn("blocking_open: 1", text)
+            self.assertIn("diverged: 1", text)
             self.assertIn("generated_from:", text)
             self.assertIn("generated_at:", text)
-            self.assertIn("not yet computed, Phase 3", text)
 
     @mock.patch("subprocess.run")
     def test_hand_edit_is_absent_after_next_regeneration(self, mock_run):
