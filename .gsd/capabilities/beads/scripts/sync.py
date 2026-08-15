@@ -510,6 +510,11 @@ def resolve_milestone_epic(project_root):
     candidate's live title matches.
     """
     state_path = confined(project_root, ".planning", "STATE.md")
+    if not state_path.exists():
+        # B6/D-08: no STATE.md means no milestone frontmatter to resolve --
+        # degrade fail-open through create_issues's RuntimeError catch
+        # rather than an uncaught FileNotFoundError (CR-01).
+        raise RuntimeError("STATE.md not found -- cannot resolve milestone epic")
     title = milestone_epic_title(state_path)
 
     phases_root = confined(project_root, ".planning", "phases")
