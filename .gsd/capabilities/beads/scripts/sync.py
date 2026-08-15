@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 BD_TIMEOUT = 15  # seconds; bounded timeout on every bd subprocess call
+GIT_TIMEOUT = 15  # seconds; bounded timeout on every git subprocess call (ship_override)
 NOTICE = "bd unavailable -- sync skipped"
 BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 
@@ -473,7 +474,7 @@ def filter_open_ids(ids):
             "--id",
             ",".join(ids),
             "--status",
-            "open,in_progress,blocked,deferred",
+            BEADS_RECALL_STATUSES,
             "--json",
         ]
     )
@@ -1074,7 +1075,7 @@ def _head_already_pushed(project_root):
             cwd=str(project_root),
             capture_output=True,
             text=True,
-            timeout=BD_TIMEOUT,
+            timeout=GIT_TIMEOUT,
         )
         if upstream.returncode != 0:
             return False
@@ -1083,7 +1084,7 @@ def _head_already_pushed(project_root):
             cwd=str(project_root),
             capture_output=True,
             text=True,
-            timeout=BD_TIMEOUT,
+            timeout=GIT_TIMEOUT,
         )
         if ahead.returncode != 0:
             return False
@@ -1130,7 +1131,7 @@ def ship_override(phase_dir_arg):
             cwd=str(project_root),
             capture_output=True,
             text=True,
-            timeout=BD_TIMEOUT,
+            timeout=GIT_TIMEOUT,
         )
         git_ok = result.returncode == 0
         if git_ok:
