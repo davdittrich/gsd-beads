@@ -83,6 +83,20 @@
       "onError": "skip"
     }
   ],
-  "contributions": [],
+  "contributions": [
+    {
+      "point": "plan:pre",
+      "into": "planner",
+      "produces": [],
+      "consumes": [
+        "BEADS-RECALL.md"
+      ],
+      "fragment": {
+        "path": "fragments/recall-pointer.md"
+      },
+      "when": "beads.enabled",
+      "onError": "skip"
+    }
+  ],
   "gates": []
 }
