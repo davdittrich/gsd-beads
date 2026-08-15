@@ -4,11 +4,11 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 2
 current_phase_name: Visibility
-status: planning
-stopped_at: Phase 2 context gathered
-last_updated: "2026-08-15T11:37:09.173Z"
+status: planned
+stopped_at: Phase 2 planned, plan-gate passed
+last_updated: "2026-08-15T14:10:00.000Z"
 last_activity: 2026-08-15
-last_activity_desc: Roadmap created from PRD ingest (docs/prd-beads-capability.md)
+last_activity_desc: Phase 2 researched, planned (2 plans), plan-checker verified all 3 success criteria PASS
 progress:
   total_phases: 2
   completed_phases: 1
@@ -29,9 +29,9 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 2 — Visibility
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-15 — Phase 01 complete, transitioned to Phase 2
+Plan: 02-01-PLAN.md, 02-02-PLAN.md (0/2 executed)
+Status: Ready to execute
+Last activity: 2026-08-15 — Researched, planned, plan-checker verified (1 blocker + 2 warnings found and fixed: added 02-VALIDATION.md, resolved RESEARCH.md open question, strengthened B7 live-prompt verification)
 
 Progress: [████████████████████] 3/3 plans (100%)
 
@@ -69,6 +69,12 @@ Progress: [████████████████████] 3/3 pla
 Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
+- [Phase 2]: `execute:wave:pre` has no working `contributions[]` render slot in `execute-phase.md`
+  (unlike `plan:pre`) — B8's wave-status visibility uses a steps-only orchestrator-instruction
+  pattern instead (D-09/D-10 revised in 02-CONTEXT.md)
+- [Phase 2]: planner's `<files_to_read>` is a closed hardcoded list — BEADS-RECALL.md reaches the
+  planner via a `plan:pre` `contributions[]` pointer (`into: "planner"`), not automatic inclusion
+  (D-03 revised)
 - Overlay capability (`beads`), not a gsd-core fork
 - `beads.sync_mode` defaults to `authoritative` for status AND content (D-01, reversed from status-only during discuss-phase); `PLAN.md` is never re-synced from later bd edits
 - [Phase 1]: real `bd` v1.2.1 CLI diverges from initial research in three ways (no `--id`, hierarchical child ids, `bd list --parent` hides closed by default) — full detail in PROJECT.md Key Decisions
