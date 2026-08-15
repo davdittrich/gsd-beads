@@ -2140,6 +2140,209 @@ def _write_fixture_todo(pending_dir, fixture_name, dest_name=None):
     return dest
 
 
+def _status_mixed_task_plan_text():
+    """One task carrying a <beads-id> (matches a bd row), one task with no
+    <beads-id> at all -- the task-side orphan render_status_mapping must
+    surface under "Plan tasks with no bd issue" (B13)."""
+    return """---
+phase: 01-substrate
+plan: 09
+type: execute
+wave: 1
+depends_on: []
+beads_epic: status-epic
+files_modified:
+  - src/example.py
+autonomous: true
+requirements: [B13]
+---
+
+<objective>
+Fixture for TestOnDemandStatus -- task 1 synced, task 2 never synced.
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Status thing 1</name>
+  <beads-id>status-epic.1</beads-id>
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <action>Implement status thing 1.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <acceptance_criteria>
+    - src/example.py exists
+  </acceptance_criteria>
+  <done>Status thing 1 is implemented.</done>
+</task>
+
+<task type="auto">
+  <name>Task 2: Status thing 2</name>
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <action>Implement status thing 2.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <acceptance_criteria>
+    - src/example.py exists
+  </acceptance_criteria>
+  <done>Status thing 2 is implemented.</done>
+</task>
+
+</tasks>
+"""
+
+
+def _write_status_workspace(tmp_path, phase_dir_name, plans, current_phase=None):
+    """Lay out a minimal .planning/ tree with one phase dir (phase_dir_name)
+    holding each (plan_id, plan_text) pair, plus a STATE.md -- carrying
+    `current_phase` frontmatter (D-08's default-resolution source) when
+    given, otherwise the plain Blockers/Concerns-only shape every other
+    class's workspace helper already writes. Returns (project_root,
+    phase_dir)."""
+    planning_dir = tmp_path / ".planning"
+    phase_dir = planning_dir / "phases" / phase_dir_name
+    phase_dir.mkdir(parents=True)
+    (planning_dir / "ROADMAP.md").write_text(
+        "### Phase 1: Substrate\nGoal.\n", encoding="utf-8"
+    )
+    if current_phase is not None:
+        (planning_dir / "STATE.md").write_text(
+            f"---\ncurrent_phase: {current_phase}\n---\n\n"
+            "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+            encoding="utf-8",
+        )
+    else:
+        (planning_dir / "STATE.md").write_text(
+            "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+            encoding="utf-8",
+        )
+    for plan_id, plan_text in plans:
+        (phase_dir / f"{plan_id}-PLAN.md").write_text(plan_text, encoding="utf-8")
+    return tmp_path, phase_dir
+
+
+class TestOnDemandStatus(unittest.TestCase):
+    """B13: render_status_mapping is a read-only, on-demand view of the
+    plan-task <-> bd issue mapping for a phase -- the same table
+    regenerate_beads_md builds, plus two orphan sections (D-09)."""
+
+    @mock.patch("subprocess.run")
+    def test_bd_side_orphan_listed_under_issues_with_no_matching_plan_task(self, mock_run):
+        rows = json.dumps(
+            [
+                {"id": "status-epic.1", "title": "Status thing 1", "status": "open", "dependencies": []},
+                {"id": "status-epic.99", "title": "Orphan issue", "status": "open", "dependencies": []},
+            ]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            _, phase_dir = _write_status_workspace(
+                Path(tmp), "01-substrate", [("01-09", _status_mixed_task_plan_text())]
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.render_status_mapping(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        out = captured.getvalue()
+        self.assertIn("## Issues with no matching plan task", out)
+        orphan_section = out.split("## Issues with no matching plan task", 1)[1]
+        orphan_section = orphan_section.split("## Plan tasks with no bd issue", 1)[0]
+        self.assertIn("status-epic.99", orphan_section)
+        self.assertNotIn("status-epic.1 ", orphan_section)
+
+    @mock.patch("subprocess.run")
+    def test_task_with_no_beads_id_listed_under_plan_tasks_with_no_bd_issue(self, mock_run):
+        rows = json.dumps(
+            [{"id": "status-epic.1", "title": "Status thing 1", "status": "open", "dependencies": []}]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            _, phase_dir = _write_status_workspace(
+                Path(tmp), "01-substrate", [("01-09", _status_mixed_task_plan_text())]
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.render_status_mapping(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        out = captured.getvalue()
+        self.assertIn("## Plan tasks with no bd issue", out)
+        self.assertIn("01-09-PLAN.md: Task 2: Status thing 2", out)
+
+    @mock.patch("subprocess.run")
+    def test_status_command_with_no_argument_resolves_default_phase_dir(self, mock_run):
+        rows = json.dumps(
+            [{"id": "status-epic.1", "title": "Status thing 1", "status": "open", "dependencies": []}]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _, phase_dir = _write_status_workspace(
+                tmp_path,
+                "01-substrate",
+                [("01-09", _status_mixed_task_plan_text())],
+                current_phase="1",
+            )
+            cwd = os.getcwd()
+            os.chdir(str(tmp_path))
+            try:
+                captured = io.StringIO()
+                with contextlib.redirect_stdout(captured):
+                    exit_code = sync.main(["status"])
+            finally:
+                os.chdir(cwd)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Status thing 1", captured.getvalue())
+
+    @mock.patch("subprocess.run")
+    def test_task_side_orphan(self, mock_run):
+        """RESEARCH's Test Map row (Phase Requirements -> Test Map): a
+        dedicated regression asserting the task-side orphan list names the
+        correct plan filename and task name pair -- no existing function
+        computed this before this plan."""
+        rows = json.dumps(
+            [{"id": "status-epic.1", "title": "Status thing 1", "status": "open", "dependencies": []}]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            _, phase_dir = _write_status_workspace(
+                Path(tmp), "01-substrate", [("01-09", _status_mixed_task_plan_text())]
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.render_status_mapping(str(phase_dir))
+
+        out = captured.getvalue()
+        plan_task_lines = out.split("## Plan tasks with no bd issue", 1)[1]
+        self.assertIn("01-09-PLAN.md: Task 2: Status thing 2", plan_task_lines)
+        self.assertNotIn("Task 1: Status thing 1", plan_task_lines)
+
+    @mock.patch("subprocess.run")
+    def test_read_only_guarantee_no_bd_close_update_comment_calls(self, mock_run):
+        """T-04-05: render_status_mapping only reports, it never reconciles
+        -- inspect every argv run_bd was called with across a full run and
+        assert none has close/update/comment as its second element."""
+        rows = json.dumps(
+            [
+                {"id": "status-epic.1", "title": "Status thing 1", "status": "open", "dependencies": []},
+                {"id": "status-epic.99", "title": "Orphan issue", "status": "open", "dependencies": []},
+            ]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            _, phase_dir = _write_status_workspace(
+                Path(tmp), "01-substrate", [("01-09", _status_mixed_task_plan_text())]
+            )
+            sync.render_status_mapping(str(phase_dir))
+
+        for call in mock_run.call_args_list:
+            argv = call.args[0]
+            second_element = argv[1] if len(argv) > 1 else None
+            self.assertNotIn(second_element, ("close", "update", "comment"))
+
+
 class TestMigrateTodos(unittest.TestCase):
     """B12: parse_todo/migrate_todos happy-path -- a well-formed todo becomes
     one mapped `bd create` argv and its file is deleted; a malformed todo
