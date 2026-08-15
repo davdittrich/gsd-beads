@@ -36,9 +36,48 @@ Beads status is disabled (beads.enabled).
 Nothing was closed; the loop proceeds normally.
 ```
 
-This step is `onError: skip` at `execute:wave:post` -- a wave-close dispatch never fails a phase.
+This step is `onError: skip` at both `execute:wave:pre` and `execute:wave:post` -- neither
+dispatch ever fails a phase.
 
-## Step 2 -- Batch close dispatch
+## Step 1.5 -- Lifecycle-point branch (D-11)
+
+This skill is registered at **two** `capability.json` `steps[]` entries, both `ref.skill:
+"beads-status"`. Determine which point dispatched this run and follow the matching branch below
+-- **do not** collapse them into one call; a future editor who merges these two branches will
+silently either close issues too early (at `execute:wave:pre`, before the wave's work exists) or
+stop naming the wave's issues to the orchestrator (at `execute:wave:post`, after it no longer
+matters for prompt composition).
+
+**At `execute:wave:pre`** (before any executor `Agent()` call is spawned for this wave): follow
+**Step 2a** below, then **stop** -- do not proceed to Step 2's close-wave dispatch.
+
+**At `execute:wave:post`** (after every plan in this wave has merged): proceed directly to the
+existing **Step 2** close-wave dispatch, unchanged from Phase 1.
+
+## Step 2a -- execute:wave:pre: Regenerate BEADS.md and compose the wave-status block (B8)
+
+Run one Bash call passing the phase directory and **every** plan id in the wave at once:
+
+```bash
+python3 .gsd/capabilities/beads/scripts/sync.py wave-status-block <phase directory> <plan id> [<plan id> ...]
+```
+
+This single call regenerates `BEADS.md` from a live `bd` query first (D-05..D-08's frontmatter/
+table shape -- a hand edit is fully overwritten, never merged, per B11) and then prints a
+`<beads_status>` block to stdout naming this wave's synced issues (id, title, status), or the
+literal line `no synced issues for this wave` when none of this wave's tasks have synced yet.
+
+**Read that printed `<beads_status>` block, then take this as a direct instruction to your own
+next action, not a fact about this skill's behavior:** include the block verbatim inside **every**
+executor `Agent()` call's `prompt=` string for this wave, before spawning any executor. This is
+the mechanism 02-RESEARCH.md verified actually reaches a spawned executor's composed prompt at
+this lifecycle point (Pattern 2: skill-mediated dispatch, not automatic manifest-level fragment
+forwarding -- `execute:wave:pre` has no working slot that forwards fragment text automatically
+into a spawned `Agent()` prompt). B8's literal
+acceptance criterion is checked by grepping the real `prompt=` text an `Agent()` call receives for
+these issue ids, not by inferring it from behavior.
+
+## Step 2 -- Batch close dispatch (execute:wave:post only)
 
 `execute:wave:post` fires **once per wave**, after every plan in that wave has merged, carrying
 `WAVE_PLAN_IDS` -- a space-separated list of the plan ids that completed in this wave. **This list
@@ -82,3 +121,10 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
    (N4, threat T-01-01).
 4. DO NOT skip the config gate, and DO NOT call `sync.py close-wave` once per plan id -- always
    pass the whole `WAVE_PLAN_IDS` list to a single invocation so the close is one batch dispatch.
+5. DO NOT collapse the `execute:wave:pre` and `execute:wave:post` branches (Step 1.5) into one
+   call, and DO NOT call `sync.py close-wave` from the `execute:wave:pre` branch -- closing at
+   `execute:wave:pre` would close issues before this wave's executors have even started.
+6. DO NOT embed the `<beads_status>` block's content inside a manifest-level fragment file and
+   expect it to reach the executor automatically -- `execute:wave:pre` has no template slot that
+   forwards fragment text into a spawned `Agent()` call's `prompt=`. Pasting the block into that
+   `prompt=` string is your own next action as the orchestrator, per Step 2a.

@@ -1204,18 +1204,18 @@ class TestBeadsMdRegeneration(unittest.TestCase):
             exit_code = sync.regenerate_beads_md(str(phase_dir))
             out_path = phase_dir / "01-BEADS.md"
 
-        self.assertEqual(exit_code, 0)
-        self.assertTrue(out_path.exists())
-        text = out_path.read_text(encoding="utf-8")
-        self.assertIn("phase: 01-substrate", text)
-        self.assertIn("epic: regen-epic", text)
-        self.assertIn("open: 1", text)
-        self.assertIn("closed: 1", text)
-        self.assertIn("blocking_open: 0", text)
-        self.assertIn("diverged: 0", text)
-        self.assertIn("generated_from:", text)
-        self.assertIn("generated_at:", text)
-        self.assertIn("not yet computed, Phase 3", text)
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(out_path.exists())
+            text = out_path.read_text(encoding="utf-8")
+            self.assertIn("phase: 01-substrate", text)
+            self.assertIn("epic: regen-epic", text)
+            self.assertIn("open: 1", text)
+            self.assertIn("closed: 1", text)
+            self.assertIn("blocking_open: 0", text)
+            self.assertIn("diverged: 0", text)
+            self.assertIn("generated_from:", text)
+            self.assertIn("generated_at:", text)
+            self.assertIn("not yet computed, Phase 3", text)
 
     @mock.patch("subprocess.run")
     def test_hand_edit_is_absent_after_next_regeneration(self, mock_run):
@@ -1294,13 +1294,13 @@ class TestWaveStatusBlock(unittest.TestCase):
             with contextlib.redirect_stdout(captured):
                 exit_code = sync.render_wave_status_block(str(phase_dir), ["01-04"])
 
-        self.assertEqual(exit_code, 0)
-        out = captured.getvalue()
-        self.assertIn("tracer-wave1.1", out)
-        self.assertIn("tracer-wave1.2", out)
-        self.assertNotIn("tracer-wave1.3", out)
-        self.assertNotIn("tracer-wave1.4", out)
-        self.assertTrue((phase_dir / "01-BEADS.md").exists())
+            self.assertEqual(exit_code, 0)
+            out = captured.getvalue()
+            self.assertIn("tracer-wave1.1", out)
+            self.assertIn("tracer-wave1.2", out)
+            self.assertNotIn("tracer-wave1.3", out)
+            self.assertNotIn("tracer-wave1.4", out)
+            self.assertTrue((phase_dir / "01-BEADS.md").exists())
 
     @mock.patch("subprocess.run")
     def test_zero_resolving_plan_ids_prints_no_synced_issues_line(self, mock_run):

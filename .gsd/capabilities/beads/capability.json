@@ -69,6 +69,20 @@
       "onError": "skip"
     },
     {
+      "point": "execute:wave:pre",
+      "ref": {
+        "skill": "beads-status"
+      },
+      "produces": [
+        "BEADS.md"
+      ],
+      "consumes": [
+        "PLAN.md"
+      ],
+      "when": "beads.enabled",
+      "onError": "skip"
+    },
+    {
       "point": "execute:wave:post",
       "ref": {
         "skill": "beads-status"

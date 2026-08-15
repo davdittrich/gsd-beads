@@ -704,6 +704,192 @@ def beads_recall(phase_dir_arg):
     return 0
 
 
+def resolve_phase_epic(phase_dir):
+    """Return the `beads_epic` frontmatter value carried by the first
+    `NN-NN-PLAN.md` discovered in phase_dir that has one, or None when no
+    plan in this phase has ever synced (D-05: every plan in a phase shares
+    the same epic, so the first match is sufficient)."""
+    for plan_path in discover_plan_files(phase_dir).values():
+        try:
+            _, frontmatter, _ = parse_plan(plan_path)
+        except (OSError, UnicodeDecodeError):
+            continue
+        m = BEADS_EPIC_RE.search(frontmatter)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _beads_md_argv(epic_id):
+    """D-08/Pitfall 3: the epic-children query BEADS.md's table is built
+    from, `-n 0` explicit to avoid the default 50-row truncation."""
+    return ["bd", "list", "--parent", epic_id, "--all", "--json", "-n", "0"]
+
+
+def _resolve_task_ordinal_map(phase_dir):
+    """Return {beads_id: ordinal_prefix} across every plan in phase_dir, so
+    each BEADS.md row can name the plan task that owns its issue."""
+    mapping = {}
+    for ordinal, plan_path in discover_plan_files(phase_dir).items():
+        try:
+            _, _, tasks = parse_plan(plan_path)
+        except (OSError, UnicodeDecodeError):
+            continue
+        for task in tasks:
+            if task["beads_id"]:
+                mapping[task["beads_id"]] = ordinal
+    return mapping
+
+
+def _render_beads_md_table(rows, ordinal_map):
+    """D-08: 5-column issue/title/status/plan-task/blocked-by table. The
+    blocked-by column is `dependencies[]` filtered to `type == "blocks"`,
+    excluding `type == "parent-child"` epic-parent edges -- zero extra bd
+    calls, this data already arrives on the one `bd list --parent` response.
+    """
+    lines = [
+        "| Issue | Title | Status | Plan Task | Blocked By |",
+        "|-------|-------|--------|-----------|------------|",
+    ]
+    for row in rows:
+        issue_id = str(row.get("id", ""))
+        title = _escape_table_cell(str(row.get("title", "")))
+        status = _escape_table_cell(str(row.get("status", "")))
+        plan_task = ordinal_map.get(issue_id, "")
+        blocked_by = ", ".join(
+            str(dep.get("depends_on_id", ""))
+            for dep in row.get("dependencies", []) or []
+            if dep.get("type") == "blocks"
+        )
+        lines.append(f"| {issue_id} | {title} | {status} | {plan_task} | {blocked_by} |")
+    return "\n".join(lines)
+
+
+def regenerate_beads_md(phase_dir_arg):
+    """B11/execute:wave:pre (read-only) and execute:wave:post (unchanged):
+    always fully overwrite `{phase_dir}/{padded_phase}-BEADS.md` from a
+    fresh `bd list --parent <epic>` query -- never read the existing file's
+    body to merge or preserve a prior hand edit."""
+    if not bd_available():
+        print(NOTICE)
+        try:
+            project_root = find_project_root(Path(phase_dir_arg).resolve())
+        except ValueError:
+            project_root = None
+        if project_root is not None:
+            append_state_blocker(
+                confined(project_root, ".planning", "STATE.md"),
+                "bd unavailable -- beads-status regenerate-beads-md skipped (B6/D-08)",
+            )
+        return 0
+
+    phase_dir = Path(phase_dir_arg).resolve()
+    padded_phase = phase_dir.name.split("-", 1)[0]
+
+    epic_id = resolve_phase_epic(phase_dir)
+    if epic_id is None:
+        print("no epic yet -- nothing to regenerate")
+        return 0
+
+    argv = _beads_md_argv(epic_id)
+    result = run_bd(argv)
+    rows = []
+    if result.returncode == 0:
+        try:
+            rows = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            rows = []
+
+    closed_count = sum(1 for r in rows if r.get("status") == "closed")
+    open_count = len(rows) - closed_count
+
+    ordinal_map = _resolve_task_ordinal_map(phase_dir)
+    table = _render_beads_md_table(rows, ordinal_map)
+
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    frontmatter = (
+        "---\n"
+        f"phase: {phase_dir.name}\n"
+        f"epic: {epic_id}\n"
+        f"open: {open_count}\n"
+        f"closed: {closed_count}\n"
+        "blocking_open: 0\n"
+        "diverged: 0\n"
+        f'generated_from: "{" ".join(argv)}"\n'
+        f"generated_at: {generated_at}\n"
+        "---\n\n"
+    )
+    body = (
+        f"# BEADS.md: {phase_dir.name}\n\n"
+        "blocking_open/diverged: not yet computed, Phase 3\n\n"
+        f"{table}\n"
+    )
+
+    out_path = phase_dir / f"{padded_phase}-BEADS.md"
+    out_path.write_text(frontmatter + body, encoding="utf-8")
+
+    print(f"BEADS.md regenerated: {open_count} open, {closed_count} closed (epic {epic_id})")
+    return 0
+
+
+def _parse_beads_md_table_rows(text):
+    """Re-read a just-written BEADS.md's table rows (id, title, status) --
+    render_wave_status_block never re-queries bd a second time."""
+    rows = []
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if len(cells) < 3 or cells[0] in ("", "Issue") or set(cells[0]) == {"-"}:
+            continue
+        rows.append({"id": cells[0], "title": cells[1], "status": cells[2]})
+    return rows
+
+
+def render_wave_status_block(phase_dir_arg, plan_ids):
+    """B8: print a `<beads_status>` block naming exactly this wave's
+    plan_ids' synced issues (id/title/status), sourced from a freshly
+    regenerated BEADS.md -- the mechanism 02-RESEARCH.md verified actually
+    reaches the composed executor prompt at execute:wave:pre (Pattern 2:
+    skill-mediated, not contributions[]-mediated)."""
+    regenerate_beads_md(phase_dir_arg)
+
+    phase_dir = Path(phase_dir_arg).resolve()
+    padded_phase = phase_dir.name.split("-", 1)[0]
+    beads_md_path = phase_dir / f"{padded_phase}-BEADS.md"
+
+    discovered = discover_plan_files(phase_dir)
+    wanted_ids = []
+    for plan_id in plan_ids:
+        plan_path = discovered.get(plan_id)
+        if plan_path is None:
+            continue
+        try:
+            _, _, tasks = parse_plan(plan_path)
+        except (OSError, UnicodeDecodeError):
+            continue
+        for task in tasks:
+            if task["beads_id"]:
+                wanted_ids.append(task["beads_id"])
+
+    matched = []
+    if wanted_ids and beads_md_path.exists():
+        table_rows = _parse_beads_md_table_rows(beads_md_path.read_text(encoding="utf-8"))
+        matched = [row for row in table_rows if row["id"] in wanted_ids]
+
+    if not matched:
+        print("no synced issues for this wave")
+        return 0
+
+    lines = ["<beads_status>"]
+    for row in matched:
+        lines.append(f"{row['id']}: {row['title']} ({row['status']})")
+    lines.append("</beads_status>")
+    print("\n".join(lines))
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="sync.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -722,6 +908,17 @@ def main(argv=None):
         help="Scan open bd issues and write BEADS-RECALL.md naming any issue touching this phase's scope",
     )
     recall_p.add_argument("phase_dir")
+    regen_p = sub.add_parser(
+        "regenerate-beads-md",
+        help="Fully overwrite BEADS.md from a live bd query (D-05..D-08 frontmatter/table shape)",
+    )
+    regen_p.add_argument("phase_dir")
+    wave_status_p = sub.add_parser(
+        "wave-status-block",
+        help="Regenerate BEADS.md then print a <beads_status> block naming this wave's issues",
+    )
+    wave_status_p.add_argument("phase_dir")
+    wave_status_p.add_argument("plan_ids", nargs="+")
     args = parser.parse_args(argv)
     if args.command == "create-issues":
         return create_issues(args.plan_path)
@@ -729,6 +926,10 @@ def main(argv=None):
         return close_wave(args.phase_dir, args.plan_ids)
     if args.command == "beads-recall":
         return beads_recall(args.phase_dir)
+    if args.command == "regenerate-beads-md":
+        return regenerate_beads_md(args.phase_dir)
+    if args.command == "wave-status-block":
+        return render_wave_status_block(args.phase_dir, args.plan_ids)
     return 1
 
 
