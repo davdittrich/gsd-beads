@@ -1734,7 +1734,7 @@ class TestShipOverride(unittest.TestCase):
                     exit_code = sync.ship_override(str(phase_dir))
 
         self.assertEqual(exit_code, 0)
-        git_call = next(c for c in calls if c[0] == "git")
+        git_call = next(c for c in calls if c[:2] == ["git", "commit"])
         trailer_idx = git_call.index("--trailer") + 1
         self.assertEqual(
             git_call[trailer_idx],
@@ -1767,6 +1767,99 @@ class TestShipOverride(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertTrue(any(c[0] == "git" for c in calls))
         self.assertTrue(any(c[:2] == ["bd", "comment"] for c in calls))
+
+    def test_head_already_pushed_refuses_amend_still_attempts_bd_comment(self):
+        """New-01 (agy adversarial review): a ship retry after a prior run already
+        completed push_branch means HEAD is already on the remote -- amending it
+        would diverge local from origin with no fast-forward path. Must refuse the
+        amend (never even attempt it), still try the best-effort bd comment (B6),
+        and exit 1 since the durable trailer was NOT recorded."""
+        calls = []
+
+        def _side_effect(argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ["git", "rev-parse"]:
+                return _completed(0, stdout="origin/main\n")
+            if argv[:2] == ["git", "rev-list"]:
+                return _completed(0, stdout="0\n")
+            if argv[0] == "git":
+                return _completed(1, stderr="should not amend when HEAD already pushed")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "comment"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(
+                Path(tmp), _ship_override_beads_md_text(epic="ship-epic")
+            )
+            with mock.patch("shutil.which", return_value="/usr/bin/bd"):
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    exit_code = sync.ship_override(str(phase_dir))
+
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(any(c[:3] == ["git", "commit", "--amend"] for c in calls))
+        self.assertTrue(any(c[:2] == ["bd", "comment"] for c in calls))
+
+    def test_head_not_pushed_amends_normally(self):
+        """No upstream divergence risk -- HEAD has 2 unpushed commits -- must
+        proceed with the amend exactly as before this guard was added."""
+        calls = []
+
+        def _side_effect(argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ["git", "rev-parse"]:
+                return _completed(0, stdout="origin/main\n")
+            if argv[:2] == ["git", "rev-list"]:
+                return _completed(0, stdout="2\n")
+            if argv[0] == "git":
+                return _completed(0)
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "comment"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(
+                Path(tmp), _ship_override_beads_md_text(epic="ship-epic")
+            )
+            with mock.patch("shutil.which", return_value="/usr/bin/bd"):
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    exit_code = sync.ship_override(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(any(c[:3] == ["git", "commit", "--amend"] for c in calls))
+
+    def test_no_upstream_configured_amends_normally(self):
+        """git rev-parse @{u} fails (no upstream branch) -- treat as unknown/safe
+        and proceed with the amend, matching prior behavior on a detached or
+        unpushed-ever branch."""
+        calls = []
+
+        def _side_effect(argv, **kwargs):
+            calls.append(argv)
+            if argv[:2] == ["git", "rev-parse"]:
+                return _completed(128, stderr="no upstream configured")
+            if argv[0] == "git":
+                return _completed(0)
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "comment"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(
+                Path(tmp), _ship_override_beads_md_text(epic="ship-epic")
+            )
+            with mock.patch("shutil.which", return_value="/usr/bin/bd"):
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    exit_code = sync.ship_override(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(any(c[:3] == ["git", "commit", "--amend"] for c in calls))
 
     def test_bd_unavailable_still_writes_git_trailer_skips_comment(self):
         calls = []

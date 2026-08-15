@@ -1059,6 +1059,39 @@ def _read_beads_md_frontmatter(phase_dir):
     }
 
 
+def _head_already_pushed(project_root):
+    """True when HEAD has zero commits ahead of its upstream -- i.e. HEAD is
+    already on the remote. Amending it would rewrite a commit origin already
+    has, diverging local history with no fast-forward path (push_branch never
+    force-pushes). This happens on a ship retry after a prior run already
+    completed push_branch (e.g. a later step like `gh pr create` failed).
+    Returns False (assume safe, preserves prior behavior) when no upstream is
+    configured or either git call fails -- a targeted guard against this one
+    known failure mode, not a general git-state validator."""
+    try:
+        upstream = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=BD_TIMEOUT,
+        )
+        if upstream.returncode != 0:
+            return False
+        ahead = subprocess.run(
+            ["git", "rev-list", "--count", "@{u}..HEAD"],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=BD_TIMEOUT,
+        )
+        if ahead.returncode != 0:
+            return False
+        return ahead.stdout.strip() == "0"
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
 def ship_override(phase_dir_arg):
     """D-05: record a `beads.ship_gate=false` bypass. Always attempts a
     durable `git commit --amend --trailer` first (load-bearing, never
@@ -1082,18 +1115,28 @@ def ship_override(phase_dir_arg):
         f"Beads-Override: ship_gate bypassed, "
         f"blocking_open={fields['blocking_open']}, diverged={fields['diverged']}"
     )
-    result = subprocess.run(
-        ["git", "commit", "--amend", "--allow-empty", "--no-edit", "--trailer", trailer],
-        cwd=str(project_root),
-        capture_output=True,
-        text=True,
-        timeout=BD_TIMEOUT,
-    )
-    git_ok = result.returncode == 0
-    if git_ok:
-        print(f"ship-override: recorded {trailer}")
+    if _head_already_pushed(project_root):
+        print(
+            "ship-override: HEAD has no unpushed commits (already on the remote) -- "
+            "refusing to amend, that would diverge local history from origin and "
+            "break the next push. This happens on a ship retry after a prior run "
+            "already pushed. Record the override manually or re-run ship_override "
+            "before the branch is pushed."
+        )
+        git_ok = False
     else:
-        print(f"ship-override: git commit --amend failed: {result.stderr.strip()}")
+        result = subprocess.run(
+            ["git", "commit", "--amend", "--allow-empty", "--no-edit", "--trailer", trailer],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=BD_TIMEOUT,
+        )
+        git_ok = result.returncode == 0
+        if git_ok:
+            print(f"ship-override: recorded {trailer}")
+        else:
+            print(f"ship-override: git commit --amend failed: {result.stderr.strip()}")
 
     if bd_available():
         comment_text = (
