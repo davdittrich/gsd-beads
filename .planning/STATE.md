@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 4
 current_phase_name: Adoption
 status: executing
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-08-15T22:14:44.966Z"
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-08-15T22:23:03.639Z"
 last_activity: 2026-08-15
 last_activity_desc: Quick task 260815-mm8 fixed both pre-existing Phase 1 defects (gsd-beads-uh1, gsd-beads-bgb), 41/41 tests green
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 11
-  completed_plans: 9
+  completed_plans: 10
 ---
 
 # Project State
@@ -29,11 +29,11 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 4 (Adoption) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-15 — Phase 4 execution started
 
-Progress: [████████████████████] 3/3 plans ([████████░░] 82%)
+Progress: [████████████████████] 3/3 plans ([█████████░] 91%)
 
 ## Performance Metrics
 
@@ -69,6 +69,7 @@ Progress: [████████████████████] 3/3 pla
 | Phase 03 P02 | 7min | 2 tasks | 4 files |
 | Phase 03 P03 | 20min | 2 tasks | 4 files |
 | Phase 04-adoption P01 | 20min | 2 tasks | 6 files |
+| Phase 04-adoption P02 | ~12min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 3, 03-03]: ship.md's ship:pre dispatch gap (Plan 02) is closed via a machine-local patch (steps 8/9, marker-bracketed, byte-verified against GSD-CORE-PATCH.md); a self-detecting check-shipmd-patch diagnostic runs on every ship:pre so a future gsd-core update dropping the patch is caught immediately
 - [Phase ?]: [Phase 3, 03-03]: pytest's own __pycache__ writes inside .gsd/capabilities/beads/ silently invalidate the project-scope capability consent hash -- discovered live, fixed by reconsenting from within the affected test body before the check it asserts on
 - [Phase ?]: [Phase 4, 04-01]: migrate_todos' parse-error/bd-create-failed/moved three-way report separation (Task 2's subject) had to exist from Task 1's first working version -- both tasks' tests landed in one RED/GREEN commit pair, TestMigrateTodosReport found no gap
+- [Phase ?]: [Phase 4, 04-02]: Task 1's own <behavior> spec required task-side-orphan logic, so Task 2's dedicated test_task_side_orphan and read-only-guarantee tests landed in Task 1's RED/GREEN commit pair (same pattern as 04-01); Task 2's SKILL.md wiring landed in its own separate commit
 
 ### Pending Todos
 
@@ -148,6 +150,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T22:14:44.960Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-08-15T22:23:03.633Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

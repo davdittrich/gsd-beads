@@ -108,7 +108,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 04-02-PLAN.md — On-demand `beads-status`: plan-task <-> issue mapping table plus bd-side and task-side orphan sections (B13)
+- [x] 04-02-PLAN.md — On-demand `beads-status`: plan-task <-> issue mapping table plus bd-side and task-side orphan sections (B13)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
