@@ -1101,5 +1101,222 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
             self.assertIn("No open issues found.", out_path.read_text(encoding="utf-8"))
 
 
+def _regen_two_task_plan_text():
+    """Two-task fixture carrying `beads_epic: regen-epic` and both tasks
+    already synced -- used only by TestBeadsMdRegeneration/TestWaveStatusBlock
+    to drive regenerate_beads_md/render_wave_status_block without touching a
+    real bd database."""
+    return """---
+phase: 01-substrate
+plan: 07
+type: execute
+wave: 1
+depends_on: []
+beads_epic: regen-epic
+files_modified:
+  - src/example.py
+autonomous: true
+requirements: [B11]
+---
+
+<objective>
+Two-task fixture for TestBeadsMdRegeneration -- both tasks carry a beads-id.
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Regen thing 1</name>
+  <beads-id>regen-epic.1</beads-id>
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <action>Implement regen thing 1.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <acceptance_criteria>
+    - src/example.py exists
+  </acceptance_criteria>
+  <done>Regen thing 1 is implemented.</done>
+</task>
+
+<task type="auto">
+  <name>Task 2: Regen thing 2</name>
+  <beads-id>regen-epic.2</beads-id>
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <action>Implement regen thing 2.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <acceptance_criteria>
+    - src/example.py exists
+  </acceptance_criteria>
+  <done>Regen thing 2 is implemented.</done>
+</task>
+
+</tasks>
+"""
+
+
+def _make_beads_md_bd_side_effect(rows_json="[]\n"):
+    """A subprocess.run stand-in for BEADS.md regeneration tests: the
+    bd_available probe (`bd list --json -n 1`) always succeeds; `bd list
+    --parent <epic> --all --json -n 0` answers with rows_json."""
+
+    def _side_effect(argv, **kwargs):
+        if argv[:3] == ["bd", "list", "--json"]:
+            return _completed(0, stdout="[]\n")
+        if argv[:3] == ["bd", "list", "--parent"]:
+            return _completed(0, stdout=rows_json)
+        return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+    return _side_effect
+
+
+def _find_table_row(text, issue_id):
+    """Return the pipe-split, stripped cell list of the one markdown table
+    row in text whose first cell equals issue_id, or raise if absent."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("|"):
+            continue
+        cells = [c.strip() for c in line.strip("|").split("|")]
+        if cells and cells[0] == issue_id:
+            return cells
+    raise AssertionError(f"no table row found for {issue_id!r} in:\n{text}")
+
+
+class TestBeadsMdRegeneration(unittest.TestCase):
+    """B11: BEADS.md is regenerated from a live bd query at execute:wave:pre
+    (read-only) -- D-05..D-08 frontmatter/table shape, full-file overwrite
+    every run, blocked-by column excludes parent-child epic edges."""
+
+    @mock.patch("subprocess.run")
+    def test_frontmatter_matches_mocked_bd_response_counts(self, mock_run):
+        rows = json.dumps(
+            [
+                {"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []},
+                {"id": "regen-epic.2", "title": "Regen thing 2", "status": "closed", "dependencies": []},
+            ]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+            )
+            exit_code = sync.regenerate_beads_md(str(phase_dir))
+            out_path = phase_dir / "01-BEADS.md"
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(out_path.exists())
+        text = out_path.read_text(encoding="utf-8")
+        self.assertIn("phase: 01-substrate", text)
+        self.assertIn("epic: regen-epic", text)
+        self.assertIn("open: 1", text)
+        self.assertIn("closed: 1", text)
+        self.assertIn("blocking_open: 0", text)
+        self.assertIn("diverged: 0", text)
+        self.assertIn("generated_from:", text)
+        self.assertIn("generated_at:", text)
+        self.assertIn("not yet computed, Phase 3", text)
+
+    @mock.patch("subprocess.run")
+    def test_hand_edit_is_absent_after_next_regeneration(self, mock_run):
+        rows = json.dumps(
+            [{"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []}]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+            )
+            sync.regenerate_beads_md(str(phase_dir))
+            out_path = phase_dir / "01-BEADS.md"
+            hand_edited = out_path.read_text(encoding="utf-8") + "\nHAND EDITED LINE\n"
+            out_path.write_text(hand_edited, encoding="utf-8")
+
+            sync.regenerate_beads_md(str(phase_dir))
+            after_text = out_path.read_text(encoding="utf-8")
+
+        self.assertNotIn("HAND EDITED LINE", after_text)
+
+    @mock.patch("subprocess.run")
+    def test_blocked_by_column_excludes_parent_child_includes_blocks(self, mock_run):
+        rows = json.dumps(
+            [
+                {"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []},
+                {
+                    "id": "regen-epic.2",
+                    "title": "Regen thing 2",
+                    "status": "open",
+                    "dependencies": [
+                        {"issue_id": "regen-epic.2", "depends_on_id": "regen-epic", "type": "parent-child"},
+                        {"issue_id": "regen-epic.2", "depends_on_id": "regen-epic.1", "type": "blocks"},
+                    ],
+                },
+            ]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+            )
+            sync.regenerate_beads_md(str(phase_dir))
+            text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+
+        row = _find_table_row(text, "regen-epic.2")
+        blocked_by_cell = row[-1]
+        self.assertEqual(blocked_by_cell, "regen-epic.1")
+        self.assertNotIn("regen-epic |", text)
+
+
+class TestWaveStatusBlock(unittest.TestCase):
+    """B8: render_wave_status_block prints a wave-scoped <beads_status> block
+    naming only the given plan_ids' synced issues, sourced from the
+    just-regenerated BEADS.md table (never a second bd query)."""
+
+    @mock.patch("subprocess.run")
+    def test_block_names_only_given_plan_ids_issues(self, mock_run):
+        rows = json.dumps(
+            [
+                {"id": "tracer-wave1.1", "title": "Do wave-a thing 1", "status": "open", "dependencies": []},
+                {"id": "tracer-wave1.2", "title": "Do wave-a thing 2", "status": "open", "dependencies": []},
+                {"id": "tracer-wave1.3", "title": "Do wave-b thing 1", "status": "open", "dependencies": []},
+                {"id": "tracer-wave1.4", "title": "Do wave-b thing 2", "status": "open", "dependencies": []},
+            ]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            plan_b = (FIXTURES_DIR / "plan-wave-b.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-05", plan_b, True)],
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.render_wave_status_block(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        out = captured.getvalue()
+        self.assertIn("tracer-wave1.1", out)
+        self.assertIn("tracer-wave1.2", out)
+        self.assertNotIn("tracer-wave1.3", out)
+        self.assertNotIn("tracer-wave1.4", out)
+        self.assertTrue((phase_dir / "01-BEADS.md").exists())
+
+    @mock.patch("subprocess.run")
+    def test_zero_resolving_plan_ids_prints_no_synced_issues_line(self, mock_run):
+        mock_run.side_effect = _make_beads_md_bd_side_effect("[]\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-04", plan_a, True)]
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.render_wave_status_block(str(phase_dir), ["01-99"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("no synced issues for this wave", captured.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
