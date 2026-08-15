@@ -60,4 +60,17 @@
 
 ## Traceability
 
-_Filled by roadmap during phase creation._
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| PUB-01 | Phase 5 | Pending |
+| PUB-02 | Phase 5 | Pending |
+| PUB-08 | Phase 5 | Pending |
+| PUB-03 | Phase 6 | Pending |
+| PUB-06 | Phase 6 | Pending |
+| PUB-05 | Phase 7 | Pending |
+| PUB-10 | Phase 7 | Pending |
+| PUB-04 | Phase 8 | Pending |
+| PUB-07 | Phase 8 | Pending |
+| PUB-09 | Phase 8 | Pending |
+
+**Coverage:** 10/10 v1.1 requirements mapped, each to exactly one phase.

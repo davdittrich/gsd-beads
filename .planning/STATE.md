@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
 status: planning
-last_updated: "2026-08-15T23:27:46.329Z"
+last_updated: "2026-08-16T00:00:00.000Z"
 last_activity: 2026-08-16
 progress:
-  total_phases: 0
+  total_phases: 4
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,14 +21,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Planning next milestone
+**Current focus:** Phase 5 — Plugin Manifest (v1.1 roadmap approved, 4 phases)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 5 - Plugin Manifest (not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-16 — Milestone v1.1 started
+Status: Roadmapped, awaiting phase plan
+Last activity: 2026-08-16 — v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
 
 ## Performance Metrics
 
@@ -80,9 +80,16 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Packaging] No README, LICENSE, or git remote yet — end goal is GitHub plugin distribution, not
-  just local install; no roadmap phase currently owns this. See memory
-  `gsd-beads-ships-as-github-plugin`.
+- [Resolved by roadmap] The packaging gap (no README, LICENSE, or git remote) is now owned by
+  Phases 5-8. Memory `gsd-beads-ships-as-github-plugin` no longer describes an unowned gap.
+- [Phase 7, one-way door] The window to strip machine-local state from git history closes at the
+  first public push. `.beads/config.yaml`, `.beads/metadata.json`,
+  `.claude/.headroom_wrap_marker.json`, `.gsd-capabilities.json` are tracked today.
+- [Phase 6, open decision] The capability-loader bridge (PUB-03) is decided in Phase 6, not
+  inherited from research. A `/plugin install` that Claude caches but gsd-core cannot resolve is
+  the milestone's main failure mode.
+- [Phase 5/8, false-green risk] `claude plugin validate` skips skill-frontmatter checks when
+  `marketplace.json` is present, and only `--strict` promotes field warnings to errors.
 
 ### Quick Tasks Completed
 
@@ -106,4 +113,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Start the next milestone with /gsd-new-milestone
+- Plan the first v1.1 phase with /gsd-plan-phase 5
