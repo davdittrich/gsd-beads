@@ -2,10 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 01
-status: completed
+current_phase: 2
+current_phase_name: Visibility
+status: planning
 stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-08-15T02:30:25.319Z"
+last_updated: "2026-08-15T10:04:29.378Z"
 last_activity: 2026-08-15
 last_activity_desc: Roadmap created from PRD ingest (docs/prd-beads-capability.md)
 progress:
@@ -13,7 +14,6 @@ progress:
   completed_phases: 1
   total_plans: 3
   completed_plans: 3
-current_phase_name: substrate
 ---
 
 # Project State
@@ -24,22 +24,22 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 01 — substrate
+**Current focus:** Phase 2 — Visibility
 
 ## Current Position
 
-Phase: 01 — COMPLETE
-Plan: 3 of 3
-Status: Phase 01 complete
-Last activity: 2026-08-15 — Phase 01 marked complete
+Phase: 2 — Visibility
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-15 — Phase 01 complete, transitioned to Phase 2
 
-Progress: [███████░░░] 67%
+Progress: [████████████████████] 3/3 plans (100%)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
+- Total plans completed: 3
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -47,7 +47,7 @@ Progress: [███████░░░] 67%
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| 01 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -70,15 +70,10 @@ Decisions are logged in PROJECT.md Key Decisions table.
 Recent decisions affecting current work:
 
 - Overlay capability (`beads`), not a gsd-core fork
-- `beads.sync_mode` defaults to `authoritative` for status only; `PLAN.md` owns content
-- Gate predicates read only generated `BEADS.md` frontmatter, never query `bd` directly
-- `gates[].onError: skip`, never `halt` — a missing `BEADS.md` must never strand a finished phase
-- [Phase ?]: beads capability.json skills[] lists only beads-sync (not beads-status, which doesn't exist until Plan 03)
-- [Phase ?]: sync.py derives the ordinal prefix from the PLAN.md filename, never from frontmatter text, keeping T-01-02 path confinement trivially true
-- [Phase ?]: epic resolution falls through to a fresh bd create when a stored beads_epic id no longer resolves, rather than hard-erroring (B6 fail-open ethos)
-- [Phase ?]: sync.py: dependency-edge derivation matches depends_on entries only against phase-directory-discovered PLAN.md files, never a path built from artifact text (T-01-04)
-- [Phase ?]: sync.py: resolve_issue now calls bd show for every already-identity-bound task to detect D-07 stale-identity divergence -- adds one bd call per task per run but never a create/update call
-- [Phase ?]: sync.py: dependency-edge application and orphan closure are fail-open (print and continue on a failed bd call), unlike epic/task creation which still raises
+- `beads.sync_mode` defaults to `authoritative` for status AND content (D-01, reversed from status-only during discuss-phase); `PLAN.md` is never re-synced from later bd edits
+- [Phase 1]: real `bd` v1.2.1 CLI diverges from initial research in three ways (no `--id`, hierarchical child ids, `bd list --parent` hides closed by default) — full detail in PROJECT.md Key Decisions
+- [Phase 1]: gsd-core project-scope capability consent is a whole-bundle content hash — any post-consent file edit silently deactivates it; re-run `capability install --scope project` after any such edit, every phase
+- [Phase 1]: PLAN.md task schema is XML `<task type="...">` elements, never markdown `### Task N:` headings (corrected from an earlier wrong assumption)
 
 ### Pending Todos
 
@@ -86,16 +81,12 @@ None yet.
 
 ### Blockers/Concerns
 
-- 2026-08-15: bd unavailable -- beads-status close-wave skipped (B6/D-08)
+- [Phase 3] PRD §12 open question: where is a `beads.ship_gate=false` override recorded so it
+  stays visible afterward?
 
-- PRD §12 open question: does `execute:wave:post` fire per task or per wave? Decides whether B3
-  closes one issue or several — settle before/during Phase 1 planning.
-
-- PRD §12 open question: packaging — may the overlay ship a Python entry point, or must a JS hook
-  shell out to it? Settle before/during Phase 1 planning.
-
-- PRD §12 open question: where is a `beads.ship_gate=false` override recorded so it stays visible
-  afterward? Relevant to Phase 3.
+- [Packaging] No README, LICENSE, or git remote yet — end goal is GitHub plugin distribution, not
+  just local install; no roadmap phase currently owns this. See memory
+  `gsd-beads-ships-as-github-plugin`.
 
 ## Deferred Items
 
@@ -107,6 +98,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T02:05:27.777Z
-Stopped at: Completed 01-02-PLAN.md
+Last session: 2026-08-15
+Stopped at: Phase 1 complete (UAT: 13/13 passed, security verified, Nyquist compliant), ready to plan Phase 2
 Resume file: None
