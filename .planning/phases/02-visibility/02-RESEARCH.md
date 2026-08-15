@@ -635,18 +635,18 @@ dependencies[]/parent) captured live against a scratch `bd init` database this s
 
 ## Open Questions
 
-1. **Should `beads-recall`'s file-scope match also consult phase-level `files_modified` from
+1. **(RESOLVED)** Should `beads-recall`'s file-scope match also consult phase-level `files_modified` from
    ROADMAP.md, or must it be computed fresh from CONTEXT.md/REQUIREMENTS.md for the *current*
-   phase (since the phase being planned has no PLAN.md yet at `plan:pre` time)?**
+   phase (since the phase being planned has no PLAN.md yet at `plan:pre` time)?
    - What we know: `beads-recall` runs at `plan:pre`, before any PLAN.md for phase 2 exists —
      there is no `<files>` list to compare against for *this* phase yet, only for *other*
      phases' already-synced issues.
-   - What's unclear: the exact source of "the phase's expected `files_modified`" D-01 refers to
-     — likely ROADMAP.md's phase entry or CONTEXT.md's domain boundary, neither of which was
-     read in file-list form this session.
-   - Recommendation: the planner should confirm which artifact supplies the current phase's
-     expected file list before finalizing `beads-recall`'s matching logic; this is a genuine
-     open design point, not a verified-and-corrected fact.
+   - **RESOLVED (02-CONTEXT.md, "Post-research corrections", D-01 revised):** no PLAN.md exists
+     yet at `plan:pre` time, so `beads-recall`'s file-path tier greps the phase's ROADMAP.md
+     section text + CONTEXT.md for file paths/module names mentioned there instead — weaker
+     signal than a real `files_modified` list, but available pre-plan. Epic/label match (D-01's
+     second tier) and the Unscoped fallback (D-02) are unchanged. Implemented in
+     02-01-PLAN.md Task 2.
 
 ## Environment Availability
 
