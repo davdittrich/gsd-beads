@@ -59,6 +59,10 @@ BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # (GSD-CORE-PATCH.md) -- check_shipmd_patch does a plain substring check
 # against this, never a regex, since the marker is a fixed literal string.
 SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->"
+# B13/D-08: on-demand `status` with no phase_dir argument resolves the
+# current/last-active phase from STATE.md's frontmatter -- single-token
+# style matching BEADS_EPIC_RE.
+CURRENT_PHASE_RE = re.compile(r"^current_phase:\s*(\S+)\s*$", re.MULTILINE)
 
 
 def run_bd(argv, timeout=BD_TIMEOUT):
@@ -1141,6 +1145,107 @@ def regenerate_beads_md(phase_dir_arg):
     return 0
 
 
+def _resolve_default_phase_dir(project_root):
+    """B13/D-08: with no explicit phase_dir argument, resolve the current/
+    last-active phase from STATE.md's `current_phase` frontmatter -- zero-
+    padded to match a `.planning/phases/NN-*` directory's leading token.
+    Returns None on any miss (missing STATE.md, no frontmatter, no
+    `current_phase` key, no matching directory) -- fail-open, matching
+    every other resolution path in this script; the caller decides how to
+    report a None."""
+    state_path = confined(project_root, ".planning", "STATE.md")
+    if not state_path.exists():
+        return None
+    text = state_path.read_text(encoding="utf-8")
+    fm_match = FRONTMATTER_RE.match(text)
+    if not fm_match:
+        return None
+    m = CURRENT_PHASE_RE.search(fm_match.group(1))
+    if not m:
+        return None
+    padded = m.group(1).strip().zfill(2)
+    phases_root = confined(project_root, ".planning", "phases")
+    if not phases_root.is_dir():
+        return None
+    for candidate in sorted(phases_root.iterdir()):
+        if candidate.is_dir() and candidate.name.split("-", 1)[0] == padded:
+            return candidate
+    return None
+
+
+def render_status_mapping(phase_dir_arg):
+    """B13/D-07..D-09: on-demand, read-only plan-task <-> bd issue mapping
+    view for a phase. Prints the same 6-column table regenerate_beads_md
+    builds (reused verbatim, RESEARCH's Don't Hand-Roll), followed by two
+    orphan sections: a bd-side orphan (an epic child matching no current
+    task, computed against collect_epic_task_ids -- deliberately not
+    find_orphans, whose already-closed filtering is tuned for the sync
+    path's auto-close decision, not a read-only report) and a task-side
+    orphan (a plan task carrying no <beads-id> at all -- new logic, no
+    existing function surfaces this). T-04-05: never calls bd close/
+    update/comment -- this function only reports, it never reconciles.
+    """
+    if not bd_available():
+        print(NOTICE)
+        try:
+            project_root = find_project_root(Path(phase_dir_arg).resolve())
+        except ValueError:
+            project_root = None
+        if project_root is not None:
+            append_state_blocker(
+                confined(project_root, ".planning", "STATE.md"),
+                "bd unavailable -- beads-status on-demand skipped (B6/D-08)",
+            )
+        return 0
+
+    phase_dir = Path(phase_dir_arg).resolve()
+
+    epic_id = resolve_phase_epic(phase_dir)
+    if epic_id is None:
+        print("no epic yet -- nothing to show")
+        return 0
+
+    argv = _beads_md_argv(epic_id)
+    result = run_bd(argv)
+    rows = []
+    if result.returncode == 0:
+        try:
+            rows = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            rows = []
+
+    ordinal_map = _resolve_task_ordinal_map(phase_dir)
+    completed_ids = _resolve_completed_task_ids(phase_dir)
+    _diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
+    table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
+
+    current_ids = collect_epic_task_ids(phase_dir, epic_id)
+    bd_side_orphans = [(row, None) for row in rows if row.get("id") not in current_ids]
+
+    task_side_orphans = []
+    for plan_path in discover_plan_files(phase_dir).values():
+        _, _, tasks = parse_plan(plan_path)
+        for task in tasks:
+            if not task["beads_id"]:
+                task_side_orphans.append((plan_path.name, task["name"]))
+
+    lines = [table, "", "## Issues with no matching plan task", ""]
+    if bd_side_orphans:
+        lines.append(_render_issue_table(bd_side_orphans, include_matched_via=False))
+    else:
+        lines.append("None.")
+    lines.append("")
+    lines.append("## Plan tasks with no bd issue")
+    lines.append("")
+    if task_side_orphans:
+        lines.extend(f"- {plan_name}: {task_name}" for plan_name, task_name in task_side_orphans)
+    else:
+        lines.append("None.")
+
+    print("\n".join(lines))
+    return 0
+
+
 CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
 
 
@@ -1424,6 +1529,12 @@ def main(argv=None):
         "migrate-todos",
         help="One-shot migration of .planning/todos/pending/ entries into bd issues (B12)",
     )
+    status_p = sub.add_parser(
+        "status",
+        help="On-demand, read-only plan-task <-> bd issue mapping view for a phase, "
+        "including orphans on both sides (B13)",
+    )
+    status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
     if args.command == "create-issues":
         return create_issues(args.plan_path)
@@ -1443,6 +1554,15 @@ def main(argv=None):
         project_root = find_project_root(Path.cwd())
         pending_dir = confined(project_root, ".planning", "todos", "pending")
         return migrate_todos(str(pending_dir))
+    if args.command == "status":
+        if args.phase_dir is not None:
+            return render_status_mapping(args.phase_dir)
+        project_root = find_project_root(Path.cwd())
+        default_dir = _resolve_default_phase_dir(project_root)
+        if default_dir is None:
+            print("no phase directory given and no default could be resolved from STATE.md")
+            return 1
+        return render_status_mapping(str(default_dir))
     return 1
 
 
