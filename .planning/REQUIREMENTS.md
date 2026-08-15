@@ -36,11 +36,11 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 - [x] **B7**: The planner sees open issues before planning. With an open issue touching a file in
   the phase's scope, `BEADS-RECALL.md` exists before the planner runs and names that issue.
 
-- [ ] **B8**: The executor's prompt carries live issue state. The `execute:wave:pre` fragment is
+- [x] **B8**: The executor's prompt carries live issue state. The `execute:wave:pre` fragment is
   present in the composed orchestrator prompt and names the issues in the wave — verified by
   inspecting the prompt, not by inferring from behaviour.
 
-- [ ] **B11**: `BEADS.md` is regenerated, never hand-edited. A hand edit is overwritten at the
+- [x] **B11**: `BEADS.md` is regenerated, never hand-edited. A hand edit is overwritten at the
   next step; frontmatter always reflects a real `bd` query at generation time.
 
 ### Enforcement (F3 — beads state can block a ship)
@@ -91,8 +91,8 @@ None identified — all 14 requirements extracted from the PRD are in v1 scope.
 | B5 | Phase 1 | Complete |
 | B6 | Phase 1 | Complete |
 | B7 | Phase 2 | Complete |
-| B8 | Phase 2 | Pending |
-| B11 | Phase 2 | Pending |
+| B8 | Phase 2 | Complete |
+| B11 | Phase 2 | Complete |
 | B9 | Phase 3 | Pending |
 | B10 | Phase 3 | Pending |
 | B12 | Phase 4 | Pending |

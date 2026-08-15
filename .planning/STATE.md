@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 02
 current_phase_name: Visibility
-status: executing
-stopped_at: Completed 02-01-PLAN.md
-last_updated: "2026-08-15T13:15:22.459Z"
+status: verifying
+stopped_at: Completed 02-02-PLAN.md
+last_updated: "2026-08-15T13:33:16.040Z"
 last_activity: 2026-08-15
 last_activity_desc: Phase 2 researched, planned (2 plans), plan-checker verified all 3 success criteria PASS
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -30,10 +30,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 Phase: 02 (Visibility) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-15 — Phase 02 execution started
 
-Progress: [████████████████████] 3/3 plans ([████████░░] 80%)
+Progress: [████████████████████] 3/3 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -62,6 +62,7 @@ Progress: [████████████████████] 3/3 pla
 | Phase 01 P01 | 8min | 2 tasks | 7 files |
 | Phase 01 P02 | 12min | 3 tasks | 4 files |
 | Phase 02 P01 | 13min | 3 tasks | 5 files |
+| Phase 02 P02 | 15min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -86,6 +87,9 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 2, 02-01]: D-01 revised confirmed in implementation -- bd has no structured file-path field, so beads-recall's scope matching is two concrete techniques (cross-phase <beads-id> reverse lookup + bd --desc-contains fallback), not one generic comparison
 - [Phase ?]: [Phase 2, 02-01]: The phase-being-planned's file-scope signal comes from ROADMAP.md section text + CONTEXT.md mentions (regex path-token extraction), since no PLAN.md exists yet for it at plan:pre time
 - [Phase ?]: [Phase 2, 02-01]: recall-pointer.md contribution fragment is a static pointer only (Pattern 1) -- names BEADS-RECALL.md's path pattern generically, never embeds live per-invocation issue data
+- [Phase ?]: [Phase 2, 02-02]: D-11 confirmed in implementation -- beads-status is one skill registered at two steps[] points (execute:wave:pre read-only, execute:wave:post regen+close), branching internally on lifecycle point
+- [Phase ?]: [Phase 2, 02-02]: B8 shipped as a steps[]-only design (no new contributions[] entry) -- wave-status-block prints a <beads_status> block and SKILL.md instructs the orchestrator directly to paste it into each executor's prompt=
+- [Phase ?]: [Phase 2, 02-02]: Discovered (not fixed, out of scope) two pre-existing Phase 1 sync.py gaps -- create_issues resolves each plan's epic independently rather than sharing one phase-level epic, and the orphan sweep auto-closes a sibling plan's issue when two plans intentionally share one epic
 
 ### Pending Todos
 
@@ -100,6 +104,8 @@ None yet.
   just local install; no roadmap phase currently owns this. See memory
   `gsd-beads-ships-as-github-plugin`.
 
+- [Backlog] Phase 1 sync.py: create_issues resolves each plan's epic independently (no shared phase-level epic when beads_epic isn't pre-set), and the orphan sweep auto-closes a sibling plan's issue when two plans intentionally share one epic -- discovered during 02-02's live trace, unticketed, unfixed
+
 ## Deferred Items
 
 Items acknowledged and carried forward from previous milestone close:
@@ -110,6 +116,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T13:15:22.453Z
-Stopped at: Completed 02-01-PLAN.md
+Last session: 2026-08-15T13:33:16.034Z
+Stopped at: Completed 02-02-PLAN.md
 Resume file: None
