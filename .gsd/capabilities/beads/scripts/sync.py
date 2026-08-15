@@ -48,6 +48,12 @@ AREA_RE = re.compile(r"^area:\s*(\S+)\s*$", re.MULTILINE)
 SEVERITY_RE = re.compile(r"^severity:\s*(\S+)\s*$", re.MULTILINE)
 FILES_BLOCK_RE = re.compile(r"^files:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
 PROBLEM_RE = re.compile(r"^##\s*Problem\s*\n(.*?)(?=^##\s*Solution\s*$)", re.MULTILINE | re.DOTALL)
+# WR-02: PROBLEM_RE's lookahead anchor requires a literal "## Solution"
+# heading later in the body. When that heading is missing/misspelled,
+# PROBLEM_FALLBACK_RE captures everything after "## Problem" to end-of-body
+# instead of silently dropping the text (this migration deletes the source
+# todo file on success, so a dropped problem is unrecoverable).
+PROBLEM_FALLBACK_RE = re.compile(r"^##\s*Problem\s*\n(.*)", re.MULTILINE | re.DOTALL)
 SOLUTION_RE = re.compile(r"^##\s*Solution\s*\n(.*)", re.MULTILINE | re.DOTALL)
 # D-02: bd's verified priority scale (0=Critical..4=Backlog) mapped onto the
 # blocker/major/minor/cosmetic taxonomy add-todo.md's infer_severity step
@@ -254,7 +260,7 @@ def parse_todo(path):
 
     files = parse_todo_files_block(frontmatter)
 
-    problem_m = PROBLEM_RE.search(body)
+    problem_m = PROBLEM_RE.search(body) or PROBLEM_FALLBACK_RE.search(body)
     problem = problem_m.group(1).strip() if problem_m else ""
     solution_m = SOLUTION_RE.search(body)
     solution = solution_m.group(1).strip() if solution_m else ""
