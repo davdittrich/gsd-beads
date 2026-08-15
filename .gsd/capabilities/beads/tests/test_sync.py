@@ -604,6 +604,118 @@ class TestIdempotency(unittest.TestCase):
         self.assertEqual(create_calls, [])
 
 
+class TestEpicScopedOrphans(unittest.TestCase):
+    """gsd-beads-bgb: syncing a second plan under a shared epic must never
+    close a sibling plan's already-synced issue -- current_ids has to span
+    every plan sharing the epic being synced, not just the plan in hand."""
+
+    def test_syncing_second_plan_never_closes_first_plans_issue_under_shared_epic(self):
+        plan_a_text = """---
+phase: 01-substrate
+plan: 01
+type: execute
+wave: 1
+depends_on: []
+beads_epic: shared-epic-01
+files_modified:
+  - src/example.py
+autonomous: true
+requirements: [B5]
+---
+
+<objective>
+Plan A: already synced, one task carrying a beads-id under a shared epic.
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Do the first thing</name>
+  <beads-id>shared-epic-01.1</beads-id>
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <action>Implement the first thing.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <acceptance_criteria>
+    - src/example.py exists
+  </acceptance_criteria>
+  <done>The first thing is implemented.</done>
+</task>
+
+</tasks>
+"""
+        plan_b_text = """---
+phase: 01-substrate
+plan: 02
+type: execute
+wave: 1
+depends_on: []
+beads_epic: shared-epic-01
+files_modified:
+  - src/other.py
+autonomous: true
+requirements: [B5]
+---
+
+<objective>
+Plan B: same shared epic as plan A, one task not yet synced.
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Do the second thing</name>
+  <files>src/other.py</files>
+  <read_first>src/other.py</read_first>
+  <action>Implement the second thing.</action>
+  <verify>python3 -m py_compile src/other.py</verify>
+  <acceptance_criteria>
+    - src/other.py exists
+  </acceptance_criteria>
+  <done>The second thing is implemented.</done>
+</task>
+
+</tasks>
+"""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout="{}\n")
+            if argv[:2] == ["bd", "create"] and "--type" in argv:
+                if argv[argv.index("--type") + 1] == "task":
+                    return _completed(0, stdout="shared-epic-01.2\n")
+                return _completed(1, stderr=f"unexpected epic create: {argv}")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(
+                    0,
+                    stdout=json.dumps(
+                        [
+                            {"id": "shared-epic-01.1", "status": "open"},
+                            {"id": "shared-epic-01.2", "status": "open"},
+                        ]
+                    ),
+                )
+            if argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            if argv[:2] == ["bd", "close"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = _write_plan_workspace(Path(tmp), plan_a_text)
+            plan_b = plan_a.parent / "01-02-PLAN.md"
+            plan_b.write_text(plan_b_text, encoding="utf-8")
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                exit_code = sync.create_issues(str(plan_b))
+
+        self.assertEqual(exit_code, 0)
+        close_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        closed_ids = {argv[2] for argv in close_calls}
+        self.assertNotIn("shared-epic-01.1", closed_ids)
+
+
 def _three_task_two_synced_plan_text():
     """Three tasks, only the first two carrying a <beads-id> -- the third was
     never synced (e.g. a checkpoint task), exercising the "of which two

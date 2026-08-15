@@ -316,6 +316,29 @@ def find_orphans(children, current_ids):
     ]
 
 
+def collect_epic_task_ids(phase_dir, epic_id):
+    """Return the union of every <beads-id> across every plan in phase_dir
+    whose beads_epic frontmatter matches epic_id exactly (gsd-beads-bgb).
+
+    The orphan sweep's current_ids must span every plan sharing an epic,
+    not just the plan being synced right now -- otherwise a sibling plan's
+    already-synced issue looks orphaned and gets closed on this sync.
+    """
+    ids = set()
+    for plan_path in discover_plan_files(phase_dir).values():
+        try:
+            _, frontmatter, tasks = parse_plan(plan_path)
+        except (OSError, UnicodeDecodeError):
+            continue
+        m = BEADS_EPIC_RE.search(frontmatter)
+        if not m or m.group(1) != epic_id:
+            continue
+        for task in tasks:
+            if task["beads_id"]:
+                ids.add(task["beads_id"])
+    return ids
+
+
 def rewrite_plan(text, epic_id, epic_created, task_updates):
     """Insert beads_epic (if newly created) and per-task <beads-id> elements.
 
@@ -504,7 +527,9 @@ def create_issues(plan_arg):
             children = json.loads(orphan_result.stdout)
         except json.JSONDecodeError:
             children = []
-        current_ids = {tid for tid in task_ids if tid}
+        current_ids = {tid for tid in task_ids if tid} | collect_epic_task_ids(
+            plan_path.parent, epic_id
+        )
         for orphan_id in find_orphans(children, current_ids):
             run_bd(
                 ["bd", "close", orphan_id, "--reason", "no longer maps to a plan task"]
