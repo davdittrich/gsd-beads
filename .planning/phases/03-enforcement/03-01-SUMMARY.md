@@ -193,3 +193,8 @@ None - no external service configuration required.
 ---
 *Phase: 03-enforcement*
 *Completed: 2026-08-15*
+
+## Self-Check: PASSED
+
+All 4 modified files (`sync.py`, `test_sync.py`, `capability.json`, `SKILL.md`) confirmed present
+on disk; all 4 commits (`2e31c6c`, `2ac1a83`, `9ac1d2a`, `8f21dca`) confirmed present in `git log`.
