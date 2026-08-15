@@ -1323,7 +1323,10 @@ def render_status_mapping(phase_dir_arg):
 
     task_side_orphans = []
     for plan_path in discover_plan_files(phase_dir).values():
-        _, _, tasks = parse_plan(plan_path)
+        try:
+            _, _, tasks = parse_plan(plan_path)
+        except (OSError, UnicodeDecodeError):
+            continue
         for task in tasks:
             if not task["beads_id"]:
                 task_side_orphans.append((plan_path.name, task["name"]))
