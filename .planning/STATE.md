@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 1
-current_phase_name: Substrate
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-08-15T00:42:35.966Z"
+current_phase: 01
+current_phase_name: substrate
+status: executing
+stopped_at: Completed 01-01-PLAN.md
+last_updated: "2026-08-15T01:55:20.336Z"
 last_activity: 2026-08-15
 last_activity_desc: Roadmap created from PRD ingest (docs/prd-beads-capability.md)
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
+  total_plans: 3
+  completed_plans: 1
 ---
 
 # Project State
@@ -24,16 +24,16 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 1 — Substrate
+**Current focus:** Phase 01 — substrate
 
 ## Current Position
 
-Phase: 1 of 4 (Substrate)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-08-15 — Roadmap created from PRD ingest (docs/prd-beads-capability.md)
+Phase: 01 (substrate) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-08-15 — Phase 01 execution started
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [███░░░░░░░] 33%
 
 ## Performance Metrics
 
@@ -55,6 +55,11 @@ Progress: [░░░░░░░░░░] 0%
 - Trend: -
 
 *Updated after each plan completion*
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 01 P01 | 8min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -67,6 +72,9 @@ Recent decisions affecting current work:
 - `beads.sync_mode` defaults to `authoritative` for status only; `PLAN.md` owns content
 - Gate predicates read only generated `BEADS.md` frontmatter, never query `bd` directly
 - `gates[].onError: skip`, never `halt` — a missing `BEADS.md` must never strand a finished phase
+- [Phase ?]: beads capability.json skills[] lists only beads-sync (not beads-status, which doesn't exist until Plan 03)
+- [Phase ?]: sync.py derives the ordinal prefix from the PLAN.md filename, never from frontmatter text, keeping T-01-02 path confinement trivially true
+- [Phase ?]: epic resolution falls through to a fresh bd create when a stored beads_epic id no longer resolves, rather than hard-erroring (B6 fail-open ethos)
 
 ### Pending Todos
 
@@ -93,6 +101,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T00:42:35.961Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-substrate/01-CONTEXT.md
+Last session: 2026-08-15T01:55:20.330Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: None

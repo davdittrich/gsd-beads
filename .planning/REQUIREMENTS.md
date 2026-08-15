@@ -10,19 +10,24 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 
 ### Substrate (F1 — task status lives in beads)
 
-- [ ] **B1**: One beads issue per `PLAN.md` task, parented to a phase epic. After planning an
+- [x] **B1**: One beads issue per `PLAN.md` task, parented to a phase epic. After planning an
   N-task phase, `bd list --parent <epic>` returns exactly N issues whose titles match the plan's
   tasks.
+
 - [ ] **B2**: Plan task ordering becomes beads dependencies. Task 3 depending on task 1 shows
   task 1 as a blocker in `bd show`; `bd ready` excludes task 3 until task 1 closes.
+
 - [ ] **B3**: Task completion closes its issue automatically. After a wave completes task 2, that
   issue is `closed` and no other issue changed.
-- [ ] **B4**: Identity is bound explicitly, never by title matching. Each plan task block carries
+
+- [x] **B4**: Identity is bound explicitly, never by title matching. Each plan task block carries
   a `beads-id:` written on first sync; re-sync resolves by that id. Renaming a task title does
   not create a second issue.
+
 - [ ] **B5**: Sync is idempotent. Two syncs over an unchanged plan create zero issues and modify
   zero issues, proven by a `bd list --json` diff.
-- [ ] **B6**: `bd` absent, failing or locked degrades to a no-op with one visible notice. With
+
+- [x] **B6**: `bd` absent, failing or locked degrades to a no-op with one visible notice. With
   `bd` off `PATH`, every gsd command completes normally, one line explains the skip, no phase is
   blocked, and `BEADS.md` is absent rather than stale.
 
@@ -30,9 +35,11 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 
 - [ ] **B7**: The planner sees open issues before planning. With an open issue touching a file in
   the phase's scope, `BEADS-RECALL.md` exists before the planner runs and names that issue.
+
 - [ ] **B8**: The executor's prompt carries live issue state. The `execute:wave:pre` fragment is
   present in the composed orchestrator prompt and names the issues in the wave — verified by
   inspecting the prompt, not by inferring from behaviour.
+
 - [ ] **B11**: `BEADS.md` is regenerated, never hand-edited. A hand edit is overwritten at the
   next step; frontmatter always reflects a real `bd` query at generation time.
 
@@ -41,6 +48,7 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 - [ ] **B9**: A phase with unfinished blocking issues cannot ship. With one open blocking issue,
   `ship:pre` blocks and names it. `beads.ship_gate=false` allows the ship and records that it was
   overridden.
+
 - [ ] **B10**: Divergence blocks and is reported; it is never auto-reconciled. An issue closed in
   beads whose task is incomplete (or the reverse) sets `diverged>0`, blocks ship, and reports
   both sides. Nothing changes until the operator decides.
@@ -49,8 +57,10 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 
 - [ ] **B12**: One-shot migration of existing `.planning/todos/pending/` entries into beads,
   reporting what moved and what could not be interpreted.
+
 - [ ] **B13**: `beads-status` runnable on demand, printing the plan-task ↔ issue mapping
   including orphans on both sides.
+
 - [ ] **B14**: Milestone-level epic option (`beads.epic_per=milestone`) for users who prefer one
   epic per release.
 
@@ -74,12 +84,12 @@ None identified — all 14 requirements extracted from the PRD are in v1 scope.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| B1 | Phase 1 | Pending |
+| B1 | Phase 1 | Complete |
 | B2 | Phase 1 | Pending |
 | B3 | Phase 1 | Pending |
-| B4 | Phase 1 | Pending |
+| B4 | Phase 1 | Complete |
 | B5 | Phase 1 | Pending |
-| B6 | Phase 1 | Pending |
+| B6 | Phase 1 | Complete |
 | B7 | Phase 2 | Pending |
 | B8 | Phase 2 | Pending |
 | B11 | Phase 2 | Pending |
@@ -90,6 +100,7 @@ None identified — all 14 requirements extracted from the PRD are in v1 scope.
 | B14 | Phase 4 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 14 total
 - Mapped to phases: 14
 - Unmapped: 0
