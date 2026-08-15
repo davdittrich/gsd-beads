@@ -102,9 +102,16 @@ inspectable on demand — at whichever epic granularity the user prefers.
 **Plans**: 3/3 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 04-01-PLAN.md — One-shot todo migration: parse `.planning/todos/pending/`, map to bd priority/label/description, non-destructive on parse failure (B12)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 04-02-PLAN.md — On-demand `beads-status`: plan-task <-> issue mapping table plus bd-side and task-side orphan sections (B13)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 04-03-PLAN.md — `beads.epic_per=milestone`: one epic shared across phases, forward-only, read fresh per call site (B14)
 
 ## Progress
