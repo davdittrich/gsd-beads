@@ -1,0 +1,48 @@
+{
+  "_meta": {
+    "updated_at": "2026-08-15T22:30:14.360Z",
+    "version": 2
+  },
+  "entries": {
+    "bd": {
+      "version": "external binary, no pinned version (probed via shutil.which at runtime)",
+      "type": "production",
+      "invocation": "subprocess.run argv list (no shell)",
+      "used_by": [
+        ".gsd/capabilities/beads/scripts/sync.py"
+      ]
+    },
+    "git": {
+      "version": "external binary",
+      "type": "production",
+      "invocation": "subprocess.run argv list (no shell)",
+      "used_by": [
+        ".gsd/capabilities/beads/scripts/sync.py ship_override/_head_already_pushed"
+      ]
+    },
+    "pytest": {
+      "version": "unpinned (no requirements.txt/pyproject.toml in repo)",
+      "type": "development",
+      "invocation": "pytest .gsd/capabilities/beads/tests/test_sync.py",
+      "used_by": [
+        ".gsd/capabilities/beads/tests/test_sync.py"
+      ]
+    },
+    "python-stdlib": {
+      "version": ">=3.x (argparse, json, os, re, shutil, subprocess, sys, datetime, pathlib)",
+      "type": "production",
+      "invocation": "require",
+      "used_by": [
+        ".gsd/capabilities/beads/scripts/sync.py"
+      ]
+    },
+    "gsd-core": {
+      "version": ">=1.6.0 (capability.json engines.gsd)",
+      "type": "peer",
+      "invocation": "implicit",
+      "used_by": [
+        ".gsd/capabilities/beads/capability.json steps[]/gates[]/contributions[]"
+      ]
+    }
+  }
+}

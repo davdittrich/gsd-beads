@@ -1,0 +1,45 @@
+{
+  "_meta": {
+    "updated_at": "2026-08-15T22:30:14.421Z",
+    "version": 2
+  },
+  "entries": {
+    "overview": {
+      "pattern": "GSD capability plugin (single stdlib CLI script + SKILL.md dispatch)",
+      "description": "gsd-beads is a gsd-core capability that makes bd (beads) the task-status substrate for GSD phase execution. All logic lives in one stdlib-only Python script (sync.py) invoked as subcommands from four SKILL.md files wired into gsd-core's step lifecycle via capability.json. No package manifest, no third-party runtime deps (N5)."
+    },
+    "data-flow": {
+      "flow": "PLAN.md <task> elements -> sync.py create-issues -> bd issues under a phase/milestone epic -> BEADS.md/BEADS-RECALL.md generated artifacts -> ship:pre gate reads BEADS.md frontmatter (blocking_open/diverged)",
+      "description": "PLAN.md is the source of truth for task identity (<beads-id> element); bd is authoritative for status after first sync (beads.sync_mode=authoritative). BEADS.md and BEADS-RECALL.md are always regenerated wholesale from a fresh `bd list` query, never merged with prior file contents (D-06/B11)."
+    },
+    "conventions": {
+      "naming": "snake_case functions; UPPER_SNAKE module-level compiled regex constants (e.g. TASK_RE, BEADS_EPIC_RE); D-0N / B-N / T-0N-0N comment tags cross-reference design decisions, behavior specs, and threat-model entries documented outside this repo view",
+      "file-organization": "single flat script (.gsd/capabilities/beads/scripts/sync.py) with an argparse subcommand dispatcher in main(); SKILL.md files under .gsd/capabilities/beads/skills/<name>/SKILL.md are thin wrappers invoking one or more sync.py subcommands at named gsd-core lifecycle points",
+      "imports": "stdlib only (argparse, json, os, re, shutil, subprocess, sys, datetime, pathlib); every external process call (bd, git) goes through a typed argv list, never a shell string (T-01-01)"
+    },
+    "security": {
+      "path-confinement": "confined() and find_project_root() resolve every filesystem read/write to inside the nearest ancestor .planning/ directory before touching it (T-01-02); no path is ever built unchecked from PLAN.md/todo text",
+      "subprocess-safety": "run_bd() and every git subprocess call pass an argv list with shell execution left at its disabled default -- PLAN.md/todo text is authored by a different principal than the process invoking bd/git (T-01-01)",
+      "fail-open-posture": "bd_available() is the single point of truth for bd-unavailable detection (missing binary, non-zero exit, or timeout all degrade the same way); every entry point (create_issues, close_wave, beads_recall, regenerate_beads_md, migrate_todos) prints NOTICE and appends a STATE.md blocker rather than crashing (B6/D-08)"
+    },
+    "component:sync.py": {
+      "path": ".gsd/capabilities/beads/scripts/sync.py",
+      "responsibility": "Single-file CLI implementing every beads capability operation: create-issues (plan->bd sync), close-wave, beads-recall (scope-matched open-issue scan), regenerate-beads-md, wave-status-block, ship-override (git-trailer bypass record), check-shipmd-patch, migrate-todos, status (read-only mapping report)"
+    },
+    "component:capability.json": {
+      "path": ".gsd/capabilities/beads/capability.json",
+      "responsibility": "Declares the beads capability's config schema (beads.enabled/sync_mode/ship_gate/epic_per), wires its four skills into gsd-core's step lifecycle (plan:pre/post, execute:wave:pre/post, verify:post, ship:pre), and declares two blocking ship:pre gates checking BEADS.md's blocking_open/diverged frontmatter fields"
+    },
+    "component:SKILL.md-dispatch": {
+      "path": ".gsd/capabilities/beads/skills/",
+      "responsibility": "beads-sync (plan:post), beads-status (execute:wave:pre/post, verify:post, ship:pre), beads-recall (plan:pre), beads-migrate-todos (one-shot) -- each is a thin prompt-level wrapper that shells out to one or more sync.py subcommands and interprets its stdout"
+    },
+    "component:GSD-CORE-PATCH.md": {
+      "path": ".gsd/capabilities/beads/GSD-CORE-PATCH.md",
+      "responsibility": "Documents a required local patch to gsd-core's own ship.md (marked by SHIP_MD_PATCH_MARKER) enabling ship:pre's generic gate/step dispatch loop to reach the beads ship_gate check; check-shipmd-patch verifies this patch is still present from two independent call sites"
+    },
+    "test-strategy": {
+      "coverage": "2477-line test_sync.py exercises every sync.py public function against fixture PLAN.md/todo files under tests/fixtures/ using pytest, with subprocess.run mocked/spied for bd and git calls"
+    }
+  }
+}

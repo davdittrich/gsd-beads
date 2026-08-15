@@ -1,0 +1,27 @@
+{
+  "_meta": {
+    "updated_at": "2026-08-15T22:30:14.179Z",
+    "version": 2
+  },
+  "languages": [
+    "Python",
+    "Markdown",
+    "YAML",
+    "JSON"
+  ],
+  "frameworks": [],
+  "tools": [
+    "pytest",
+    "bd (beads CLI)",
+    "git",
+    "gsd-core"
+  ],
+  "build_system": "none (stdlib-only Python script, no package manifest)",
+  "test_framework": "pytest",
+  "package_manager": "none (no requirements.txt/pyproject.toml; stdlib-only by design, N5)",
+  "content_formats": [
+    "Markdown (SKILL.md skills, PLAN.md/BEADS.md/BEADS-RECALL.md generated artifacts)",
+    "YAML (capability.json config schema documented inline, .agents/skills/beads/agents/openai.yaml)",
+    "JSON (capability.json, .planning/config.json)"
+  ]
+}

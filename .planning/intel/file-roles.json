@@ -1,0 +1,127 @@
+{
+  "_meta": {
+    "updated_at": "2026-08-15T22:30:14.238Z",
+    "version": 2
+  },
+  "entries": {
+    ".gsd/capabilities/beads/scripts/sync.py": {
+      "exports": [
+        "main",
+        "create_issues",
+        "close_wave",
+        "beads_recall",
+        "regenerate_beads_md",
+        "render_wave_status_block",
+        "ship_override",
+        "check_shipmd_patch",
+        "migrate_todos",
+        "render_status_mapping",
+        "resolve_epic",
+        "resolve_issue",
+        "resolve_phase_epic",
+        "resolve_milestone_epic",
+        "read_epic_per",
+        "parse_plan",
+        "parse_depends_on",
+        "parse_todo",
+        "rewrite_plan",
+        "derive_dependency_edges",
+        "apply_dependency_edges",
+        "find_orphans",
+        "collect_epic_task_ids",
+        "collect_all_task_files",
+        "discover_plan_files",
+        "find_completed_task_ids",
+        "filter_open_ids",
+        "run_bd",
+        "bd_available",
+        "find_project_root",
+        "confined",
+        "append_state_blocker"
+      ],
+      "imports": [
+        "argparse",
+        "json",
+        "os",
+        "re",
+        "shutil",
+        "subprocess",
+        "sys",
+        "datetime",
+        "pathlib"
+      ],
+      "type": "entry-point"
+    },
+    ".gsd/capabilities/beads/tests/test_sync.py": {
+      "exports": [],
+      "imports": [
+        "pytest",
+        ".gsd/capabilities/beads/scripts/sync.py"
+      ],
+      "type": "test"
+    },
+    ".gsd/capabilities/beads/capability.json": {
+      "exports": [],
+      "imports": [],
+      "type": "config"
+    },
+    ".gsd/capabilities/beads/skills/beads-sync/SKILL.md": {
+      "exports": [],
+      "imports": [
+        "sync.py create-issues"
+      ],
+      "type": "config"
+    },
+    ".gsd/capabilities/beads/skills/beads-status/SKILL.md": {
+      "exports": [],
+      "imports": [
+        "sync.py close-wave",
+        "sync.py regenerate-beads-md",
+        "sync.py wave-status-block",
+        "sync.py ship-override",
+        "sync.py check-shipmd-patch",
+        "sync.py status"
+      ],
+      "type": "config"
+    },
+    ".gsd/capabilities/beads/skills/beads-recall/SKILL.md": {
+      "exports": [],
+      "imports": [
+        "sync.py beads-recall",
+        "sync.py check-shipmd-patch"
+      ],
+      "type": "config"
+    },
+    ".gsd/capabilities/beads/skills/beads-migrate-todos/SKILL.md": {
+      "exports": [],
+      "imports": [
+        "sync.py migrate-todos"
+      ],
+      "type": "config"
+    },
+    ".gsd/capabilities/beads/fragments/recall-pointer.md": {
+      "exports": [],
+      "imports": [],
+      "type": "template"
+    },
+    ".gsd/capabilities/beads/GSD-CORE-PATCH.md": {
+      "exports": [],
+      "imports": [
+        "gsd-core ship.md ship:pre dispatch loop"
+      ],
+      "type": "config"
+    },
+    ".agents/skills/beads/SKILL.md": {
+      "exports": [],
+      "imports": [
+        ".gsd/capabilities/beads/scripts/sync.py"
+      ],
+      "type": "config"
+    },
+    "docs/prd-beads-capability.md": {
+      "exports": [],
+      "imports": [],
+      "type": "data"
+    }
+  }
+}
