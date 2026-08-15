@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 4
 current_phase_name: Adoption
 status: executing
-stopped_at: Phase 4 context gathered
-last_updated: "2026-08-15T21:50:18.227Z"
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-08-15T22:14:44.966Z"
 last_activity: 2026-08-15
 last_activity_desc: Quick task 260815-mm8 fixed both pre-existing Phase 1 defects (gsd-beads-uh1, gsd-beads-bgb), 41/41 tests green
 progress:
   total_phases: 4
   completed_phases: 3
   total_plans: 11
-  completed_plans: 8
+  completed_plans: 9
 ---
 
 # Project State
@@ -24,16 +24,16 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 03 — enforcement
+**Current focus:** Phase 4 — Adoption
 
 ## Current Position
 
-Phase: 4 — Adoption
-Plan: Not started
+Phase: 4 (Adoption) — EXECUTING
+Plan: 2 of 3
 Status: Ready to execute
-Last activity: 2026-08-15 — Phase 03 complete, transitioned to Phase 4 (retroactive Phase 02 UAT/security debt closed by /gsd-verify-work 02)
+Last activity: 2026-08-15 — Phase 4 execution started
 
-Progress: [████████████████████] 3/3 plans ([██████████] 100%)
+Progress: [████████████████████] 3/3 plans ([████████░░] 82%)
 
 ## Performance Metrics
 
@@ -68,6 +68,7 @@ Progress: [████████████████████] 3/3 pla
 | Phase 03 P01 | 8min | 2 tasks | 4 files |
 | Phase 03 P02 | 7min | 2 tasks | 4 files |
 | Phase 03 P03 | 20min | 2 tasks | 4 files |
+| Phase 04-adoption P01 | 20min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -100,12 +101,19 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 3, 03-02]: ship:pre gates/config/steps declared per PRD Section 5.3 but confirmed (by reading the installed ship.md) not yet live-enforced -- documented in beads-status/SKILL.md's Known Gap section, closed by 03-03
 - [Phase ?]: [Phase 3, 03-03]: ship.md's ship:pre dispatch gap (Plan 02) is closed via a machine-local patch (steps 8/9, marker-bracketed, byte-verified against GSD-CORE-PATCH.md); a self-detecting check-shipmd-patch diagnostic runs on every ship:pre so a future gsd-core update dropping the patch is caught immediately
 - [Phase ?]: [Phase 3, 03-03]: pytest's own __pycache__ writes inside .gsd/capabilities/beads/ silently invalidate the project-scope capability consent hash -- discovered live, fixed by reconsenting from within the affected test body before the check it asserts on
+- [Phase ?]: [Phase 4, 04-01]: migrate_todos' parse-error/bd-create-failed/moved three-way report separation (Task 2's subject) had to exist from Task 1's first working version -- both tasks' tests landed in one RED/GREEN commit pair, TestMigrateTodosReport found no gap
 
 ### Pending Todos
 
 None yet.
 
 ### Blockers/Concerns
+
+- 2026-08-15: bd unavailable -- beads-sync skipped (B6/D-08)
+
+- 2026-08-15: bd unavailable -- beads-sync skipped (B6/D-08)
+
+- 2026-08-15: bd unavailable -- beads-sync skipped (B6/D-08)
 
 - 2026-08-15: bd unavailable -- beads-recall skipped (B6/D-08)
 
@@ -140,6 +148,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T21:01:13.865Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-adoption/04-CONTEXT.md
+Last session: 2026-08-15T22:14:44.960Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None

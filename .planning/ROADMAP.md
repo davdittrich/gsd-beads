@@ -99,12 +99,12 @@ inspectable on demand — at whichever epic granularity the user prefers.
   2. Running `beads-status` on demand prints the plan-task ↔ issue mapping, including orphans on both sides
   3. Setting `beads.epic_per=milestone` creates one epic per release instead of one per phase
 
-**Plans**: 3/3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 **Wave 1**
 
-- [ ] 04-01-PLAN.md — One-shot todo migration: parse `.planning/todos/pending/`, map to bd priority/label/description, non-destructive on parse failure (B12)
+- [x] 04-01-PLAN.md — One-shot todo migration: parse `.planning/todos/pending/`, map to bd priority/label/description, non-destructive on parse failure (B12)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -124,4 +124,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Substrate | 3/3 | Complete    | 2026-08-15 |
 | 2. Visibility | 2/2 | Complete    | 2026-08-15 |
 | 3. Enforcement | 3/3 | Complete    | 2026-08-15 |
-| 4. Adoption | 0/3 | Not started | - |
+| 4. Adoption | 1/3 | In Progress|  |

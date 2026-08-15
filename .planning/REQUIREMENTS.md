@@ -55,7 +55,7 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 
 ### Adoption
 
-- [ ] **B12**: One-shot migration of existing `.planning/todos/pending/` entries into beads,
+- [x] **B12**: One-shot migration of existing `.planning/todos/pending/` entries into beads,
   reporting what moved and what could not be interpreted.
 
 - [ ] **B13**: `beads-status` runnable on demand, printing the plan-task ↔ issue mapping
@@ -95,7 +95,7 @@ None identified — all 14 requirements extracted from the PRD are in v1 scope.
 | B11 | Phase 2 | Complete |
 | B9 | Phase 3 | Complete |
 | B10 | Phase 3 | Complete |
-| B12 | Phase 4 | Pending |
+| B12 | Phase 4 | Complete |
 | B13 | Phase 4 | Pending |
 | B14 | Phase 4 | Pending |
 
