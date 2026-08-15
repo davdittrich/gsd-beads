@@ -542,6 +542,13 @@ def resolve_milestone_epic(project_root):
         if data.get("title") == title:
             return candidate_id
 
+    if candidate_ids:
+        print(
+            f"divergence: {len(candidate_ids)} existing epic(s) found for this milestone but "
+            f"none matched title {title!r} -- creating a new epic (STATE.md milestone/"
+            "milestone_name may have changed)"
+        )
+
     result = run_bd(["bd", "create", title, "--type", "epic", "--silent"])
     if result.returncode != 0:
         raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
