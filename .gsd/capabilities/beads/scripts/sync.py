@@ -29,6 +29,13 @@ FILES_RE = re.compile(r"<files>(.*?)</files>", re.DOTALL)
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
+# WR-04: the inline-bracket form above requires the value on the same line
+# as the key. YAML also permits (and this fixture set previously had no
+# coverage for) the block-list form:
+#   depends_on:
+#     - "01-01"
+# parse_depends_on falls back to this regex when DEPENDS_ON_RE doesn't match.
+DEPENDS_ON_BLOCK_RE = re.compile(r"^depends_on:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
 PLAN_FILE_RE = re.compile(r"^(\d{2}-\d{2})-PLAN\.md$")
 BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # 03-03 Task 2: the literal marker bracketing the local ship.md patch
@@ -138,14 +145,32 @@ def parse_depends_on(frontmatter):
     This is the sole cross-plan edge source (dependency_derivation_decision,
     D-04): the `wave` frontmatter key is deliberately never inspected here or
     anywhere edges are derived.
+
+    Accepts both YAML forms (WR-04): the inline flow sequence
+    (`depends_on: ["01-01"]`) and the block-list form (`depends_on:` on its
+    own line, followed by `- "01-01"` list items) -- a block-list value
+    silently produced `[]` before this fix, indistinguishable from a
+    legitimately empty dependency list.
     """
     m = DEPENDS_ON_RE.search(frontmatter)
+    if m:
+        inner = m.group(1).strip()
+        if not inner:
+            return []
+        return [item.strip().strip('"').strip("'") for item in inner.split(",") if item.strip()]
+
+    m = DEPENDS_ON_BLOCK_RE.search(frontmatter)
     if not m:
         return []
-    inner = m.group(1).strip()
-    if not inner:
-        return []
-    return [item.strip().strip('"').strip("'") for item in inner.split(",") if item.strip()]
+    items = []
+    for line in m.group(1).splitlines():
+        line = line.strip()
+        if not line.startswith("-"):
+            continue
+        item = line[1:].strip().strip('"').strip("'")
+        if item:
+            items.append(item)
+    return items
 
 
 def discover_plan_files(phase_dir):

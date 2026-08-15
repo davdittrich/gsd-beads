@@ -401,6 +401,22 @@ class TestDependencyMapping(unittest.TestCase):
         self.assertEqual(len(edges_without_prereq), 2)
         self.assertEqual(len(edges_with_prereq), 3)
 
+    def test_block_list_depends_on_is_parsed_not_silently_dropped(self):
+        # WR-04: YAML's block-list form (key on its own line, `- item`
+        # entries below it) previously matched neither DEPENDS_ON_RE nor
+        # anything else, returning [] -- indistinguishable from a
+        # legitimately empty dependency list.
+        block_frontmatter = 'wave: 2\ndepends_on:\n  - "01-01"\n  - "02-03"\n'
+        self.assertEqual(sync.parse_depends_on(block_frontmatter), ["01-01", "02-03"])
+
+    def test_block_list_depends_on_single_item_no_quotes(self):
+        block_frontmatter = "depends_on:\n  - 01-01\n"
+        self.assertEqual(sync.parse_depends_on(block_frontmatter), ["01-01"])
+
+    def test_inline_depends_on_still_wins_over_block_form_when_both_absent(self):
+        # No depends_on key at all -- neither regex matches -- must stay [].
+        self.assertEqual(sync.parse_depends_on("wave: 1\n"), [])
+
     def test_resolve_prereq_last_task_id_finds_prerequisite_plans_last_task(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = Path(tmp)
