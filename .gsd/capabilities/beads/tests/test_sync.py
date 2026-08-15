@@ -650,6 +650,42 @@ class TestIdempotency(unittest.TestCase):
         ]
         self.assertEqual(create_calls, [])
 
+    def test_stale_beads_epic_reports_divergence_instead_of_healing_silently(self):
+        """WR-02: resolve_epic's stale-`beads_epic` fallback must report the
+        split the same way resolve_issue's stale-<beads-id> fallback does
+        (D-07 applied one level up) -- a silent replacement is what let a
+        resync after an external epic deletion fork the phase across
+        epics with zero visible signal."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "show"] and argv[2] == "tracer-f5x":
+                return _completed(1, stderr="no issue found matching tracer-f5x")
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout="{}\n")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "create"]:
+                return _completed(0, stdout="fresh-epic-01\n")
+            if argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch("subprocess.run", side_effect=_side_effect):
+                with contextlib.redirect_stdout(captured):
+                    exit_code = sync.create_issues(str(plan_copy))
+            new_text = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        out = captured.getvalue()
+        self.assertIn("divergence: stored beads_epic", out)
+        self.assertIn("tracer-f5x", out)
+        self.assertIn("not found in bd", out)
+        self.assertEqual(sync.BEADS_EPIC_RE.search(new_text).group(1), "fresh-epic-01")
+
 
 class TestEpicScopedOrphans(unittest.TestCase):
     """gsd-beads-bgb: syncing a second plan under a shared epic must never

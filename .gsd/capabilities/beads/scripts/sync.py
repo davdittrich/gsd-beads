@@ -278,35 +278,44 @@ def get_phase_header(roadmap_path, phase_num):
 
 
 def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir):
-    """Return (epic_id, needs_write). Resolve-by-id first, create only on
-    confirmed absence -- never by title (B4/B5 pattern applied to the epic
-    level too).
+    """Return (epic_id, needs_write, stale_epic_id). Resolve-by-id first,
+    create only on confirmed absence -- never by title (B4/B5 pattern
+    applied to the epic level too).
 
     `needs_write` means "this plan's own frontmatter still lacks a
     resolving beads_epic and rewrite_plan must write one" -- not literally
     "created in bd" -- since the phase-scoped reuse path below finds an
     existing epic without creating one (gsd-beads-uh1: every plan in a
     phase shares one epic, per resolve_phase_epic's D-05 contract).
+
+    `stale_epic_id` is the frontmatter's own `beads_epic` value when it no
+    longer resolves in bd (WR-02: D-07's stale-identity reporting applied to
+    the epic level) -- None when frontmatter carried no `beads_epic`, or it
+    resolved successfully. The caller reports this the same way
+    `resolve_issue`'s `divergent` flag is reported, so a resync after an
+    external epic deletion never forks the phase across epics silently.
     """
+    stale_epic_id = None
     m = BEADS_EPIC_RE.search(frontmatter)
     if m:
         epic_id = m.group(1)
         check = run_bd(["bd", "show", epic_id, "--json"])
         if check.returncode == 0:
-            return epic_id, False
+            return epic_id, False, None
         # stored epic id no longer resolves in bd -- fall through and create fresh
+        stale_epic_id = epic_id
 
     shared_epic_id = resolve_phase_epic(phase_dir)
     if shared_epic_id is not None:
         check = run_bd(["bd", "show", shared_epic_id, "--json"])
         if check.returncode == 0:
-            return shared_epic_id, True
+            return shared_epic_id, True, stale_epic_id
 
     title = get_phase_header(roadmap_path, phase_num)
     result = run_bd(["bd", "create", title, "--type", "epic", "--silent"])
     if result.returncode != 0:
         raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
-    return result.stdout.strip(), True
+    return result.stdout.strip(), True, stale_epic_id
 
 
 def resolve_issue(task, epic_id, ordinal_prefix, task_index):
@@ -552,9 +561,14 @@ def create_issues(plan_arg):
     # RuntimeError raised by resolve_epic/resolve_issue below is exactly
     # that case: degrade to the same fail-open notice, not a crash.
     try:
-        epic_id, epic_created = resolve_epic(
+        epic_id, epic_created, stale_epic_id = resolve_epic(
             frontmatter, roadmap_path, phase_num, plan_path.parent
         )
+        if stale_epic_id is not None:
+            print(
+                f"divergence: stored beads_epic {stale_epic_id!r} not found in bd -- "
+                "resolving to a replacement epic"
+            )
 
         task_updates = []
         created_count = 0
