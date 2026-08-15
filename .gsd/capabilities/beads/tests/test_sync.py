@@ -1882,5 +1882,48 @@ class TestShipPreGenericDispatch(unittest.TestCase):
             config_path.write_text(original_text, encoding="utf-8")
 
 
+class TestCheckShipmdPatch(unittest.TestCase):
+    """03-03 Task 2: check_shipmd_patch is a pure read-and-warn function
+    (never edits ship.md) reporting whether the local ship.md patch is
+    present, absent, or the file itself is missing."""
+
+    def test_reports_present_when_marker_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ship_md = Path(tmp) / "ship.md"
+            ship_md.write_text(
+                f"...preamble...\n{sync.SHIP_MD_PATCH_MARKER}\n...body...\n",
+                encoding="utf-8",
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_shipmd_patch(str(ship_md))
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("present", captured.getvalue())
+
+    def test_reports_missing_with_reapply_pointer_when_marker_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ship_md = Path(tmp) / "ship.md"
+            ship_md.write_text("no patch marker in this file\n", encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_shipmd_patch(str(ship_md))
+
+        self.assertEqual(exit_code, 1)
+        out = captured.getvalue()
+        self.assertIn("GSD-CORE-PATCH.md", out)
+        self.assertIn("ship_override", out)
+
+    def test_reports_missing_with_reapply_pointer_when_file_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = Path(tmp) / "does-not-exist" / "ship.md"
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_shipmd_patch(str(missing_path))
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(str(missing_path), captured.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()
