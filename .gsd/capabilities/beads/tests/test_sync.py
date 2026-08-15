@@ -42,6 +42,10 @@ def _make_bd_side_effect():
         if argv[:2] == ["bd", "create"]:
             counter["n"] += 1
             return _completed(0, stdout=f"mock-e1.{counter['n']}\n")
+        if argv[:3] == ["bd", "dep", "add"]:
+            return _completed(0)
+        if argv[:2] == ["bd", "close"]:
+            return _completed(0)
         return _completed(1, stderr=f"unexpected bd invocation: {argv}")
 
     return _side_effect
@@ -212,6 +216,104 @@ class TestCreateIssues(unittest.TestCase):
         self.assertEqual(len(task_creates), 3)
         parents = {argv[argv.index("--parent") + 1] for argv in task_creates}
         self.assertEqual(len(parents), 1)
+
+
+class TestDependencyMapping(unittest.TestCase):
+    """B2: dependency edges come only from intra-plan order and plan-level
+    depends_on -- the `wave` frontmatter key is never read as an edge
+    source, even for a wave-2 plan with an empty depends_on (D-04)."""
+
+    def test_three_task_plan_yields_two_intra_plan_edges(self):
+        edges = sync.derive_dependency_edges(["t1", "t2", "t3"], [])
+        self.assertEqual(edges, [("t2", "t1"), ("t3", "t2")])
+
+    def test_depends_on_prereq_adds_first_task_blocked_by_prereq_last_task(self):
+        edges = sync.derive_dependency_edges(["t1", "t2", "t3"], ["prereq-last"])
+        self.assertEqual(edges, [("t2", "t1"), ("t3", "t2"), ("t1", "prereq-last")])
+
+    def test_empty_depends_on_yields_zero_cross_plan_edges_at_wave_two(self):
+        # plan-deps.md itself carries wave: 2 and a non-empty depends_on --
+        # confirm parsing pulls the real prereq id out of it.
+        _, frontmatter, tasks = sync.parse_plan(FIXTURES_DIR / "plan-deps.md")
+        self.assertIn("wave: 2", frontmatter)
+        self.assertEqual(sync.parse_depends_on(frontmatter), ["01-01"])
+        task_ids = [t["beads_id"] for t in tasks]
+        self.assertEqual(len(task_ids), 3)
+
+        # Separately: an empty depends_on at wave 2 must still yield zero
+        # cross-plan edges -- proving wave number is never read as an edge
+        # source, independent of what this fixture's own depends_on says.
+        empty_frontmatter = "wave: 2\ndepends_on: []\n"
+        self.assertEqual(sync.parse_depends_on(empty_frontmatter), [])
+        edges_without_prereq = sync.derive_dependency_edges(task_ids, [])
+        edges_with_prereq = sync.derive_dependency_edges(task_ids, ["prereq-x"])
+        self.assertEqual(len(edges_without_prereq), 2)
+        self.assertEqual(len(edges_with_prereq), 3)
+
+    def test_resolve_prereq_last_task_id_finds_prerequisite_plans_last_task(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = Path(tmp)
+            (phase_dir / "01-01-PLAN.md").write_text(
+                (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            last_id = sync.resolve_prereq_last_task_id(phase_dir, "01-01")
+        self.assertEqual(last_id, "tracer-f5x.2")
+
+    def test_resolve_prereq_last_task_id_returns_none_for_unsynced_prerequisite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = Path(tmp)
+            (phase_dir / "01-01-PLAN.md").write_text(
+                (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            last_id = sync.resolve_prereq_last_task_id(phase_dir, "01-01")
+        self.assertIsNone(last_id)
+
+    def test_resolve_prereq_last_task_id_rejects_unmatched_plan_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            last_id = sync.resolve_prereq_last_task_id(Path(tmp), "99-99")
+        self.assertIsNone(last_id)
+
+    @mock.patch("subprocess.run")
+    def test_apply_dependency_edges_invokes_bd_dep_add_with_depends_on_flag(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        sync.apply_dependency_edges([("t2", "t1"), ("t3", "t2")])
+        dep_argvs = [c.args[0] for c in mock_run.call_args_list]
+        self.assertEqual(len(dep_argvs), 2)
+        self.assertEqual(dep_argvs[0], ["bd", "dep", "add", "t2", "--depends-on", "t1"])
+
+    @mock.patch("subprocess.run")
+    def test_create_issues_wires_cross_plan_edge_from_depends_on(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planning_dir = tmp_path / ".planning"
+            phase_dir = planning_dir / "phases" / "01-substrate"
+            phase_dir.mkdir(parents=True)
+            (planning_dir / "ROADMAP.md").write_text(
+                "### Phase 1: Substrate\nGoal.\n", encoding="utf-8"
+            )
+            (phase_dir / "01-01-PLAN.md").write_text(
+                (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+            dependent_text = _three_task_plan_text().replace(
+                "depends_on: []", 'depends_on: ["01-01"]'
+            )
+            dependent_copy = phase_dir / "01-02-PLAN.md"
+            dependent_copy.write_text(dependent_text, encoding="utf-8")
+
+            exit_code = sync.create_issues(str(dependent_copy))
+
+        self.assertEqual(exit_code, 0)
+        dep_add_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:3] == ["bd", "dep", "add"]
+        ]
+        # 2 intra-plan edges (task2<-task1, task3<-task2) + 1 cross-plan edge
+        # (task1 <- prerequisite plan's last task, tracer-f5x.2)
+        self.assertEqual(len(dep_add_argvs), 3)
+        self.assertTrue(any(argv[-1] == "tracer-f5x.2" for argv in dep_add_argvs))
 
 
 class TestIdentityBinding(unittest.TestCase):

@@ -24,6 +24,8 @@ NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
 BEADS_ID_RE = re.compile(r"<beads-id>(.*?)</beads-id>", re.DOTALL)
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
+DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
+PLAN_FILE_RE = re.compile(r"^(\d{2}-\d{2})-PLAN\.md$")
 
 
 def run_bd(argv, timeout=BD_TIMEOUT):
@@ -111,6 +113,91 @@ def parse_plan(path):
             }
         )
     return text, frontmatter, tasks
+
+
+def parse_depends_on(frontmatter):
+    """Return the plan-level `depends_on` array as a list of bare plan-id
+    strings, quotes and whitespace stripped. Absent or empty -> [].
+
+    This is the sole cross-plan edge source (dependency_derivation_decision,
+    D-04): the `wave` frontmatter key is deliberately never inspected here or
+    anywhere edges are derived.
+    """
+    m = DEPENDS_ON_RE.search(frontmatter)
+    if not m:
+        return []
+    inner = m.group(1).strip()
+    if not inner:
+        return []
+    return [item.strip().strip('"').strip("'") for item in inner.split(",") if item.strip()]
+
+
+def discover_plan_files(phase_dir):
+    """Map ordinal-prefix ("01-01") -> Path for every `NN-NN-PLAN.md` file
+    directly in phase_dir.
+
+    T-01-04: a `depends_on` entry is matched against this discovered set,
+    never joined onto a path built from artifact text.
+    """
+    discovered = {}
+    for candidate in Path(phase_dir).iterdir():
+        m = PLAN_FILE_RE.match(candidate.name)
+        if m:
+            discovered[m.group(1)] = candidate
+    return discovered
+
+
+def resolve_prereq_last_task_id(phase_dir, prereq_plan_id):
+    """Return the `<beads-id>` of prereq_plan_id's last task, or None when
+    that plan cannot be found among phase_dir's discovered plans or its last
+    task has no id yet.
+
+    An unresolvable prerequisite is a sequencing fact (the prerequisite plan
+    has not been synced yet), not an error -- B6's fail-open posture applies
+    to the whole script.
+    """
+    plan_path = discover_plan_files(phase_dir).get(prereq_plan_id)
+    if plan_path is None:
+        return None
+    _, _, tasks = parse_plan(plan_path)
+    if not tasks:
+        return None
+    return tasks[-1]["beads_id"]
+
+
+def derive_dependency_edges(task_ids, prereq_last_ids):
+    """Pure: return [(blocked_id, blocker_id), ...] from declared ordering
+    only (dependency_derivation_decision).
+
+    Intra-plan edges: task at index k>0 is blocked by the task at index k-1.
+    Cross-plan edges: this plan's first task is blocked by each resolved
+    prerequisite plan's last task (first-blocks-on-last). Reads neither `bd`
+    nor the `wave` frontmatter key -- wave number is never an edge source
+    under D-04.
+    """
+    edges = [(task_ids[i], task_ids[i - 1]) for i in range(1, len(task_ids))]
+    if task_ids:
+        first_id = task_ids[0]
+        edges.extend((first_id, prereq_id) for prereq_id in prereq_last_ids if prereq_id)
+    return edges
+
+
+def apply_dependency_edges(edges):
+    """Apply each (blocked, blocker) pair via `bd dep add <blocked>
+    --depends-on <blocker>`.
+
+    Re-adding an edge that already exists exits 0 and creates no duplicate
+    (verified during planning), so no separate existence probe is needed. A
+    failed edge application is reported, never fatal -- B6's fail-open
+    posture applies to the whole script.
+    """
+    for blocked_id, blocker_id in edges:
+        result = run_bd(["bd", "dep", "add", blocked_id, "--depends-on", blocker_id])
+        if result.returncode != 0:
+            print(
+                f"dependency edge failed: {blocked_id} depends-on {blocker_id}: "
+                f"{result.stderr.strip()}"
+            )
 
 
 def get_phase_header(roadmap_path, phase_num):
@@ -202,15 +289,26 @@ def create_issues(plan_arg):
 
     task_updates = []
     created_count = 0
+    task_ids = []
     for i, task in enumerate(tasks, start=1):
         issue_id, created = resolve_issue(task, epic_id, ordinal_prefix, i)
         if created:
             created_count += 1
             task_updates.append((task["name_end"], issue_id))
+        task_ids.append(issue_id)
 
     if task_updates or epic_created:
         new_text = rewrite_plan(text, epic_id, epic_created, task_updates)
         plan_path.write_text(new_text, encoding="utf-8")
+
+    prereq_last_ids = []
+    for prereq_id in parse_depends_on(frontmatter):
+        last_id = resolve_prereq_last_task_id(plan_path.parent, prereq_id)
+        if last_id is None:
+            print(f"prerequisite plan {prereq_id} not yet synced -- skipping cross-plan edge")
+        else:
+            prereq_last_ids.append(last_id)
+    apply_dependency_edges(derive_dependency_edges(task_ids, prereq_last_ids))
 
     print(f"Synced {created_count} issue(s) -> epic {epic_id}")
     return 0
