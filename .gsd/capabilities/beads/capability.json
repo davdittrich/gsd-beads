@@ -95,6 +95,20 @@
       ],
       "when": "beads.enabled",
       "onError": "skip"
+    },
+    {
+      "point": "verify:post",
+      "ref": {
+        "skill": "beads-status"
+      },
+      "produces": [
+        "BEADS.md"
+      ],
+      "consumes": [
+        "UAT.md"
+      ],
+      "when": "beads.enabled",
+      "onError": "skip"
     }
   ],
   "contributions": [

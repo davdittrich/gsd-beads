@@ -1463,5 +1463,85 @@ class TestWaveStatusBlock(unittest.TestCase):
         self.assertIn("no synced issues for this wave", captured.getvalue())
 
 
+class TestBlockingOpen(unittest.TestCase):
+    """B9: blocking_open counts every open issue under the phase's shared
+    epic, no priority/type filtering (D-01/D-02) -- equal to open_count,
+    the same figure BEADS.md's existing `open:` field already reports."""
+
+    @mock.patch("subprocess.run")
+    def test_zero_row_epic_yields_blocking_open_zero(self, mock_run):
+        mock_run.side_effect = _make_beads_md_bd_side_effect("[]\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+            )
+            sync.regenerate_beads_md(str(phase_dir))
+            text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+
+        self.assertIn("blocking_open: 0", text)
+
+    @mock.patch("subprocess.run")
+    def test_two_open_one_closed_yields_blocking_open_two(self, mock_run):
+        rows = json.dumps(
+            [
+                {"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []},
+                {"id": "regen-epic.2", "title": "Regen thing 2", "status": "open", "dependencies": []},
+                {"id": "regen-epic.3", "title": "Regen thing 3", "status": "closed", "dependencies": []},
+            ]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+            )
+            sync.regenerate_beads_md(str(phase_dir))
+            text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+
+        self.assertIn("blocking_open: 2", text)
+
+
+class TestDivergence(unittest.TestCase):
+    """B10: diverged counts each synced issue whose bd closed-ness disagrees
+    with its linked task's completion state, in either direction (D-04);
+    the table's Task Status column names the task-completion side of a
+    diverged row without cross-referencing PLAN.md/SUMMARY.md (D-06)."""
+
+    @mock.patch("subprocess.run")
+    def test_closed_issue_with_incomplete_task_diverges(self, mock_run):
+        rows = json.dumps(
+            [
+                {"id": "regen-epic.1", "title": "Regen thing 1", "status": "closed", "dependencies": []},
+                {"id": "regen-epic.2", "title": "Regen thing 2", "status": "open", "dependencies": []},
+            ]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            # has_summary=False: no plan in this phase has completed, so
+            # neither issue's linked task counts as done -- the closed
+            # regen-epic.1 row disagrees (closed but incomplete), the open
+            # regen-epic.2 row agrees (open and incomplete).
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), False)]
+            )
+            sync.regenerate_beads_md(str(phase_dir))
+            text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+
+        self.assertIn("diverged: 1", text)
+        row = _find_table_row(text, "regen-epic.1")
+        self.assertEqual(row[3], "incomplete")
+
+    @mock.patch("subprocess.run")
+    def test_zero_row_epic_yields_diverged_zero(self, mock_run):
+        mock_run.side_effect = _make_beads_md_bd_side_effect("[]\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+            )
+            sync.regenerate_beads_md(str(phase_dir))
+            text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+
+        self.assertIn("diverged: 0", text)
+
+
 if __name__ == "__main__":
     unittest.main()

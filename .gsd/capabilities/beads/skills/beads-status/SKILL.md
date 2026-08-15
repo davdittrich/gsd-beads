@@ -36,23 +36,28 @@ Beads status is disabled (beads.enabled).
 Nothing was closed; the loop proceeds normally.
 ```
 
-This step is `onError: skip` at both `execute:wave:pre` and `execute:wave:post` -- neither
-dispatch ever fails a phase.
+This step is `onError: skip` at all three points (`execute:wave:pre`, `execute:wave:post`,
+`verify:post`) -- no dispatch ever fails a phase.
 
 ## Step 1.5 -- Lifecycle-point branch (D-11)
 
-This skill is registered at **two** `capability.json` `steps[]` entries, both `ref.skill:
-"beads-status"`. Determine which point dispatched this run and follow the matching branch below
--- **do not** collapse them into one call; a future editor who merges these two branches will
-silently either close issues too early (at `execute:wave:pre`, before the wave's work exists) or
-stop naming the wave's issues to the orchestrator (at `execute:wave:post`, after it no longer
-matters for prompt composition).
+This skill is registered at **three** `capability.json` `steps[]` entries, all `ref.skill:
+"beads-status"`: `execute:wave:pre`, `execute:wave:post`, and `verify:post`. Determine which
+point dispatched this run and follow the matching branch below -- **do not** collapse any two of
+them into one call; a future editor who merges branches will silently either close issues too
+early (at `execute:wave:pre`, before the wave's work exists), stop naming the wave's issues to
+the orchestrator (at `execute:wave:post`, after it no longer matters for prompt composition), or
+dispatch a spurious close-wave at `verify:post` (which has no wave/plan-id context at all).
 
 **At `execute:wave:pre`** (before any executor `Agent()` call is spawned for this wave): follow
 **Step 2a** below, then **stop** -- do not proceed to Step 2's close-wave dispatch.
 
 **At `execute:wave:post`** (after every plan in this wave has merged): proceed directly to the
 existing **Step 2** close-wave dispatch, unchanged from Phase 1.
+
+**At `verify:post`** (once per phase, after UAT records zero issues, before the phase-completion
+predicate): follow **Step 2b** below, then **stop** -- do not proceed to Step 2's close-wave
+dispatch.
 
 ## Step 2a -- execute:wave:pre: Regenerate BEADS.md and compose the wave-status block (B8)
 
@@ -76,6 +81,21 @@ forwarding -- `execute:wave:pre` has no working slot that forwards fragment text
 into a spawned `Agent()` prompt). B8's literal
 acceptance criterion is checked by grepping the real `prompt=` text an `Agent()` call receives for
 these issue ids, not by inferring it from behavior.
+
+## Step 2b -- verify:post: Regenerate BEADS.md only
+
+Run one Bash call passing only the phase directory -- there is no wave/plan-id list at this
+lifecycle point:
+
+```bash
+python3 .gsd/capabilities/beads/scripts/sync.py regenerate-beads-md <phase directory>
+```
+
+This is the identical read-only call Step 2a already uses, but with no `<beads_status>` block
+printed and no plan-id argument, since there is no executor prompt to compose here and no single
+wave's issues to name. It regenerates `BEADS.md` -- recomputing `blocking_open`/`diverged` (D-03)
+-- so the projection going into `ship:pre`'s gates is fresh. Then stop; do not call `close-wave`
+from this branch.
 
 ## Step 2 -- Batch close dispatch (execute:wave:post only)
 
@@ -124,7 +144,9 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
 5. DO NOT collapse the `execute:wave:pre` and `execute:wave:post` branches (Step 1.5) into one
    call, and DO NOT call `sync.py close-wave` from the `execute:wave:pre` branch -- closing at
    `execute:wave:pre` would close issues before this wave's executors have even started.
-6. DO NOT embed the `<beads_status>` block's content inside a manifest-level fragment file and
+6. DO NOT collapse the `verify:post` branch into either of the two `execute:wave` branches --
+   `verify:post` fires once per **phase** (not once per wave) and never dispatches `close-wave`.
+7. DO NOT embed the `<beads_status>` block's content inside a manifest-level fragment file and
    expect it to reach the executor automatically -- `execute:wave:pre` has no template slot that
    forwards fragment text into a spawned `Agent()` call's `prompt=`. Pasting the block into that
    `prompt=` string is your own next action as the orchestrator, per Step 2a.
