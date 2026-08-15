@@ -14,7 +14,7 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
   N-task phase, `bd list --parent <epic>` returns exactly N issues whose titles match the plan's
   tasks.
 
-- [ ] **B2**: Plan task ordering becomes beads dependencies. Task 3 depending on task 1 shows
+- [x] **B2**: Plan task ordering becomes beads dependencies. Task 3 depending on task 1 shows
   task 1 as a blocker in `bd show`; `bd ready` excludes task 3 until task 1 closes.
 
 - [ ] **B3**: Task completion closes its issue automatically. After a wave completes task 2, that
@@ -24,7 +24,7 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
   a `beads-id:` written on first sync; re-sync resolves by that id. Renaming a task title does
   not create a second issue.
 
-- [ ] **B5**: Sync is idempotent. Two syncs over an unchanged plan create zero issues and modify
+- [x] **B5**: Sync is idempotent. Two syncs over an unchanged plan create zero issues and modify
   zero issues, proven by a `bd list --json` diff.
 
 - [x] **B6**: `bd` absent, failing or locked degrades to a no-op with one visible notice. With
@@ -85,10 +85,10 @@ None identified — all 14 requirements extracted from the PRD are in v1 scope.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | B1 | Phase 1 | Complete |
-| B2 | Phase 1 | Pending |
+| B2 | Phase 1 | Complete |
 | B3 | Phase 1 | Pending |
 | B4 | Phase 1 | Complete |
-| B5 | Phase 1 | Pending |
+| B5 | Phase 1 | Complete |
 | B6 | Phase 1 | Complete |
 | B7 | Phase 2 | Pending |
 | B8 | Phase 2 | Pending |

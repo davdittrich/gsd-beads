@@ -5,15 +5,15 @@ milestone_name: milestone
 current_phase: 01
 current_phase_name: substrate
 status: executing
-stopped_at: Completed 01-01-PLAN.md
-last_updated: "2026-08-15T01:55:20.336Z"
+stopped_at: Completed 01-02-PLAN.md
+last_updated: "2026-08-15T02:05:27.783Z"
 last_activity: 2026-08-15
 last_activity_desc: Roadmap created from PRD ingest (docs/prd-beads-capability.md)
 progress:
   total_phases: 1
   completed_phases: 0
   total_plans: 3
-  completed_plans: 1
+  completed_plans: 2
 ---
 
 # Project State
@@ -29,11 +29,11 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 01 (substrate) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Last activity: 2026-08-15 — Phase 01 execution started
 
-Progress: [███░░░░░░░] 33%
+Progress: [███████░░░] 67%
 
 ## Performance Metrics
 
@@ -60,6 +60,7 @@ Progress: [███░░░░░░░] 33%
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 01 P01 | 8min | 2 tasks | 7 files |
+| Phase 01 P02 | 12min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -75,6 +76,9 @@ Recent decisions affecting current work:
 - [Phase ?]: beads capability.json skills[] lists only beads-sync (not beads-status, which doesn't exist until Plan 03)
 - [Phase ?]: sync.py derives the ordinal prefix from the PLAN.md filename, never from frontmatter text, keeping T-01-02 path confinement trivially true
 - [Phase ?]: epic resolution falls through to a fresh bd create when a stored beads_epic id no longer resolves, rather than hard-erroring (B6 fail-open ethos)
+- [Phase ?]: sync.py: dependency-edge derivation matches depends_on entries only against phase-directory-discovered PLAN.md files, never a path built from artifact text (T-01-04)
+- [Phase ?]: sync.py: resolve_issue now calls bd show for every already-identity-bound task to detect D-07 stale-identity divergence -- adds one bd call per task per run but never a create/update call
+- [Phase ?]: sync.py: dependency-edge application and orphan closure are fail-open (print and continue on a failed bd call), unlike epic/task creation which still raises
 
 ### Pending Todos
 
@@ -101,6 +105,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T01:55:20.330Z
-Stopped at: Completed 01-01-PLAN.md
+Last session: 2026-08-15T02:05:27.777Z
+Stopped at: Completed 01-02-PLAN.md
 Resume file: None
