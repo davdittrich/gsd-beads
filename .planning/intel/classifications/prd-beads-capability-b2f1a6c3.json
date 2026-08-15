@@ -1,0 +1,13 @@
+{
+  "source_path": "/home/dd/Gemini/gsd-beads/docs/prd-beads-capability.md",
+  "type": "PRD",
+  "confidence": "high",
+  "manifest_override": false,
+  "title": "PRD — `beads`: first-class issue tracking for gsd-core",
+  "summary": "Requirements for a gsd-core capability making beads the authoritative task-state substrate via an installed overlay.",
+  "scope": ["beads", "gsd-core", "capability overlay", "task state", "issue tracking", "capability-loader"],
+  "cross_refs": ["capabilities/mempalace/capability.json", "src/capability-loader.cts", "tests/capability-loader.test.cjs", "ADR-1244"],
+  "locked": false,
+  "precedence": null,
+  "notes": ""
+}
