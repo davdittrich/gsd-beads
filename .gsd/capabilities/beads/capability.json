@@ -37,6 +37,11 @@
       ],
       "default": "authoritative",
       "description": "authoritative (default): bd owns task status and task content (title/description) after first sync. Content originates in PLAN.md at first sync, but PLAN.md task text is never re-synced from later bd edits (D-01). 'mirror' and 'off' are reserved for later phases."
+    },
+    "beads.ship_gate": {
+      "type": "boolean",
+      "default": true,
+      "description": "When true, ship:pre blocks on blocking_open>0 or diverged>0 in BEADS.md."
     }
   },
   "steps": [
@@ -109,6 +114,18 @@
       ],
       "when": "beads.enabled",
       "onError": "skip"
+    },
+    {
+      "point": "ship:pre",
+      "ref": {
+        "skill": "beads-status"
+      },
+      "produces": [],
+      "consumes": [
+        "BEADS.md"
+      ],
+      "when": "beads.enabled",
+      "onError": "skip"
     }
   ],
   "contributions": [
@@ -126,5 +143,34 @@
       "onError": "skip"
     }
   ],
-  "gates": []
+  "gates": [
+    {
+      "point": "ship:pre",
+      "check": {
+        "predicate": {
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "BEADS.md",
+          "field": "blocking_open",
+          "equals": 0
+        }
+      },
+      "when": "beads.ship_gate",
+      "blocking": true,
+      "onError": "skip"
+    },
+    {
+      "point": "ship:pre",
+      "check": {
+        "predicate": {
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "BEADS.md",
+          "field": "diverged",
+          "equals": 0
+        }
+      },
+      "when": "beads.ship_gate",
+      "blocking": true,
+      "onError": "skip"
+    }
+  ]
 }

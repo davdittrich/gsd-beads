@@ -36,18 +36,19 @@ Beads status is disabled (beads.enabled).
 Nothing was closed; the loop proceeds normally.
 ```
 
-This step is `onError: skip` at all three points (`execute:wave:pre`, `execute:wave:post`,
-`verify:post`) -- no dispatch ever fails a phase.
+This step is `onError: skip` at all four points (`execute:wave:pre`, `execute:wave:post`,
+`verify:post`, `ship:pre`) -- no dispatch ever fails a phase.
 
 ## Step 1.5 -- Lifecycle-point branch (D-11)
 
-This skill is registered at **three** `capability.json` `steps[]` entries, all `ref.skill:
-"beads-status"`: `execute:wave:pre`, `execute:wave:post`, and `verify:post`. Determine which
-point dispatched this run and follow the matching branch below -- **do not** collapse any two of
-them into one call; a future editor who merges branches will silently either close issues too
-early (at `execute:wave:pre`, before the wave's work exists), stop naming the wave's issues to
-the orchestrator (at `execute:wave:post`, after it no longer matters for prompt composition), or
-dispatch a spurious close-wave at `verify:post` (which has no wave/plan-id context at all).
+This skill is registered at **four** `capability.json` `steps[]` entries, all `ref.skill:
+"beads-status"`: `execute:wave:pre`, `execute:wave:post`, `verify:post`, and `ship:pre`. Determine
+which point dispatched this run and follow the matching branch below -- **do not** collapse any
+two of them into one call; a future editor who merges branches will silently either close issues
+too early (at `execute:wave:pre`, before the wave's work exists), stop naming the wave's issues to
+the orchestrator (at `execute:wave:post`, after it no longer matters for prompt composition),
+dispatch a spurious close-wave at `verify:post` (which has no wave/plan-id context at all), or
+skip recording an override at `ship:pre`.
 
 **At `execute:wave:pre`** (before any executor `Agent()` call is spawned for this wave): follow
 **Step 2a** below, then **stop** -- do not proceed to Step 2's close-wave dispatch.
@@ -58,6 +59,9 @@ existing **Step 2** close-wave dispatch, unchanged from Phase 1.
 **At `verify:post`** (once per phase, after UAT records zero issues, before the phase-completion
 predicate): follow **Step 2b** below, then **stop** -- do not proceed to Step 2's close-wave
 dispatch.
+
+**At `ship:pre`** (once per phase, immediately before the ship gates evaluate): follow
+**Step 2c** below, then **stop** -- do not proceed to Step 2's close-wave dispatch.
 
 ## Step 2a -- execute:wave:pre: Regenerate BEADS.md and compose the wave-status block (B8)
 
@@ -96,6 +100,33 @@ printed and no plan-id argument, since there is no executor prompt to compose he
 wave's issues to name. It regenerates `BEADS.md` -- recomputing `blocking_open`/`diverged` (D-03)
 -- so the projection going into `ship:pre`'s gates is fresh. Then stop; do not call `close-wave`
 from this branch.
+
+## Step 2c -- ship:pre: record an override if one occurred
+
+Read `{padded_phase}-BEADS.md`'s `blocking_open`/`diverged` frontmatter fields and
+`.planning/config.json`'s `beads.ship_gate` value. When `beads.ship_gate` is `false` **and**
+(`blocking_open > 0` **or** `diverged > 0`), run:
+
+```bash
+python3 .gsd/capabilities/beads/scripts/sync.py ship-override <phase directory>
+```
+
+and report its printed summary (the recorded git trailer, and the bd comment outcome or B6 skip
+notice). Otherwise this branch is a no-op -- print nothing.
+
+## Known Gap (verified during Phase 3 planning)
+
+The installed gsd-core `/gsd-ship` workflow's `preflight_checks` step only special-cases
+`capId == "security"` and `capId == "broken-windows"` at `ship:pre` (confirmed by reading
+`$HOME/.claude/gsd-core/workflows/ship.md` directly) -- there is no generic `ship:pre`
+hook-dispatch loop for other capability ids in that file. This capability's `ship:pre`
+`gates[]`/`steps[]` entries are therefore declarative and forward-compatible, **not yet
+live-enforced** by `/gsd-ship`. Making them live requires either an upstream gsd-core change
+(generic `ship:pre` dispatch, or a beads-specific block analogous to security/broken-windows) or a
+local patch to `ship.md`; the latter is out of scope for this skill per this project's N2
+constraint (overlay-only, no gsd-core fork/patch) -- raise the gap upstream instead of working
+around it here (see `03-03-PLAN.md` for the machine-local patch this project separately
+authorized, and open-gsd/gsd-core#3554 for the upstream request).
 
 ## Step 2 -- Batch close dispatch (execute:wave:post only)
 
@@ -150,3 +181,5 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
    expect it to reach the executor automatically -- `execute:wave:pre` has no template slot that
    forwards fragment text into a spawned `Agent()` call's `prompt=`. Pasting the block into that
    `prompt=` string is your own next action as the orchestrator, per Step 2a.
+8. DO NOT assume this SKILL.md registration alone makes `/gsd-ship` block -- verify against the
+   installed `ship.md` before relying on it (see "Known Gap" above).
