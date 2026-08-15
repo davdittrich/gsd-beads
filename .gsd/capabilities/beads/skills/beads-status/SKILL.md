@@ -114,19 +114,28 @@ python3 .gsd/capabilities/beads/scripts/sync.py ship-override <phase directory>
 and report its printed summary (the recorded git trailer, and the bd comment outcome or B6 skip
 notice). Otherwise this branch is a no-op -- print nothing.
 
-## Known Gap (verified during Phase 3 planning)
+## Step 2d -- ship:pre: verify the local ship.md patch (reapply check)
 
-The installed gsd-core `/gsd-ship` workflow's `preflight_checks` step only special-cases
-`capId == "security"` and `capId == "broken-windows"` at `ship:pre` (confirmed by reading
-`$HOME/.claude/gsd-core/workflows/ship.md` directly) -- there is no generic `ship:pre`
-hook-dispatch loop for other capability ids in that file. This capability's `ship:pre`
-`gates[]`/`steps[]` entries are therefore declarative and forward-compatible, **not yet
-live-enforced** by `/gsd-ship`. Making them live requires either an upstream gsd-core change
-(generic `ship:pre` dispatch, or a beads-specific block analogous to security/broken-windows) or a
-local patch to `ship.md`; the latter is out of scope for this skill per this project's N2
-constraint (overlay-only, no gsd-core fork/patch) -- raise the gap upstream instead of working
-around it here (see `03-03-PLAN.md` for the machine-local patch this project separately
-authorized, and open-gsd/gsd-core#3554 for the upstream request).
+This step always runs at `ship:pre`, independent of whether Step 2c did anything. Run:
+
+```bash
+python3 .gsd/capabilities/beads/scripts/sync.py check-shipmd-patch
+```
+
+If its output contains the "⚠" warning line, surface it to the user verbatim -- never swallow it
+-- but never block shipping on it; this is diagnostic only, matching the `onError: skip` this
+entire beads-status `ship:pre` dispatch already runs under.
+
+## Patch Status (gap closed locally, 03-03)
+
+The two hardcoded `capId` checks (`security`/`broken-windows`) that made the installed
+`/gsd-ship` workflow's `ship:pre` dispatch gap true during Plan 02's planning are now joined by a
+generic `ship:pre` gate+step dispatch loop, patched locally into the installed
+`$HOME/.claude/gsd-core/workflows/ship.md` (marked with the `gsd-beads-patch:
+ship-pre-generic-dispatch v1` comment, reapply source in `GSD-CORE-PATCH.md`, detected by Step 2d
+above on every `ship:pre` dispatch). The underlying gap is also filed upstream as
+open-gsd/gsd-core#3554 -- once that lands natively, this local patch (and this Step 2d /
+`GSD-CORE-PATCH.md`) should be deleted, not kept as permanent duplication.
 
 ## Step 2 -- Batch close dispatch (execute:wave:post only)
 
@@ -181,5 +190,8 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
    expect it to reach the executor automatically -- `execute:wave:pre` has no template slot that
    forwards fragment text into a spawned `Agent()` call's `prompt=`. Pasting the block into that
    `prompt=` string is your own next action as the orchestrator, per Step 2a.
-8. DO NOT assume this SKILL.md registration alone makes `/gsd-ship` block -- verify against the
-   installed `ship.md` before relying on it (see "Known Gap" above).
+8. DO NOT assume this SKILL.md registration alone makes `/gsd-ship` block -- Step 2d verifies the
+   installed `ship.md` patch is present on every `ship:pre` dispatch (see "Patch Status" above).
+9. DO NOT skip Step 2d or swallow its "⚠" warning when the local `ship.md` patch is missing -- it
+   is diagnostic-only (never blocks shipping), but a silently-dropped patch means Plan 01/02's
+   gates and `ship_override` stop firing with no other visible signal.

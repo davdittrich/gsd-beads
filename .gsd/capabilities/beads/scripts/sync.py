@@ -10,6 +10,7 @@ T-01-01).
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -30,6 +31,10 @@ BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
 PLAN_FILE_RE = re.compile(r"^(\d{2}-\d{2})-PLAN\.md$")
 BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
+# 03-03 Task 2: the literal marker bracketing the local ship.md patch
+# (GSD-CORE-PATCH.md) -- check_shipmd_patch does a plain substring check
+# against this, never a regex, since the marker is a fixed literal string.
+SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->"
 
 
 def run_bd(argv, timeout=BD_TIMEOUT):
@@ -1041,6 +1046,37 @@ def ship_override(phase_dir_arg):
     return 0 if git_ok else 1
 
 
+def check_shipmd_patch(ship_md_path_override=None):
+    """D-05 gap-closure diagnostic (03-03 Task 2): report whether the local
+    `ship.md` patch (GSD-CORE-PATCH.md) is present in the installed,
+    machine-local `ship.md` -- a future gsd-core update or capability
+    reinstall can silently overwrite that file and drop the patch with no
+    error, so this runs on every `ship:pre` dispatch (SKILL.md Step 2d), not
+    only at install time. Read-only: never edits ship.md itself."""
+    if ship_md_path_override:
+        ship_md_path = Path(ship_md_path_override)
+    else:
+        ship_md_path = (
+            Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+            / "gsd-core"
+            / "workflows"
+            / "ship.md"
+        )
+    if not ship_md_path.exists():
+        print(f"ship.md not found at {ship_md_path} -- cannot verify the local ship:pre dispatch patch")
+        return 1
+    text = ship_md_path.read_text(encoding="utf-8")
+    if SHIP_MD_PATCH_MARKER in text:
+        print("ship.md ship:pre patch: present (v1)")
+        return 0
+    print(
+        "⚠ ship.md's ship:pre generic gate/step dispatch patch (beads) is missing -- "
+        "the two ship:pre gates and the ship_override step will not fire. Reapply: "
+        "see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
+    )
+    return 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="sync.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1075,6 +1111,11 @@ def main(argv=None):
         help="Record a beads.ship_gate=false bypass via a git trailer plus a best-effort bd comment (D-05)",
     )
     ship_override_p.add_argument("phase_dir")
+    check_shipmd_patch_p = sub.add_parser(
+        "check-shipmd-patch",
+        help="Report whether the local ship.md ship:pre dispatch patch (GSD-CORE-PATCH.md) is present",
+    )
+    check_shipmd_patch_p.add_argument("--ship-md-path", default=None)
     args = parser.parse_args(argv)
     if args.command == "create-issues":
         return create_issues(args.plan_path)
@@ -1088,6 +1129,8 @@ def main(argv=None):
         return render_wave_status_block(args.phase_dir, args.plan_ids)
     if args.command == "ship-override":
         return ship_override(args.phase_dir)
+    if args.command == "check-shipmd-patch":
+        return check_shipmd_patch(args.ship_md_path)
     return 1
 
 
