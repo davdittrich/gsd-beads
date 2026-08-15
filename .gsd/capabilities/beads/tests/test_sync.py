@@ -570,6 +570,233 @@ class TestIdempotency(unittest.TestCase):
         self.assertEqual(create_calls, [])
 
 
+def _three_task_two_synced_plan_text():
+    """Three tasks, only the first two carrying a <beads-id> -- the third was
+    never synced (e.g. a checkpoint task), exercising the "of which two
+    completed" wording from 01-03-PLAN.md's <behavior> block: two ids are
+    closeable, the third contributes nothing because it never had one."""
+    tasks = []
+    for i in (1, 2, 3):
+        beads_id_line = (
+            f"\n  <beads-id>tracer-wave2.{i}</beads-id>" if i in (1, 2) else ""
+        )
+        tasks.append(
+            f'''<task type="auto">
+  <name>Task {i}: Do thing {i}</name>{beads_id_line}
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <action>Implement thing {i}.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <acceptance_criteria>
+    - src/example.py exists
+  </acceptance_criteria>
+  <done>Thing {i} is implemented.</done>
+</task>'''
+        )
+    return f"""---
+phase: 01-substrate
+plan: 06
+type: execute
+wave: 3
+depends_on: []
+beads_epic: tracer-wave2
+files_modified:
+  - src/example.py
+autonomous: true
+requirements: [B3]
+---
+
+<objective>
+Single-plan wave fixture, three tasks, only two synced -- TestCloseWave's
+partial-completion case.
+</objective>
+
+<tasks>
+
+{chr(10).join(tasks)}
+
+</tasks>
+"""
+
+
+def _write_wave_workspace(tmp_path, plans, with_state=False):
+    """Lay out a minimal .planning/ tree and drop each (plan_id, plan_text,
+    has_summary) entry at .planning/phases/01-substrate/<plan_id>-PLAN.md
+    (+ a minimal SUMMARY.md when has_summary is True). Returns phase_dir."""
+    planning_dir = tmp_path / ".planning"
+    phase_dir = planning_dir / "phases" / "01-substrate"
+    phase_dir.mkdir(parents=True)
+    (planning_dir / "ROADMAP.md").write_text(
+        "### Phase 1: Substrate\nGoal.\n", encoding="utf-8"
+    )
+    if with_state:
+        (planning_dir / "STATE.md").write_text(
+            "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+            encoding="utf-8",
+        )
+    for plan_id, plan_text, has_summary in plans:
+        (phase_dir / f"{plan_id}-PLAN.md").write_text(plan_text, encoding="utf-8")
+        if has_summary:
+            (phase_dir / f"{plan_id}-SUMMARY.md").write_text(
+                "status: complete\n", encoding="utf-8"
+            )
+    return phase_dir
+
+
+def _make_close_wave_bd_side_effect():
+    """A subprocess.run stand-in for close-wave tests: the bd_available probe
+    (`bd list --json -n 1`) always succeeds; `bd list --id ... --status ...`
+    answers only with ids not yet in the running `closed` set; `bd close`
+    records every id it's given into that same set, so a second close_wave
+    call over the same ids sees them as already closed (idempotency)."""
+    closed = set()
+
+    def _side_effect(argv, **kwargs):
+        if argv[:3] == ["bd", "list", "--json"]:
+            return _completed(0, stdout="[]\n")
+        if argv[:3] == ["bd", "list", "--id"]:
+            requested = argv[argv.index("--id") + 1].split(",")
+            open_rows = [{"id": i, "status": "open"} for i in requested if i not in closed]
+            return _completed(0, stdout=json.dumps(open_rows))
+        if argv[:2] == ["bd", "close"]:
+            reason_idx = argv.index("--reason")
+            closed.update(argv[2:reason_idx])
+            return _completed(0)
+        return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+    return _side_effect
+
+
+class TestCloseWave(unittest.TestCase):
+    """B3: execute:wave:post fires once per wave carrying a list of plan
+    ids, never once per task -- close_wave must batch-close every completed
+    task's issue across every plan in that list in one dispatch."""
+
+    @mock.patch("subprocess.run")
+    def test_two_plan_wave_two_completed_tasks_each_closes_four_ids_in_one_call(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            plan_b = (FIXTURES_DIR / "plan-wave-b.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-05", plan_b, True)],
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04", "01-05"])
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(len(close_argvs), 1)
+        reason_idx = close_argvs[0].index("--reason")
+        closed_ids = close_argvs[0][2:reason_idx]
+        self.assertEqual(
+            set(closed_ids),
+            {"tracer-wave1.1", "tracer-wave1.2", "tracer-wave1.3", "tracer-wave1.4"},
+        )
+
+    @mock.patch("subprocess.run")
+    def test_incomplete_plan_contributes_nothing_and_never_appears_in_close_argv(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            plan_b = (FIXTURES_DIR / "plan-wave-b.md").read_text(encoding="utf-8")
+            # plan-wave-b is NOT yet complete (no SUMMARY.md) -- none of its
+            # task ids may appear in the close argv.
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-05", plan_b, False)],
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04", "01-05"])
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(len(close_argvs), 1)
+        reason_idx = close_argvs[0].index("--reason")
+        closed_ids = set(close_argvs[0][2:reason_idx])
+        self.assertEqual(closed_ids, {"tracer-wave1.1", "tracer-wave1.2"})
+        self.assertNotIn("tracer-wave1.3", closed_ids)
+        self.assertNotIn("tracer-wave1.4", closed_ids)
+
+    @mock.patch("subprocess.run")
+    def test_task_with_no_beads_id_skipped_and_reported_two_of_three_close(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-06", _three_task_two_synced_plan_text(), True)]
+            )
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.close_wave(str(phase_dir), ["01-06"])
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(len(close_argvs), 1)
+        reason_idx = close_argvs[0].index("--reason")
+        closed_ids = set(close_argvs[0][2:reason_idx])
+        self.assertEqual(closed_ids, {"tracer-wave2.1", "tracer-wave2.2"})
+        self.assertIn("skipped 1 task(s)", captured.getvalue())
+
+    @mock.patch("subprocess.run")
+    def test_repeat_run_over_already_closed_wave_issues_zero_close_calls(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            plan_b = (FIXTURES_DIR / "plan-wave-b.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-05", plan_b, True)],
+            )
+            sync.close_wave(str(phase_dir), ["01-04", "01-05"])
+            mock_run.reset_mock()
+            exit_code = sync.close_wave(str(phase_dir), ["01-04", "01-05"])
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(close_argvs, [])
+
+    def test_bd_unavailable_close_wave_exits_zero_with_one_notice_and_closes_nothing(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                tmp_path, [("01-04", plan_a, True)], with_state=True
+            )
+            state_path = tmp_path / ".planning" / "STATE.md"
+
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                with mock.patch("shutil.which", return_value=None):
+                    with mock.patch(
+                        "subprocess.run",
+                        side_effect=AssertionError("bd must not be invoked when absent"),
+                    ):
+                        exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
+            state_text = state_path.read_text(encoding="utf-8")
+            self.assertEqual(state_text.count("### Blockers/Concerns"), 1)
+            self.assertEqual(state_text.count("bd unavailable"), 1)
+
+
 class TestFailOpen(unittest.TestCase):
     """B6: bd absent, or every bd invocation failing, degrades to exit 0, one
     stdout notice, one STATE.md bullet, and no BEADS.md -- never an

@@ -286,6 +286,107 @@ def rewrite_plan(text, epic_id, epic_created, task_updates):
     return text
 
 
+def find_completed_task_ids(phase_dir, plan_id):
+    """Return (task_ids, skipped_count) for one plan in a wave.
+
+    Completion is plan-granular: a plan whose SUMMARY.md exists has finished
+    every one of its tasks (gsd-core's own completion marker -- see
+    wave_granularity_fact); a plan with no SUMMARY.md yet contributes
+    nothing. Within a completed plan, a task with no <beads-id> (never
+    synced, e.g. a checkpoint task) is counted skipped rather than raised.
+    """
+    plan_path = discover_plan_files(phase_dir).get(plan_id)
+    if plan_path is None:
+        return [], 0
+    summary_path = plan_path.with_name(f"{plan_id}-SUMMARY.md")
+    if not summary_path.exists():
+        return [], 0
+    _, _, tasks = parse_plan(plan_path)
+    ids = []
+    skipped = 0
+    for task in tasks:
+        if task["beads_id"]:
+            ids.append(task["beads_id"])
+        else:
+            skipped += 1
+    return ids, skipped
+
+
+def filter_open_ids(ids):
+    """Return the subset of `ids` bd still reports as not-closed.
+
+    One `bd list --id ... --status ...` query for the whole batch (never one
+    `bd show` per id) is the "explicit status filter" idempotency check: an
+    id bd no longer returns here is already closed, so a repeat close-wave
+    dispatch over an already-closed wave issues zero close calls (B5).
+    """
+    if not ids:
+        return []
+    result = run_bd(
+        [
+            "bd",
+            "list",
+            "--id",
+            ",".join(ids),
+            "--status",
+            "open,in_progress,blocked,deferred",
+            "--json",
+        ]
+    )
+    if result.returncode != 0:
+        return list(ids)  # fail-open: status unconfirmed, attempt the close anyway
+    try:
+        rows = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return list(ids)
+    open_ids = {r["id"] for r in rows}
+    return [i for i in ids if i in open_ids]
+
+
+def close_wave(phase_dir_arg, plan_ids):
+    if not bd_available():
+        print(NOTICE)
+        try:
+            project_root = find_project_root(Path(phase_dir_arg).resolve())
+        except ValueError:
+            project_root = None
+        if project_root is not None:
+            append_state_blocker(
+                confined(project_root, ".planning", "STATE.md"),
+                "bd unavailable -- beads-status close-wave skipped (B6/D-08)",
+            )
+        return 0
+
+    phase_dir = Path(phase_dir_arg).resolve()
+
+    all_ids = []
+    skipped_total = 0
+    plan_counts = []
+    for plan_id in plan_ids:
+        ids, skipped = find_completed_task_ids(phase_dir, plan_id)
+        all_ids.extend(ids)
+        skipped_total += skipped
+        plan_counts.append((plan_id, len(ids)))
+
+    # De-duplicate while preserving order, in case the same task id is
+    # somehow named twice across the wave's plans.
+    unique_ids = list(dict.fromkeys(all_ids))
+    to_close = filter_open_ids(unique_ids)
+
+    if to_close:
+        reason = f"wave complete: {', '.join(plan_ids)}"
+        result = run_bd(["bd", "close", *to_close, "--reason", reason])
+        if result.returncode != 0:
+            print(f"close-wave: bd close failed: {result.stderr.strip()}")
+
+    per_plan = ", ".join(f"{pid}:{n}" for pid, n in plan_counts)
+    print(
+        f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) ({per_plan}); "
+        f"skipped {skipped_total} task(s) with no beads-id"
+    )
+    return 0
+
+
 def create_issues(plan_arg):
     if not bd_available():
         print(NOTICE)
@@ -364,9 +465,17 @@ def main(argv=None):
         "create-issues", help="Sync a PLAN.md's tasks into bd issues under a phase epic"
     )
     create_p.add_argument("plan_path")
+    close_p = sub.add_parser(
+        "close-wave",
+        help="Batch-close every completed task's issue across every plan in a wave",
+    )
+    close_p.add_argument("phase_dir")
+    close_p.add_argument("plan_ids", nargs="+")
     args = parser.parse_args(argv)
     if args.command == "create-issues":
         return create_issues(args.plan_path)
+    if args.command == "close-wave":
+        return close_wave(args.phase_dir, args.plan_ids)
     return 1
 
 
