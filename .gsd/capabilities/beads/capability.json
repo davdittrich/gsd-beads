@@ -16,7 +16,8 @@
     "unsupported": []
   },
   "skills": [
-    "beads-sync"
+    "beads-sync",
+    "beads-status"
   ],
   "agents": [],
   "hooks": [],
@@ -42,6 +43,20 @@
       "point": "plan:post",
       "ref": {
         "skill": "beads-sync"
+      },
+      "produces": [
+        "BEADS.md"
+      ],
+      "consumes": [
+        "PLAN.md"
+      ],
+      "when": "beads.enabled",
+      "onError": "skip"
+    },
+    {
+      "point": "execute:wave:post",
+      "ref": {
+        "skill": "beads-status"
       },
       "produces": [
         "BEADS.md"
