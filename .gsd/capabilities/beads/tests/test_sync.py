@@ -971,6 +971,135 @@ class TestBeadsRecall(unittest.TestCase):
             self.assertFalse(out_path.exists())
             self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
 
+    @mock.patch("subprocess.run")
+    def test_files_reverse_lookup_match_appears_under_matched_heading(self, mock_run):
+        """Technique 1: an issue whose <beads-id>-linked task's <files>
+        overlaps this phase's ROADMAP.md/CONTEXT.md mentions is listed under
+        the matched heading, tagged "matched via: files" -- constructed from
+        a second phase directory's PLAN.md under the same .planning/phases/
+        tree (cross-phase fixture, in-test, no new fixture files on disk)."""
+        issues = json.dumps(
+            [{"id": "bd-scoped.1", "title": "Touches sync.py", "status": "open"}]
+        )
+        mock_run.side_effect = _make_beads_recall_bd_side_effect(issues)
+        other_phase_plan_text = """---
+phase: 01-substrate
+plan: 01
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - .gsd/capabilities/beads/scripts/sync.py
+autonomous: true
+requirements: [B1]
+---
+
+<objective>
+Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Touch sync.py</name>
+  <beads-id>bd-scoped.1</beads-id>
+  <files>.gsd/capabilities/beads/scripts/sync.py</files>
+  <read_first>.gsd/capabilities/beads/scripts/sync.py</read_first>
+  <action>Do the thing.</action>
+  <verify>python3 -m py_compile .gsd/capabilities/beads/scripts/sync.py</verify>
+  <acceptance_criteria>
+    - sync.py exists
+  </acceptance_criteria>
+  <done>Done.</done>
+</task>
+
+</tasks>
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            phase_dir = _write_recall_phase_workspace(
+                tmp_path,
+                roadmap_section="Extends `.gsd/capabilities/beads/scripts/sync.py`.\n",
+            )
+            other_phase_dir = tmp_path / ".planning" / "phases" / "01-substrate"
+            other_phase_dir.mkdir(parents=True)
+            (other_phase_dir / "01-01-PLAN.md").write_text(other_phase_plan_text, encoding="utf-8")
+
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+            matched_section = text.split("## Open issues touching this phase's scope", 1)[1]
+            matched_section = matched_section.split("## Unscoped", 1)[0]
+            self.assertIn("bd-scoped.1", matched_section)
+            self.assertIn("matched via: files", matched_section)
+            unscoped_section = text.split("## Unscoped", 1)[1]
+            self.assertNotIn("bd-scoped.1", unscoped_section)
+
+    @mock.patch("subprocess.run")
+    def test_desc_contains_fallback_match_appears_under_matched_heading(self, mock_run):
+        """Technique 2: an issue with no matching <beads-id> anywhere, but
+        whose description substring-matches a phase-mentioned token, is
+        listed under the matched heading, tagged "matched via: description"."""
+        issues = json.dumps(
+            [{"id": "bd-desc.1", "title": "Hand-filed issue", "status": "open"}]
+        )
+        mock_run.side_effect = _make_beads_recall_bd_side_effect(
+            issues, desc_contains_matches={"bd-desc.1"}
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(
+                Path(tmp),
+                roadmap_section="Extends `.gsd/capabilities/beads/scripts/sync.py`.\n",
+            )
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+            matched_section = text.split("## Open issues touching this phase's scope", 1)[1]
+            matched_section = matched_section.split("## Unscoped", 1)[0]
+            self.assertIn("bd-desc.1", matched_section)
+            self.assertIn("matched via: description", matched_section)
+
+    @mock.patch("subprocess.run")
+    def test_unmatched_issue_stays_unscoped_never_dropped(self, mock_run):
+        """An issue matching neither technique 1 nor technique 2 stays under
+        Unscoped -- D-02, never omitted from the file entirely."""
+        issues = json.dumps(
+            [{"id": "bd-neither.1", "title": "Unrelated issue", "status": "open"}]
+        )
+        mock_run.side_effect = _make_beads_recall_bd_side_effect(issues)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(
+                Path(tmp),
+                roadmap_section="Extends `.gsd/capabilities/beads/scripts/sync.py`.\n",
+            )
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+            unscoped_section = text.split("## Unscoped", 1)[1]
+            self.assertIn("bd-neither.1", unscoped_section)
+
+    @mock.patch("subprocess.run")
+    def test_zero_open_issues_still_writes_none_found_body_with_scope_matching_wired(
+        self, mock_run
+    ):
+        """Regression check against Task 1's baseline: a zero-open-issues run
+        still writes the D-04 "none found" body once scope-matching (Task 2)
+        is wired in."""
+        mock_run.side_effect = _make_beads_recall_bd_side_effect("[]\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            self.assertIn("No open issues found.", out_path.read_text(encoding="utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()
