@@ -17,16 +17,15 @@ task-state bookkeeping survives in `.planning/`.
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ **B1**: One beads issue per `PLAN.md` task, parented to a phase epic — Phase 1
+- ✓ **B2**: Plan task ordering becomes beads dependencies — Phase 1
+- ✓ **B3**: Task completion closes its issue automatically — Phase 1
+- ✓ **B4**: Identity is bound explicitly via `beads-id:`, never by title matching — Phase 1
+- ✓ **B5**: Sync is idempotent — Phase 1
+- ✓ **B6**: `bd` absent, failing or locked degrades to a no-op with one visible notice — Phase 1
 
 ### Active
 
-- [ ] **B1**: One beads issue per `PLAN.md` task, parented to a phase epic
-- [ ] **B2**: Plan task ordering becomes beads dependencies
-- [ ] **B3**: Task completion closes its issue automatically
-- [ ] **B4**: Identity is bound explicitly via `beads-id:`, never by title matching
-- [ ] **B5**: Sync is idempotent
-- [ ] **B6**: `bd` absent, failing or locked degrades to a no-op with one visible notice
 - [ ] **B7**: The planner sees open issues before planning (`BEADS-RECALL.md`)
 - [ ] **B8**: The executor's prompt carries live issue state
 - [ ] **B9**: A phase with unfinished blocking issues cannot ship
@@ -98,10 +97,12 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Overlay capability (`beads`), not a gsd-core fork | Forking buys maintenance of 79 skills / 45 capabilities to add one integration and diverges from upstream permanently; overlays are a supported, tested extension point | — Pending |
-| `beads.sync_mode` defaults to `authoritative` for status and content | Discuss-phase 1 reversal (2026-08-15) of the original status-only split: bd is the single editable record post-creation, `PLAN.md` is not re-synced from it — avoids a two-way content merge while keeping one authoritative owner | — Pending |
-| Gate predicates read only generated artifact frontmatter (`BEADS.md`), never query `bd` directly | The only two shipped predicate kinds are `command-exists` and `artifact-frontmatter-equals`; no predicate calls an external tool | — Pending |
-| `gates[].onError: skip`, never `halt` | A missing/unreadable `BEADS.md` (capability disabled, `bd` absent, first run) must never strand a finished phase — the gate blocks only on a known bad state | — Pending |
+| Overlay capability (`beads`), not a gsd-core fork | Forking buys maintenance of 79 skills / 45 capabilities to add one integration and diverges from upstream permanently; overlays are a supported, tested extension point | Shipped Phase 1 — project-scope install/consent confirmed working against real gsd-core 1.10.0 |
+| `beads.sync_mode` defaults to `authoritative` for status and content | Discuss-phase 1 reversal (2026-08-15) of the original status-only split: bd is the single editable record post-creation, `PLAN.md` is not re-synced from it — avoids a two-way content merge while keeping one authoritative owner | Shipped Phase 1 (D-01) |
+| Gate predicates read only generated artifact frontmatter (`BEADS.md`), never query `bd` directly | The only two shipped predicate kinds are `command-exists` and `artifact-frontmatter-equals`; no predicate calls an external tool | — Pending (BEADS.md generation and gates are Phase 2/3 scope; `capability.json`'s `gates[]`/`contributions[]` intentionally empty in Phase 1) |
+| `gates[].onError: skip`, never `halt` | A missing/unreadable `BEADS.md` (capability disabled, `bd` absent, first run) must never strand a finished phase — the gate blocks only on a known bad state | — Pending (Phase 2/3 scope) |
+| Real `bd` v1.2.1 CLI diverges from initial RESEARCH.md in three ways, discovered live during Phase 1 execution | `--id` on issue create fails (ids are DB-prefix-derived, not passable); child ids are hierarchical/sequential so a duplicate create yields a *new* id rather than erroring (resolve-by-`beads-id`-before-create is mandatory, not just tidy); `bd list --parent` hides closed issues by default (an orphan sweep on the default listing would silently break B5 idempotency — must pass an explicit status filter) | Shipped Phase 1 — `sync.py` built against the verified real behavior, not the stale doc; RESEARCH.md corrected in-place |
+| gsd-core project-scope capability consent is a content hash over the whole bundle | Any file edit inside an already-consented bundle (even a legitimate bug fix) silently deactivates the capability — `render-hooks` just stops naming it, no error. Discovered when a post-code-review fix invalidated Phase 1's own install/consent 11 minutes after the checkpoint closed; caught only because the verifier independently re-ran `render-hooks` live instead of trusting green tests | Operational gotcha, not a beads-specific behavior — re-run `capability install --scope project` after any post-consent bundle edit, every phase, going forward |
 
 ---
-*Last updated: 2026-08-15 after initial ingest from docs/prd-beads-capability.md*
+*Last updated: 2026-08-15 after Phase 1 (Substrate)*
