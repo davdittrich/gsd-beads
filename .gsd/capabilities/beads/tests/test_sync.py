@@ -2473,5 +2473,250 @@ class TestMigrateTodosReport(unittest.TestCase):
         self.assertEqual(exit_code, 0)
 
 
+def _make_milestone_bd_side_effect(seed_titles=None):
+    """subprocess.run stand-in for TestMilestoneEpic: `bd show <id> --json`
+    answers with the title recorded either by seed_titles (pre-existing
+    epics, simulating an epic created before this test's mock ever ran) or
+    by a prior `bd create` call this same side_effect already answered -- so
+    a second resolve_milestone_epic scan's title-match check sees the exact
+    title the first call created. `bd create --type epic` hands back a
+    fresh `milestone-epic.N` id and records (id -> title) for later `bd
+    show` lookups; a task create gets a `mock-task.N` id and is not
+    recorded (never looked up by id in these tests)."""
+    known_titles = dict(seed_titles or {})
+    counter = {"n": 0}
+
+    def _side_effect(argv, **kwargs):
+        if argv[:2] == ["bd", "show"]:
+            issue_id = argv[2]
+            if issue_id in known_titles:
+                return _completed(
+                    0, stdout=json.dumps({"id": issue_id, "title": known_titles[issue_id]})
+                )
+            return _completed(1, stderr="not found")
+        if argv[:2] == ["bd", "create"]:
+            counter["n"] += 1
+            title = argv[2]
+            if "--type" in argv and argv[argv.index("--type") + 1] == "epic":
+                new_id = f"milestone-epic.{counter['n']}"
+                known_titles[new_id] = title
+                return _completed(0, stdout=f"{new_id}\n")
+            return _completed(0, stdout=f"mock-task.{counter['n']}\n")
+        if argv[:3] == ["bd", "dep", "add"]:
+            return _completed(0)
+        if argv[:2] == ["bd", "list"]:
+            return _completed(0, stdout="[]\n")
+        if argv[:2] == ["bd", "close"]:
+            return _completed(0)
+        return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+    return _side_effect
+
+
+def _write_milestone_workspace(
+    tmp_path, phase_dir_names, milestone="v1.0", milestone_name="milestone", epic_per=None
+):
+    """Lay out a .planning/ tree (B14) with STATE.md carrying milestone/
+    milestone_name frontmatter, an optional beads.epic_per config.json
+    override, and one empty phase directory per name in phase_dir_names.
+    Returns (project_root, {phase_dir_name: phase_dir_path}) -- callers
+    write their own *-PLAN.md files into the returned phase dirs."""
+    planning_dir = tmp_path / ".planning"
+    planning_dir.mkdir(parents=True)
+    (planning_dir / "ROADMAP.md").write_text(
+        "### Phase 1: Substrate\nGoal.\n\n### Phase 3: Enforcement\nGoal.\n",
+        encoding="utf-8",
+    )
+    (planning_dir / "STATE.md").write_text(
+        f"---\nmilestone: {milestone}\nmilestone_name: {milestone_name}\n---\n\n"
+        "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+        encoding="utf-8",
+    )
+    if epic_per is not None:
+        (planning_dir / "config.json").write_text(
+            json.dumps({"beads": {"epic_per": epic_per}}), encoding="utf-8"
+        )
+    phase_dirs = {}
+    for name in phase_dir_names:
+        phase_dir = planning_dir / "phases" / name
+        phase_dir.mkdir(parents=True)
+        phase_dirs[name] = phase_dir
+    return tmp_path, phase_dirs
+
+
+class TestMilestoneEpic(unittest.TestCase):
+    """B14: `beads.epic_per=milestone` shares one epic across every phase in
+    the current milestone (D-10 forward-only, D-11 read-fresh); the default
+    ("phase", or the key absent) is byte-for-byte unchanged from Phases
+    1-3's existing per-phase-epic behavior."""
+
+    def test_read_epic_per_defaults_to_phase_when_config_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / ".planning").mkdir()
+            self.assertEqual(sync.read_epic_per(tmp_path), "phase")
+
+    def test_read_epic_per_returns_configured_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planning_dir = tmp_path / ".planning"
+            planning_dir.mkdir()
+            (planning_dir / "config.json").write_text(
+                json.dumps({"beads": {"epic_per": "milestone"}}), encoding="utf-8"
+            )
+            self.assertEqual(sync.read_epic_per(tmp_path), "milestone")
+
+    def test_read_epic_per_defaults_to_phase_on_malformed_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planning_dir = tmp_path / ".planning"
+            planning_dir.mkdir()
+            (planning_dir / "config.json").write_text("{not valid json", encoding="utf-8")
+            self.assertEqual(sync.read_epic_per(tmp_path), "phase")
+
+    def test_milestone_epic_title_matches_state_frontmatter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "STATE.md"
+            state_path.write_text(
+                "---\nmilestone: v1.0\nmilestone_name: milestone\n---\n\n# State\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                sync.milestone_epic_title(state_path), "Milestone v1.0: milestone"
+            )
+
+    @mock.patch("subprocess.run")
+    def test_two_phases_share_one_milestone_epic_and_second_sync_creates_no_second_epic(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_milestone_bd_side_effect()
+        plan_a_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_b_text = plan_a_text.replace("plan: 01", "plan: 02", 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path, phase_dirs = _write_milestone_workspace(
+                Path(tmp), ["01-substrate", "02-visibility"], epic_per="milestone"
+            )
+            plan_a = phase_dirs["01-substrate"] / "01-01-PLAN.md"
+            plan_a.write_text(plan_a_text, encoding="utf-8")
+            plan_b = phase_dirs["02-visibility"] / "02-01-PLAN.md"
+            plan_b.write_text(plan_b_text, encoding="utf-8")
+
+            exit_a = sync.create_issues(str(plan_a))
+            exit_b = sync.create_issues(str(plan_b))
+
+            text_a = plan_a.read_text(encoding="utf-8")
+            text_b = plan_b.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_a, 0)
+        self.assertEqual(exit_b, 0)
+        epic_creates = TestCreateIssues._create_argvs(mock_run.call_args_list, "epic")
+        self.assertEqual(len(epic_creates), 1)
+
+        epic_a = sync.BEADS_EPIC_RE.search(text_a).group(1)
+        epic_b = sync.BEADS_EPIC_RE.search(text_b).group(1)
+        self.assertEqual(epic_a, epic_b)
+
+    @mock.patch("subprocess.run")
+    def test_resolve_epic_routes_to_milestone_when_epic_per_milestone(self, mock_run):
+        """Direct proof of the routing behavior (not just its consequence):
+        the one epic-create call issued names the milestone title, never a
+        ROADMAP phase header -- resolve_phase_epic/get_phase_header's
+        fallback path was never reached."""
+        mock_run.side_effect = _make_milestone_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path, phase_dirs = _write_milestone_workspace(
+                Path(tmp), ["01-substrate"], epic_per="milestone"
+            )
+            epic_id, needs_write, stale = sync.resolve_epic(
+                "",
+                str(tmp_path / ".planning" / "ROADMAP.md"),
+                "01",
+                phase_dirs["01-substrate"],
+                tmp_path,
+            )
+
+        self.assertTrue(needs_write)
+        self.assertIsNone(stale)
+        epic_creates = TestCreateIssues._create_argvs(mock_run.call_args_list, "epic")
+        self.assertEqual(len(epic_creates), 1)
+        self.assertEqual(epic_creates[0][2], "Milestone v1.0: milestone")
+        self.assertEqual(epic_id, "milestone-epic.1")
+
+    def test_capability_json_declares_epic_per_enum_key(self):
+        project_root = sync.find_project_root(Path(__file__).resolve().parent)
+        cap_path = project_root / ".gsd" / "capabilities" / "beads" / "capability.json"
+        cap = json.loads(cap_path.read_text(encoding="utf-8"))
+        epic_per_cfg = cap["config"]["beads.epic_per"]
+        self.assertEqual(epic_per_cfg["type"], "enum")
+        self.assertEqual(epic_per_cfg["values"], ["phase", "milestone"])
+        self.assertEqual(epic_per_cfg["default"], "phase")
+
+    @mock.patch("subprocess.run")
+    def test_default_unchanged(self, mock_run):
+        """With .planning/config.json absent, resolve_epic's edited
+        signature (+project_root) introduces zero regression on the default
+        per-phase-epic path -- byte-for-byte the same outcome
+        TestPhaseScopedEpic::test_second_plan_in_phase_reuses_first_plans_epic_when_neither_preset_one
+        already asserts."""
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_a_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_b_text = plan_a_text.replace("plan: 01", "plan: 02", 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = _write_plan_workspace(Path(tmp), plan_a_text)
+            plan_b = plan_a.parent / "01-02-PLAN.md"
+            plan_b.write_text(plan_b_text, encoding="utf-8")
+
+            exit_a = sync.create_issues(str(plan_a))
+            exit_b = sync.create_issues(str(plan_b))
+
+            text_a = plan_a.read_text(encoding="utf-8")
+            text_b = plan_b.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_a, 0)
+        self.assertEqual(exit_b, 0)
+        epic_creates = TestCreateIssues._create_argvs(mock_run.call_args_list, "epic")
+        self.assertEqual(len(epic_creates), 1)
+        epic_a = sync.BEADS_EPIC_RE.search(text_a).group(1)
+        epic_b = sync.BEADS_EPIC_RE.search(text_b).group(1)
+        self.assertEqual(epic_a, epic_b)
+
+    @mock.patch("subprocess.run")
+    def test_existing_phase_epic_not_reused_as_milestone_epic(self, mock_run):
+        """D-10 forward-only guard, the direct regression test named by
+        Task 1's reversibility note: a per-phase epic already recorded on a
+        sibling phase's plan (its live title a ROADMAP-style phase header,
+        not the milestone title format) is never adopted as the milestone
+        epic -- a fresh epic is created instead."""
+        seed_titles = {"existing-phase-epic.1": "Phase 3: Enforcement"}
+        mock_run.side_effect = _make_milestone_bd_side_effect(seed_titles)
+        plan_a_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path, phase_dirs = _write_milestone_workspace(
+                Path(tmp), ["03-enforcement", "04-adoption"], epic_per="milestone"
+            )
+            seeded_plan_text = plan_a_text.replace(
+                "---\nphase: 01-substrate\n",
+                "---\nphase: 03-enforcement\nbeads_epic: existing-phase-epic.1\n",
+                1,
+            )
+            (phase_dirs["03-enforcement"] / "03-01-PLAN.md").write_text(
+                seeded_plan_text, encoding="utf-8"
+            )
+
+            synced_plan_text = plan_a_text.replace("phase: 01-substrate", "phase: 04-adoption", 1)
+            synced_plan = phase_dirs["04-adoption"] / "04-01-PLAN.md"
+            synced_plan.write_text(synced_plan_text, encoding="utf-8")
+
+            exit_code = sync.create_issues(str(synced_plan))
+            resolved_text = synced_plan.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        resolved_epic = sync.BEADS_EPIC_RE.search(resolved_text).group(1)
+        self.assertNotEqual(resolved_epic, "existing-phase-epic.1")
+        epic_creates = TestCreateIssues._create_argvs(mock_run.call_args_list, "epic")
+        self.assertEqual(len(epic_creates), 1)
+        self.assertEqual(epic_creates[0][2], "Milestone v1.0: milestone")
+
+
 if __name__ == "__main__":
     unittest.main()
