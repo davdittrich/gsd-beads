@@ -34,7 +34,7 @@ task-state bookkeeping survives in `.planning/`.
 
 ### Active
 
-None — all 14 v1.0 requirements validated.
+v1.1 requirements pending definition — see `.planning/REQUIREMENTS.md` once drafted.
 
 ### Out of Scope
 
@@ -51,6 +51,17 @@ None — all 14 v1.0 requirements validated.
 - A deterministic plan-checker reviewer capability (PRD Appendix A) — benefit is unmeasured and
   the failure mode is a second review pipeline nobody asked for; revisit only after `beads` has
   shipped and only if the LLM plan-checker is observed spending judgement on decidable properties
+
+## Current Milestone: v1.1 Publish & Document
+
+**Goal:** Ship gsd-beads as an installable Claude Code plugin on GitHub, with a README that lets
+a stranger evaluate, install, and remove it without reading the source.
+
+**Target features:**
+- Claude Code plugin manifest (`.claude-plugin/plugin.json`, marketplace-installable structure)
+- GitHub repository with remote, pushed history
+- README.md: purpose, capabilities, installation, deinstallation, requirements, caveats, link to
+  gsd-core
 
 ## Context
 
@@ -119,6 +130,23 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 | bd's real schema-version skew (DB migrated to v65 by an accidentally-shipped v1.2.1 binary; this project's v1.2.2 binary only understood v53) blocked every real `bd` operation for the full duration of Phases 1-3 and part of Phase 4 | Discovered live during Phase 4 execution when the user pointed out `bd` was actually installed with a real database, contradicting every "bd unavailable" fail-open message the project had printed since Phase 1 | Recovered via beads' own official `RECOVERY-1.2.1.md` doc: backed up `.beads/` to `.beads.backup-pre-recovery`, rolled the schema cursor back to v53 via a `dolt sql` `DELETE FROM schema_migrations WHERE version > 53` + commit. `bd` now fully functional; Phase 4's 3 plans' tasks were retroactively synced to and closed in the real database (epic `gsd-beads-i3i`), the first real end-to-end `bd` round-trip this project has ever had against its own actual database (not a scratch/`bd init --prefix live` dir) |
 | `capability.json`'s `plan:post` `beads-sync` step declared `"produces": ["BEADS.md"]` — wrong; `create_issues()` only ever rewrites `PLAN.md` in place | Found by `gsd-integration-checker` during the v1.0 milestone audit, independently confirmed via direct source read (sync.py:828-892) before accepting the finding | Fixed same session (commit `4230234`): corrected to `"produces": ["PLAN.md"]`, re-installed/re-consented at project scope, 88/88 tests still green |
 
+## Evolution
+
+This document evolves at phase transitions and milestone boundaries.
+
+**After each phase transition** (via `/gsd-transition`):
+1. Requirements invalidated? → Move to Out of Scope with reason
+2. Requirements validated? → Move to Validated with phase reference
+3. New requirements emerged? → Add to Active
+4. Decisions to log? → Add to Key Decisions
+5. "What This Is" still accurate? → Update if drifted
+
+**After each milestone** (via `/gsd-complete-milestone`):
+1. Full review of all sections
+2. Core Value check — still the right priority?
+3. Audit Out of Scope — reasons still valid?
+4. Update Context with current state
+
 ## v1.0 Ship Summary
 
 Shipped 2026-08-16. 4 phases, 11 plans, 20 tasks, ~4,400 LOC (`sync.py` + `test_sync.py`).
@@ -128,4 +156,4 @@ Phase 4 SUMMARY.md files missing `requirements-completed` frontmatter, and Phase
 reconciled Nyquist `VALIDATION.md` coverage — neither blocks shipped functionality).
 
 ---
-*Last updated: 2026-08-16 — Milestone v1.0 shipped. All 14 v1.0 requirements validated and audited.*
+*Last updated: 2026-08-16 — Milestone v1.1 started: publish as installable Claude Code plugin, write README.*
