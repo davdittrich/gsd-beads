@@ -75,7 +75,7 @@
         "skill": "beads-sync"
       },
       "produces": [
-        "BEADS.md"
+        "PLAN.md"
       ],
       "consumes": [
         "PLAN.md"
