@@ -21,7 +21,7 @@ release instead of one per phase.
 - [x] **Phase 1: Substrate** - Plan tasks exist as bound, dependency-ordered beads issues that close themselves and fail open (completed 2026-08-15)
 - [x] **Phase 2: Visibility** - The planner and executor operate with live beads state in context (completed 2026-08-15)
 - [x] **Phase 3: Enforcement** - A phase cannot ship with open or diverged issues without a deliberate override (completed 2026-08-15)
-- [ ] **Phase 4: Adoption** - Existing todos migrate in; the mapping is inspectable on demand
+- [x] **Phase 4: Adoption** - Existing todos migrate in; the mapping is inspectable on demand (completed 2026-08-16)
 
 ## Phase Details
 
@@ -124,4 +124,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 | 1. Substrate | 3/3 | Complete    | 2026-08-15 |
 | 2. Visibility | 2/2 | Complete    | 2026-08-15 |
 | 3. Enforcement | 3/3 | Complete    | 2026-08-15 |
-| 4. Adoption | 3/3 | In Progress|  |
+| 4. Adoption | 3/3 | Complete    | 2026-08-16 |

@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 4
-current_phase_name: Adoption
-status: verifying
+status: completed
 stopped_at: Completed 04-03-PLAN.md
-last_updated: "2026-08-15T22:32:09.138Z"
-last_activity: 2026-08-15
-last_activity_desc: Quick task 260815-mm8 fixed both pre-existing Phase 1 defects (gsd-beads-uh1, gsd-beads-bgb), 41/41 tests green
+last_updated: "2026-08-15T22:49:39.524Z"
+last_activity: 2026-08-16
+last_activity_desc: Phase 4 complete
 progress:
   total_phases: 4
   completed_phases: 4
   total_plans: 11
   completed_plans: 11
+current_phase_name: Adoption
 ---
 
 # Project State
@@ -28,10 +28,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 4 (Adoption) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
-Last activity: 2026-08-15 — Phase 4 execution started
+Phase: 4
+Plan: Not started
+Status: All phases complete
+Last activity: 2026-08-16 — Phase 4 complete
 
 Progress: [████████████████████] 3/3 plans ([██████████] 100%)
 
@@ -39,7 +39,7 @@ Progress: [████████████████████] 3/3 pla
 
 **Velocity:**
 
-- Total plans completed: 8
+- Total plans completed: 11
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -47,9 +47,9 @@ Progress: [████████████████████] 3/3 pla
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 01 | 3 | - | - |
 | 03 | 3 | - | - |
 | 02 | 2 | - | - |
+| 4 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -89,9 +89,6 @@ Recent decisions affecting current work:
 
 - Overlay capability (`beads`), not a gsd-core fork
 - `beads.sync_mode` defaults to `authoritative` for status AND content (D-01, reversed from status-only during discuss-phase); `PLAN.md` is never re-synced from later bd edits
-- [Phase 1]: real `bd` v1.2.1 CLI diverges from initial research in three ways (no `--id`, hierarchical child ids, `bd list --parent` hides closed by default) — full detail in PROJECT.md Key Decisions
-- [Phase 1]: gsd-core project-scope capability consent is a whole-bundle content hash — any post-consent file edit silently deactivates it; re-run `capability install --scope project` after any such edit, every phase
-- [Phase 1]: PLAN.md task schema is XML `<task type="...">` elements, never markdown `### Task N:` headings (corrected from an earlier wrong assumption)
 - [Phase ?]: [Phase 2, 02-01]: D-01 revised confirmed in implementation -- bd has no structured file-path field, so beads-recall's scope matching is two concrete techniques (cross-phase <beads-id> reverse lookup + bd --desc-contains fallback), not one generic comparison
 - [Phase ?]: [Phase 2, 02-01]: The phase-being-planned's file-scope signal comes from ROADMAP.md section text + CONTEXT.md mentions (regex path-token extraction), since no PLAN.md exists yet for it at plan:pre time
 - [Phase ?]: [Phase 2, 02-01]: recall-pointer.md contribution fragment is a static pointer only (Pattern 1) -- names BEADS-RECALL.md's path pattern generically, never embeds live per-invocation issue data
@@ -131,7 +128,6 @@ None yet.
   just local install; no roadmap phase currently owns this. See memory
   `gsd-beads-ships-as-github-plugin`.
 
-- ~~[Backlog] Phase 1 sync.py: create_issues resolves each plan's epic independently...~~ FIXED
   quick task 260815-mm8 (`gsd-beads-uh1`, `gsd-beads-bgb`, both closed): `resolve_epic` now
   phase-scoped via `resolve_phase_epic`; `find_orphans` orphan detection now epic-scoped via
   `collect_epic_task_ids`. 41/41 tests green.
