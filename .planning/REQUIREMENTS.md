@@ -17,7 +17,7 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 - [x] **B2**: Plan task ordering becomes beads dependencies. Task 3 depending on task 1 shows
   task 1 as a blocker in `bd show`; `bd ready` excludes task 3 until task 1 closes.
 
-- [ ] **B3**: Task completion closes its issue automatically. After a wave completes task 2, that
+- [x] **B3**: Task completion closes its issue automatically. After a wave completes task 2, that
   issue is `closed` and no other issue changed.
 
 - [x] **B4**: Identity is bound explicitly, never by title matching. Each plan task block carries
@@ -86,7 +86,7 @@ None identified — all 14 requirements extracted from the PRD are in v1 scope.
 |-------------|-------|--------|
 | B1 | Phase 1 | Complete |
 | B2 | Phase 1 | Complete |
-| B3 | Phase 1 | Pending |
+| B3 | Phase 1 | Complete |
 | B4 | Phase 1 | Complete |
 | B5 | Phase 1 | Complete |
 | B6 | Phase 1 | Complete |

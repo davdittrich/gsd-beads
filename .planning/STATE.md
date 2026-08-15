@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 01
-current_phase_name: substrate
-status: executing
+status: completed
 stopped_at: Completed 01-02-PLAN.md
-last_updated: "2026-08-15T02:05:27.783Z"
+last_updated: "2026-08-15T02:30:25.319Z"
 last_activity: 2026-08-15
 last_activity_desc: Roadmap created from PRD ingest (docs/prd-beads-capability.md)
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 2
+  completed_plans: 3
+current_phase_name: substrate
 ---
 
 # Project State
@@ -28,10 +28,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 01 (substrate) — EXECUTING
+Phase: 01 — COMPLETE
 Plan: 3 of 3
-Status: Ready to execute
-Last activity: 2026-08-15 — Phase 01 execution started
+Status: Phase 01 complete
+Last activity: 2026-08-15 — Phase 01 marked complete
 
 Progress: [███████░░░] 67%
 
@@ -85,6 +85,8 @@ Recent decisions affecting current work:
 None yet.
 
 ### Blockers/Concerns
+
+- 2026-08-15: bd unavailable -- beads-status close-wave skipped (B6/D-08)
 
 - PRD §12 open question: does `execute:wave:post` fire per task or per wave? Decides whether B3
   closes one issue or several — settle before/during Phase 1 planning.
