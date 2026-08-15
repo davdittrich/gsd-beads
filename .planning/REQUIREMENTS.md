@@ -45,11 +45,11 @@ Requirements for initial release. Each maps to exactly one roadmap phase.
 
 ### Enforcement (F3 — beads state can block a ship)
 
-- [ ] **B9**: A phase with unfinished blocking issues cannot ship. With one open blocking issue,
+- [x] **B9**: A phase with unfinished blocking issues cannot ship. With one open blocking issue,
   `ship:pre` blocks and names it. `beads.ship_gate=false` allows the ship and records that it was
   overridden.
 
-- [ ] **B10**: Divergence blocks and is reported; it is never auto-reconciled. An issue closed in
+- [x] **B10**: Divergence blocks and is reported; it is never auto-reconciled. An issue closed in
   beads whose task is incomplete (or the reverse) sets `diverged>0`, blocks ship, and reports
   both sides. Nothing changes until the operator decides.
 
@@ -93,8 +93,8 @@ None identified — all 14 requirements extracted from the PRD are in v1 scope.
 | B7 | Phase 2 | Complete |
 | B8 | Phase 2 | Complete |
 | B11 | Phase 2 | Complete |
-| B9 | Phase 3 | Pending |
-| B10 | Phase 3 | Pending |
+| B9 | Phase 3 | Complete |
+| B10 | Phase 3 | Complete |
 | B12 | Phase 4 | Pending |
 | B13 | Phase 4 | Pending |
 | B14 | Phase 4 | Pending |

@@ -3,17 +3,17 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 current_phase: 03
-current_phase_name: Enforcement
-status: discussed
-stopped_at: Phase 3 context gathered
-last_updated: "2026-08-15T14:52:39.646Z"
+current_phase_name: enforcement
+status: executing
+stopped_at: Completed 03-01-PLAN.md
+last_updated: "2026-08-15T16:45:50.300Z"
 last_activity: 2026-08-15
 last_activity_desc: Quick task 260815-mm8 fixed both pre-existing Phase 1 defects (gsd-beads-uh1, gsd-beads-bgb), 41/41 tests green
 progress:
   total_phases: 3
   completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
+  total_plans: 8
+  completed_plans: 6
 ---
 
 # Project State
@@ -24,16 +24,16 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 03 — Enforcement
+**Current focus:** Phase 03 — enforcement
 
 ## Current Position
 
-Phase: 03 (Enforcement) — CONTEXT GATHERED
-Plan: Not started
-Status: Ready to plan
-Last activity: 2026-08-15 — discuss-phase captured D-01..D-06 (blocking_open scope, divergence detection/trigger, override audit trail, report shape)
+Phase: 03 (enforcement) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-08-15 — Phase 03 execution started
 
-Progress: [████████████████████] 3/3 plans ([██████████] 100%)
+Progress: [████████████████████] 3/3 plans ([████████░░] 75%)
 
 ## Performance Metrics
 
@@ -63,6 +63,7 @@ Progress: [████████████████████] 3/3 pla
 | Phase 01 P02 | 12min | 3 tasks | 4 files |
 | Phase 02 P01 | 13min | 3 tasks | 5 files |
 | Phase 02 P02 | 15min | 3 tasks | 5 files |
+| Phase 03 P01 | 8min | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 2, 02-02]: D-11 confirmed in implementation -- beads-status is one skill registered at two steps[] points (execute:wave:pre read-only, execute:wave:post regen+close), branching internally on lifecycle point
 - [Phase ?]: [Phase 2, 02-02]: B8 shipped as a steps[]-only design (no new contributions[] entry) -- wave-status-block prints a <beads_status> block and SKILL.md instructs the orchestrator directly to paste it into each executor's prompt=
 - [Phase ?]: [Phase 2, 02-02]: Discovered (not fixed, out of scope) two pre-existing Phase 1 sync.py gaps -- create_issues resolves each plan's epic independently rather than sharing one phase-level epic, and the orphan sweep auto-closes a sibling plan's issue when two plans intentionally share one epic
+- [Phase ?]: [Phase 3, 03-01]: blocking_open is a named rename-in-place of open_count (no separate filtered variable, D-01/D-02); divergence is computed once per regenerate_beads_md pass (3 call sites) rather than a dedicated ship-time check, reusing the one bd query that pass already makes
 
 ### Pending Todos
 
@@ -128,6 +130,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T14:52:39.640Z
-Stopped at: Phase 3 context gathered
-Resume file: .planning/phases/03-enforcement/03-CONTEXT.md
+Last session: 2026-08-15T16:45:50.294Z
+Stopped at: Completed 03-01-PLAN.md
+Resume file: None
