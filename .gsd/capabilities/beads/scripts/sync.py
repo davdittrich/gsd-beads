@@ -359,6 +359,37 @@ def rewrite_plan(text, epic_id, epic_created, task_updates):
     return text
 
 
+def _resolve_completed_task_ids(phase_dir):
+    """Return the union of every <beads-id> across every plan in phase_dir
+    whose SUMMARY.md exists (B9/D-04): the completed-task-id side of the
+    divergence comparison. An empty phase_dir (no plans) returns an empty
+    set."""
+    completed_ids = set()
+    for plan_id in discover_plan_files(phase_dir):
+        ids, _skipped = find_completed_task_ids(phase_dir, plan_id)
+        completed_ids.update(ids)
+    return completed_ids
+
+
+def _compute_diverged(rows, ordinal_map, completed_ids):
+    """Return (diverged_count, task_status_by_id) (B10/D-04): a row whose id
+    is a key in ordinal_map (i.e. a synced task) is diverged when its `bd`
+    closed-ness disagrees with task-completion state in either direction. A
+    row absent from ordinal_map (no linked task) is skipped entirely -- not
+    counted, not present in task_status_by_id."""
+    diverged_count = 0
+    task_status_by_id = {}
+    for row in rows:
+        issue_id = str(row.get("id", ""))
+        if issue_id not in ordinal_map:
+            continue
+        task_done = issue_id in completed_ids
+        task_status_by_id[issue_id] = "done" if task_done else "incomplete"
+        if (row.get("status") == "closed") != task_done:
+            diverged_count += 1
+    return diverged_count, task_status_by_id
+
+
 def find_completed_task_ids(phase_dir, plan_id):
     """Return (task_ids, skipped_count) for one plan in a wave.
 
@@ -783,27 +814,33 @@ def _resolve_task_ordinal_map(phase_dir):
     return mapping
 
 
-def _render_beads_md_table(rows, ordinal_map):
-    """D-08: 5-column issue/title/status/plan-task/blocked-by table. The
-    blocked-by column is `dependencies[]` filtered to `type == "blocks"`,
-    excluding `type == "parent-child"` epic-parent edges -- zero extra bd
-    calls, this data already arrives on the one `bd list --parent` response.
+def _render_beads_md_table(rows, ordinal_map, task_status_by_id):
+    """D-06/D-08: 6-column issue/title/status/task-status/plan-task/
+    blocked-by table -- Task Status names the task-completion side of a
+    diverged row so it's readable without cross-referencing PLAN.md/
+    SUMMARY.md. The blocked-by column is `dependencies[]` filtered to
+    `type == "blocks"`, excluding `type == "parent-child"` epic-parent
+    edges -- zero extra bd calls, this data already arrives on the one
+    `bd list --parent` response.
     """
     lines = [
-        "| Issue | Title | Status | Plan Task | Blocked By |",
-        "|-------|-------|--------|-----------|------------|",
+        "| Issue | Title | Status | Task Status | Plan Task | Blocked By |",
+        "|-------|-------|--------|-------------|-----------|------------|",
     ]
     for row in rows:
         issue_id = str(row.get("id", ""))
         title = _escape_table_cell(str(row.get("title", "")))
         status = _escape_table_cell(str(row.get("status", "")))
+        task_status = task_status_by_id.get(issue_id, "")
         plan_task = ordinal_map.get(issue_id, "")
         blocked_by = ", ".join(
             str(dep.get("depends_on_id", ""))
             for dep in row.get("dependencies", []) or []
             if dep.get("type") == "blocks"
         )
-        lines.append(f"| {issue_id} | {title} | {status} | {plan_task} | {blocked_by} |")
+        lines.append(
+            f"| {issue_id} | {title} | {status} | {task_status} | {plan_task} | {blocked_by} |"
+        )
     return "\n".join(lines)
 
 
@@ -844,9 +881,14 @@ def regenerate_beads_md(phase_dir_arg):
 
     closed_count = sum(1 for r in rows if r.get("status") == "closed")
     open_count = len(rows) - closed_count
+    # blocking_open IS open_count, no separate filtered variable -- D-01/D-02:
+    # every open issue under the epic counts, full stop, no priority/type filter.
+    blocking_open = open_count
 
     ordinal_map = _resolve_task_ordinal_map(phase_dir)
-    table = _render_beads_md_table(rows, ordinal_map)
+    completed_ids = _resolve_completed_task_ids(phase_dir)
+    diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
+    table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
 
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     frontmatter = (
@@ -855,17 +897,13 @@ def regenerate_beads_md(phase_dir_arg):
         f"epic: {epic_id}\n"
         f"open: {open_count}\n"
         f"closed: {closed_count}\n"
-        "blocking_open: 0\n"
-        "diverged: 0\n"
+        f"blocking_open: {blocking_open}\n"
+        f"diverged: {diverged_count}\n"
         f'generated_from: "{" ".join(argv)}"\n'
         f"generated_at: {generated_at}\n"
         "---\n\n"
     )
-    body = (
-        f"# BEADS.md: {phase_dir.name}\n\n"
-        "blocking_open/diverged: not yet computed, Phase 3\n\n"
-        f"{table}\n"
-    )
+    body = f"# BEADS.md: {phase_dir.name}\n\n{table}\n"
 
     out_path = phase_dir / f"{padded_phase}-BEADS.md"
     out_path.write_text(frontmatter + body, encoding="utf-8")
