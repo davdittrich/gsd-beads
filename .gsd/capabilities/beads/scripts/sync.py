@@ -29,6 +29,7 @@ FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
 PLAN_FILE_RE = re.compile(r"^(\d{2}-\d{2})-PLAN\.md$")
+BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 
 
 def run_bd(argv, timeout=BD_TIMEOUT):
@@ -970,6 +971,76 @@ def render_wave_status_block(phase_dir_arg, plan_ids):
     return 0
 
 
+def _read_beads_md_frontmatter(phase_dir):
+    """Return {key: raw value string} for every top-level frontmatter line in
+    {padded_phase}-BEADS.md, or {} when the file is absent (or malformed --
+    same degrade-cleanly posture as every other bd-adjacent read in this
+    script). ship_override's sole read of BEADS.md; never a live bd query."""
+    phase_dir = Path(phase_dir)
+    padded_phase = phase_dir.name.split("-", 1)[0]
+    beads_md_path = phase_dir / f"{padded_phase}-BEADS.md"
+    if not beads_md_path.exists():
+        return {}
+    text = beads_md_path.read_text(encoding="utf-8")
+    fm_match = FRONTMATTER_RE.match(text)
+    if not fm_match:
+        return {}
+    return {
+        m.group(1): m.group(2).strip()
+        for m in BEADS_MD_FIELD_RE.finditer(fm_match.group(1))
+    }
+
+
+def ship_override(phase_dir_arg):
+    """D-05: record a `beads.ship_gate=false` bypass. Always attempts a
+    durable `git commit --amend --trailer` first (load-bearing, never
+    skipped on bd's account); independently attempts a best-effort `bd
+    comment` mirror on the phase epic (fail-open, B6 -- bd unavailable or
+    failing never changes the git half's outcome). Values come only from
+    BEADS.md's own generated frontmatter, never a fresh live bd query."""
+    phase_dir = Path(phase_dir_arg).resolve()
+    fields = _read_beads_md_frontmatter(phase_dir)
+    if "epic" not in fields or "blocking_open" not in fields or "diverged" not in fields:
+        print("ship-override: BEADS.md missing or incomplete -- nothing recorded")
+        return 1
+
+    try:
+        project_root = find_project_root(phase_dir)
+    except ValueError as exc:
+        print(f"ship-override: {exc}")
+        return 1
+
+    trailer = (
+        f"Beads-Override: ship_gate bypassed, "
+        f"blocking_open={fields['blocking_open']}, diverged={fields['diverged']}"
+    )
+    result = subprocess.run(
+        ["git", "commit", "--amend", "--allow-empty", "--no-edit", "--trailer", trailer],
+        cwd=str(project_root),
+        capture_output=True,
+        text=True,
+        timeout=BD_TIMEOUT,
+    )
+    git_ok = result.returncode == 0
+    if git_ok:
+        print(f"ship-override: recorded {trailer}")
+    else:
+        print(f"ship-override: git commit --amend failed: {result.stderr.strip()}")
+
+    if bd_available():
+        comment_text = (
+            f"ship_gate override: blocking_open={fields['blocking_open']}, "
+            f"diverged={fields['diverged']}"
+        )
+        comment_result = run_bd(["bd", "comment", fields["epic"], comment_text])
+        if comment_result.returncode != 0:
+            print(f"ship-override: bd comment failed: {comment_result.stderr.strip()}")
+    else:
+        print("ship-override: bd unavailable -- comment mirror skipped (B6)")
+
+    return 0 if git_ok else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="sync.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -999,6 +1070,11 @@ def main(argv=None):
     )
     wave_status_p.add_argument("phase_dir")
     wave_status_p.add_argument("plan_ids", nargs="+")
+    ship_override_p = sub.add_parser(
+        "ship-override",
+        help="Record a beads.ship_gate=false bypass via a git trailer plus a best-effort bd comment (D-05)",
+    )
+    ship_override_p.add_argument("phase_dir")
     args = parser.parse_args(argv)
     if args.command == "create-issues":
         return create_issues(args.plan_path)
@@ -1010,6 +1086,8 @@ def main(argv=None):
         return regenerate_beads_md(args.phase_dir)
     if args.command == "wave-status-block":
         return render_wave_status_block(args.phase_dir, args.plan_ids)
+    if args.command == "ship-override":
+        return ship_override(args.phase_dir)
     return 1
 
 
