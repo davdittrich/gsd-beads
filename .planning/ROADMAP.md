@@ -18,7 +18,7 @@ release instead of one per phase.
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Substrate** - Plan tasks exist as bound, dependency-ordered beads issues that close themselves and fail open
+- [x] **Phase 1: Substrate** - Plan tasks exist as bound, dependency-ordered beads issues that close themselves and fail open (completed 2026-08-15)
 - [ ] **Phase 2: Visibility** - The planner and executor operate with live beads state in context
 - [ ] **Phase 3: Enforcement** - A phase cannot ship with open or diverged issues without a deliberate override
 - [ ] **Phase 4: Adoption** - Existing todos migrate in; the mapping is inspectable on demand
@@ -40,7 +40,7 @@ release instead of one per phase.
   5. Re-running sync over an unchanged plan creates zero issues and modifies zero issues
   6. With `bd` off `PATH` (or failing, or locked), every gsd command still completes normally, one line explains the skip, no phase is blocked, and `BEADS.md` is absent rather than stale
 
-**Plans**: 3/3 plans executed
+**Plans**: 3/3 plans complete
 
 Plans:
 
@@ -97,7 +97,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|-----------------|--------|-----------|
-| 1. Substrate | 3/3 | In Progress|  |
+| 1. Substrate | 3/3 | Complete   | 2026-08-15 |
 | 2. Visibility | 0/TBD | Not started | - |
 | 3. Enforcement | 0/TBD | Not started | - |
 | 4. Adoption | 0/TBD | Not started | - |
