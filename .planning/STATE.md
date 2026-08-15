@@ -2,9 +2,9 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-current_phase: 02
-current_phase_name: Visibility
-status: complete
+current_phase: 03
+current_phase_name: Enforcement
+status: discussed
 stopped_at: Phase 3 context gathered
 last_updated: "2026-08-15T14:52:39.646Z"
 last_activity: 2026-08-15
@@ -24,14 +24,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 02 — Visibility
+**Current focus:** Phase 03 — Enforcement
 
 ## Current Position
 
-Phase: 02 (Visibility) — EXECUTING
-Plan: 2 of 2
-Status: Phase complete — ready for verification
-Last activity: 2026-08-15 — Phase 02 execution started
+Phase: 03 (Enforcement) — CONTEXT GATHERED
+Plan: Not started
+Status: Ready to plan
+Last activity: 2026-08-15 — discuss-phase captured D-01..D-06 (blocking_open scope, divergence detection/trigger, override audit trail, report shape)
 
 Progress: [████████████████████] 3/3 plans ([██████████] 100%)
 
@@ -99,8 +99,9 @@ None yet.
 
 - 2026-08-15: bd unavailable -- beads-recall skipped (B6/D-08)
 
-- [Phase 3] PRD §12 open question: where is a `beads.ship_gate=false` override recorded so it
-  stays visible afterward?
+- ~~[Phase 3] PRD §12 open question: where is a `beads.ship_gate=false` override recorded~~
+  RESOLVED (03-CONTEXT.md D-05): commit trailer (load-bearing) + best-effort `bd comment` on the
+  epic (fails open per B6).
 
 - [Packaging] No README, LICENSE, or git remote yet — end goal is GitHub plugin distribution, not
   just local install; no roadmap phase currently owns this. See memory
