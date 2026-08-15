@@ -132,10 +132,18 @@ The two hardcoded `capId` checks (`security`/`broken-windows`) that made the ins
 `/gsd-ship` workflow's `ship:pre` dispatch gap true during Plan 02's planning are now joined by a
 generic `ship:pre` gate+step dispatch loop, patched locally into the installed
 `$HOME/.claude/gsd-core/workflows/ship.md` (marked with the `gsd-beads-patch:
-ship-pre-generic-dispatch v1` comment, reapply source in `GSD-CORE-PATCH.md`, detected by Step 2d
-above on every `ship:pre` dispatch). The underlying gap is also filed upstream as
+ship-pre-generic-dispatch v1` comment, reapply source in `GSD-CORE-PATCH.md`, confirmed present by
+Step 2d above on every `ship:pre` dispatch). The underlying gap is also filed upstream as
 open-gsd/gsd-core#3554 -- once that lands natively, this local patch (and this Step 2d /
 `GSD-CORE-PATCH.md`) should be deleted, not kept as permanent duplication.
+
+**CR-01 (03-03 code review):** Step 2d's own call site is reachable only through the dispatch loop
+the patch installs -- if a `gsd-core` update or capability reinstall silently strips the patch,
+Step 2d never runs either, so it *confirms* an intact patch but cannot *detect* a lost one. The
+actual detector is `beads-recall/SKILL.md`'s Step 3.5 (`plan:pre`, dispatched by gsd-core's own
+native generic step-dispatch loop -- independent of `ship.md`'s patched loop entirely), which keeps
+firing even when the patch has been dropped. Do not treat Step 2d alone as sufficient patch-loss
+detection.
 
 ## Step 2 -- Batch close dispatch (execute:wave:post only)
 

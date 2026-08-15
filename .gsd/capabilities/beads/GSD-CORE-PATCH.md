@@ -27,8 +27,20 @@ Filed upstream as **open-gsd/gsd-core#3554** (generic `ship:pre` gate/step dispa
 
 **Revert condition:** once open-gsd/gsd-core#3554 ships a native generic `ship:pre` dispatch
 loop, this local patch — the marker-bracketed block below, this file, `sync.py`'s
-`check_shipmd_patch`, and `beads-status/SKILL.md`'s Step 2d — becomes unnecessary and should
-be deleted, not kept as permanent duplication.
+`check_shipmd_patch`, `beads-status/SKILL.md`'s Step 2d, and `beads-recall/SKILL.md`'s Step 3.5 —
+becomes unnecessary and should be deleted, not kept as permanent duplication.
+
+## Patch-loss detection is independent of the patch itself (CR-01, 03-03 code review)
+
+`beads-status/SKILL.md`'s Step 2d runs `check-shipmd-patch` at `ship:pre`, but that call site is
+itself only reachable through the dispatch loop this patch installs — if a `gsd-core` update or
+capability reinstall silently strips the patch, Step 2d never runs either, so it *confirms* an
+intact patch immediately before a ship attempt but cannot *detect* a lost one. The actual detector
+is `beads-recall/SKILL.md`'s new Step 3.5, which runs the identical `check-shipmd-patch` call at
+`plan:pre` — a lifecycle point dispatched by gsd-core's own native generic step-dispatch loop
+(the same kind of loop `ship:post` already has and `ship:pre` lacked before this patch), not by
+anything this patch installs. That independence is what makes Step 3.5 fire even when this patch
+has been silently dropped.
 
 ## Insertion anchor
 

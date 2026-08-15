@@ -1114,8 +1114,24 @@ def check_shipmd_patch(ship_md_path_override=None):
     `ship.md` patch (GSD-CORE-PATCH.md) is present in the installed,
     machine-local `ship.md` -- a future gsd-core update or capability
     reinstall can silently overwrite that file and drop the patch with no
-    error, so this runs on every `ship:pre` dispatch (SKILL.md Step 2d), not
-    only at install time. Read-only: never edits ship.md itself."""
+    error. Called from two independent points (CR-01): `beads-status`
+    SKILL.md's Step 2d confirms the patch is still intact immediately before
+    a ship attempt (`ship:pre`), but that call site is itself only reachable
+    through the dispatch loop the patch installs -- if the patch is lost,
+    Step 2d never runs either. `beads-recall` SKILL.md's Step 3.5 is the
+    call site that actually detects loss: it runs at `plan:pre`, dispatched
+    by gsd-core's own native generic step-dispatch loop, independent of
+    ship.md's patched dispatch loop entirely. Read-only: never edits
+    ship.md itself.
+
+    WR-03: only the Claude runtime home (`CLAUDE_CONFIG_DIR`, default
+    `~/.claude`) is probed -- ship.md's own multi-runtime resolution
+    (`CODEX_HOME`, `CURSOR_CONFIG_DIR`, etc.) is not replicated here, since
+    GSD-CORE-PATCH.md's patch itself is scoped to the Claude runtime only.
+    Every message below names the exact path checked so a report never
+    reads as "no ship.md patch exists anywhere" when only one of several
+    possible install locations was probed.
+    """
     if ship_md_path_override:
         ship_md_path = Path(ship_md_path_override)
     else:
@@ -1126,16 +1142,20 @@ def check_shipmd_patch(ship_md_path_override=None):
             / "ship.md"
         )
     if not ship_md_path.exists():
-        print(f"ship.md not found at {ship_md_path} -- cannot verify the local ship:pre dispatch patch")
+        print(
+            f"ship.md not found at {ship_md_path} -- cannot verify the local ship:pre dispatch "
+            "patch (only this runtime home was probed; other runtime homes such as CODEX_HOME "
+            "or CURSOR_CONFIG_DIR were not checked)"
+        )
         return 1
     text = ship_md_path.read_text(encoding="utf-8")
     if SHIP_MD_PATCH_MARKER in text:
-        print("ship.md ship:pre patch: present (v1)")
+        print(f"ship.md ship:pre patch: present (v1) at {ship_md_path}")
         return 0
     print(
-        "⚠ ship.md's ship:pre generic gate/step dispatch patch (beads) is missing -- "
-        "the two ship:pre gates and the ship_override step will not fire. Reapply: "
-        "see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
+        f"⚠ ship.md's ship:pre generic gate/step dispatch patch (beads) is missing at "
+        f"{ship_md_path} -- the two ship:pre gates and the ship_override step will not fire. "
+        "Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
     )
     return 1
 

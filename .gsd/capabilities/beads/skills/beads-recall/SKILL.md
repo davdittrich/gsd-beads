@@ -62,6 +62,27 @@ matching `<beads-id>` anywhere. The result is written to
 issue matching neither technique is listed under a separate "Unscoped" heading, never dropped
 (D-02).
 
+## Step 3.5 -- verify the local ship.md patch (independent reapply check, CR-01)
+
+This step always runs after Step 3, whether or not `bd` was available for Step 3 (this check
+reads only the installed `ship.md`, never `bd`). Run:
+
+```bash
+python3 .gsd/capabilities/beads/scripts/sync.py check-shipmd-patch
+```
+
+If its output contains the "⚠" warning line, surface it to the user verbatim -- never swallow it
+-- but never block planning on it; this is diagnostic only, matching the `onError: skip` this
+entire beads-recall `plan:pre` dispatch already runs under.
+
+This is the call site that actually *detects* patch loss (unlike `beads-status`'s Step 2d, which
+only *confirms* the patch is still intact): `plan:pre` is dispatched by gsd-core's own native
+generic step-dispatch loop, the same mechanism `ship:post` already has and `ship:pre` lacked
+before `GSD-CORE-PATCH.md`'s patch existed -- so this check keeps firing even when the `ship.md`
+patch itself has been silently stripped by a `gsd-core` update or capability reinstall, the exact
+scenario in which `beads-status`'s `ship:pre`-gated Step 2d cannot run at all (its own call site
+depends on the patch it verifies).
+
 ## Step 4 -- Report
 
 Print the one-line summary `sync.py` printed to stdout: either
@@ -78,3 +99,6 @@ notice `bd unavailable -- sync skipped`.
 3. DO NOT skip the config gate.
 4. DO NOT silently drop an issue that matches neither scope-matching technique -- it must appear
    under the "Unscoped" heading (D-02).
+5. DO NOT skip Step 3.5 or swallow its "⚠" warning -- it is the only patch-loss *detector* in
+   this capability (Step 2d in `beads-status` is confirmation-only, see Step 3.5's own note). A
+   future editor merging or trimming steps must not remove this one.
