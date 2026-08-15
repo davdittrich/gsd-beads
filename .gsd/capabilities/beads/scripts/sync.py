@@ -479,7 +479,8 @@ def read_epic_per(project_root):
         cfg = json.loads(config_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return "phase"
-    return cfg.get("beads", {}).get("epic_per", "phase")
+    beads_cfg = cfg.get("beads", {}) if isinstance(cfg, dict) else {}
+    return beads_cfg.get("epic_per", "phase") if isinstance(beads_cfg, dict) else "phase"
 
 
 def milestone_epic_title(state_path):
