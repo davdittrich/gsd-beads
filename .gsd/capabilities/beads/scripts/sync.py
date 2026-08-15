@@ -9,6 +9,7 @@ PLAN.md text is authored by a different principal than the process running
 T-01-01).
 """
 import argparse
+import json
 import re
 import shutil
 import subprocess
@@ -228,17 +229,41 @@ def resolve_epic(frontmatter, roadmap_path, phase_num):
 
 
 def resolve_issue(task, epic_id, ordinal_prefix, task_index):
-    """Return (issue_id, created). <beads-id> is the identity; only create when
-    it is absent -- never resolve or dedup by title (B4)."""
+    """Return (issue_id, created, divergent). <beads-id> is the identity;
+    only create when it is absent -- never resolve or dedup by title (B4).
+
+    When a <beads-id> is present but bd cannot find it, that is stale-
+    identity divergence (D-07): report it, never recreate a replacement,
+    never clear the element -- a Phase 3 ship gate acts on the divergence.
+    """
     if task["beads_id"]:
-        return task["beads_id"], False
+        check = run_bd(["bd", "show", task["beads_id"], "--json"])
+        if check.returncode != 0:
+            return task["beads_id"], False, True
+        return task["beads_id"], False, False
     title = f"{ordinal_prefix}.{task_index} {task['name']}"
     result = run_bd(
         ["bd", "create", title, "--type", "task", "--parent", epic_id, "--silent"]
     )
     if result.returncode != 0:
         raise RuntimeError(f"bd create (task) failed: {result.stderr.strip()}")
-    return result.stdout.strip(), True
+    return result.stdout.strip(), True, False
+
+
+def find_orphans(children, current_ids):
+    """Return ids of epic children (bd list --all --json rows) that match no
+    current task and are not already closed (D-06).
+
+    --all is required by the caller: the default `bd list` omits closed
+    issues, so a sweep that relied on that default would re-close an
+    already-closed orphan on every run and break idempotency (B5) -- the
+    not-already-closed check here is the other half of that guard.
+    """
+    return [
+        c["id"]
+        for c in children
+        if c.get("id") not in current_ids and c.get("status") != "closed"
+    ]
 
 
 def rewrite_plan(text, epic_id, epic_created, task_updates):
@@ -290,16 +315,34 @@ def create_issues(plan_arg):
     task_updates = []
     created_count = 0
     task_ids = []
+    divergences = []
     for i, task in enumerate(tasks, start=1):
-        issue_id, created = resolve_issue(task, epic_id, ordinal_prefix, i)
+        issue_id, created, divergent = resolve_issue(task, epic_id, ordinal_prefix, i)
         if created:
             created_count += 1
             task_updates.append((task["name_end"], issue_id))
+        if divergent:
+            divergences.append((task["name"], issue_id))
         task_ids.append(issue_id)
+
+    for name, missing_id in divergences:
+        print(f"divergence: task {name!r} beads-id {missing_id} not found in bd")
 
     if task_updates or epic_created:
         new_text = rewrite_plan(text, epic_id, epic_created, task_updates)
         plan_path.write_text(new_text, encoding="utf-8")
+
+    orphan_result = run_bd(["bd", "list", "--parent", epic_id, "--all", "--json"])
+    if orphan_result.returncode == 0:
+        try:
+            children = json.loads(orphan_result.stdout)
+        except json.JSONDecodeError:
+            children = []
+        current_ids = {tid for tid in task_ids if tid}
+        for orphan_id in find_orphans(children, current_ids):
+            run_bd(
+                ["bd", "close", orphan_id, "--reason", "no longer maps to a plan task"]
+            )
 
     prereq_last_ids = []
     for prereq_id in parse_depends_on(frontmatter):

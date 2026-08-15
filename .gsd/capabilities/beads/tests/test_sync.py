@@ -354,6 +354,136 @@ class TestIdentityBinding(unittest.TestCase):
         self.assertIn("<beads-id>tracer-f5x.1</beads-id>", new_text)
 
 
+class TestIdempotency(unittest.TestCase):
+    """B5: re-running sync over an unchanged plan writes nothing new; D-06
+    closes an orphaned epic child once with a reason and never re-closes an
+    already-closed one; D-07 reports (never heals) a stale <beads-id>."""
+
+    @mock.patch("subprocess.run")
+    def test_second_sync_over_unchanged_plan_issues_no_create_or_update_calls(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            sync.create_issues(str(plan_copy))
+            mock_run.reset_mock()
+            exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        writes = [
+            c.args[0]
+            for c in mock_run.call_args_list
+            if len(c.args[0]) > 1 and c.args[0][1] in ("create", "update")
+        ]
+        self.assertEqual(writes, [])
+
+    @mock.patch("subprocess.run")
+    def test_second_sync_over_unchanged_plan_leaves_plan_bytes_identical(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            sync.create_issues(str(plan_copy))
+            before = plan_copy.read_bytes()
+            sync.create_issues(str(plan_copy))
+            after = plan_copy.read_bytes()
+
+        self.assertEqual(before, after)
+
+    def test_orphaned_epic_child_closes_once_with_reason(self):
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(
+                    0,
+                    stdout=json.dumps(
+                        [
+                            {"id": "tracer-f5x.1", "status": "open"},
+                            {"id": "tracer-f5x.2", "status": "open"},
+                            {"id": "tracer-f5x.99", "status": "open"},
+                        ]
+                    ),
+                )
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout="{}\n")
+            if argv[:2] == ["bd", "close"]:
+                return _completed(0)
+            if argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-orphan.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        close_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(len(close_calls), 1)
+        self.assertEqual(close_calls[0][2], "tracer-f5x.99")
+        self.assertIn("--reason", close_calls[0])
+
+    def test_orphan_sweep_skips_already_closed_children_on_repeat_run(self):
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(
+                    0,
+                    stdout=json.dumps(
+                        [
+                            {"id": "tracer-f5x.1", "status": "open"},
+                            {"id": "tracer-f5x.2", "status": "open"},
+                            {"id": "tracer-f5x.99", "status": "closed"},
+                        ]
+                    ),
+                )
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout="{}\n")
+            if argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-orphan.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        close_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(close_calls, [])
+
+    def test_stale_beads_id_reports_divergence_without_recreating(self):
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "show"] and argv[2] == "tracer-f5x.1":
+                return _completed(1, stderr="no issue found matching tracer-f5x.1")
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout="{}\n")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                with contextlib.redirect_stdout(captured):
+                    exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("tracer-f5x.1", captured.getvalue())
+        create_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+        ]
+        self.assertEqual(create_calls, [])
+
+
 class TestFailOpen(unittest.TestCase):
     """B6: bd absent, or every bd invocation failing, degrades to exit 0, one
     stdout notice, one STATE.md bullet, and no BEADS.md -- never an
