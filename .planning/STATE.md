@@ -4,11 +4,11 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 02
 current_phase_name: Visibility
-status: verifying
-stopped_at: Completed 02-02-PLAN.md
-last_updated: "2026-08-15T13:33:16.040Z"
+status: complete
+stopped_at: Phase 2 closed — SC1/SC3 verified, SC2 (B8) mechanism proven but literal prompt-grep deferred to Phase 3's first real wave
+last_updated: "2026-08-15T14:35:00.000Z"
 last_activity: 2026-08-15
-last_activity_desc: Phase 2 researched, planned (2 plans), plan-checker verified all 3 success criteria PASS
+last_activity_desc: Phase 2 executed (2/2 plans, 39/39 tests), goal-verified 2/3 criteria hard-pass, 1 deferred (WINDOWS.md #1/#2, open)
 progress:
   total_phases: 2
   completed_phases: 2
@@ -96,6 +96,8 @@ Recent decisions affecting current work:
 None yet.
 
 ### Blockers/Concerns
+
+- 2026-08-15: bd unavailable -- beads-recall skipped (B6/D-08)
 
 - [Phase 3] PRD §12 open question: where is a `beads.ship_gate=false` override recorded so it
   stays visible afterward?
