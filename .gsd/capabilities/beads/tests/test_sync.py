@@ -1543,5 +1543,132 @@ class TestDivergence(unittest.TestCase):
         self.assertIn("diverged: 0", text)
 
 
+def _write_ship_override_workspace(tmp_path, beads_md_text=None):
+    """Lay out a minimal .planning/ tree (find_project_root's ancestor) with
+    a phase_dir and, when given, a hand-written {padded_phase}-BEADS.md at
+    the exact path ship_override reads -- no regenerate_beads_md call, since
+    ship_override must source its values from the file on disk only."""
+    planning_dir = tmp_path / ".planning"
+    phase_dir = planning_dir / "phases" / "01-substrate"
+    phase_dir.mkdir(parents=True)
+    if beads_md_text is not None:
+        (phase_dir / "01-BEADS.md").write_text(beads_md_text, encoding="utf-8")
+    return phase_dir
+
+
+def _ship_override_beads_md_text(epic="ship-epic", blocking_open=2, diverged=1):
+    return (
+        "---\n"
+        "phase: 01-substrate\n"
+        f"epic: {epic}\n"
+        "open: 3\n"
+        "closed: 1\n"
+        f"blocking_open: {blocking_open}\n"
+        f"diverged: {diverged}\n"
+        'generated_from: "bd list --parent ship-epic --all --json -n 0"\n'
+        "generated_at: 2026-08-15T00:00:00Z\n"
+        "---\n\n"
+        "# BEADS.md: 01-substrate\n\n"
+        "| Issue | Title | Status | Task Status | Plan Task | Blocked By |\n"
+        "|-------|-------|--------|-------------|-----------|------------|\n"
+    )
+
+
+class TestShipOverride(unittest.TestCase):
+    """D-05: ship_override records a ship_gate bypass via a durable git
+    trailer (always attempted, load-bearing) plus a best-effort bd comment
+    (fail-open, B6) -- both sourced only from BEADS.md's own generated
+    frontmatter, never a fresh live bd query."""
+
+    def test_full_success_records_trailer_and_bd_comment(self):
+        calls = []
+
+        def _side_effect(argv, **kwargs):
+            calls.append(argv)
+            if argv[0] == "git":
+                return _completed(0)
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "comment"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(
+                Path(tmp),
+                _ship_override_beads_md_text(epic="ship-epic", blocking_open=2, diverged=1),
+            )
+            with mock.patch("shutil.which", return_value="/usr/bin/bd"):
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    exit_code = sync.ship_override(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        git_call = next(c for c in calls if c[0] == "git")
+        trailer_idx = git_call.index("--trailer") + 1
+        self.assertEqual(
+            git_call[trailer_idx],
+            "Beads-Override: ship_gate bypassed, blocking_open=2, diverged=1",
+        )
+        comment_call = next(c for c in calls if c[:2] == ["bd", "comment"])
+        self.assertEqual(comment_call[2], "ship-epic")
+
+    def test_git_failure_still_records_bd_comment_and_exits_one(self):
+        calls = []
+
+        def _side_effect(argv, **kwargs):
+            calls.append(argv)
+            if argv[0] == "git":
+                return _completed(1, stderr="amend failed")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "comment"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(
+                Path(tmp), _ship_override_beads_md_text()
+            )
+            with mock.patch("shutil.which", return_value="/usr/bin/bd"):
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    exit_code = sync.ship_override(str(phase_dir))
+
+        self.assertEqual(exit_code, 1)
+        self.assertTrue(any(c[0] == "git" for c in calls))
+        self.assertTrue(any(c[:2] == ["bd", "comment"] for c in calls))
+
+    def test_bd_unavailable_still_writes_git_trailer_skips_comment(self):
+        calls = []
+
+        def _side_effect(argv, **kwargs):
+            calls.append(argv)
+            if argv[0] == "git":
+                return _completed(0)
+            if argv[:2] == ["bd", "list"]:
+                return _completed(1, stderr="bd locked")
+            return _completed(1, stderr=f"unexpected: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(
+                Path(tmp), _ship_override_beads_md_text()
+            )
+            with mock.patch("shutil.which", return_value="/usr/bin/bd"):
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    exit_code = sync.ship_override(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(any(c[0] == "git" for c in calls))
+        self.assertFalse(any(c[:2] == ["bd", "comment"] for c in calls))
+
+    def test_missing_beads_md_makes_zero_subprocess_calls_and_exits_one(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(Path(tmp), beads_md_text=None)
+            with mock.patch("subprocess.run") as mock_run:
+                exit_code = sync.ship_override(str(phase_dir))
+
+        self.assertEqual(exit_code, 1)
+        mock_run.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
