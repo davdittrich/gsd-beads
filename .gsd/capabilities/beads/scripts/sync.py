@@ -38,6 +38,22 @@ DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
 # parse_depends_on falls back to this regex when DEPENDS_ON_RE doesn't match.
 DEPENDS_ON_BLOCK_RE = re.compile(r"^depends_on:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
 PLAN_FILE_RE = re.compile(r"^(\d{2}-\d{2})-PLAN\.md$")
+# B12 migrate-todos: a pending todo's frontmatter (add-todo.md's schema --
+# created/title/area/severity/files, block-list files:) plus its
+# ## Problem/## Solution body. TITLE_RE allows spaces (title text), AREA_RE/
+# SEVERITY_RE are single-token like BEADS_EPIC_RE; FILES_BLOCK_RE is
+# DEPENDS_ON_BLOCK_RE's block-list shape scoped to the `files:` key.
+TITLE_RE = re.compile(r"^title:\s*(.+)$", re.MULTILINE)
+AREA_RE = re.compile(r"^area:\s*(\S+)\s*$", re.MULTILINE)
+SEVERITY_RE = re.compile(r"^severity:\s*(\S+)\s*$", re.MULTILINE)
+FILES_BLOCK_RE = re.compile(r"^files:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
+PROBLEM_RE = re.compile(r"^##\s*Problem\s*\n(.*?)(?=^##\s*Solution\s*$)", re.MULTILINE | re.DOTALL)
+SOLUTION_RE = re.compile(r"^##\s*Solution\s*\n(.*)", re.MULTILINE | re.DOTALL)
+# D-02: bd's verified priority scale (0=Critical..4=Backlog) mapped onto the
+# blocker/major/minor/cosmetic taxonomy add-todo.md's infer_severity step
+# already uses -- 4 (Backlog) is deliberately unused here, reserved for a
+# future idea, not a migrated todo's severity.
+SEVERITY_TO_PRIORITY = {"blocker": 0, "major": 1, "minor": 2, "cosmetic": 3}
 BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # 03-03 Task 2: the literal marker bracketing the local ship.md patch
 # (GSD-CORE-PATCH.md) -- check_shipmd_patch does a plain substring check
@@ -172,6 +188,167 @@ def parse_depends_on(frontmatter):
         if item:
             items.append(item)
     return items
+
+
+def parse_todo_files_block(frontmatter):
+    """Return a todo's `files:` block-list values, quotes/whitespace
+    stripped. Absent -> [] (B12, Pattern 1: `DEPENDS_ON_BLOCK_RE`'s
+    block-item extraction technique, cloned and scoped to `files:`)."""
+    m = FILES_BLOCK_RE.search(frontmatter)
+    if not m:
+        return []
+    items = []
+    for line in m.group(1).splitlines():
+        line = line.strip()
+        if not line.startswith("-"):
+            continue
+        item = line[1:].strip().strip('"').strip("'")
+        if item:
+            items.append(item)
+    return items
+
+
+def parse_todo(path):
+    """Return {title, severity, area, files, problem, solution} for one
+    `.planning/todos/pending/*.md` file (add-todo.md's schema).
+
+    Raises ValueError (never returns a partially-populated dict) when the
+    frontmatter has no closing `---`, `title` is absent, or `severity` is
+    absent/not a `SEVERITY_TO_PRIORITY` key (D-04) -- migrate_todos catches
+    this per-file and leaves the file untouched. `area` defaults to
+    "general" when absent, matching add-todo.md's own "unclear -> general"
+    convention.
+    """
+    path = Path(path)
+    text = path.read_text(encoding="utf-8")
+
+    fm_match = FRONTMATTER_RE.match(text)
+    if not fm_match:
+        raise ValueError(f"{path.name}: no closing frontmatter '---' found")
+    frontmatter = fm_match.group(1)
+    body = text[fm_match.end():]
+
+    title_m = TITLE_RE.search(frontmatter)
+    if not title_m:
+        raise ValueError(f"{path.name}: missing 'title' frontmatter key")
+    title = title_m.group(1).strip()
+
+    severity_m = SEVERITY_RE.search(frontmatter)
+    if not severity_m or severity_m.group(1) not in SEVERITY_TO_PRIORITY:
+        raise ValueError(
+            f"{path.name}: missing or unrecognized 'severity' frontmatter key"
+        )
+    severity = severity_m.group(1)
+
+    area_m = AREA_RE.search(frontmatter)
+    area = area_m.group(1) if area_m else "general"
+
+    files = parse_todo_files_block(frontmatter)
+
+    problem_m = PROBLEM_RE.search(body)
+    problem = problem_m.group(1).strip() if problem_m else ""
+    solution_m = SOLUTION_RE.search(body)
+    solution = solution_m.group(1).strip() if solution_m else ""
+
+    return {
+        "title": title,
+        "severity": severity,
+        "area": area,
+        "files": files,
+        "problem": problem,
+        "solution": solution,
+    }
+
+
+def _todo_description(todo):
+    """Fold problem/solution (and files, when present) into one `-d` prose
+    string (D-03: `files:` has no structured bd field, so it carries as a
+    "## Files" section appended only when non-empty)."""
+    desc = f"## Problem\n{todo['problem']}\n\n## Solution\n{todo['solution']}\n"
+    if todo["files"]:
+        desc += "\n## Files\n" + "\n".join(f"- {f}" for f in todo["files"]) + "\n"
+    return desc
+
+
+def migrate_todos(pending_dir_arg):
+    """B12: one-shot migration of every parseable
+    `.planning/todos/pending/*.md` file into a mapped bd issue, then delete
+    that file (D-05); an unparseable file is left untouched and reported
+    under "could not be interpreted", distinct from a "bd create failed"
+    entry (D-04/Pitfall 2). No duplicate check against existing bd issues
+    (D-06): every parseable todo always creates a new issue.
+    """
+    if not bd_available():
+        print(NOTICE)
+        try:
+            project_root = find_project_root(Path(pending_dir_arg).resolve())
+        except ValueError:
+            project_root = None
+        if project_root is not None:
+            append_state_blocker(
+                confined(project_root, ".planning", "STATE.md"),
+                "bd unavailable -- migrate-todos skipped (B6/D-08)",
+            )
+        return 0
+
+    pending_dir = Path(pending_dir_arg)
+    if not pending_dir.is_dir():
+        print("no pending todos found")
+        return 0
+    todo_paths = sorted(pending_dir.glob("*.md"))
+    if not todo_paths:
+        print("no pending todos found")
+        return 0
+
+    moved = []
+    parse_errors = []
+    bd_create_failed = []
+    for todo_path in todo_paths:
+        try:
+            todo = parse_todo(todo_path)
+        except ValueError as exc:
+            parse_errors.append((todo_path.name, str(exc)))
+            continue
+
+        result = run_bd(
+            [
+                "bd",
+                "create",
+                todo["title"],
+                "-d",
+                _todo_description(todo),
+                "-t",
+                "task",
+                "-p",
+                str(SEVERITY_TO_PRIORITY[todo["severity"]]),
+                "-l",
+                f"area-{todo['area']}",
+                "--silent",
+            ]
+        )
+        if result.returncode != 0:
+            bd_create_failed.append((todo_path.name, result.stderr.strip()))
+            continue
+
+        issue_id = result.stdout.strip()
+        todo_path.unlink()  # D-05: delete only after bd create's return code is confirmed 0
+        moved.append((todo_path.name, issue_id))
+
+    lines = [
+        f"Migrated {len(moved)} todo(s), {len(parse_errors)} could not be interpreted, "
+        f"{len(bd_create_failed)} bd create failed"
+    ]
+    if moved:
+        lines.append("  moved:")
+        lines.extend(f"    {name} -> {issue_id}" for name, issue_id in moved)
+    if parse_errors:
+        lines.append("  could not be interpreted:")
+        lines.extend(f"    {name}: {reason}" for name, reason in parse_errors)
+    if bd_create_failed:
+        lines.append("  bd create failed:")
+        lines.extend(f"    {name}: {reason}" for name, reason in bd_create_failed)
+    print("\n".join(lines))
+    return 0
 
 
 def discover_plan_files(phase_dir):
@@ -1243,6 +1420,10 @@ def main(argv=None):
         help="Report whether the local ship.md ship:pre dispatch patch (GSD-CORE-PATCH.md) is present",
     )
     check_shipmd_patch_p.add_argument("--ship-md-path", default=None)
+    sub.add_parser(
+        "migrate-todos",
+        help="One-shot migration of .planning/todos/pending/ entries into bd issues (B12)",
+    )
     args = parser.parse_args(argv)
     if args.command == "create-issues":
         return create_issues(args.plan_path)
@@ -1258,6 +1439,10 @@ def main(argv=None):
         return ship_override(args.phase_dir)
     if args.command == "check-shipmd-patch":
         return check_shipmd_patch(args.ship_md_path)
+    if args.command == "migrate-todos":
+        project_root = find_project_root(Path.cwd())
+        pending_dir = confined(project_root, ".planning", "todos", "pending")
+        return migrate_todos(str(pending_dir))
     return 1
 
 

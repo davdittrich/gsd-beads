@@ -18,7 +18,8 @@
   "skills": [
     "beads-sync",
     "beads-status",
-    "beads-recall"
+    "beads-recall",
+    "beads-migrate-todos"
   ],
   "agents": [],
   "hooks": [],

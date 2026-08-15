@@ -2178,17 +2178,17 @@ class TestMigrateTodos(unittest.TestCase):
 
             exit_code = sync.migrate_todos(str(pending_dir))
 
-        self.assertEqual(exit_code, 0)
-        create_calls = [
-            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
-        ]
-        self.assertEqual(len(create_calls), 1)
-        argv = create_calls[0]
-        self.assertEqual(argv[argv.index("-p") + 1], "1")  # severity: major -> priority 1
-        self.assertEqual(argv[argv.index("-l") + 1], "area-sync")
-        desc = argv[argv.index("-d") + 1]
-        self.assertTrue(desc.startswith("## Problem"))
-        self.assertFalse(todo_path.exists())
+            self.assertEqual(exit_code, 0)
+            create_calls = [
+                c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+            ]
+            self.assertEqual(len(create_calls), 1)
+            argv = create_calls[0]
+            self.assertEqual(argv[argv.index("-p") + 1], "1")  # severity: major -> priority 1
+            self.assertEqual(argv[argv.index("-l") + 1], "area-sync")
+            desc = argv[argv.index("-d") + 1]
+            self.assertTrue(desc.startswith("## Problem"))
+            self.assertFalse(todo_path.exists())
 
     @mock.patch("subprocess.run")
     def test_malformed_neither_deleted_nor_sent_to_bd_create(self, mock_run):
@@ -2200,12 +2200,12 @@ class TestMigrateTodos(unittest.TestCase):
 
             exit_code = sync.migrate_todos(str(pending_dir))
 
-        self.assertEqual(exit_code, 0)
-        self.assertTrue(malformed_path.exists())
-        create_calls = [
-            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
-        ]
-        self.assertEqual(len(create_calls), 0)
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(malformed_path.exists())
+            create_calls = [
+                c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+            ]
+            self.assertEqual(len(create_calls), 0)
 
 
 class TestMigrateTodosReport(unittest.TestCase):
@@ -2232,11 +2232,11 @@ class TestMigrateTodosReport(unittest.TestCase):
             with contextlib.redirect_stdout(captured):
                 exit_code = sync.migrate_todos(str(pending_dir))
 
-        self.assertEqual(exit_code, 0)
-        self.assertTrue(todo_path.exists())
-        report = captured.getvalue()
-        self.assertIn("bd create failed", report)
-        self.assertNotIn("could not be interpreted:", report)
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(todo_path.exists())
+            report = captured.getvalue()
+            self.assertIn("bd create failed", report)
+            self.assertNotIn("could not be interpreted:", report)
 
     def test_bd_unavailable_issues_zero_subprocess_calls(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2253,9 +2253,9 @@ class TestMigrateTodosReport(unittest.TestCase):
                     ):
                         exit_code = sync.migrate_todos(str(pending_dir))
 
-        self.assertEqual(exit_code, 0)
-        self.assertTrue(todo_path.exists())
-        self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(todo_path.exists())
+            self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
 
     @mock.patch("subprocess.run")
     def test_missing_pending_dir_returns_zero_not_exception(self, mock_run):
