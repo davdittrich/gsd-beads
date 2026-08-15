@@ -17,7 +17,8 @@
   },
   "skills": [
     "beads-sync",
-    "beads-status"
+    "beads-status",
+    "beads-recall"
   ],
   "agents": [],
   "hooks": [],
@@ -39,6 +40,20 @@
     }
   },
   "steps": [
+    {
+      "point": "plan:pre",
+      "ref": {
+        "skill": "beads-recall"
+      },
+      "produces": [
+        "BEADS-RECALL.md"
+      ],
+      "consumes": [
+        "CONTEXT.md"
+      ],
+      "when": "beads.enabled",
+      "onError": "skip"
+    },
     {
       "point": "plan:post",
       "ref": {

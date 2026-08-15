@@ -19,6 +19,7 @@ from pathlib import Path
 
 BD_TIMEOUT = 15  # seconds; bounded timeout on every bd subprocess call
 NOTICE = "bd unavailable -- sync skipped"
+BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 
 TASK_RE = re.compile(r"<task\b[^>]*>.*?</task>", re.DOTALL)
 NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
@@ -471,6 +472,121 @@ def create_issues(plan_arg):
     return 0
 
 
+def _escape_table_cell(text):
+    """Escape `|` and strip `\r`/`\n` from text before it enters a markdown
+    table cell (T-02-03, matches gsd-core's own ship.md pattern) -- issue
+    title/status text originates from a different principal (whoever filed
+    it in bd) than the process rendering this generated artifact."""
+    return text.replace("|", "\\|").replace("\r", "").replace("\n", " ")
+
+
+def _beads_recall_argv():
+    """The D-04 baseline open-issue scan: every open, non-epic issue, no
+    truncation (Pitfall 3 -- `-n 0` overrides the default 50-row limit)."""
+    return ["bd", "list", "--status", BEADS_RECALL_STATUSES, "--exclude-type", "epic", "--json", "-n", "0"]
+
+
+def _render_issue_table(rows, include_matched_via):
+    """rows is [(issue, matched_via_or_None), ...]; matched_via is rendered
+    as a fourth column only when include_matched_via is True."""
+    if include_matched_via:
+        lines = ["| Issue | Title | Status | Matched via |", "|-------|-------|--------|--------------|"]
+    else:
+        lines = ["| Issue | Title | Status |", "|-------|-------|--------|"]
+    for issue, via in rows:
+        issue_id = _escape_table_cell(str(issue.get("id", "")))
+        title = _escape_table_cell(str(issue.get("title", "")))
+        status = _escape_table_cell(str(issue.get("status", "")))
+        if include_matched_via:
+            lines.append(f"| {issue_id} | {title} | {status} | matched via: {via} |")
+        else:
+            lines.append(f"| {issue_id} | {title} | {status} |")
+    return "\n".join(lines)
+
+
+def _render_beads_recall_body(matched, unscoped):
+    """matched is [(issue, matched_via), ...]; unscoped is [issue, ...].
+
+    D-04: a zero-issue run (both lists empty) renders the single literal
+    "No open issues found." line, never a skipped file. D-02: an issue
+    matching neither scope-matching technique is rendered under "## Unscoped",
+    never omitted from the body entirely.
+    """
+    if not matched and not unscoped:
+        return "No open issues found.\n"
+
+    parts = ["## Open issues touching this phase's scope", ""]
+    if matched:
+        parts.append(_render_issue_table(matched, include_matched_via=True))
+    else:
+        parts.append("None matched this phase's scope.")
+    parts.append("")
+    parts.append("## Unscoped")
+    parts.append("")
+    if unscoped:
+        parts.append(_render_issue_table([(issue, None) for issue in unscoped], include_matched_via=False))
+    else:
+        parts.append("None.")
+    parts.append("")
+    return "\n".join(parts)
+
+
+def beads_recall(phase_dir_arg):
+    """B7/plan:pre: scan every open, non-epic bd issue and write
+    `{phase_dir}/{padded_phase}-BEADS-RECALL.md`, always, even when zero
+    issues are open (D-04) -- same B6/D-08 fail-open shape as create_issues/
+    close_wave, never a new fail-open variant."""
+    if not bd_available():
+        print(NOTICE)
+        try:
+            project_root = find_project_root(Path(phase_dir_arg).resolve())
+        except ValueError:
+            project_root = None
+        if project_root is not None:
+            append_state_blocker(
+                confined(project_root, ".planning", "STATE.md"),
+                "bd unavailable -- beads-recall skipped (B6/D-08)",
+            )
+        return 0
+
+    phase_dir = Path(phase_dir_arg).resolve()
+    padded_phase = phase_dir.name.split("-", 1)[0]
+
+    result = run_bd(_beads_recall_argv())
+    issues = []
+    if result.returncode == 0:
+        try:
+            issues = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            issues = []
+
+    # Task 1 baseline: no scope-matching technique exists yet, so every
+    # open issue is legally Unscoped (D-02) -- Task 2 wires scope_match/
+    # desc_contains_match in here to move matched issues to the other list.
+    matched = []
+    unscoped = list(issues)
+
+    body = _render_beads_recall_body(matched, unscoped)
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    frontmatter = (
+        "---\n"
+        f"phase: {phase_dir.name}\n"
+        f'generated_from: "{" ".join(_beads_recall_argv())}"\n'
+        f"generated_at: {generated_at}\n"
+        "---\n\n"
+    )
+    out_text = frontmatter + f"# Beads Recall: Phase {phase_dir.name}\n\n" + body
+
+    out_path = phase_dir / f"{padded_phase}-BEADS-RECALL.md"
+    out_path.write_text(out_text, encoding="utf-8")
+
+    print(
+        f"BEADS-RECALL.md written: {len(matched)} matched, {len(unscoped)} unscoped "
+        f"({len(issues)} open issue(s) total)"
+    )
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="sync.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -484,11 +600,18 @@ def main(argv=None):
     )
     close_p.add_argument("phase_dir")
     close_p.add_argument("plan_ids", nargs="+")
+    recall_p = sub.add_parser(
+        "beads-recall",
+        help="Scan open bd issues and write BEADS-RECALL.md naming any issue touching this phase's scope",
+    )
+    recall_p.add_argument("phase_dir")
     args = parser.parse_args(argv)
     if args.command == "create-issues":
         return create_issues(args.plan_path)
     if args.command == "close-wave":
         return close_wave(args.phase_dir, args.plan_ids)
+    if args.command == "beads-recall":
+        return beads_recall(args.phase_dir)
     return 1
 
 

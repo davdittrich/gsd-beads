@@ -868,5 +868,109 @@ class TestFailOpen(unittest.TestCase):
         self.assertFalse(beads_md.exists())
 
 
+def _make_beads_recall_bd_side_effect(issues_json="[]\n", desc_contains_matches=frozenset()):
+    """A subprocess.run stand-in for beads-recall tests: the bd_available
+    probe (`bd list --json -n 1`) always succeeds; the D-04 open-issue scan
+    (`bd list --status ... --exclude-type epic --json -n 0`) answers with
+    issues_json; a `bd list --id <id> --desc-contains <token> ...` call
+    answers non-empty only when <id> is in desc_contains_matches (technique
+    2's per-token fallback query)."""
+
+    def _side_effect(argv, **kwargs):
+        if argv[:3] == ["bd", "list", "--json"]:
+            return _completed(0, stdout="[]\n")
+        if "--desc-contains" in argv:
+            issue_id = argv[argv.index("--id") + 1]
+            if issue_id in desc_contains_matches:
+                return _completed(0, stdout=json.dumps([{"id": issue_id}]))
+            return _completed(0, stdout="[]\n")
+        if argv[:3] == ["bd", "list", "--status"]:
+            return _completed(0, stdout=issues_json)
+        return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+    return _side_effect
+
+
+def _write_recall_phase_workspace(tmp_path, phase_dir_name="02-visibility", roadmap_section=None, context_text=None):
+    """Lay out a minimal .planning/ tree with a phase directory named
+    phase_dir_name, a ROADMAP.md carrying that phase's section text, and an
+    optional CONTEXT.md -- the pre-plan file-scope signal source (D-01
+    revised, since no PLAN.md exists yet at plan:pre time for the phase
+    being planned)."""
+    planning_dir = tmp_path / ".planning"
+    phase_dir = planning_dir / "phases" / phase_dir_name
+    phase_dir.mkdir(parents=True)
+    phase_num = phase_dir_name.split("-", 1)[0]
+    section = roadmap_section or "Goal.\n"
+    (planning_dir / "ROADMAP.md").write_text(
+        f"### Phase {int(phase_num)}: Visibility\n{section}\n### Phase {int(phase_num) + 1}: Next\nGoal.\n",
+        encoding="utf-8",
+    )
+    if context_text is not None:
+        (phase_dir / f"{phase_num}-CONTEXT.md").write_text(context_text, encoding="utf-8")
+    return phase_dir
+
+
+class TestBeadsRecall(unittest.TestCase):
+    """B7: BEADS-RECALL.md is always written when bd is available (D-04); an
+    open issue touching this phase's scope is named under a matched heading,
+    everything else under Unscoped, never dropped (D-02)."""
+
+    @mock.patch("subprocess.run")
+    def test_zero_open_issues_writes_none_found_body(self, mock_run):
+        mock_run.side_effect = _make_beads_recall_bd_side_effect("[]\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(out_path.exists())
+            self.assertIn("No open issues found.", out_path.read_text(encoding="utf-8"))
+
+    @mock.patch("subprocess.run")
+    def test_multi_issue_response_lists_every_issue_under_unscoped(self, mock_run):
+        issues = json.dumps(
+            [
+                {"id": "bd-1", "title": "Fix thing one", "status": "open"},
+                {"id": "bd-2", "title": "Fix thing two", "status": "in_progress"},
+            ]
+        )
+        mock_run.side_effect = _make_beads_recall_bd_side_effect(issues)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+            self.assertIn("## Unscoped", text)
+            unscoped_section = text.split("## Unscoped", 1)[1]
+            self.assertIn("bd-1", unscoped_section)
+            self.assertIn("bd-2", unscoped_section)
+
+    def test_bd_unavailable_writes_no_file_and_one_notice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            phase_dir = _write_recall_phase_workspace(tmp_path)
+            (tmp_path / ".planning" / "STATE.md").write_text(
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                with mock.patch("shutil.which", return_value=None):
+                    with mock.patch(
+                        "subprocess.run",
+                        side_effect=AssertionError("bd must not be invoked when absent"),
+                    ):
+                        exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            self.assertFalse(out_path.exists())
+            self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
