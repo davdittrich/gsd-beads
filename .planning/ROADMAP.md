@@ -79,12 +79,13 @@ unless the operator overrides deliberately, and the override is recorded.
   2. Setting `beads.ship_gate=false` allows the ship to proceed and records that the gate was overridden
   3. An issue closed in beads while its task is incomplete (or the reverse) sets `diverged>0`, blocks ship, and reports both sides without anything being auto-reconciled
 
-**Plans**: 2 plans
+**Plans**: 3 plans
 
 Plans:
 
 - [ ] 03-01-PLAN.md — Real blocking_open/diverged in BEADS.md's frontmatter/table, regenerated at verify:post too (B9, B10)
 - [ ] 03-02-PLAN.md — ship:pre gates/config, ship_override audit-trail primitive, and the documented gap in gsd-core's ship.md dispatch (B9, B10)
+- [ ] 03-03-PLAN.md — Machine-local patch to gsd-core's ship.md making the ship:pre gates/step dispatch live, plus a self-detecting reapply check (B9, B10)
 
 ### Phase 4: Adoption
 
