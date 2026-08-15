@@ -1,19 +1,22 @@
 ---
 phase: 02-visibility
 verified: 2026-08-15T13:39:58Z
-status: human_needed
+status: passed
 score: 2/3 must-haves verified
 behavior_unverified: 1
 overrides_applied: 0
 behavior_unverified_items:
+
   - truth: "The composed orchestrator prompt at execute:wave:pre includes the beads fragment and names the issues in the wave, verified by inspecting the prompt directly (B8)"
     test: "Dispatch a real /gsd:execute-phase wave with beads.enabled=true against a real bd database (bd init in this repo or a scratch dir), let the orchestrator run the beads-status skill at execute:wave:pre, then capture and grep the actual prompt= text passed to each executor's Agent() call for the synced issue ids that appear in that wave's BEADS.md"
     expected: "Each executor's composed prompt literally contains the <beads_status> block naming this wave's issue ids/titles/statuses"
     why_human: "No party in this session can produce this evidence: a spawned executor/verifier subagent has no path to inspect the outer orchestrator's own Agent() call arguments, and this project's own 02-02-PLAN.md Task 3 (a blocking checkpoint:human-verify gate requiring a human to type \"approved\" after performing exactly this trace) was never actually gated by a human response — no 02-UAT.md exists, 02-VALIDATION.md's two manual-only rows (02-02-02, 02-02-03) remain unchecked with Approval: pending, and both WINDOWS.md ledger entries recording this gap are still status: open"
 human_verification:
+
   - test: "Dispatch a real /gsd:execute-phase wave (2+ plans sharing an epic) with beads.enabled=true and a real bd database; grep the actual prompt= text each executor's Agent() call receives for the wave's synced issue ids"
     expected: "The composed executor prompt names the issue ids, matching BEADS.md's table for that wave — B8's literal acceptance criterion"
     why_human: "Structurally unreachable from inside any subagent; requires the outer orchestrator itself to dispatch and a human (or later tooling) to inspect the resulting Agent() call, per 02-02-PLAN.md Task 3 and 02-VALIDATION.md's own manual-only rows"
+
   - test: "Dispatch a real /gsd:plan-phase run; grep the actual composed planner-subagent prompt for the recall-pointer.md fragment text (not just capability.json's manifest correctness)"
     expected: "The planner's real prompt contains the BEADS-RECALL.md pointer prose"
     why_human: "Same class of gap as B8 — 02-VALIDATION.md row 02-02-03 and WINDOWS.md entry #1, both still open/pending"
@@ -135,6 +138,7 @@ Both discovered during 02-02's live trace and documented in 02-02-SUMMARY.md Dev
 
 1. `create_issues` resolves each plan's epic independently from its own frontmatter rather than
    sharing one phase-level epic when `beads_epic` isn't pre-set on every plan in a phase.
+
 2. The orphan sweep (`find_orphans`) auto-closes a sibling plan's already-synced issue when two
    plans intentionally share one epic (`current_ids` is computed from only the plan being synced).
 
