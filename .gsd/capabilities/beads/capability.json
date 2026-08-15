@@ -1,0 +1,58 @@
+{
+  "id": "beads",
+  "role": "feature",
+  "version": "0.1.0",
+  "title": "Beads issue tracking",
+  "description": "Beads is the task substrate: gsd plan tasks exist as beads issues, their status lives in beads.",
+  "tier": "full",
+  "requires": [],
+  "engines": {
+    "gsd": ">=1.6.0"
+  },
+  "runtimeCompat": {
+    "supported": [
+      "*"
+    ],
+    "unsupported": []
+  },
+  "skills": [
+    "beads-sync"
+  ],
+  "agents": [],
+  "hooks": [],
+  "config": {
+    "beads.enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Master toggle for the beads issue-tracking capability."
+    },
+    "beads.sync_mode": {
+      "type": "enum",
+      "values": [
+        "authoritative",
+        "mirror",
+        "off"
+      ],
+      "default": "authoritative",
+      "description": "authoritative (default): bd owns task status and task content (title/description) after first sync. Content originates in PLAN.md at first sync, but PLAN.md task text is never re-synced from later bd edits (D-01). 'mirror' and 'off' are reserved for later phases."
+    }
+  },
+  "steps": [
+    {
+      "point": "plan:post",
+      "ref": {
+        "skill": "beads-sync"
+      },
+      "produces": [
+        "BEADS.md"
+      ],
+      "consumes": [
+        "PLAN.md"
+      ],
+      "when": "beads.enabled",
+      "onError": "skip"
+    }
+  ],
+  "contributions": [],
+  "gates": []
+}
