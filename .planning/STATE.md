@@ -4,16 +4,16 @@ milestone: v1.0
 milestone_name: milestone
 current_phase: 4
 current_phase_name: Adoption
-status: executing
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-08-15T22:23:03.639Z"
+status: verifying
+stopped_at: Completed 04-03-PLAN.md
+last_updated: "2026-08-15T22:32:09.138Z"
 last_activity: 2026-08-15
 last_activity_desc: Quick task 260815-mm8 fixed both pre-existing Phase 1 defects (gsd-beads-uh1, gsd-beads-bgb), 41/41 tests green
 progress:
   total_phases: 4
-  completed_phases: 3
+  completed_phases: 4
   total_plans: 11
-  completed_plans: 10
+  completed_plans: 11
 ---
 
 # Project State
@@ -30,10 +30,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 Phase: 4 (Adoption) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-15 — Phase 4 execution started
 
-Progress: [████████████████████] 3/3 plans ([█████████░] 91%)
+Progress: [████████████████████] 3/3 plans ([██████████] 100%)
 
 ## Performance Metrics
 
@@ -70,6 +70,7 @@ Progress: [████████████████████] 3/3 pla
 | Phase 03 P03 | 20min | 2 tasks | 4 files |
 | Phase 04-adoption P01 | 20min | 2 tasks | 6 files |
 | Phase 04-adoption P02 | ~12min | 2 tasks | 3 files |
+| Phase 04-adoption P03 | ~15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -104,6 +105,7 @@ Recent decisions affecting current work:
 - [Phase ?]: [Phase 3, 03-03]: pytest's own __pycache__ writes inside .gsd/capabilities/beads/ silently invalidate the project-scope capability consent hash -- discovered live, fixed by reconsenting from within the affected test body before the check it asserts on
 - [Phase ?]: [Phase 4, 04-01]: migrate_todos' parse-error/bd-create-failed/moved three-way report separation (Task 2's subject) had to exist from Task 1's first working version -- both tasks' tests landed in one RED/GREEN commit pair, TestMigrateTodosReport found no gap
 - [Phase ?]: [Phase 4, 04-02]: Task 1's own <behavior> spec required task-side-orphan logic, so Task 2's dedicated test_task_side_orphan and read-only-guarantee tests landed in Task 1's RED/GREEN commit pair (same pattern as 04-01); Task 2's SKILL.md wiring landed in its own separate commit
+- [Phase ?]: [Phase 4, 04-03]: resolve_epic gained a project_root parameter and its first-ever direct .planning/config.json read (read_epic_per) to satisfy D-11's read-fresh-per-call requirement; D-10 forward-only guard implemented as a live bd show --json title-match check (a per-phase epic's title is always a ROADMAP header, structurally distinct from the computed milestone title), never a stored migration marker
 
 ### Pending Todos
 
@@ -150,6 +152,6 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T22:23:03.633Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-08-15T22:32:09.132Z
+Stopped at: Completed 04-03-PLAN.md
 Resume file: None
