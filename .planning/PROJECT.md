@@ -23,13 +23,13 @@ task-state bookkeeping survives in `.planning/`.
 - ✓ **B4**: Identity is bound explicitly via `beads-id:`, never by title matching — Phase 1
 - ✓ **B5**: Sync is idempotent — Phase 1
 - ✓ **B6**: `bd` absent, failing or locked degrades to a no-op with one visible notice — Phase 1
+- ✓ **B9**: A phase with unfinished blocking issues cannot ship — Phase 3
+- ✓ **B10**: Divergence blocks and is reported; never auto-reconciled — Phase 3
 
 ### Active
 
 - [ ] **B7**: The planner sees open issues before planning (`BEADS-RECALL.md`)
 - [ ] **B8**: The executor's prompt carries live issue state
-- [ ] **B9**: A phase with unfinished blocking issues cannot ship
-- [ ] **B10**: Divergence blocks and is reported; never auto-reconciled
 - [ ] **B11**: `BEADS.md` is regenerated every step, never hand-edited
 - [ ] **B12**: One-shot migration of `.planning/todos/pending/` into beads
 - [ ] **B13**: `beads-status` prints the plan-task ↔ issue mapping on demand
@@ -83,7 +83,18 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 ## Constraints
 
 - **Installation**: Runtime overlay only, no fork/patch to gsd-core — reserved id prefixes
-  (`gsd-`, `gsd-core-`, `anthropic-`) are rejected by the loader, so the capability id is `beads`
+  (`gsd-`, `gsd-core-`, `anthropic-`) are rejected by the loader, so the capability id is `beads`.
+  **Overridden 2026-08-15 (user decision, Phase 3 planning):** installed `ship.md` hardcodes
+  `ship:pre` gate dispatch to `capId=='security'/'broken-windows'` only — no generic loop exists,
+  so Phase 3's declared `gates[]` can never fire without a local, global `ship.md` patch. User
+  explicitly authorized a machine-local patch as in-scope Phase 3 work (plan `03-03`, not deferred
+  follow-up), plus an upstream feature request (open-gsd/gsd-core#3554) that would make the local
+  patch unnecessary if merged. Phase 3 is not complete until `03-03` lands — the override covers
+  this phase's execution scope, not this constraint's default going forward.
+  Tracked via `.planning/` PLAN.md files only (no `bd` ticket) — this project's actual workflow
+  has never routed its own dev-task tracking through the `beads` capability being built; `bd` is
+  reserved for standalone bug reports (e.g. `gsd-beads-bgb`, `gsd-beads-uh1`), not phase task
+  tracking.
 - **Runtime**: Requires the `bd` binary on `PATH`; no dependency beyond `bd` and Python 3 stdlib
 - **Compatibility**: Declares `engines.gsd: ">=1.6.0"`; a version mismatch must skip with a
   warning, never crash
@@ -103,6 +114,7 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 | `gates[].onError: skip`, never `halt` | A missing/unreadable `BEADS.md` (capability disabled, `bd` absent, first run) must never strand a finished phase — the gate blocks only on a known bad state | — Pending (Phase 2/3 scope) |
 | Real `bd` v1.2.1 CLI diverges from initial RESEARCH.md in three ways, discovered live during Phase 1 execution | `--id` on issue create fails (ids are DB-prefix-derived, not passable); child ids are hierarchical/sequential so a duplicate create yields a *new* id rather than erroring (resolve-by-`beads-id`-before-create is mandatory, not just tidy); `bd list --parent` hides closed issues by default (an orphan sweep on the default listing would silently break B5 idempotency — must pass an explicit status filter) | Shipped Phase 1 — `sync.py` built against the verified real behavior, not the stale doc; RESEARCH.md corrected in-place |
 | gsd-core project-scope capability consent is a content hash over the whole bundle | Any file edit inside an already-consented bundle (even a legitimate bug fix) silently deactivates the capability — `render-hooks` just stops naming it, no error. Discovered when a post-code-review fix invalidated Phase 1's own install/consent 11 minutes after the checkpoint closed; caught only because the verifier independently re-ran `render-hooks` live instead of trusting green tests | Operational gotcha, not a beads-specific behavior — re-run `capability install --scope project` after any post-consent bundle edit, every phase, going forward |
+| Installed `ship.md`'s `ship:pre` dispatch hardcodes `capId=='security'/'broken-windows'`, no generic gate-enumeration loop (unlike `ship:post`'s steps) | Discovered during Phase 3 planning (plan-checker blocker) via a full-file read of the installed workflow, not inference — Phase 3's declared `gates[]` would otherwise silently never fire, making ROADMAP.md Success Criteria 1/2 false-but-unnoticed at ship time | User overrode the no-fork-patch constraint for a machine-local `ship.md` patch, folded in as in-scope Phase 3 work (plan `03-03`) rather than deferred; also filed upstream (open-gsd/gsd-core#3554) — if merged, the local patch becomes unnecessary and should be reverted. **Shipped and live-verified** — patch present at `$HOME/.claude/gsd-core/workflows/ship.md`, `check-shipmd-patch` exits 0, ship:pre gates confirmed to actually block/pass via a live `gsd_run check predicate` smoke test against a synthetic `BEADS.md`. Tracked via PLAN.md only, no `bd` ticket (see Constraints note above) |
 
 ---
-*Last updated: 2026-08-15 after Phase 1 (Substrate)*
+*Last updated: 2026-08-15 after Phase 3 execution (Enforcement) complete — B9/B10 validated, ship:pre live-verified*
