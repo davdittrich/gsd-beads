@@ -1417,6 +1417,54 @@ class TestBeadsMdRegeneration(unittest.TestCase):
     (read-only) -- D-05..D-08 frontmatter/table shape, full-file overwrite
     every run, blocked-by column excludes parent-child epic edges."""
 
+    def test_render_beads_md_table_escapes_issue_id_and_blocked_by(self):
+        """WR-01: _render_issue_table escapes id/title/status (T-02-03); this
+        sibling renderer must match for issue_id and the blocked_by cell --
+        both are re-parsed by _parse_beads_md_table_rows into a
+        <beads_status> block pasted verbatim into a spawned Agent() prompt,
+        so an unescaped `|` would shift table columns."""
+        rows = [
+            {
+                "id": "evil|id",
+                "title": "safe title",
+                "status": "open",
+                "dependencies": [
+                    {"depends_on_id": "blocker|1", "type": "blocks"},
+                    {"depends_on_id": "parent-epic", "type": "parent-child"},
+                ],
+            }
+        ]
+        table = sync._render_beads_md_table(rows, ordinal_map={}, task_status_by_id={})
+        self.assertIn("evil\\|id", table)
+        self.assertNotIn("| evil|id |", table)
+        self.assertIn("blocker\\|1", table)
+        # parent-child dependency must still be excluded from blocked_by.
+        self.assertNotIn("parent-epic", table)
+
+    def test_render_beads_md_table_lookups_survive_escaping(self):
+        """The task_status/plan_task lookups key on bd's raw (unescaped)
+        id -- escaping issue_id for display must not break them. Uses the
+        raw table string directly rather than the naive `_find_table_row`
+        test helper, since that helper's own unescape-unaware `split("|")`
+        is exactly the bug WR-01 fixes in `_parse_beads_md_table_rows`."""
+        rows = [{"id": "evil|id", "title": "t", "status": "open", "dependencies": []}]
+        table = sync._render_beads_md_table(
+            rows, ordinal_map={"evil|id": "01-01"}, task_status_by_id={"evil|id": "done"}
+        )
+        self.assertIn("| evil\\|id | t | open | done | 01-01 |  |", table)
+
+    def test_parse_beads_md_table_rows_survives_pipe_in_id(self):
+        """WR-01: _parse_beads_md_table_rows must recover the original,
+        unescaped id/title/status -- a naive split("|") on the escaped
+        `\\|` still shifts columns, which is exactly the corruption this
+        fix closes (the reconstructed row feeds render_wave_status_block's
+        <beads_status> block, pasted verbatim into a spawned Agent()
+        prompt)."""
+        rows = [{"id": "evil|id", "title": "safe title", "status": "open", "dependencies": []}]
+        table = sync._render_beads_md_table(rows, ordinal_map={}, task_status_by_id={})
+        parsed = sync._parse_beads_md_table_rows(table)
+        self.assertEqual(parsed, [{"id": "evil|id", "title": "safe title", "status": "open"}])
+
     @mock.patch("subprocess.run")
     def test_frontmatter_matches_mocked_bd_response_counts(self, mock_run):
         rows = json.dumps(

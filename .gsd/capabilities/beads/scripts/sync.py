@@ -873,15 +873,21 @@ def _render_beads_md_table(rows, ordinal_map, task_status_by_id):
         "|-------|-------|--------|-------------|-----------|------------|",
     ]
     for row in rows:
-        issue_id = str(row.get("id", ""))
+        raw_issue_id = str(row.get("id", ""))
+        issue_id = _escape_table_cell(raw_issue_id)
         title = _escape_table_cell(str(row.get("title", "")))
         status = _escape_table_cell(str(row.get("status", "")))
-        task_status = task_status_by_id.get(issue_id, "")
-        plan_task = ordinal_map.get(issue_id, "")
-        blocked_by = ", ".join(
-            str(dep.get("depends_on_id", ""))
-            for dep in row.get("dependencies", []) or []
-            if dep.get("type") == "blocks"
+        # task_status/plan_task are keyed on the raw (unescaped) id -- both
+        # ordinal_map and task_status_by_id are built from bd's own ids
+        # elsewhere, so lookups must use the same unescaped key.
+        task_status = task_status_by_id.get(raw_issue_id, "")
+        plan_task = ordinal_map.get(raw_issue_id, "")
+        blocked_by = _escape_table_cell(
+            ", ".join(
+                str(dep.get("depends_on_id", ""))
+                for dep in row.get("dependencies", []) or []
+                if dep.get("type") == "blocks"
+            )
         )
         lines.append(
             f"| {issue_id} | {title} | {status} | {task_status} | {plan_task} | {blocked_by} |"
@@ -957,15 +963,33 @@ def regenerate_beads_md(phase_dir_arg):
     return 0
 
 
+CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+
+
 def _parse_beads_md_table_rows(text):
     """Re-read a just-written BEADS.md's table rows (id, title, status) --
-    render_wave_status_block never re-queries bd a second time."""
+    render_wave_status_block never re-queries bd a second time.
+
+    WR-01: splits on an unescaped `|` only. `_escape_table_cell` encodes a
+    literal `|` in a cell value as `\\|`, but never removes the raw `|`
+    byte -- a naive `str.split("|")` still shifts columns on exactly the
+    bd-supplied `|` the escaping exists to close off (verified: an
+    unescaped-aware split is required, escaping alone is not sufficient for
+    this re-parse path, unlike a markdown renderer's visual display). Cells
+    are un-escaped (`\\|` -> `|`) after splitting to recover the original
+    value.
+    """
     rows = []
     for line in text.splitlines():
         line = line.strip()
         if not line.startswith("|"):
             continue
-        cells = [c.strip() for c in line.strip("|").split("|")]
+        cells = CELL_SPLIT_RE.split(line)
+        if cells and cells[0] == "":
+            cells = cells[1:]
+        if cells and cells[-1] == "":
+            cells = cells[:-1]
+        cells = [c.strip().replace("\\|", "|") for c in cells]
         if len(cells) < 3 or cells[0] in ("", "Issue") or set(cells[0]) == {"-"}:
             continue
         rows.append({"id": cells[0], "title": cells[1], "status": cells[2]})
