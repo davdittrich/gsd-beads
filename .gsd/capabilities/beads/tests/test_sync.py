@@ -2118,5 +2118,157 @@ class TestCheckShipmdPatch(unittest.TestCase):
         self.assertIn(str(missing_path), captured.getvalue())
 
 
+def _write_todo_pending_workspace(tmp_path, with_state=True):
+    """Lay out a minimal .planning/todos/pending/ tree under tmp_path
+    (B12) -- migrate_todos' find_project_root climb reaches tmp_path/
+    .planning the same way close_wave/beads_recall's phase_dir climb does."""
+    planning_dir = tmp_path / ".planning"
+    pending_dir = planning_dir / "todos" / "pending"
+    pending_dir.mkdir(parents=True)
+    if with_state:
+        (planning_dir / "STATE.md").write_text(
+            "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+            encoding="utf-8",
+        )
+    return pending_dir
+
+
+def _write_fixture_todo(pending_dir, fixture_name, dest_name=None):
+    text = (FIXTURES_DIR / fixture_name).read_text(encoding="utf-8")
+    dest = pending_dir / (dest_name or fixture_name)
+    dest.write_text(text, encoding="utf-8")
+    return dest
+
+
+class TestMigrateTodos(unittest.TestCase):
+    """B12: parse_todo/migrate_todos happy-path -- a well-formed todo becomes
+    one mapped `bd create` argv and its file is deleted; a malformed todo
+    (missing `severity`) is left in place, never sent to `bd create`."""
+
+    def test_parse_todo_wellformed_returns_expected_fields(self):
+        todo = sync.parse_todo(FIXTURES_DIR / "todo-wellformed.md")
+        self.assertEqual(todo["severity"], "major")
+        self.assertEqual(todo["area"], "sync")
+        self.assertEqual(
+            todo["files"], [".gsd/capabilities/beads/scripts/sync.py:120-140"]
+        )
+        self.assertIn("retry loop", todo["problem"])
+        self.assertIn("completed flag", todo["solution"])
+
+    def test_parse_todo_missing_severity_raises(self):
+        with self.assertRaises(ValueError):
+            sync.parse_todo(FIXTURES_DIR / "todo-malformed.md")
+
+    def test_parse_todo_missing_closing_frontmatter_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            broken = Path(tmp) / "broken.md"
+            broken.write_text(
+                "---\ntitle: X\nseverity: major\n\n## Problem\nY\n", encoding="utf-8"
+            )
+            with self.assertRaises(ValueError):
+                sync.parse_todo(broken)
+
+    @mock.patch("subprocess.run")
+    def test_wellformed_migrates_and_deletes_file(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pending_dir = _write_todo_pending_workspace(tmp_path)
+            todo_path = _write_fixture_todo(pending_dir, "todo-wellformed.md")
+
+            exit_code = sync.migrate_todos(str(pending_dir))
+
+        self.assertEqual(exit_code, 0)
+        create_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+        ]
+        self.assertEqual(len(create_calls), 1)
+        argv = create_calls[0]
+        self.assertEqual(argv[argv.index("-p") + 1], "1")  # severity: major -> priority 1
+        self.assertEqual(argv[argv.index("-l") + 1], "area-sync")
+        desc = argv[argv.index("-d") + 1]
+        self.assertTrue(desc.startswith("## Problem"))
+        self.assertFalse(todo_path.exists())
+
+    @mock.patch("subprocess.run")
+    def test_malformed_neither_deleted_nor_sent_to_bd_create(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pending_dir = _write_todo_pending_workspace(tmp_path)
+            malformed_path = _write_fixture_todo(pending_dir, "todo-malformed.md")
+
+            exit_code = sync.migrate_todos(str(pending_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(malformed_path.exists())
+        create_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+        ]
+        self.assertEqual(len(create_calls), 0)
+
+
+class TestMigrateTodosReport(unittest.TestCase):
+    """D-04/Pitfall 2: a bd-create failure, bd-unavailable, and a missing
+    pending/ directory are three independently reported/handled outcomes --
+    none of them deletes a todo file or raises."""
+
+    @mock.patch("subprocess.run")
+    def test_bd_create_failure_reported_separately_and_file_kept(self, mock_run):
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "create"]:
+                return _completed(1, stderr="bd: database locked")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        mock_run.side_effect = _side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pending_dir = _write_todo_pending_workspace(tmp_path)
+            todo_path = _write_fixture_todo(pending_dir, "todo-wellformed.md")
+
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.migrate_todos(str(pending_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(todo_path.exists())
+        report = captured.getvalue()
+        self.assertIn("bd create failed", report)
+        self.assertNotIn("could not be interpreted:", report)
+
+    def test_bd_unavailable_issues_zero_subprocess_calls(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            pending_dir = _write_todo_pending_workspace(tmp_path)
+            todo_path = _write_fixture_todo(pending_dir, "todo-wellformed.md")
+
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                with mock.patch("shutil.which", return_value=None):
+                    with mock.patch(
+                        "subprocess.run",
+                        side_effect=AssertionError("bd must not be invoked when absent"),
+                    ):
+                        exit_code = sync.migrate_todos(str(pending_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(todo_path.exists())
+        self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
+
+    @mock.patch("subprocess.run")
+    def test_missing_pending_dir_returns_zero_not_exception(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / ".planning").mkdir()
+            missing_pending = tmp_path / ".planning" / "todos" / "pending"
+
+            exit_code = sync.migrate_todos(str(missing_pending))
+
+        self.assertEqual(exit_code, 0)
+
+
 if __name__ == "__main__":
     unittest.main()
