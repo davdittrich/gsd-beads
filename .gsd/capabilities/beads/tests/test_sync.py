@@ -6,6 +6,7 @@ module import so no package __init__.py and no install step is needed.
 import contextlib
 import io
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,36 @@ FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 def _bd_on_path():
     return shutil.which("bd") is not None
+
+
+def _gsd_tools_path():
+    """Resolve the installed gsd-core CLI shim, or None when absent -- guards
+    every live `gsd_run`-based test the same way `_bd_on_path` guards the
+    bd-based ones (03-03 Task 1)."""
+    path = (
+        Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+        / "gsd-core"
+        / "bin"
+        / "gsd-tools.cjs"
+    )
+    return path if path.exists() else None
+
+
+def _capability_json_has_beads_md_gate():
+    """True when this project's real capability.json already declares a
+    ship:pre gate whose predicate reads BEADS.md (i.e. 03-02 has landed) --
+    the skip condition for TestShipPreGenericDispatch's fourth test."""
+    try:
+        project_root = sync.find_project_root(Path(__file__).resolve().parent)
+        cap_path = project_root / ".gsd" / "capabilities" / "beads" / "capability.json"
+        cap = json.loads(cap_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    for gate in cap.get("gates", []):
+        predicate = gate.get("check", {}).get("predicate", {})
+        if predicate.get("artifact") == "BEADS.md":
+            return True
+    return False
 
 
 def _completed(returncode=0, stdout="", stderr=""):
@@ -1668,6 +1699,187 @@ class TestShipOverride(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         mock_run.assert_not_called()
+
+
+class TestShipPreGenericDispatch(unittest.TestCase):
+    """03-03 Task 1: live (non-mocked) proof that the two real `gsd_run`
+    primitives ship.md's new preflight_checks steps 8/9 invoke -- `check
+    predicate` (block/allow) and `loop render-hooks` (activeHooks source,
+    including the beads.ship_gate gate-exclusion path) -- behave exactly as
+    those new steps specify. subprocess.run is never mocked in this class."""
+
+    @staticmethod
+    def _beads_md_text(phase="03-enforcement", epic="epic-1", blocking_open=0, diverged=0):
+        return (
+            "---\n"
+            f"phase: {phase}\n"
+            f"epic: {epic}\n"
+            "open: 0\n"
+            "closed: 0\n"
+            f"blocking_open: {blocking_open}\n"
+            f"diverged: {diverged}\n"
+            'generated_from: "bd list"\n'
+            "generated_at: 2026-08-15T00:00:00Z\n"
+            "---\n\n# BEADS.md\n"
+        )
+
+    @staticmethod
+    def _run_predicate(phase_dir, field, equals):
+        predicate = json.dumps(
+            {
+                "kind": "artifact-frontmatter-equals",
+                "artifact": "BEADS.md",
+                "field": field,
+                "equals": equals,
+            }
+        )
+        return subprocess.run(
+            [
+                "node",
+                str(_gsd_tools_path()),
+                "check",
+                "predicate",
+                "--predicate",
+                predicate,
+                "--phase-dir",
+                str(phase_dir),
+                "--raw",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+
+    @unittest.skipUnless(
+        _gsd_tools_path() is not None and shutil.which("node") is not None,
+        "gsd-tools.cjs / node not found",
+    )
+    def test_predicate_blocks_on_nonzero_blocking_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = Path(tmp) / "03-enforcement"
+            phase_dir.mkdir()
+            (phase_dir / "03-BEADS.md").write_text(
+                self._beads_md_text(blocking_open=1), encoding="utf-8"
+            )
+            result = self._run_predicate(phase_dir, "blocking_open", 0)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["block"])
+        self.assertIn("blocking_open", payload["message"])
+
+    @unittest.skipUnless(
+        _gsd_tools_path() is not None and shutil.which("node") is not None,
+        "gsd-tools.cjs / node not found",
+    )
+    def test_predicate_passes_on_zero_blocking_open_and_diverged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = Path(tmp) / "03-enforcement"
+            phase_dir.mkdir()
+            (phase_dir / "03-BEADS.md").write_text(
+                self._beads_md_text(blocking_open=0, diverged=0), encoding="utf-8"
+            )
+            result_blocking = self._run_predicate(phase_dir, "blocking_open", 0)
+            result_diverged = self._run_predicate(phase_dir, "diverged", 0)
+
+        self.assertEqual(result_blocking.returncode, 0, result_blocking.stderr)
+        self.assertEqual(result_diverged.returncode, 0, result_diverged.stderr)
+        self.assertFalse(json.loads(result_blocking.stdout)["block"])
+        self.assertFalse(json.loads(result_diverged.stdout)["block"])
+
+    @unittest.skipUnless(
+        _gsd_tools_path() is not None and shutil.which("node") is not None,
+        "gsd-tools.cjs / node not found",
+    )
+    def test_fail_open_precheck_skips_missing_artifact_before_evaluator_would_block(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = Path(tmp) / "03-enforcement"
+            phase_dir.mkdir()
+
+            # (a) the exact pre-check ship.md's step 8 specifies: a bare glob
+            # over the phase dir finds nothing when no *-BEADS.md exists yet.
+            glob_result = subprocess.run(
+                ["bash", "-c", f'ls "{phase_dir}"/*-BEADS.md 2>/dev/null | head -1'],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(glob_result.stdout.strip(), "")
+
+            # (b) calling the real evaluator anyway independently confirms it
+            # fails CLOSED (block: true) on the same missing artifact -- proving
+            # the pre-check in (a) is load-bearing, not redundant.
+            result = self._run_predicate(phase_dir, "blocking_open", 0)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["block"])
+        self.assertTrue(payload.get("details", {}).get("artifactNotFound"))
+
+    @unittest.skipUnless(
+        _gsd_tools_path() is not None
+        and shutil.which("node") is not None
+        and _capability_json_has_beads_md_gate(),
+        "gsd-tools.cjs / node not found, or Plan 02's ship:pre gates not yet in capability.json",
+    )
+    def test_beads_gate_hooks_excluded_step_hook_retained_when_ship_gate_false(self):
+        project_root = sync.find_project_root(Path(__file__).resolve().parent)
+        config_path = project_root / ".planning" / "config.json"
+        original_text = config_path.read_text(encoding="utf-8")
+        config = json.loads(original_text)
+        try:
+            # Running this pytest process writes __pycache__/*.pyc under this
+            # bundle (sync.py's and this file's own import) -- the capability
+            # loader's project-scope consent is a whole-bundle content hash, so
+            # that write silently deactivates beads before this test's own
+            # activeHooks check ever runs. Re-consenting here (same operational
+            # fix this project already applies after any bundle edit) makes the
+            # check reflect the CURRENT bundle content, not a stale hash.
+            reconsent = subprocess.run(
+                [
+                    "node",
+                    str(_gsd_tools_path()),
+                    "capability",
+                    "install",
+                    "./.gsd/capabilities/beads",
+                    "--scope",
+                    "project",
+                    "--yes",
+                ],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(reconsent.returncode, 0, reconsent.stderr)
+
+            config.setdefault("beads", {})["ship_gate"] = False
+            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+
+            result = subprocess.run(
+                ["node", str(_gsd_tools_path()), "loop", "render-hooks", "ship:pre", "--raw"],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=str(project_root),
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            active_hooks = payload.get("activeHooks", [])
+            gate_hooks = [
+                h for h in active_hooks if h.get("capId") == "beads" and h.get("kind") == "gate"
+            ]
+            step_hooks = [
+                h
+                for h in active_hooks
+                if h.get("capId") == "beads"
+                and h.get("kind") == "step"
+                and h.get("ref", {}).get("skill") == "beads-status"
+            ]
+            self.assertEqual(gate_hooks, [])
+            self.assertGreaterEqual(len(step_hooks), 1)
+        finally:
+            config_path.write_text(original_text, encoding="utf-8")
 
 
 if __name__ == "__main__":
