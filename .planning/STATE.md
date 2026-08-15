@@ -109,6 +109,8 @@ None yet.
 
 - 2026-08-15: bd unavailable -- beads-recall skipped (B6/D-08)
 
+- 2026-08-15: bd unavailable -- beads-recall skipped (B6/D-08)
+
 - ~~[Phase 3] PRD §12 open question: where is a `beads.ship_gate=false` override recorded~~
   RESOLVED (03-CONTEXT.md D-05): commit trailer (load-bearing) + best-effort `bd comment` on the
   epic (fails open per B6).
