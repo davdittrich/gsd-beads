@@ -60,7 +60,12 @@ and the projection they read from is always freshly generated.
   2. The composed orchestrator prompt at `execute:wave:pre` includes the beads fragment and names the issues in the wave, verified by inspecting the prompt directly
   3. `BEADS.md` is regenerated from a real `bd` query at every step; a hand edit is overwritten at the next step rather than preserved
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [ ] 02-01-PLAN.md — Tracer: beads-recall skill/subcommand, two-technique file-scope matching, and the plan:pre planner-pointer contribution (B7)
+- [ ] 02-02-PLAN.md — BEADS.md full-overwrite regeneration at execute:wave:pre, the wave-status block for composed executor prompts, and re-install/re-consent (B8, B11)
 
 ### Phase 3: Enforcement
 
@@ -97,7 +102,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|-----------------|--------|-----------|
-| 1. Substrate | 3/3 | Complete   | 2026-08-15 |
-| 2. Visibility | 0/TBD | Not started | - |
+| 1. Substrate | 3/3 | Complete    | 2026-08-15 |
+| 2. Visibility | 0/2 | Not started | - |
 | 3. Enforcement | 0/TBD | Not started | - |
 | 4. Adoption | 0/TBD | Not started | - |
