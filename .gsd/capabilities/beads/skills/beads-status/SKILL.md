@@ -1,7 +1,7 @@
 ---
 name: gsd-beads-status
-description: "Batch-close every completed task's beads (bd) issue across every plan in a just-finished wave"
-argument-hint: "[phase directory] [plan id...]"
+description: "Batch-close every completed task's beads (bd) issue across every plan in a just-finished wave (lifecycle dispatch), or print the on-demand plan-task <-> bd issue mapping for a phase, including orphans on both sides, when invoked directly (B13)"
+argument-hint: "[phase directory] [plan id...] -- lifecycle dispatch passes plan ids; a bare on-demand call passes only [phase directory] (or nothing, to use the current phase)"
 allowed-tools:
   - Read
   - Bash
@@ -42,13 +42,16 @@ This step is `onError: skip` at all four points (`execute:wave:pre`, `execute:wa
 ## Step 1.5 -- Lifecycle-point branch (D-11)
 
 This skill is registered at **four** `capability.json` `steps[]` entries, all `ref.skill:
-"beads-status"`: `execute:wave:pre`, `execute:wave:post`, `verify:post`, and `ship:pre`. Determine
-which point dispatched this run and follow the matching branch below -- **do not** collapse any
-two of them into one call; a future editor who merges branches will silently either close issues
-too early (at `execute:wave:pre`, before the wave's work exists), stop naming the wave's issues to
-the orchestrator (at `execute:wave:post`, after it no longer matters for prompt composition),
-dispatch a spurious close-wave at `verify:post` (which has no wave/plan-id context at all), or
-skip recording an override at `ship:pre`.
+"beads-status"`: `execute:wave:pre`, `execute:wave:post`, `verify:post`, and `ship:pre`. It is also
+directly invokable by a human or another skill (B13/D-07) via a bare `/gsd-beads-status [phase]`
+call, which carries none of those four lifecycle-point markers at all. Determine which point
+dispatched this run and follow the matching branch below -- **do not** collapse any two of them
+into one call; a future editor who merges branches will silently either close issues too early (at
+`execute:wave:pre`, before the wave's work exists), stop naming the wave's issues to the
+orchestrator (at `execute:wave:post`, after it no longer matters for prompt composition), dispatch
+a spurious close-wave at `verify:post` (which has no wave/plan-id context at all), skip recording
+an override at `ship:pre`, or start reconciling bd state from what should be a read-only on-demand
+report.
 
 **At `execute:wave:pre`** (before any executor `Agent()` call is spawned for this wave): follow
 **Step 2a** below, then **stop** -- do not proceed to Step 2's close-wave dispatch.
@@ -62,6 +65,11 @@ dispatch.
 
 **At `ship:pre`** (once per phase, immediately before the ship gates evaluate): follow
 **Step 2c** below, then **stop** -- do not proceed to Step 2's close-wave dispatch.
+
+**Bare invocation (no lifecycle-point marker)** (this run carries none of the four lifecycle
+markers above -- i.e. it is a direct `/gsd-beads-status [phase]` call from a human or another
+skill, not a dispatch from gsd-core's own `steps[]` loop): follow **Step 2e** below, then **stop**
+-- do not fall through to Step 2's close-wave dispatch.
 
 ## Step 2a -- execute:wave:pre: Regenerate BEADS.md and compose the wave-status block (B8)
 
@@ -125,6 +133,22 @@ python3 .gsd/capabilities/beads/scripts/sync.py check-shipmd-patch
 If its output contains the "⚠" warning line, surface it to the user verbatim -- never swallow it
 -- but never block shipping on it; this is diagnostic only, matching the `onError: skip` this
 entire beads-status `ship:pre` dispatch already runs under.
+
+## Step 2e -- Bare invocation: On-demand status (B13)
+
+Resolve `phase_dir` from `$ARGUMENTS` when a phase directory (or phase number) was given. When
+`$ARGUMENTS` is empty, pass it through verbatim (i.e. give no phase-directory argument at all) --
+`sync.py status`, called with no argument, resolves the default itself from `STATE.md`'s
+`current_phase` frontmatter (D-08). Do not resolve a default phase directory yourself here; that
+would duplicate `_resolve_default_phase_dir`'s logic in a second place.
+
+```bash
+python3 .gsd/capabilities/beads/scripts/sync.py status [phase directory]
+```
+
+Print its stdout verbatim, including both orphan sections ("Issues with no matching plan task" and
+"Plan tasks with no bd issue") -- this is a read-only report; nothing about the phase-task/bd
+mapping is reconciled or written by this call.
 
 ## Patch Status (gap closed locally, 03-03)
 
@@ -203,3 +227,6 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
 9. DO NOT skip Step 2d or swallow its "⚠" warning when the local `ship.md` patch is missing -- it
    is diagnostic-only (never blocks shipping), but a silently-dropped patch means Plan 01/02's
    gates and `ship_override` stop firing with no other visible signal.
+10. DO NOT call `bd close`, `bd update`, or `bd comment` from the on-demand status branch (Step
+    2e) -- it only reports the plan-task <-> bd issue mapping and its orphans, it never
+    reconciles bd state (mirrors `beads-recall`'s own read-only discipline; T-04-05).
