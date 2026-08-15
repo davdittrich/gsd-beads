@@ -842,6 +842,31 @@ class TestFailOpen(unittest.TestCase):
         self.assertEqual(state_text.count("bd unavailable"), 1)
         self.assertFalse(beads_md.exists())
 
+    def test_bd_probe_succeeds_but_create_fails_mid_sync(self):
+        # Planted failure: the up-front bd_available() probe (`bd list`) must
+        # succeed here so create_issues proceeds past it -- the prior two
+        # tests both fail the probe itself and therefore never exercise this
+        # path. `bd create` (called from resolve_epic) then fails, which
+        # must degrade fail-open (exit 0, one notice, one STATE.md bullet),
+        # not raise an uncaught RuntimeError.
+        def _probe_ok_then_create_fails(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "create"]:
+                return _completed(1, stderr="simulated: bd locked mid-sync")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            exit_code, stdout_text, state_text, beads_md = self._run(
+                tmp, which_return="/usr/bin/bd", run_side_effect=_probe_ok_then_create_fails
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(stdout_text.count(sync.NOTICE), 1)
+        self.assertEqual(state_text.count("### Blockers/Concerns"), 1)
+        self.assertIn("bd failing mid-sync", state_text)
+        self.assertFalse(beads_md.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

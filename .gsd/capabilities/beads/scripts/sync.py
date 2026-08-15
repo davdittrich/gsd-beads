@@ -411,20 +411,33 @@ def create_issues(plan_arg):
     ordinal_prefix = "-".join(plan_filename_stem.split("-")[:2])
     phase_num = ordinal_prefix.split("-")[0]
 
-    epic_id, epic_created = resolve_epic(frontmatter, roadmap_path, phase_num)
+    # B6/D-08 covers not just bd-absent-at-probe-time but bd-failing mid-run
+    # (locked, transient, permission) -- the up-front bd_available() probe
+    # cannot see a failure that only happens once we start writing. Any
+    # RuntimeError raised by resolve_epic/resolve_issue below is exactly
+    # that case: degrade to the same fail-open notice, not a crash.
+    try:
+        epic_id, epic_created = resolve_epic(frontmatter, roadmap_path, phase_num)
 
-    task_updates = []
-    created_count = 0
-    task_ids = []
-    divergences = []
-    for i, task in enumerate(tasks, start=1):
-        issue_id, created, divergent = resolve_issue(task, epic_id, ordinal_prefix, i)
-        if created:
-            created_count += 1
-            task_updates.append((task["name_end"], issue_id))
-        if divergent:
-            divergences.append((task["name"], issue_id))
-        task_ids.append(issue_id)
+        task_updates = []
+        created_count = 0
+        task_ids = []
+        divergences = []
+        for i, task in enumerate(tasks, start=1):
+            issue_id, created, divergent = resolve_issue(task, epic_id, ordinal_prefix, i)
+            if created:
+                created_count += 1
+                task_updates.append((task["name_end"], issue_id))
+            if divergent:
+                divergences.append((task["name"], issue_id))
+            task_ids.append(issue_id)
+    except RuntimeError as exc:
+        print(NOTICE)
+        append_state_blocker(
+            confined(project_root, ".planning", "STATE.md"),
+            f"bd failing mid-sync -- beads-sync skipped (B6/D-08): {exc}",
+        )
+        return 0
 
     for name, missing_id in divergences:
         print(f"divergence: task {name!r} beads-id {missing_id} not found in bd")
