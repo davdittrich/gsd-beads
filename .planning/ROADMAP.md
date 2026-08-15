@@ -36,7 +36,12 @@ release instead of one per phase.
   4. Each task block carries an explicit `beads-id:` binding written on first sync; renaming a task title never creates a duplicate issue
   5. Re-running sync over an unchanged plan creates zero issues and modifies zero issues
   6. With `bd` off `PATH` (or failing, or locked), every gsd command still completes normally, one line explains the skip, no phase is blocked, and `BEADS.md` is absent rather than stale
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 01-01-PLAN.md — Tracer: capability manifest, beads-sync skill, and one plan task synced end-to-end into a real beads issue (B1, B4, B6)
+- [ ] 01-02-PLAN.md — Dependency edges from declared ordering, idempotent re-sync, orphan closure and divergence reporting (B2, B5)
+- [ ] 01-03-PLAN.md — Wave-scoped batch close, beads-status skill, and the install/consent checkpoint that activates the capability (B3)
 
 ### Phase 2: Visibility
 **Goal**: The planner and executor see live beads issue state as part of their normal operation,
@@ -78,7 +83,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|-----------------|--------|-----------|
-| 1. Substrate | 0/TBD | Not started | - |
+| 1. Substrate | 0/3 | Planned | - |
 | 2. Visibility | 0/TBD | Not started | - |
 | 3. Enforcement | 0/TBD | Not started | - |
 | 4. Adoption | 0/TBD | Not started | - |
