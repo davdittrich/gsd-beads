@@ -24,6 +24,7 @@ BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 TASK_RE = re.compile(r"<task\b[^>]*>.*?</task>", re.DOTALL)
 NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
 BEADS_ID_RE = re.compile(r"<beads-id>(.*?)</beads-id>", re.DOTALL)
+FILES_RE = re.compile(r"<files>(.*?)</files>", re.DOTALL)
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
@@ -107,11 +108,18 @@ def parse_plan(path):
         block = m.group(0)
         name_m = NAME_RE.search(block)
         id_m = BEADS_ID_RE.search(block)
+        files_m = FILES_RE.search(block)
+        files = (
+            [f.strip() for f in files_m.group(1).split(",") if f.strip()]
+            if files_m
+            else []
+        )
         tasks.append(
             {
                 "name": name_m.group(1).strip() if name_m else "",
                 "name_end": m.start() + (name_m.end() if name_m else 0),
                 "beads_id": id_m.group(1).strip() if id_m else None,
+                "files": files,
             }
         )
     return text, frontmatter, tasks
@@ -147,6 +155,32 @@ def discover_plan_files(phase_dir):
         if m:
             discovered[m.group(1)] = candidate
     return discovered
+
+
+def collect_all_task_files(project_root):
+    """Return {beads_id: [file paths]} for every task carrying a <beads-id>,
+    across every `NN-NN-PLAN.md` in every phase directory under
+    `.planning/phases/` (beads-recall technique 1's reverse-lookup index,
+    built once per beads-recall run).
+
+    T-02-02: every scanned path is confined to the resolved
+    `.planning/phases/` root via `find_project_root`/`confined`, never
+    trusted as a raw path component from artifact text.
+    """
+    phases_root = confined(project_root, ".planning", "phases")
+    index = {}
+    if not phases_root.is_dir():
+        return index
+    for phase_dir in sorted(p for p in phases_root.iterdir() if p.is_dir()):
+        for plan_path in discover_plan_files(phase_dir).values():
+            try:
+                _, _, tasks = parse_plan(plan_path)
+            except (OSError, UnicodeDecodeError):
+                continue
+            for task in tasks:
+                if task["beads_id"] and task["files"]:
+                    index.setdefault(task["beads_id"], []).extend(task["files"])
+    return index
 
 
 def resolve_prereq_last_task_id(phase_dir, prereq_plan_id):
@@ -531,6 +565,69 @@ def _render_beads_recall_body(matched, unscoped):
     return "\n".join(parts)
 
 
+PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
+
+
+def extract_phase_mentions(roadmap_path, phase_num, context_path):
+    """Return deduplicated path-like tokens (a `/`-containing, dotted-
+    extension substring) mentioned in the phase's ROADMAP.md section (from
+    its header to the next `### Phase` heading) plus context_path's full
+    text when it exists -- the only file-scope signal available at plan:pre
+    time for the phase being planned, since no PLAN.md exists yet for it
+    (D-01 revised).
+    """
+    text = Path(roadmap_path).read_text(encoding="utf-8")
+    pattern = re.compile(
+        rf"^###\s+Phase\s+0*{int(phase_num)}\s*:.*?(?=^###\s+Phase\s|\Z)",
+        re.MULTILINE | re.DOTALL,
+    )
+    m = pattern.search(text)
+    section_text = m.group(0) if m else ""
+
+    context_text = ""
+    context_path = Path(context_path)
+    if context_path.exists():
+        context_text = context_path.read_text(encoding="utf-8")
+
+    seen = []
+    for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
+        if token not in seen:
+            seen.append(token)
+    return seen
+
+
+def scope_match(issue_id, files_index, phase_mentions):
+    """Pure technique-1 check: return "files" when issue_id's reverse-
+    looked-up file list shares a substring with any phase_mentions token
+    (either direction); return None when issue_id has no reverse-lookup
+    entry at all (caller falls back to technique 2) or its files simply
+    don't overlap."""
+    if issue_id not in files_index:
+        return None
+    for issue_file in files_index[issue_id]:
+        for mention in phase_mentions:
+            if issue_file in mention or mention in issue_file:
+                return "files"
+    return None
+
+
+def desc_contains_match(issue_id, phase_mentions):
+    """Technique-2 fallback for an issue absent from files_index: one
+    `bd list --id <issue_id> --desc-contains <token> --json -n 0` per
+    phase_mentions token, short-circuit on first hit."""
+    for token in phase_mentions:
+        result = run_bd(["bd", "list", "--id", issue_id, "--desc-contains", token, "--json", "-n", "0"])
+        if result.returncode != 0:
+            continue
+        try:
+            rows = json.loads(result.stdout)
+        except json.JSONDecodeError:
+            continue
+        if rows:
+            return "description"
+    return None
+
+
 def beads_recall(phase_dir_arg):
     """B7/plan:pre: scan every open, non-epic bd issue and write
     `{phase_dir}/{padded_phase}-BEADS-RECALL.md`, always, even when zero
@@ -550,6 +647,7 @@ def beads_recall(phase_dir_arg):
         return 0
 
     phase_dir = Path(phase_dir_arg).resolve()
+    project_root = find_project_root(phase_dir)
     padded_phase = phase_dir.name.split("-", 1)[0]
 
     result = run_bd(_beads_recall_argv())
@@ -560,11 +658,30 @@ def beads_recall(phase_dir_arg):
         except json.JSONDecodeError:
             issues = []
 
-    # Task 1 baseline: no scope-matching technique exists yet, so every
-    # open issue is legally Unscoped (D-02) -- Task 2 wires scope_match/
-    # desc_contains_match in here to move matched issues to the other list.
+    # Two-technique scope match (D-01 revised): reverse <beads-id> lookup
+    # against every phase's PLAN.md <files> element first, falling back to a
+    # bd list --desc-contains substring match for an issue with no matching
+    # <beads-id> anywhere. Neither technique matching is not an error -- the
+    # issue simply stays Unscoped (D-02), never dropped.
+    roadmap_path = confined(project_root, ".planning", "ROADMAP.md")
+    context_path = phase_dir / f"{padded_phase}-CONTEXT.md"
+    try:
+        phase_mentions = extract_phase_mentions(roadmap_path, padded_phase, context_path)
+    except (OSError, ValueError):
+        phase_mentions = []
+    files_index = collect_all_task_files(project_root)
+
     matched = []
-    unscoped = list(issues)
+    unscoped = []
+    for issue in issues:
+        issue_id = issue.get("id", "")
+        via = scope_match(issue_id, files_index, phase_mentions)
+        if via is None:
+            via = desc_contains_match(issue_id, phase_mentions)
+        if via:
+            matched.append((issue, via))
+        else:
+            unscoped.append(issue)
 
     body = _render_beads_recall_body(matched, unscoped)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
