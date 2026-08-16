@@ -51,8 +51,26 @@ claude plugin install beads@gsd-beads -y
 
 ### Example workflow
 
-A short end-to-end slice of the `bd` CLI this capability wires into gsd's lifecycle — find
-ready work, claim it, close it:
+The capability is off until `beads.enabled` is set `true` in the project's
+`.planning/config.json` — every step below checks that gate first and no-ops with a visible
+notice otherwise.
+
+With it on, gsd-core's own lifecycle commands drive `bd` state directly:
+
+1. `/gsd-plan-phase` — before planning, `beads-recall` queries existing open issues so
+   already-ticketed work isn't planned twice; after the plan is written, `beads-sync` creates
+   one phase epic plus one `bd` issue per plan-task block, and writes the ids back into the plan
+   (a `beads_epic` frontmatter key and a `<beads-id>` element per task).
+2. `/gsd-execute-phase` — before a wave of tasks runs, `beads-status` puts that wave's live
+   issue state into the orchestrator's context; after the wave finishes, it closes the `bd`
+   issues for every task the wave completed.
+3. `/gsd-verify-work` — after verification, `beads-status` refreshes the projected `BEADS.md`
+   state from `bd`.
+4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
+   refuse to ship while `blocking_open` or `diverged` is non-zero.
+
+The bare `bd` CLI still works as a manual escape hatch for inspecting or driving the same
+issues by hand between lifecycle steps:
 
 ```bash
 bd ready
