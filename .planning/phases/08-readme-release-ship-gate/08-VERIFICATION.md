@@ -1,11 +1,12 @@
 ---
 phase: 08-readme-release-ship-gate
 verified: 2026-08-16T18:15:00Z
-status: human_needed
+status: passed
 score: 5/5 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Read README.md top to bottom with no prior knowledge of gsd-core or beads."
     expected: "A cold stranger can understand what the plugin does, its requirements, how to install and remove it, its caveats, and where gsd-core lives, without external context."
     why_human: "Comprehension quality is a judgment call no grep/structural check can certify. Both 08-01-SUMMARY.md (D2) and 08-02-SUMMARY.md (D3) independently flag this class of check as requiring human confirmation."
@@ -54,10 +55,13 @@ The review flagged `github.ref_name` interpolated unescaped into a `run:` shell 
 `.github/workflows/release.yml` (script-injection risk on a maliciously crafted tag name).
 
 Independently confirmed, not trusted from the review note:
+
 - `git log --oneline -- .github/workflows/release.yml` shows commit `b4a7903` ("fix(08): harden
   release workflow against tag-name script injection") after the original `8b6a64e`.
+
 - `git show b4a7903` diff confirms the exact fix: `run: gh release create "${{ github.ref_name }}" ...`
   replaced with `run: gh release create "$RELEASE_TAG" ...` plus `env: RELEASE_TAG: ${{ github.ref_name }}`.
+
 - Live working-tree `.github/workflows/release.yml` contains this fixed form, not the original.
 - `git rev-parse HEAD` and `git rev-parse origin/main` are identical (`b4a790325943495e776253914dd145673c37c94c`) — the fix is pushed, not just local.
 

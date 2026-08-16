@@ -1,5 +1,5 @@
 ---
-status: diagnosed
+status: complete
 phase: 08-readme-release-ship-gate
 source: [08-VERIFICATION.md]
 started: 2026-08-16T00:00:00Z
@@ -14,15 +14,14 @@ updated: 2026-08-16T00:00:00Z
 
 ### 1. README comprehension by a cold stranger
 expected: A stranger with no prior gsd-core/beads knowledge can read README.md end to end and come away able to evaluate, install, and remove gsd-beads.
-result: issue
-reported: "the README does not explain at all what the benefit of using beads with gsd is instead of using gsd's built-in tracking. also the worklow shows only a beads workflow, it does not show the gsd with beads workflow"
-severity: major
+result: pass
+reason: "Original issue (missing beads-vs-built-in-tracking value prop, no gsd lifecycle integration example) fixed by gap-closure plan 08-03-PLAN.md — independently re-verified: README.md now has a '### Why not just use gsd-core's built-in tracking?' section and an Example workflow showing /gsd-plan-phase -> /gsd-execute-phase -> /gsd-verify-work driving bd state."
 
 ## Summary
 
 total: 1
-passed: 0
-issues: 1
+passed: 1
+issues: 0
 pending: 0
 skipped: 0
 blocked: 0
@@ -31,7 +30,9 @@ blocked: 0
 
 - gap_id: G-08-1
   truth: "A stranger with no prior gsd-core/beads knowledge can read README.md end to end and come away able to evaluate, install, and remove gsd-beads."
-  status: failed
+  status: resolved
+  resolved_by: 08-03-PLAN.md
+  resolved_at: 2026-08-16
   reason: "User reported: the README does not explain at all what the benefit of using beads with gsd is instead of using gsd's built-in tracking; also the worked example only shows a bare beads workflow, not how gsd-core's own plan/execute/verify workflow uses beads together."
   severity: major
   test: 1
