@@ -151,6 +151,7 @@ Plans:
 - [ ] 08-01-PLAN.md — Tracer: `.github/workflows/release.yml` plus a thin real README, rehearsed
       end-to-end on a throwaway `v0.0.0-rc1` tag and torn down, then every README command executed
       and the README expanded to D-04's locked section order — SC1-SC3 mechanism
+
 - [ ] 08-02-PLAN.md — Bump `plugin.json` to 1.1.0, cut the real `v1.1.0` tag and prove the published
       archive is allowlist-exact, then the ship gate: `claude plugin validate . --strict` from a
       fresh clone at the tag plus the marketplace add/install/uninstall round trip — SC2-SC5
