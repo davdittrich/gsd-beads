@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 08
-current_phase_name: readme-release-ship-gate
-status: executing
+current_phase: 09
+current_phase_name: Beads Content Depth
+status: planning
 stopped_at: Phase 8 context gathered
-last_updated: "2026-08-16T16:35:49.387Z"
+last_updated: "2026-08-16T17:05:08.554Z"
 last_activity: 2026-08-16
 last_activity_desc: Phase 08 execution started
 progress:
-  total_phases: 4
-  completed_phases: 3
+  total_phases: 5
+  completed_phases: 4
   total_plans: 7
-  completed_plans: 6
-  percent: 75
+  completed_plans: 7
+  percent: 80
 ---
 
 Total Phases: 4
@@ -24,7 +24,7 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: executing
+status: Ready to plan
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
@@ -49,16 +49,16 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 08 (readme-release-ship-gate) — EXECUTING
-Plan: 1 of 2
+Phase: 09 — Beads Content Depth
+Plan: Not started
 Status: Executing Phase 08
-Last activity: 2026-08-16 — Phase 08 execution started
+Last activity: 2026-08-16 — Phase 08 complete, transitioned to Phase 09
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 4
+- Total plans completed: 6
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -66,8 +66,8 @@ Last activity: 2026-08-16 — Phase 08 execution started
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 6 | 1 | - | - |
 | 07 | 2 | - | - |
+| 08 | 3 | - | - |
 
 **Recent Trend:**
 
@@ -98,10 +98,6 @@ Last activity: 2026-08-16 — Phase 08 execution started
 
 Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone archived to
 `.planning/milestones/v1.0-ROADMAP.md` for phase-level detail). Cleared here at milestone close.
-
-- [Phase 06]: PUB-03 satisfied by documented manual capability install --scope project --yes bridge, not automation (defeats CB-3 consent gate, targets a path absent from PUB-04 ship allowlist)
-- [Phase 06]: hooks/hooks.json ships bare bd prime --hook-json with no PATH guard; Claude Code's own SessionStart fail-open contract already satisfies criterion 4
-- [Phase 06]: A merely checked-out repo does not auto-load plugin hooks.json (Assumption A1 resolved); beads@gsd-beads plugin kept installed at local scope as this repo's disclosed dogfooding dependency
 
 ### Pending Todos
 

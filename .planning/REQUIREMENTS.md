@@ -18,7 +18,7 @@
 
 ### Release & Repo Hygiene
 
-- [ ] **PUB-04**: Release archive is built from an explicit allowlist (`.claude-plugin/`,
+- [x] **PUB-04**: Release archive is built from an explicit allowlist (`.claude-plugin/`,
       `hooks/`, `.agents/skills/`, `README.md`, `LICENSE`) and attached to a GitHub Release —
       `.planning/` and `.beads/` never ship to installers
 
@@ -33,7 +33,7 @@
 
 ### Documentation
 
-- [ ] **PUB-07**: `README.md` documents purpose, capabilities, installation, deinstallation,
+- [x] **PUB-07**: `README.md` documents purpose, capabilities, installation, deinstallation,
       requirements, caveats, and a link to gsd-core — drafted via `authentic-writing` and edited
       via `academic-prose-editing`, transcribed from verified commands (not aspirational)
 
@@ -42,7 +42,7 @@
 - [x] **PUB-08**: `LICENSE` file (MIT) present at repo root, referenced in `plugin.json`'s
       `license` field
 
-- [ ] **PUB-09**: Final validation gate passes: `claude plugin validate . --strict` clean, a real
+- [x] **PUB-09**: Final validation gate passes: `claude plugin validate . --strict` clean, a real
       `/plugin marketplace add` + `/plugin install` + `/plugin uninstall` round trip succeeds
 
 - [x] **PUB-10**: GitHub repository created (public, personal account, `gsd-beads`), remote
@@ -92,9 +92,9 @@
 | PUB-06 | Phase 6 | Complete |
 | PUB-05 | Phase 7 | Complete |
 | PUB-10 | Phase 7 | Complete |
-| PUB-04 | Phase 8 | Pending |
-| PUB-07 | Phase 8 | Pending |
-| PUB-09 | Phase 8 | Pending |
+| PUB-04 | Phase 8 | Complete |
+| PUB-07 | Phase 8 | Complete |
+| PUB-09 | Phase 8 | Complete |
 | PUB-11 | Phase 9 | Pending |
 | PUB-12 | Phase 9 | Pending |
 
