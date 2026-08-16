@@ -15,7 +15,7 @@ Claude Code recognizes this repo as a valid, discoverable, MIT-licensed plugin: 
 
 ### Plugin identity (plugin.json)
 - **D-01:** `name` field is `beads` — matches the capability id (`.gsd/capabilities/beads/`) and the install command from REQUIREMENTS.md PUB-02 (`/plugin install beads@gsd-beads`), not the repo name `gsd-beads`.
-- **D-02:** `author` field is `davdittrich@gmail.com` (email only, no name object).
+- **D-02 (amended 2026-08-16 during execution, user consent required by Task 1's HALT RULE):** `author` field is `{"name": "Dennis A. V. Dittrich", "email": "davdittrich@gmail.com"}`. Originally email-only; `claude plugin validate . --strict` hard-errors (`author.name: Invalid input: expected string, received undefined`) in plugin-directory mode without `name`. User chose to amend rather than accept validation failure.
 - **D-03:** `version` starts at `0.1.0` — matches `capability.json`'s current version rather than jumping to `1.0.0`.
 
 ### LICENSE
