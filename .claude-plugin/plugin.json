@@ -1,0 +1,11 @@
+{
+  "name": "beads",
+  "version": "0.1.0",
+  "description": "Beads issue tracking for gsd-core's plan→execute→verify→ship lifecycle",
+  "author": {
+    "name": "Dennis A. V. Dittrich",
+    "email": "davdittrich@gmail.com"
+  },
+  "license": "MIT",
+  "skills": ["./.agents/skills/beads"]
+}
