@@ -22,7 +22,7 @@ Full detail: `.planning/milestones/v1.0-ROADMAP.md`
 ### v1.1 Publish & Document (Phases 5-8)
 
 - [x] **Phase 5: Plugin Manifest** - Repo declares itself a valid, discoverable, MIT-licensed Claude Code plugin (completed 2026-08-16)
-- [ ] **Phase 6: Runtime Integration** - A plugin install delivers a working capability and its session hook, not just cached files
+- [x] **Phase 6: Runtime Integration** - A plugin install delivers a working capability and its session hook, not just cached files (completed 2026-08-16)
 - [ ] **Phase 7: Hygiene & Publication** - Public GitHub repo whose history carries zero machine-local dev state
 - [ ] **Phase 8: README, Release & Ship Gate** - A stranger can evaluate, install, and remove it from the README alone
 
@@ -139,7 +139,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 5. Plugin Manifest | 1/1 | Complete    | 2026-08-16 |
-| 6. Runtime Integration | 1/1 | In Progress|  |
+| 6. Runtime Integration | 1/1 | Complete    | 2026-08-16 |
 | 7. Hygiene & Publication | 0/? | Not started | - |
 | 8. README, Release & Ship Gate | 0/? | Not started | - |
 

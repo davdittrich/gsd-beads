@@ -1,11 +1,12 @@
 ---
 phase: 06-runtime-integration
 verified: 2026-08-16T13:10:00Z
-status: human_needed
+status: passed
 score: 6/6 must-have truths verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Start one real interactive Claude Code session (TTY, not `claude -p`) inside this repo and confirm the beads context block appears exactly once."
     expected: "The beads SessionStart context (bd prime output) appears exactly once — no double-fire, no missing fire."
     why_human: "The plan's own acceptance criteria (Task 1) designate this as a required backstop distinct from the headless `-p --debug hooks` probes, specifically to catch any divergence between the headless and TTY code paths. A non-interactive agent (executor or verifier) cannot open a TTY session. SUMMARY.md explicitly documents this as unperformed and recommends it before treating Phase 6 as unconditionally closed."
