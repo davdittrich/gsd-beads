@@ -6,7 +6,7 @@ current_phase: 6
 current_phase_name: Runtime Integration
 status: executing
 stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-08-16T11:50:51.569Z"
+last_updated: "2026-08-16T12:08:11.449Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
 progress:
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 05 — plugin-manifest
+**Current focus:** Phase 6 — Runtime Integration
 
 ## Current Position
 
-Phase: 6 — Runtime Integration
-Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-16 — Phase 05 complete, transitioned to Phase 6
+Phase: 6 (Runtime Integration) — EXECUTING
+Plan: 1 of 1
+Status: Executing Phase 6
+Last activity: 2026-08-16 — Phase 6 execution started
 
 ## Performance Metrics
 
@@ -95,9 +95,17 @@ None yet.
   first public push. `.beads/config.yaml`, `.beads/metadata.json`,
   `.claude/.headroom_wrap_marker.json`, `.gsd-capabilities.json` are tracked today.
 
-- [Phase 6, open decision] The capability-loader bridge (PUB-03) is decided in Phase 6, not
-  inherited from research. A `/plugin install` that Claude caches but gsd-core cannot resolve is
-  the milestone's main failure mode.
+- [Resolved 2026-08-16, Phase 6] The capability-loader bridge (PUB-03) decision is closed: satisfied
+  by the documented manual `capability install --scope project --yes` step, not an automatic
+  postinstall bridge. Verified from a clean scratch project against `.gsd/capabilities/beads/` in
+  this repo — see PROJECT.md Key Decisions and `06-01-SUMMARY.md`.
+
+- [Phase 7/8, allowlist gap] PUB-04's ship allowlist (`.claude-plugin/`, `hooks/`,
+  `.agents/skills/`, `README.md`, `LICENSE`) omits `.gsd/capabilities/beads/`. The PUB-03 bridge
+  command's spec argument only resolves against a full git clone of this repository, not the
+  Phase 8 release archive — Phase 8's README must direct users to clone the repo for this step
+  unless Phase 8 amends the allowlist to include the capability bundle. Phase 6 does not decide
+  this; it hands the gap forward.
 
 - [Phase 5/8, false-green risk] `claude plugin validate` skips skill-frontmatter checks when
   `marketplace.json` is present, and only `--strict` promotes field warnings to errors.
