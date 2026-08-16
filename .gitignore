@@ -13,6 +13,10 @@ __pycache__/
 .beads/interactions.jsonl
 *.bak
 
+# Stripped from history in Phase 7 (git filter-repo) — must never re-enter tracking
+.beads/config.yaml
+.beads/metadata.json
+
 # Local tool state (per-machine, not shared across clones)
 .serena/
 .gsd/dispatch-isolation-sentinel.json
