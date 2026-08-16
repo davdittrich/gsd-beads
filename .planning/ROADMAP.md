@@ -180,7 +180,18 @@ Plans:
   4. `v1.1.1` is tagged, released, and replaces `v1.1.0` as the public archive a stranger installs
      from the README
 
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+
+- [ ] 09-01-PLAN.md — Tracer: ship `.agents/skills/beads/PRIME.md`, self-heal it into `.beads/`
+      from the SessionStart hook, and prove `bd prime` prints it
+- [ ] 09-02-PLAN.md — Six `resources/` documents (dependencies, worktrees, async gates,
+      resumability, git-free mode, troubleshooting) indexed from SKILL.md
+- [ ] 09-03-PLAN.md — Eight `commands/` documents (dep, label, comments, search, compact, import,
+      stats, blocked) indexed from SKILL.md
+- [ ] 09-04-PLAN.md — Bump to 1.1.1, retire `v1.1.0`, cut and verify the `v1.1.1` release, and
+      round-trip the README install
 
 ## Progress
 
