@@ -2,9 +2,12 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
+current_phase: 5
 status: planning
-last_updated: "2026-08-16T00:00:00.000Z"
+stopped_at: Phase 5 context gathered
+last_updated: "2026-08-16T00:00:47.479Z"
 last_activity: 2026-08-16
+last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
 progress:
   total_phases: 4
   completed_phases: 0
@@ -82,12 +85,15 @@ None yet.
 
 - [Resolved by roadmap] The packaging gap (no README, LICENSE, or git remote) is now owned by
   Phases 5-8. Memory `gsd-beads-ships-as-github-plugin` no longer describes an unowned gap.
+
 - [Phase 7, one-way door] The window to strip machine-local state from git history closes at the
   first public push. `.beads/config.yaml`, `.beads/metadata.json`,
   `.claude/.headroom_wrap_marker.json`, `.gsd-capabilities.json` are tracked today.
+
 - [Phase 6, open decision] The capability-loader bridge (PUB-03) is decided in Phase 6, not
   inherited from research. A `/plugin install` that Claude caches but gsd-core cannot resolve is
   the milestone's main failure mode.
+
 - [Phase 5/8, false-green risk] `claude plugin validate` skips skill-frontmatter checks when
   `marketplace.json` is present, and only `--strict` promotes field warnings to errors.
 
@@ -107,9 +113,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-15T22:32:09.132Z
-Stopped at: Completed 04-03-PLAN.md
-Resume file: None
+Last session: 2026-08-16T00:00:47.474Z
+Stopped at: Phase 5 context gathered
+Resume file: /home/dd/Gemini/gsd-beads/.planning/phases/05-plugin-manifest/05-CONTEXT.md
 
 ## Operator Next Steps
 
