@@ -235,3 +235,25 @@ materially thinner than the upstream `beads` skill it's derived from, and the pl
 gsd-tailored guidance. The user ruled these hard requirements for v1.1, not deferred — Phase 9
 must complete before v1.1 is considered done, followed by a `v1.1.1` patch release replacing the
 public archive.
+
+### Phase 10: ponytail-everywhere capability plugin: advisory-only ladder-discipline reminders (SessionStart hook + plan/execute/verify/ship contribution fragments) wired to /ponytail
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 9
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 10 to break down)
+
+### Phase 11: sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)
+
+**Goal:** [To be planned]
+**Requirements**: TBD
+**Depends on:** Phase 10
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 11 to break down)
