@@ -28,6 +28,10 @@ The shipped plugin's beads guidance matches upstream depth and is tailored to gs
 ### v1.1.1 re-release process
 - **D-07:** Delete the existing `v1.1.0` GitHub Release and tag (`gh release delete v1.1.0 --cleanup-tag`) before cutting `v1.1.1` — matches Phase 7's precedent of deleting the throwaway `v0.0.0-rc1` rehearsal tag/release after use. Avoids a stranger installing the known-short `v1.1.0` by mistake. — **Reversibility:** one-way for the deleted release/tag itself (GitHub doesn't restore deleted releases), but `v1.1.1` fully supersedes it with no functional loss — the content is a strict superset. Not rated one-way in the blocking-checkpoint sense: this is routine release hygiene, not the kind of irreversible-and-consequential action Phase 7's history rewrite was.
 
+### Resolved open questions (post-research)
+- **D-08:** `.beads/PRIME.md` (the self-healing hook's *runtime copy* in D-02) is **gitignored**, not tracked. `.agents/skills/beads/PRIME.md` (D-01) is the sole source of truth and stays git-tracked in the already-allowlisted tree. Add `.beads/PRIME.md` to `.gitignore`. Prevents drift between two copies of the same content.
+- **D-09:** Hook ordering — the copy-if-missing check runs **before** the existing `bd prime --hook-json` SessionStart command, so `bd prime` never reads a stale/absent override on first run in a fresh install.
+
 ### Claude's Discretion
 - Exact `resources/`/`commands/` file names and per-file content depth within upstream's established pattern (D-03/D-04).
 - Exact wording/bullet structure of PRIME.md's terse sync-point summaries (D-05).
