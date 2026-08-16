@@ -23,6 +23,7 @@ jobs:
             LICENSE
 
       - name: Publish release
-        run: gh release create "${{ github.ref_name }}" gsd-beads.zip --generate-notes
+        run: gh release create "$RELEASE_TAG" gsd-beads.zip --generate-notes
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ github.ref_name }}
