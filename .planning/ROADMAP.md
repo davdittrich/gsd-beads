@@ -3,7 +3,7 @@
 ## Milestones
 
 - ✅ **v1.0 milestone** — Phases 1-4 (shipped 2026-08-16)
-- 🚧 **v1.1 Publish & Document** — Phases 5-8 (in progress)
+- 🚧 **v1.1 Publish & Document** — Phases 5-9 (in progress)
 
 ## Phases
 
@@ -19,12 +19,13 @@ Full detail: `.planning/milestones/v1.0-ROADMAP.md`
 
 </details>
 
-### v1.1 Publish & Document (Phases 5-8)
+### v1.1 Publish & Document (Phases 5-9)
 
 - [x] **Phase 5: Plugin Manifest** - Repo declares itself a valid, discoverable, MIT-licensed Claude Code plugin (completed 2026-08-16)
 - [x] **Phase 6: Runtime Integration** - A plugin install delivers a working capability and its session hook, not just cached files (completed 2026-08-16)
 - [x] **Phase 7: Hygiene & Publication** - Public GitHub repo whose history carries zero machine-local dev state (completed 2026-08-16)
-- [ ] **Phase 8: README, Release & Ship Gate** - A stranger can evaluate, install, and remove it from the README alone
+- [x] **Phase 8: README, Release & Ship Gate** - A stranger can evaluate, install, and remove it from the README alone (completed 2026-08-16)
+- [ ] **Phase 9: Beads Content Depth** - The shipped plugin's beads guidance matches upstream depth and is tailored to gsd-core
 
 ## Phase Details
 
@@ -148,11 +149,11 @@ Plans:
 
 Plans:
 
-- [ ] 08-01-PLAN.md — Tracer: `.github/workflows/release.yml` plus a thin real README, rehearsed
+- [x] 08-01-PLAN.md — Tracer: `.github/workflows/release.yml` plus a thin real README, rehearsed
       end-to-end on a throwaway `v0.0.0-rc1` tag and torn down, then every README command executed
       and the README expanded to D-04's locked section order — SC1-SC3 mechanism
 
-- [ ] 08-02-PLAN.md — Bump `plugin.json` to 1.1.0, cut the real `v1.1.0` tag and prove the published
+- [x] 08-02-PLAN.md — Bump `plugin.json` to 1.1.0, cut the real `v1.1.0` tag and prove the published
       archive is allowlist-exact, then the ship gate: `claude plugin validate . --strict` from a
       fresh clone at the tag plus the marketplace add/install/uninstall round trip — SC2-SC5
 
@@ -188,7 +189,7 @@ Plans:
 | 5. Plugin Manifest | 1/1 | Complete    | 2026-08-16 |
 | 6. Runtime Integration | 1/1 | Complete    | 2026-08-16 |
 | 7. Hygiene & Publication | 2/2 | Complete    | 2026-08-16 |
-| 8. README, Release & Ship Gate | 0/2 | Planned | - |
+| 8. README, Release & Ship Gate | 3/3 | Complete    | 2026-08-16 |
 | 9. Beads Content Depth | 0/0 | Pending | - |
 
 ## Notes
