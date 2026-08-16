@@ -110,7 +110,19 @@ Plans:
 
   5. A fresh `git clone` of the pushed repo contains no file from criteria 1-2 in its working tree
      AND no trace of them in `git log -p` across full history
-**Plans**: TBD
+
+**Plans**: 2 plans
+
+Plans:
+
+- [ ] 07-01-PLAN.md — Clean the working tree into one pre-rewrite commit (extended root
+      `.gitignore`, D-01/D-02 resolutions), take the D-03 mirror backup and rehearse the full
+      strip-and-verify pipeline on a throwaway clone with a negative control (tracer), then run
+      `git filter-repo` in place and verify locally — SC 1-3
+
+- [ ] 07-02-PLAN.md — Blocking one-way-door checkpoint, then `gh repo create davdittrich/gsd-beads
+      --public --source=.` and a plain `git push -u origin main --tags`, gated by a fresh-clone
+      verification of the pushed history — SC 4-5
 
 ### Phase 8: README, Release & Ship Gate
 
@@ -140,7 +152,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 5. Plugin Manifest | 1/1 | Complete    | 2026-08-16 |
 | 6. Runtime Integration | 1/1 | Complete    | 2026-08-16 |
-| 7. Hygiene & Publication | 0/? | Not started | - |
+| 7. Hygiene & Publication | 0/2 | Planned | - |
 | 8. README, Release & Ship Gate | 0/? | Not started | - |
 
 ## Notes
