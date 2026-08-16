@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 6
 current_phase_name: Runtime Integration
-status: executing
-stopped_at: Completed 05-01-PLAN.md
-last_updated: "2026-08-16T12:08:11.449Z"
+status: verifying
+stopped_at: Completed 06-01-PLAN.md
+last_updated: "2026-08-16T13:00:38.750Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
 progress:
   total_phases: 4
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 2
-  completed_plans: 1
-  percent: 25
+  completed_plans: 2
+  percent: 50
 ---
 
 # Project State
@@ -31,7 +31,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 Phase: 6 (Runtime Integration) — EXECUTING
 Plan: 1 of 1
-Status: Executing Phase 6
+Status: Phase complete — ready for verification
 Last activity: 2026-08-16 — Phase 6 execution started
 
 ## Performance Metrics
@@ -70,6 +70,7 @@ Last activity: 2026-08-16 — Phase 6 execution started
 | Phase 04-adoption P02 | ~12min | 2 tasks | 3 files |
 | Phase 04-adoption P03 | ~15min | 2 tasks | 3 files |
 | Phase 05 P01 | ~11min | 3 tasks | 3 files |
+| Phase 06 P01 | 25min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,9 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase 05]: D-02 amended: plugin.json author is {name, email} — claude plugin validate --strict hard-requires author.name; user chose to amend the locked email-only decision
 - [Phase 05]: D-10 (new): root CLAUDE.md's --strict warning has no suppression mechanism; user accepted it as a permanent, scoped exception rather than restructure the plugin root
 - [Phase 05]: marketplace.json given a top-level description (RESEARCH.md's example omitted it) — --strict requires it, reused the existing D-06 blurb
+- [Phase 06]: PUB-03 satisfied by documented manual capability install --scope project --yes bridge, not automation (defeats CB-3 consent gate, targets a path absent from PUB-04 ship allowlist)
+- [Phase 06]: hooks/hooks.json ships bare bd prime --hook-json with no PATH guard; Claude Code's own SessionStart fail-open contract already satisfies criterion 4
+- [Phase 06]: A merely checked-out repo does not auto-load plugin hooks.json (Assumption A1 resolved); beads@gsd-beads plugin kept installed at local scope as this repo's disclosed dogfooding dependency
 
 ### Pending Todos
 
@@ -128,10 +132,12 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16T11:01:36.535Z
-Stopped at: Completed 05-01-PLAN.md
+Last session: 2026-08-16T13:00:38.744Z
+Stopped at: Completed 06-01-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Verify Phase 05 (/gsd:verify-work) then plan Phase 06 (Runtime Integration) with /gsd-plan-phase 6
+- Verify Phase 06 (/gsd-verify-work) — one human-verification item outstanding: an interactive
+  TTY session confirming the beads SessionStart context fires exactly once (see
+  06-01-SUMMARY.md Deviations). Then plan Phase 07 (History Hygiene) with /gsd-plan-phase 7

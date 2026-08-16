@@ -76,10 +76,11 @@ Full detail: `.planning/milestones/v1.0-ROADMAP.md`
   4. With `bd` absent from PATH, install and session start still succeed with one visible notice;
      v1.0's fail-open guarantee survives packaging
 
-**Plans**: 1 plan
+**Plans**: 1/1 plans executed
 
 Plans:
-- [ ] 06-01-PLAN.md — Ship `hooks/hooks.json` and delete `.claude/settings.json` (tracer: install
+
+- [x] 06-01-PLAN.md — Ship `hooks/hooks.json` and delete `.claude/settings.json` (tracer: install
       the plugin locally and count exactly one `bd prime` fire), prove fail-open with `bd` off PATH,
       and execute + record the manual `capability install` bridge from a clean scratch project
 
@@ -138,7 +139,7 @@ Plans:
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 5. Plugin Manifest | 1/1 | Complete    | 2026-08-16 |
-| 6. Runtime Integration | 0/1 | Planned | - |
+| 6. Runtime Integration | 1/1 | In Progress|  |
 | 7. Hygiene & Publication | 0/? | Not started | - |
 | 8. README, Release & Ship Gate | 0/? | Not started | - |
 

@@ -216,3 +216,11 @@ Session exit code: `0`. `grep -c 'Hook SessionStart (bd prime --hook-json) provi
 ---
 *Phase: 06-runtime-integration*
 *Completed: 2026-08-16*
+
+## Self-Check: PASSED
+
+- FOUND: `hooks/hooks.json`
+- FOUND: `.planning/phases/06-runtime-integration/06-01-SUMMARY.md`
+- FOUND commit `1338c3b` (Task 1)
+- FOUND commit `91d5e72` (Task 3)
+- FOUND commit `b4fe16f` (this SUMMARY)

@@ -12,7 +12,7 @@
 - [x] **PUB-02**: `.claude-plugin/marketplace.json` self-hosted entry makes
       `/plugin marketplace add <owner>/gsd-beads` then `/plugin install beads@gsd-beads` work
 
-- [ ] **PUB-03**: The capability-loader bridge is explicitly decided and implemented (or the
+- [x] **PUB-03**: The capability-loader bridge is explicitly decided and implemented (or the
       manual alternative documented) so a Claude plugin install actually surfaces the gsd-core
       `beads` capability, not just a cached repo copy
 
@@ -28,7 +28,7 @@
 
 ### Runtime Integration
 
-- [ ] **PUB-06**: `hooks/hooks.json` ships the SessionStart `bd prime` hook (lifted from
+- [x] **PUB-06**: `hooks/hooks.json` ships the SessionStart `bd prime` hook (lifted from
       `.claude/settings.json`) so plugin installers get it without manual config
 
 ### Documentation
@@ -74,8 +74,8 @@
 | PUB-01 | Phase 5 | Complete |
 | PUB-02 | Phase 5 | Complete |
 | PUB-08 | Phase 5 | Complete |
-| PUB-03 | Phase 6 | Pending |
-| PUB-06 | Phase 6 | Pending |
+| PUB-03 | Phase 6 | Complete |
+| PUB-06 | Phase 6 | Complete |
 | PUB-05 | Phase 7 | Pending |
 | PUB-10 | Phase 7 | Pending |
 | PUB-04 | Phase 8 | Pending |
