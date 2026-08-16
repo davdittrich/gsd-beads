@@ -155,3 +155,10 @@ None - no external service configuration required.
 ---
 *Phase: 07-hygiene-publication*
 *Completed: 2026-08-16*
+
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/07-hygiene-publication/07-01-SUMMARY.md`
+- FOUND: `/home/dd/Gemini/gsd-beads-backup-pre-filter-repo`
+- FOUND commit: `b44d518` (Task 1 gitignore commit, post-rewrite hash after Task 3)
+- FOUND commit: `6d68f26` (SUMMARY commit)
