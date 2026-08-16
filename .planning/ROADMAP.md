@@ -156,6 +156,31 @@ Plans:
       archive is allowlist-exact, then the ship gate: `claude plugin validate . --strict` from a
       fresh clone at the tag plus the marketplace add/install/uninstall round trip — SC2-SC5
 
+### Phase 9: Beads Content Depth
+
+**Goal**: The shipped plugin's beads guidance matches upstream depth and is tailored to gsd-core, not generic defaults
+**Depends on**: Phase 8
+**Requirements**: PUB-11, PUB-12
+**Success Criteria** (what must be TRUE):
+
+  1. `.agents/skills/beads/SKILL.md` covers dependencies (`bd dep`), labels, comments, search,
+     `compact`, `import`, `stats`, `blocked`, worktrees, async gates, resumability, and
+     `--stealth`/`BEADS_DIR` git-free mode — matching the upstream `beads` skill's command coverage
+     (a `resources/`/`commands/` progressive-disclosure split is acceptable, not required verbatim)
+
+  2. `.beads/PRIME.md` exists in the repo and is included in the release archive allowlist,
+     overriding `bd prime`'s generic default output with gsd-core-specific guidance: phase epics,
+     the `plan:post`/`execute:wave:post`/`verify:post` sync points, and `ship:pre` gate behavior
+
+  3. A fresh `bd prime` run inside an installed copy of the plugin (not `bd prime --export`) prints
+     the gsd-tailored `.beads/PRIME.md` content, confirmed via `bd prime --help`'s documented
+     override mechanism
+
+  4. `v1.1.1` is tagged, released, and replaces `v1.1.0` as the public archive a stranger installs
+     from the README
+
+**Plans**: TBD
+
 ## Progress
 
 | Phase | Plans Complete | Status | Completed |
@@ -164,6 +189,7 @@ Plans:
 | 6. Runtime Integration | 1/1 | Complete    | 2026-08-16 |
 | 7. Hygiene & Publication | 2/2 | Complete    | 2026-08-16 |
 | 8. README, Release & Ship Gate | 0/2 | Planned | - |
+| 9. Beads Content Depth | 0/0 | Pending | - |
 
 ## Notes
 
@@ -186,3 +212,11 @@ in the wrong mode is indistinguishable from a check that never ran.
 **Consent-hash hazard carries over.** Editing any file inside an already-consented capability
 bundle silently deactivates it. Any phase that touches `.gsd/capabilities/beads/` must re-run
 `capability install --scope project` and re-verify `render-hooks` before claiming done.
+
+**Phase 9 exists because v1.1.0 already shipped short.** Phase 8 UAT (2026-08-16) surfaced two
+content gaps in the already-published `v1.1.0` release: `.agents/skills/beads/SKILL.md` is
+materially thinner than the upstream `beads` skill it's derived from, and the plugin ships no
+`.beads/PRIME.md` override, so installers get beads' generic `bd prime` output instead of
+gsd-tailored guidance. The user ruled these hard requirements for v1.1, not deferred — Phase 9
+must complete before v1.1 is considered done, followed by a `v1.1.1` patch release replacing the
+public archive.
