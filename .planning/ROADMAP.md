@@ -40,7 +40,10 @@ Full detail: `.planning/milestones/v1.0-ROADMAP.md`
   3. The installed plugin surfaces the `beads` skill resolved from the existing
      `.agents/skills/beads/`, with no duplicated copy of the skill in the repo
   4. `LICENSE` (MIT) exists at repo root and `plugin.json`'s `license` field names it as a string
-**Plans**: TBD
+**Plans**: 1 plan
+- [ ] 05-01-PLAN.md — Author `plugin.json` + `LICENSE` (tracer: validated in frontmatter-checking
+      mode), add the `marketplace.json` catalog entry, run the D-09 double-run, and human-verify a
+      scratch-project install round trip
 
 ### Phase 6: Runtime Integration
 **Goal**: Installing the plugin gives a user the working capability and its session hook, without manual config
@@ -100,7 +103,7 @@ Full detail: `.planning/milestones/v1.0-ROADMAP.md`
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 5. Plugin Manifest | 0/? | Not started | - |
+| 5. Plugin Manifest | 0/1 | Planned | - |
 | 6. Runtime Integration | 0/? | Not started | - |
 | 7. Hygiene & Publication | 0/? | Not started | - |
 | 8. README, Release & Ship Gate | 0/? | Not started | - |
