@@ -144,7 +144,16 @@ Plans:
 
   5. `claude plugin validate . --strict` is clean on the pushed tree at the released tag
 
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+
+- [ ] 08-01-PLAN.md — Tracer: `.github/workflows/release.yml` plus a thin real README, rehearsed
+      end-to-end on a throwaway `v0.0.0-rc1` tag and torn down, then every README command executed
+      and the README expanded to D-04's locked section order — SC1-SC3 mechanism
+- [ ] 08-02-PLAN.md — Bump `plugin.json` to 1.1.0, cut the real `v1.1.0` tag and prove the published
+      archive is allowlist-exact, then the ship gate: `claude plugin validate . --strict` from a
+      fresh clone at the tag plus the marketplace add/install/uninstall round trip — SC2-SC5
 
 ## Progress
 
@@ -153,7 +162,7 @@ Plans:
 | 5. Plugin Manifest | 1/1 | Complete    | 2026-08-16 |
 | 6. Runtime Integration | 1/1 | Complete    | 2026-08-16 |
 | 7. Hygiene & Publication | 2/2 | Complete    | 2026-08-16 |
-| 8. README, Release & Ship Gate | 0/? | Not started | - |
+| 8. README, Release & Ship Gate | 0/2 | Planned | - |
 
 ## Notes
 
