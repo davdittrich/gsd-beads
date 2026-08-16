@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 6 — Runtime Integration
+**Current focus:** Phase 7 — Hygiene & Publication
 
 ## Current Position
 
@@ -132,12 +132,11 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16T13:00:38.744Z
-Stopped at: Completed 06-01-PLAN.md
+Last session: 2026-08-16
+Stopped at: Phase 6 complete, ready to plan Phase 7
 Resume file: None
 
 ## Operator Next Steps
 
-- Verify Phase 06 (/gsd-verify-work) — one human-verification item outstanding: an interactive
-  TTY session confirming the beads SessionStart context fires exactly once (see
-  06-01-SUMMARY.md Deviations). Then plan Phase 07 (History Hygiene) with /gsd-plan-phase 7
+- Phase 06 complete — TTY backstop confirmed by user (06-UAT.md), SECURITY.md verified
+  (threats_open: 0). Plan Phase 07 (Hygiene & Publication) with /gsd-plan-phase 7
