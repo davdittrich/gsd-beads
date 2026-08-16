@@ -91,3 +91,14 @@ Use agent-local planning tools only for the current turn's execution checklist. 
 - [resources/TROUBLESHOOTING.md](resources/TROUBLESHOOTING.md) — symptom/cause/fix entries for the most common `bd` failures.
 
 `.beads/PRIME.md` carries this project's gsd-tailored `bd prime` override. The plugin's SessionStart hook restores it automatically whenever it's missing — see `.beads/PRIME.md` itself for the lifecycle content. If an untracked file there is unwanted, add `.beads/PRIME.md` to the project's own `.gitignore`.
+
+### Commands
+
+- [commands/dep.md](commands/dep.md) — dependency management (`bd dep add`/`tree`/`list`/`cycles`).
+- [commands/label.md](commands/label.md) — tagging issues with cross-cutting metadata.
+- [commands/comments.md](commands/comments.md) — adding and reading the durable per-issue findings channel.
+- [commands/search.md](commands/search.md) — full-text issue search versus listing.
+- [commands/compact.md](commands/compact.md) — squashing old Dolt commit history (not issue content).
+- [commands/import.md](commands/import.md) — upserting issues from a JSONL export.
+- [commands/stats.md](commands/stats.md) — project health snapshot (`bd stats`/`bd status`).
+- [commands/blocked.md](commands/blocked.md) — listing blocked issues and the ship-gate connection.
