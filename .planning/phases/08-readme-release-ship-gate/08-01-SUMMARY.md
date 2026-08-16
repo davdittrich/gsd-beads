@@ -250,3 +250,13 @@ None — no external service configuration required.
 ---
 *Phase: 08-readme-release-ship-gate*
 *Completed: 2026-08-16*
+
+## Self-Check: PASSED
+
+- FOUND: `.github/workflows/release.yml`
+- FOUND: `README.md`
+- FOUND: `AGENTS.md` (restored)
+- FOUND: `.planning/phases/08-readme-release-ship-gate/08-01-SUMMARY.md`
+- FOUND commit: `8b6a64e` (Task 1)
+- FOUND commit: `c9121b3` (Task 3)
+- FOUND commit: `e9dc3a0` (plan metadata)
