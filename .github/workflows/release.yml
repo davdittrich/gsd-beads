@@ -1,0 +1,28 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build allowlisted archive
+        run: |
+          zip -r gsd-beads.zip \
+            .claude-plugin \
+            hooks \
+            .agents/skills \
+            README.md \
+            LICENSE
+
+      - name: Publish release
+        run: gh release create "${{ github.ref_name }}" gsd-beads.zip --generate-notes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
