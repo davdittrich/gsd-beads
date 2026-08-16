@@ -2,18 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 5
-status: planning
-stopped_at: Phase 5 context gathered
-last_updated: "2026-08-16T00:00:47.479Z"
+current_phase: 05
+current_phase_name: plugin-manifest
+status: verifying
+stopped_at: Completed 05-01-PLAN.md
+last_updated: "2026-08-16T11:01:36.541Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
 progress:
   total_phases: 4
-  completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  completed_phases: 1
+  total_plans: 1
+  completed_plans: 1
+  percent: 25
 ---
 
 # Project State
@@ -24,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 5 — Plugin Manifest (v1.1 roadmap approved, 4 phases)
+**Current focus:** Phase 05 — plugin-manifest
 
 ## Current Position
 
-Phase: 5 - Plugin Manifest (not started)
-Plan: —
-Status: Roadmapped, awaiting phase plan
-Last activity: 2026-08-16 — v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
+Phase: 05 (plugin-manifest) — 1/1 plans complete
+Plan: 1 of 1 — COMPLETE
+Status: Phase complete — ready for verification
+Last activity: 2026-08-16 — 05-01-PLAN.md executed (PUB-01, PUB-02, PUB-08 complete)
 
 ## Performance Metrics
 
@@ -69,6 +70,7 @@ Last activity: 2026-08-16 — v1.1 roadmap created (Phases 5-8, 10/10 requiremen
 | Phase 04-adoption P01 | 20min | 2 tasks | 6 files |
 | Phase 04-adoption P02 | ~12min | 2 tasks | 3 files |
 | Phase 04-adoption P03 | ~15min | 2 tasks | 3 files |
+| Phase 05 P01 | ~11min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -76,6 +78,10 @@ Last activity: 2026-08-16 — v1.1 roadmap created (Phases 5-8, 10/10 requiremen
 
 Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone archived to
 `.planning/milestones/v1.0-ROADMAP.md` for phase-level detail). Cleared here at milestone close.
+
+- [Phase 05]: D-02 amended: plugin.json author is {name, email} — claude plugin validate --strict hard-requires author.name; user chose to amend the locked email-only decision
+- [Phase 05]: D-10 (new): root CLAUDE.md's --strict warning has no suppression mechanism; user accepted it as a permanent, scoped exception rather than restructure the plugin root
+- [Phase 05]: marketplace.json given a top-level description (RESEARCH.md's example omitted it) — --strict requires it, reused the existing D-06 blurb
 
 ### Pending Todos
 
@@ -97,6 +103,8 @@ None yet.
 - [Phase 5/8, false-green risk] `claude plugin validate` skips skill-frontmatter checks when
   `marketplace.json` is present, and only `--strict` promotes field warnings to errors.
 
+- [Resolved 2026-08-16] Phase 05 Plan 01 Task 1's two HALT blockers (author.name/D-02, root-CLAUDE.md/D-10) were both resolved by user decision; 05-01 completed all 3 tasks, requirements PUB-01/PUB-02/PUB-08 marked complete. See 05-01-SUMMARY.md.
+
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
@@ -113,10 +121,10 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16T00:00:47.474Z
-Stopped at: Phase 5 context gathered
-Resume file: /home/dd/Gemini/gsd-beads/.planning/phases/05-plugin-manifest/05-CONTEXT.md
+Last session: 2026-08-16T11:01:36.535Z
+Stopped at: Completed 05-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
-- Plan the first v1.1 phase with /gsd-plan-phase 5
+- Verify Phase 05 (/gsd:verify-work) then plan Phase 06 (Runtime Integration) with /gsd-plan-phase 6
