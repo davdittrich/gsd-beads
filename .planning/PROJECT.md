@@ -42,11 +42,30 @@ task-state bookkeeping survives in `.planning/`.
   step — Phase 6
 - ✓ **PUB-06**: `hooks/hooks.json` ships the SessionStart `bd prime` hook, `.claude/settings.json`
   retired — Phase 6
+- ✓ **PUB-05**: Pre-push git hygiene audit; 4 machine-local files stripped from every commit via
+  `git filter-repo`, `.gitignore` extended — Phase 7
+- ✓ **PUB-10**: `github.com/davdittrich/gsd-beads` public, remote configured, history pushed —
+  Phase 7
+- ✓ **PUB-04**: Release archive built from the explicit 5-path allowlist, attached to GitHub
+  Release `v1.1.0` — Phase 8
+- ✓ **PUB-07**: `README.md` ships purpose, requirements, install, uninstall, caveats, license,
+  gsd-core link — every command transcribed from execution; gap-closure round (G-08-1) added the
+  beads-vs-built-in-tracking value prop and a gsd-lifecycle-integration example after UAT found
+  both missing — Phase 8
+- ✓ **PUB-09**: `claude plugin validate . --strict` clean at the released tag from a fresh clone;
+  real `/plugin marketplace add` → `/plugin install` → `/plugin uninstall` round trip executed
+  against the public repo — Phase 8
 
 ### Active
 
-v1.1 remaining requirements (PUB-04, PUB-05, PUB-07, PUB-09, PUB-10) — see
-`.planning/REQUIREMENTS.md` for full traceability. Phase 6 (Runtime Integration) complete.
+- [ ] **PUB-11**: `.agents/skills/beads/SKILL.md` expanded toward upstream `beads` skill parity —
+  Phase 9
+- [ ] **PUB-12**: A gsd-tailored `.beads/PRIME.md` ships, overriding beads' generic `bd prime`
+  default output — Phase 9
+
+Both emerged from Phase 8 UAT (user ruled hard requirements for v1.1, not deferred); v1.1.0 has
+already shipped without them, so Phase 9 completing means a `v1.1.1` patch release replaces it.
+See `.planning/REQUIREMENTS.md` for full traceability.
 
 ### Out of Scope
 
@@ -144,6 +163,10 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 | PUB-03 satisfied by the documented manual `capability install` step, not an automatic bridge | Three reasons converge: REQUIREMENTS.md's own Future Requirements section already defers postinstall-hook environment research as out of scope; an automated `--yes` grant fired from a hook would defeat gsd-core's CB-3 human-gated consent check by design; PUB-04's Phase-8 ship allowlist omits `.gsd/capabilities/beads/`, so an automation targeting that path would work today and silently break at first public release | Verified 2026-08-16 from a clean `/tmp` scratch project with no prior gsd-beads state: `node "$HOME/.claude/gsd-core/bin/gsd-tools.cjs" capability install "<clone-root>/.gsd/capabilities/beads" --scope project --yes` followed by `capability state --raw` reported `beads` `installed: true, active: true`. Transcript in `06-01-SUMMARY.md` |
 | `hooks/hooks.json` ships the bare `bd prime --hook-json` command, `.claude/settings.json` deleted in the same change | Claude Code's own SessionStart contract already fails open on a missing binary (no hand-rolled PATH guard needed); keeping both files would double-fire `bd prime` every session, since hook dedup does not cross a settings-file/plugin-hooks.json boundary | Shipped Phase 6. Live-verified twice: headless `claude -p --debug hooks` probe (executor) and a real interactive TTY session with `--debug hooks --debug-file` (user, 2026-08-16) both show `Hook SessionStart (bd prime --hook-json) provided additionalContext` exactly once. SessionStart `additionalContext` is injected silently into model context, not printed to the terminal — absence of a visible startup banner is expected, not a fire-count of zero |
 | A merely checked-out gsd-beads repo (no `/plugin install` ever run) does not auto-load `hooks/hooks.json` | Resolved RESEARCH.md's open Assumption A1 empirically rather than assuming either outcome | This repo's own dev sessions now depend on the `beads@gsd-beads` plugin staying installed at local scope — left installed (not uninstalled) at the end of Phase 6 for exactly that reason |
+| `.beads/config.yaml`/`.beads/metadata.json` were stripped from git history in Phase 7 but never added to `.gitignore` | Found by code review (07-REVIEW.md CR-01): untracked-by-omission is fragile — a future `bd` regen + `git add .` would silently re-track and re-push both files to the now-public repo | Fixed same session (commit `1cfa2fc`), independently re-verified via `git check-ignore -v`, pushed to `origin/main` before the phase was marked complete |
+| `.github/workflows/release.yml` interpolated `github.ref_name` directly into a `run:` shell command | Found by code review (08-REVIEW.md WR-02): classic GitHub Actions tag-name script-injection pattern, not mitigated via `env:` indirection | Fixed same session (commit `b4a7903`), independently confirmed pushed during Phase 8 goal verification |
+| README's beads-vs-gsd value proposition and lifecycle-integration example were missing entirely | Phase 8 UAT (human comprehension test) reported the README explains the mechanism of gsd-beads but never why a reader would choose it over gsd-core's built-in `.planning/` tracking, and the worked example showed only bare `bd` commands, not the `/gsd-plan-phase` → `/gsd-execute-phase` → `/gsd-verify-work` integration | Diagnosed (root cause: content existed in `docs/prd-beads-capability.md` §3.1-3.2 and PROJECT.md's own Core Value line but was never pulled into README), fixed via gap-closure plan `08-03-PLAN.md` (commits `83b3897`, `3e0e31f`), re-verified, UAT passed |
+| Two new hard requirements (PUB-11 SKILL.md parity, PUB-12 gsd-tailored PRIME.md) surfaced during Phase 8 UAT, after `v1.1.0` had already shipped | User explicitly ruled these hard requirements for v1.1, not deferred ideas — despite the public release already existing | Added to REQUIREMENTS.md, new Phase 9 (Beads Content Depth) created via `gsd_run phase add`; Phase 9 must complete before v1.1 is considered done, followed by a `v1.1.1` patch release replacing the public `v1.1.0` archive |
 
 ## Evolution
 
@@ -171,4 +194,6 @@ Phase 4 SUMMARY.md files missing `requirements-completed` frontmatter, and Phase
 reconciled Nyquist `VALIDATION.md` coverage — neither blocks shipped functionality).
 
 ---
-*Last updated: 2026-08-16 — Phase 6 (Runtime Integration) complete: PUB-03/PUB-06 shipped and verified.*
+*Last updated: 2026-08-16 — Phase 8 (README, Release & Ship Gate) complete: PUB-04/PUB-07/PUB-09
+shipped, verified, and gap-closed (G-08-1). `v1.1.0` public on GitHub. Phase 9 (Beads Content
+Depth) created for PUB-11/PUB-12, required before v1.1 is considered done.*
