@@ -22,7 +22,7 @@
       `hooks/`, `.agents/skills/`, `README.md`, `LICENSE`) and attached to a GitHub Release —
       `.planning/` and `.beads/` never ship to installers
 
-- [ ] **PUB-05**: Pre-push git hygiene audit completed — `.beads/config.yaml`,
+- [x] **PUB-05**: Pre-push git hygiene audit completed — `.beads/config.yaml`,
       `.beads/metadata.json`, `.claude/.headroom_wrap_marker.json`, `.gsd-capabilities.json`
       untracked; `.gitignore` extended to cover backup/Dolt artifacts before first push
 
@@ -45,7 +45,7 @@
 - [ ] **PUB-09**: Final validation gate passes: `claude plugin validate . --strict` clean, a real
       `/plugin marketplace add` + `/plugin install` + `/plugin uninstall` round trip succeeds
 
-- [ ] **PUB-10**: GitHub repository created (public, personal account, `gsd-beads`), remote
+- [x] **PUB-10**: GitHub repository created (public, personal account, `gsd-beads`), remote
       configured, history pushed
 
 ## Future Requirements
@@ -76,8 +76,8 @@
 | PUB-08 | Phase 5 | Complete |
 | PUB-03 | Phase 6 | Complete |
 | PUB-06 | Phase 6 | Complete |
-| PUB-05 | Phase 7 | Pending |
-| PUB-10 | Phase 7 | Pending |
+| PUB-05 | Phase 7 | Complete |
+| PUB-10 | Phase 7 | Complete |
 | PUB-04 | Phase 8 | Pending |
 | PUB-07 | Phase 8 | Pending |
 | PUB-09 | Phase 8 | Pending |

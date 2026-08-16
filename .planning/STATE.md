@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 7
-current_phase_name: Hygiene & Publication
-status: executing
+current_phase: 8
+current_phase_name: README, Release & Ship Gate
+status: planning
 stopped_at: Phase 7 context gathered
-last_updated: "2026-08-16T14:16:09.189Z"
+last_updated: "2026-08-16T14:49:39.137Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
 progress:
   total_phases: 4
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 4
-  completed_plans: 2
-  percent: 50
+  completed_plans: 4
+  percent: 75
 ---
 
 # Project State
@@ -29,16 +29,16 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 7 — Hygiene & Publication
+Phase: 8 — README, Release & Ship Gate
 Plan: Not started
-Status: Ready to execute
-Last activity: 2026-08-16 — Phase 6 complete, transitioned to Phase 7
+Status: Ready to plan
+Last activity: 2026-08-16 — Phase 07 complete, transitioned to Phase 8
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 5
+- Total plans completed: 4
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -46,8 +46,8 @@ Last activity: 2026-08-16 — Phase 6 complete, transitioned to Phase 7
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| 05 | 1 | - | - |
 | 6 | 1 | - | - |
+| 07 | 2 | - | - |
 
 **Recent Trend:**
 
@@ -79,9 +79,6 @@ Last activity: 2026-08-16 — Phase 6 complete, transitioned to Phase 7
 Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone archived to
 `.planning/milestones/v1.0-ROADMAP.md` for phase-level detail). Cleared here at milestone close.
 
-- [Phase 05]: D-02 amended: plugin.json author is {name, email} — claude plugin validate --strict hard-requires author.name; user chose to amend the locked email-only decision
-- [Phase 05]: D-10 (new): root CLAUDE.md's --strict warning has no suppression mechanism; user accepted it as a permanent, scoped exception rather than restructure the plugin root
-- [Phase 05]: marketplace.json given a top-level description (RESEARCH.md's example omitted it) — --strict requires it, reused the existing D-06 blurb
 - [Phase 06]: PUB-03 satisfied by documented manual capability install --scope project --yes bridge, not automation (defeats CB-3 consent gate, targets a path absent from PUB-04 ship allowlist)
 - [Phase 06]: hooks/hooks.json ships bare bd prime --hook-json with no PATH guard; Claude Code's own SessionStart fail-open contract already satisfies criterion 4
 - [Phase 06]: A merely checked-out repo does not auto-load plugin hooks.json (Assumption A1 resolved); beads@gsd-beads plugin kept installed at local scope as this repo's disclosed dogfooding dependency

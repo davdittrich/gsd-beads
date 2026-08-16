@@ -23,7 +23,7 @@ Full detail: `.planning/milestones/v1.0-ROADMAP.md`
 
 - [x] **Phase 5: Plugin Manifest** - Repo declares itself a valid, discoverable, MIT-licensed Claude Code plugin (completed 2026-08-16)
 - [x] **Phase 6: Runtime Integration** - A plugin install delivers a working capability and its session hook, not just cached files (completed 2026-08-16)
-- [ ] **Phase 7: Hygiene & Publication** - Public GitHub repo whose history carries zero machine-local dev state
+- [x] **Phase 7: Hygiene & Publication** - Public GitHub repo whose history carries zero machine-local dev state (completed 2026-08-16)
 - [ ] **Phase 8: README, Release & Ship Gate** - A stranger can evaluate, install, and remove it from the README alone
 
 ## Phase Details
@@ -115,12 +115,12 @@ Plans:
 
 Plans:
 
-- [ ] 07-01-PLAN.md — Clean the working tree into one pre-rewrite commit (extended root
+- [x] 07-01-PLAN.md — Clean the working tree into one pre-rewrite commit (extended root
       `.gitignore`, D-01/D-02 resolutions), take the D-03 mirror backup and rehearse the full
       strip-and-verify pipeline on a throwaway clone with a negative control (tracer), then run
       `git filter-repo` in place and verify locally — SC 1-3
 
-- [ ] 07-02-PLAN.md — Blocking one-way-door checkpoint, then `gh repo create davdittrich/gsd-beads
+- [x] 07-02-PLAN.md — Blocking one-way-door checkpoint, then `gh repo create davdittrich/gsd-beads
       --public --source=.` and a plain `git push -u origin main --tags`, gated by a fresh-clone
       verification of the pushed history — SC 4-5
 
@@ -152,7 +152,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 5. Plugin Manifest | 1/1 | Complete    | 2026-08-16 |
 | 6. Runtime Integration | 1/1 | Complete    | 2026-08-16 |
-| 7. Hygiene & Publication | 0/2 | Planned | - |
+| 7. Hygiene & Publication | 2/2 | Complete    | 2026-08-16 |
 | 8. README, Release & Ship Gate | 0/? | Not started | - |
 
 ## Notes
