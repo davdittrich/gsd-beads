@@ -117,4 +117,4 @@
 
 ## Deferred Ideas
 
-None — discussion stayed within phase scope.
+- **Expand `.agents/skills/beads/SKILL.md` toward upstream parity** — raised post-discussion (not during the discuss-phase turns above), while auditing this repo's shipped skill against the upstream `beads` skill by Steve Yegge. The shipped skill is 80 lines / single file vs upstream's 110-line SKILL.md + `resources/` + `commands/` directories, missing dependency management, labels, comments, search, `compact`, `import`, `stats`, `blocked`, worktrees, async gates, resumability, `--stealth` mode, and troubleshooting docs. No prior deliberate scope decision found in PROJECT.md or Phase 5's plan. Folded into Phase 8's CONTEXT.md Deferred Ideas per user request — candidate for a follow-up phase.

@@ -91,7 +91,7 @@ No particular UI/behavior references — this is a documentation, packaging, and
 <deferred>
 ## Deferred Ideas
 
-None — discussion stayed within phase scope.
+- **Expand `.agents/skills/beads/SKILL.md` toward upstream parity** — the shipped skill (80 lines, single file: `bd prime`/`ready`/`show`/`update --claim`/`create`/`close` only) is materially thinner than the official upstream `beads` skill by Steve Yegge (`~/.claude/skills/beads/`, v0.60.0, MIT — 110-line SKILL.md plus a `resources/` progressive-disclosure directory and a `commands/` per-subcommand reference directory). Missing entirely: `bd dep` (dependencies), labels, comments, search, `compact`, `import`, `stats`, `blocked`, worktrees, async gates, resumability, `--stealth`/`BEADS_DIR` git-free mode, `dolt push` detail, and a troubleshooting guide. Checked `.planning/PROJECT.md` and Phase 5's plan — no recorded decision to keep the shipped skill deliberately minimal; this looks like an unaddressed gap, not an intentional scope cut. Out of scope for Phase 8 (README/release/ship-gate, not skill content) — candidate for its own follow-up phase or a Phase 5/6 revisit.
 
 </deferred>
 
