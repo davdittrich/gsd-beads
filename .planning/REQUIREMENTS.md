@@ -50,13 +50,13 @@
 
 ### Plugin Content Depth
 
-- [ ] **PUB-11**: `.agents/skills/beads/SKILL.md` expanded toward upstream `beads` skill parity
+- [x] **PUB-11**: `.agents/skills/beads/SKILL.md` expanded toward upstream `beads` skill parity
       (dependencies, labels, comments, search, `compact`, `import`, `stats`, `blocked`, worktrees,
       async gates, resumability, `--stealth`/`BEADS_DIR` git-free mode, troubleshooting) — found
       materially thinner than upstream during Phase 8 UAT; a `resources/`/`commands/`
       progressive-disclosure structure is acceptable, not required verbatim
 
-- [ ] **PUB-12**: A gsd-tailored `.beads/PRIME.md` ships with the plugin, overriding beads'
+- [x] **PUB-12**: A gsd-tailored `.beads/PRIME.md` ships with the plugin, overriding beads'
       generic `bd prime` default output with content specific to gsd-core integration (phase
       epics, `plan:post`/`execute:wave:post`/`verify:post` sync points, `ship:pre` gates) — found
       missing during Phase 8 UAT; `bd prime --help` confirms `.beads/PRIME.md` is beads' supported
@@ -95,7 +95,7 @@
 | PUB-04 | Phase 8 | Complete |
 | PUB-07 | Phase 8 | Complete |
 | PUB-09 | Phase 8 | Complete |
-| PUB-11 | Phase 9 | Pending |
-| PUB-12 | Phase 9 | Pending |
+| PUB-11 | Phase 9 | Complete |
+| PUB-12 | Phase 9 | Complete |
 
 **Coverage:** 12/12 v1.1 requirements mapped, each to exactly one phase.
