@@ -17,6 +17,25 @@ dependencies become `bd dep` links, task completion closes its issue, and gsd's
 planner/executor/ship gate all read live `bd` state instead of duplicating it as
 hand-maintained `.planning/` prose.
 
+### Why not just use gsd-core's built-in tracking?
+
+gsd-core's `.planning/` markdown is a good fit for plan *content* — what a phase is for, how a
+task should be approached, what "done" means. It is a poor fit for task *state*. Without a
+bridge, a developer who uses both trackers maintains two hand-written representations of the
+same work by hand: every planned task gets re-typed as an issue, every finished task gets
+closed twice, and the two drift silently because nothing compares them. `gsd-beads` makes `bd`
+the single source of truth for task state, so no duplicated task-state bookkeeping survives in
+`.planning/`.
+
+| Need | `.planning/` markdown | beads |
+| :--- | :--- | :--- |
+| Query "what can I work on now?" | read files, reason | `bd ready` |
+| Dependencies and blocking | prose ordering | first-class, enforced |
+| Status across phases | per-phase files | one query |
+| Survives milestone archival | archived away | persists |
+| Visible outside one project | no | yes |
+| Machine-updatable without rewriting prose | no | yes |
+
 ## Requirements
 
 - `bd` on `PATH`
