@@ -5,8 +5,8 @@ milestone_name: Publish & Document
 current_phase: 8
 current_phase_name: README, Release & Ship Gate
 status: planning
-stopped_at: Phase 7 context gathered
-last_updated: "2026-08-16T14:49:39.137Z"
+stopped_at: Phase 8 context gathered
+last_updated: "2026-08-16T14:58:04.140Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
 progress:
@@ -129,9 +129,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16T13:51:25.004Z
-Stopped at: Phase 7 context gathered
-Resume file: .planning/phases/07-hygiene-publication/07-CONTEXT.md
+Last session: 2026-08-16T14:58:04.134Z
+Stopped at: Phase 8 context gathered
+Resume file: .planning/phases/08-readme-release-ship-gate/08-CONTEXT.md
 
 ## Operator Next Steps
 
