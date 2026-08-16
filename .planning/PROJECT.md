@@ -38,11 +38,15 @@ task-state bookkeeping survives in `.planning/`.
   `/plugin marketplace add` + `/plugin install beads@gsd-beads` round trip confirmed — Phase 5
 - ✓ **PUB-08**: `LICENSE` (MIT) present at repo root, referenced in `plugin.json`'s `license` field
   — Phase 5
+- ✓ **PUB-03**: The capability-loader bridge is a documented, verified manual `capability install`
+  step — Phase 6
+- ✓ **PUB-06**: `hooks/hooks.json` ships the SessionStart `bd prime` hook, `.claude/settings.json`
+  retired — Phase 6
 
 ### Active
 
-v1.1 remaining requirements (PUB-03 through PUB-07, PUB-09, PUB-10) — see
-`.planning/REQUIREMENTS.md` for full traceability. Phase 5 (Plugin Manifest) complete.
+v1.1 remaining requirements (PUB-04, PUB-05, PUB-07, PUB-09, PUB-10) — see
+`.planning/REQUIREMENTS.md` for full traceability. Phase 6 (Runtime Integration) complete.
 
 ### Out of Scope
 
@@ -138,6 +142,8 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 | bd's real schema-version skew (DB migrated to v65 by an accidentally-shipped v1.2.1 binary; this project's v1.2.2 binary only understood v53) blocked every real `bd` operation for the full duration of Phases 1-3 and part of Phase 4 | Discovered live during Phase 4 execution when the user pointed out `bd` was actually installed with a real database, contradicting every "bd unavailable" fail-open message the project had printed since Phase 1 | Recovered via beads' own official `RECOVERY-1.2.1.md` doc: backed up `.beads/` to `.beads.backup-pre-recovery`, rolled the schema cursor back to v53 via a `dolt sql` `DELETE FROM schema_migrations WHERE version > 53` + commit. `bd` now fully functional; Phase 4's 3 plans' tasks were retroactively synced to and closed in the real database (epic `gsd-beads-i3i`), the first real end-to-end `bd` round-trip this project has ever had against its own actual database (not a scratch/`bd init --prefix live` dir) |
 | `capability.json`'s `plan:post` `beads-sync` step declared `"produces": ["BEADS.md"]` — wrong; `create_issues()` only ever rewrites `PLAN.md` in place | Found by `gsd-integration-checker` during the v1.0 milestone audit, independently confirmed via direct source read (sync.py:828-892) before accepting the finding | Fixed same session (commit `4230234`): corrected to `"produces": ["PLAN.md"]`, re-installed/re-consented at project scope, 88/88 tests still green |
 | PUB-03 satisfied by the documented manual `capability install` step, not an automatic bridge | Three reasons converge: REQUIREMENTS.md's own Future Requirements section already defers postinstall-hook environment research as out of scope; an automated `--yes` grant fired from a hook would defeat gsd-core's CB-3 human-gated consent check by design; PUB-04's Phase-8 ship allowlist omits `.gsd/capabilities/beads/`, so an automation targeting that path would work today and silently break at first public release | Verified 2026-08-16 from a clean `/tmp` scratch project with no prior gsd-beads state: `node "$HOME/.claude/gsd-core/bin/gsd-tools.cjs" capability install "<clone-root>/.gsd/capabilities/beads" --scope project --yes` followed by `capability state --raw` reported `beads` `installed: true, active: true`. Transcript in `06-01-SUMMARY.md` |
+| `hooks/hooks.json` ships the bare `bd prime --hook-json` command, `.claude/settings.json` deleted in the same change | Claude Code's own SessionStart contract already fails open on a missing binary (no hand-rolled PATH guard needed); keeping both files would double-fire `bd prime` every session, since hook dedup does not cross a settings-file/plugin-hooks.json boundary | Shipped Phase 6. Live-verified twice: headless `claude -p --debug hooks` probe (executor) and a real interactive TTY session with `--debug hooks --debug-file` (user, 2026-08-16) both show `Hook SessionStart (bd prime --hook-json) provided additionalContext` exactly once. SessionStart `additionalContext` is injected silently into model context, not printed to the terminal — absence of a visible startup banner is expected, not a fire-count of zero |
+| A merely checked-out gsd-beads repo (no `/plugin install` ever run) does not auto-load `hooks/hooks.json` | Resolved RESEARCH.md's open Assumption A1 empirically rather than assuming either outcome | This repo's own dev sessions now depend on the `beads@gsd-beads` plugin staying installed at local scope — left installed (not uninstalled) at the end of Phase 6 for exactly that reason |
 
 ## Evolution
 
@@ -165,4 +171,4 @@ Phase 4 SUMMARY.md files missing `requirements-completed` frontmatter, and Phase
 reconciled Nyquist `VALIDATION.md` coverage — neither blocks shipped functionality).
 
 ---
-*Last updated: 2026-08-16 — Milestone v1.1 started: publish as installable Claude Code plugin, write README.*
+*Last updated: 2026-08-16 — Phase 6 (Runtime Integration) complete: PUB-03/PUB-06 shipped and verified.*
