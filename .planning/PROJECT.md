@@ -31,10 +31,18 @@ task-state bookkeeping survives in `.planning/`.
 - ✓ **B12**: One-shot migration of `.planning/todos/pending/` into beads — Phase 4
 - ✓ **B13**: `beads-status` prints the plan-task ↔ issue mapping on demand — Phase 4
 - ✓ **B14**: Milestone-level epic option (`beads.epic_per=milestone`) — Phase 4
+- ✓ **PUB-01**: `.claude-plugin/plugin.json` declares identity, points `skills` at
+  `.agents/skills/beads/`, passes `claude plugin validate . --strict` (one documented, permanent
+  exception: root `CLAUDE.md` warning, see 05-CONTEXT.md D-10) — Phase 5
+- ✓ **PUB-02**: `.claude-plugin/marketplace.json` self-hosted entry; local
+  `/plugin marketplace add` + `/plugin install beads@gsd-beads` round trip confirmed — Phase 5
+- ✓ **PUB-08**: `LICENSE` (MIT) present at repo root, referenced in `plugin.json`'s `license` field
+  — Phase 5
 
 ### Active
 
-v1.1 requirements pending definition — see `.planning/REQUIREMENTS.md` once drafted.
+v1.1 remaining requirements (PUB-03 through PUB-07, PUB-09, PUB-10) — see
+`.planning/REQUIREMENTS.md` for full traceability. Phase 5 (Plugin Manifest) complete.
 
 ### Out of Scope
 
