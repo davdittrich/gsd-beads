@@ -7,7 +7,7 @@
   },
   "plugins": [
     {
-      "name": "beads",
+      "name": "beads-lifecycle",
       "source": "./",
       "description": "Beads issue tracking for gsd-core's plan→execute→verify→ship lifecycle"
     }

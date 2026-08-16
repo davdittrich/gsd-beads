@@ -46,7 +46,7 @@ the single source of truth for task state, so no duplicated task-state bookkeepi
 
 ```bash
 claude plugin marketplace add davdittrich/gsd-beads
-claude plugin install beads@gsd-beads -y
+claude plugin install beads-lifecycle@gsd-beads -y
 ```
 
 ### Example workflow
