@@ -238,14 +238,21 @@ public archive.
 
 ### Phase 10: ponytail-everywhere capability plugin: advisory-only ladder-discipline reminders (SessionStart hook + plan/execute/verify/ship contribution fragments) wired to /ponytail
 
-**Goal:** [To be planned]
-**Requirements**: TBD
+**Goal:** Lazy-ladder discipline (YAGNI, reuse before writing, stdlib/native before dependencies,
+shortest working diff) reaches every gsd stage as advisory text and no gate — carried by a second
+marketplace plugin's SessionStart + role-matched SubagentStart hooks, plus a `ponytail` capability
+contributing a stage-tailored fragment into the planner's prompt at `plan:pre`, all config-driven
+via `ponytail.enabled` (default true) and `ponytail.level` (`lite`/`full`/`ultra`), with zero
+gsd-core patches.
+**Requirements**: D-01, D-02, D-03, D-04, D-05 (CONTEXT.md decisions — no REQUIREMENTS.md entries
+exist for this phase; it is new scope routed directly from /gsd-explore)
 **Depends on:** Phase 9
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 10 to break down)
+- [ ] 10-01-PLAN.md — `ponytail-everywhere` plugin: dual-event hooks, config-driven level/role reminder script, marketplace entry
+- [ ] 10-02-PLAN.md — `ponytail` capability: config keys, three stage-tailored contributions, consent gate, `plan:pre` reach proof
 
 ### Phase 11: sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)
 
