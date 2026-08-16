@@ -78,3 +78,16 @@ Use agent-local planning tools only for the current turn's execution checklist. 
 - Prefer `--json` when parsing `bd` output programmatically.
 - If hooks are installed, `bd prime` may already be injected. Run it manually when context is missing.
 - Do not auto-close or mutate tasks unless the work is actually complete.
+
+## Deeper Topics
+
+### Resources
+
+- [resources/DEPENDENCIES.md](resources/DEPENDENCIES.md) — the four `bd dep` types, which one affects `bd ready`, and common mistakes.
+- [resources/WORKTREES.md](resources/WORKTREES.md) — `bd worktree`, when isolation is worth it, and how worktrees share one `.beads/` workspace.
+- [resources/ASYNC_GATES.md](resources/ASYNC_GATES.md) — `bd gate` for modelling an external wait (CI, PR merge, human approval, timer) without blocking an agent turn.
+- [resources/RESUMABILITY.md](resources/RESUMABILITY.md) — recovering after a thread reset or handoff, and when an issue needs extra implementation detail to stay resumable.
+- [resources/STEALTH_MODE.md](resources/STEALTH_MODE.md) — git-free/invisible operation via `bd init --stealth`, `bd prime --stealth`, and `BEADS_DIR`.
+- [resources/TROUBLESHOOTING.md](resources/TROUBLESHOOTING.md) — symptom/cause/fix entries for the most common `bd` failures.
+
+`.beads/PRIME.md` carries this project's gsd-tailored `bd prime` override. The plugin's SessionStart hook restores it automatically whenever it's missing — see `.beads/PRIME.md` itself for the lifecycle content. If an untracked file there is unwanted, add `.beads/PRIME.md` to the project's own `.gitignore`.
