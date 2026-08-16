@@ -32,6 +32,17 @@ Claude Code recognizes this repo as a valid, discoverable, MIT-licensed plugin: 
 ### Validation strategy
 - **D-09:** Phase verification runs `claude plugin validate . --strict` **twice**: once with `marketplace.json` temporarily moved/absent (this is the mode that actually checks skill frontmatter, per ROADMAP.md success criterion 1's explicit wording), and once in the normal repo state. Both runs must exit clean before the phase is considered done — a single normal-state run is not sufficient evidence given the known false-green gotcha.
 
+### Strict-validate root CLAUDE.md exception (added 2026-08-16 during execution)
+- **D-10:** `claude plugin validate . --strict` permanently warns-as-error on the root `CLAUDE.md`
+  (this repo's dev-workflow file, at plugin root per D-07). Research (`05-RESEARCH-ADDENDUM-claude-md-gate.md`)
+  confirmed no suppression mechanism exists in Claude Code's validator, and relocating `CLAUDE.md`
+  would break this repo's own AI-tooling auto-load (Claude Code only auto-loads a literal
+  `CLAUDE.md` at repo root). User decision: accept this one warning as a permanent, documented
+  exception rather than restructure the plugin root out of repo root — see ROADMAP.md Phase 5
+  success criterion 1 and REQUIREMENTS.md PUB-01 for the amended wording. D-09's double-run
+  verification must still confirm this is the ONLY validate failure, not silently accept any
+  future ones.
+
 ### Claude's Discretion
 - Exact JSON formatting/key ordering in `plugin.json` and `marketplace.json`.
 - Whether `LICENSE` uses the canonical MIT template verbatim or a lightly reformatted equivalent (content, not wording, is what's decided above).

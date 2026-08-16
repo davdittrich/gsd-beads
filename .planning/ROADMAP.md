@@ -33,8 +33,12 @@ Full detail: `.planning/milestones/v1.0-ROADMAP.md`
 **Depends on**: Nothing (first phase of v1.1; builds on shipped v1.0 capability)
 **Requirements**: PUB-01, PUB-02, PUB-08
 **Success Criteria** (what must be TRUE):
-  1. `claude plugin validate . --strict` exits clean — run in the mode that actually inspects skill
-     frontmatter (marketplace.json temporarily absent), not only the mode that trivially passes
+  1. `claude plugin validate . --strict` exits clean, with one documented, permanent exception: the
+     root `CLAUDE.md` warning (this repo's own dev-workflow file lives at the plugin root by D-07's
+     design; no suppression mechanism exists in Claude Code's validator, and relocating the file
+     would break this repo's own AI-tooling auto-load — accepted 2026-08-16, see 05-CONTEXT.md) — run
+     in the mode that actually inspects skill frontmatter (marketplace.json temporarily absent), not
+     only the mode that trivially passes
   2. `/plugin marketplace add ./` from a scratch project lists a `beads` entry with its description,
      and `/plugin install` on that entry completes
   3. The installed plugin surfaces the `beads` skill resolved from the existing

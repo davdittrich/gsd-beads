@@ -6,7 +6,8 @@
 
 - [ ] **PUB-01**: `.claude-plugin/plugin.json` declares plugin identity (name, version, license,
       author), points `skills` at existing `.agents/skills/beads/`, and passes
-      `claude plugin validate . --strict`
+      `claude plugin validate . --strict` (one documented, permanent exception: the root `CLAUDE.md`
+      warning — see ROADMAP.md Phase 5 success criterion 1, 05-CONTEXT.md)
 - [ ] **PUB-02**: `.claude-plugin/marketplace.json` self-hosted entry makes
       `/plugin marketplace add <owner>/gsd-beads` then `/plugin install beads@gsd-beads` work
 - [ ] **PUB-03**: The capability-loader bridge is explicitly decided and implemented (or the
