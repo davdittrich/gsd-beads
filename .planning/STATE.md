@@ -45,7 +45,7 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 10 — repro-test
+**Current focus:** Phase 11 — sota-numerics capability plugin
 
 ## Current Position
 
@@ -104,9 +104,10 @@ Last activity: 2026-08-17 — Phase 10 complete, transitioned to Phase 11
 Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone archived to
 `.planning/milestones/v1.0-ROADMAP.md` for phase-level detail). Cleared here at milestone close.
 
-- [Phase ?]: ponytail-everywhere plugin: gsd-tools resolves via CLAUDE_CONFIG_DIR branch (repo-local absent, PATH absent); claude plugin validate . --strict accepted ./ponytail-everywhere source on first try; test harness proves scratch-dir config isolation with zero repo mutation
-- [Phase ?]: Phase 10 Plan 02: relocated the verifier contribution from verify:pre to execute:wave:post — gsd-core's Loop Host Contract restricts verify:pre/post's contribution.into to [orchestrator] only, 'verifier' is only valid within the execute step's points
-- [Phase ?]: Phase 10 Plan 02: project-scope capability consent binds to realpath(projectRoot) (#1459) — a --cwd symlink mirror needs its own GSD_HOME-scoped consent record to test the ponytail.enabled toggle, not just matching bundle content
+- [Phase 10]: ponytail-everywhere plugin: gsd-tools resolves via CLAUDE_CONFIG_DIR branch (repo-local absent, PATH absent); claude plugin validate . --strict accepted ./ponytail-everywhere source on first try; test harness proves scratch-dir config isolation with zero repo mutation
+- [Phase 10]: Plan 02 relocated the verifier contribution from verify:pre to execute:wave:post — gsd-core's Loop Host Contract restricts verify:pre/post's contribution.into to [orchestrator] only, 'verifier' is only valid within the execute step's points
+- [Phase 10]: Plan 02 — project-scope capability consent binds to realpath(projectRoot) (#1459) — a --cwd symlink mirror needs its own GSD_HOME-scoped consent record to test the ponytail.enabled toggle, not just matching bundle content
+- [Phase 10]: Code review found a real, reproduced critical bug (CR-01) — ponytail-everywhere/hooks/gsd-tools.sh built its node invocation as an unquoted string, breaking on any repo/HOME path containing a space and silently fail-opening to enabled:true; fixed via --fix (array-based invocation) with a genuine regression test
 
 ### Pending Todos
 
@@ -154,8 +155,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T00:37:05.292Z
-Stopped at: Completed 10-02-PLAN.md
+Last session: 2026-08-17T01:50:00Z
+Stopped at: Phase 10 complete (verified, reviewed, UAT 6/6 passed, threats_open: 0), ready to plan Phase 11
 Resume file: None
 
 ## Operator Next Steps
