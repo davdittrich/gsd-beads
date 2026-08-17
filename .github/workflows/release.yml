@@ -19,6 +19,7 @@ jobs:
             .claude-plugin \
             hooks \
             .agents/skills \
+            .gsd \
             README.md \
             LICENSE
 
