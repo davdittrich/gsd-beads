@@ -247,12 +247,12 @@ gsd-core patches.
 **Requirements**: D-01, D-02, D-03, D-04, D-05 (CONTEXT.md decisions — no REQUIREMENTS.md entries
 exist for this phase; it is new scope routed directly from /gsd-explore)
 **Depends on:** Phase 9
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 
-- [ ] 10-01-PLAN.md — `ponytail-everywhere` plugin: dual-event hooks, config-driven level/role reminder script, marketplace entry
-- [ ] 10-02-PLAN.md — `ponytail` capability: config keys, three stage-tailored contributions, consent gate, `plan:pre` reach proof
+- [x] 10-01-PLAN.md — `ponytail-everywhere` plugin: dual-event hooks, config-driven level/role reminder script, marketplace entry
+- [x] 10-02-PLAN.md — `ponytail` capability: config keys, three stage-tailored contributions, consent gate, `plan:pre` reach proof
 
 ### Phase 11: sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)
 
