@@ -145,7 +145,7 @@ The closest shipped analogue for the overall shape is `capabilities/mempalace/ca
   "agents": [],
   "hooks": [],
   "config": {
-    "beads.enabled":      { "type": "boolean", "default": false },
+    "beads.enabled":      { "type": "boolean", "default": true },
     "beads.sync_mode":    { "type": "enum", "values": ["authoritative", "mirror", "off"], "default": "authoritative" },
     "beads.epic_per":     { "type": "enum", "values": ["phase", "milestone"], "default": "phase" },
     "beads.ship_gate":    { "type": "boolean", "default": true },

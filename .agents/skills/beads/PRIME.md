@@ -44,7 +44,7 @@ Six `capability.json` lifecycle steps dispatch bd integration automatically — 
 
 ## Config keys
 
-- `beads.enabled` (default `false`) — master toggle for this whole integration.
+- `beads.enabled` (default `true`) — master toggle for this whole integration.
 - `beads.sync_mode` (default `authoritative`) — `bd` owns task content after first sync; `PLAN.md` task text is never re-synced from later `bd` edits.
 - `beads.ship_gate` (default `true`) — see Ship gate above.
 - `beads.epic_per` (default `phase`) — see Phase epics above.
