@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 11.1
 current_phase_name: beads-enabled-default-flip-to-true
-status: executing
-stopped_at: Completed 11.1-01-PLAN.md
-last_updated: "2026-08-17T13:00:34.132Z"
+status: verifying
+stopped_at: Completed 11.1-02-PLAN.md
+last_updated: "2026-08-17T13:03:57.557Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
   total_phases: 9
-  completed_phases: 7
+  completed_phases: 8
   total_plans: 21
-  completed_plans: 19
-  percent: 78
+  completed_plans: 20
+  percent: 89
 ---
 
 Total Phases: 3
@@ -24,12 +24,12 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: Ready to execute
+status: Phase complete — ready for verification
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[█████████░] 90%
+progress:[██████████] 95%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -51,7 +51,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 Phase: 11.1 (beads-enabled-default-flip-to-true) — EXECUTING
 Plan: 2 of 2
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-17 — Phase 11.1 execution started
 
 ## Performance Metrics
@@ -103,6 +103,7 @@ Last activity: 2026-08-17 — Phase 11.1 execution started
 | Phase 11 P02 | 30min | 2 tasks | 8 files |
 | Phase 11 P03 | 20min | 3 tasks | 2 files |
 | Phase 11.1 P01 | 12min | 2 tasks | 5 files |
+| Phase 11.1 P02 | 8min | 3 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -124,6 +125,7 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase ?]: [Phase 11]: sota-numerics NOTES.md re-verified the plan-phase.md 13a-13e step ordering live (not from RESEARCH memory) -- unchanged: plan:post gate still fires after commit and STATE.md 'Ready to execute', checker revision loop remains the primary enforcement point
 - [Phase ?]: [Phase 11.1]: beads.enabled shipped default flipped false->true (capability.json 0.2.0); all four beads skills' Step 1 gate inverted to opt-out polarity so a silent project runs beads by default while explicit beads.enabled:false still fully disables it.
 - [Phase ?]: [Phase 11.1]: global-scope installed capability copy (~/.gsd/capabilities/beads/) is a materialized snapshot, not a live read of the source bundle -- must be refreshed via hooks/capability-auto-install.sh (or a fresh SessionStart) after any source bundle edit, same gotcha PROJECT.md already documents for project-scope consent.
+- [Phase ?]: [Phase 11.1]: doc sweep (README, PRIME.md twins, PRD) brought in line with beads.enabled default true; CHANGELOG.md created at repo root keyed to capability.json 0.2.0, stating explicit beads.enabled values in .planning/config.json are unaffected
 
 ### Pending Todos
 
@@ -171,8 +173,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T13:00:34.124Z
-Stopped at: Completed 11.1-01-PLAN.md
+Last session: 2026-08-17T13:03:52.479Z
+Stopped at: Completed 11.1-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
