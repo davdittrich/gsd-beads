@@ -5,8 +5,18 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 if [ -f "$PLUGIN_ROOT/hooks/gsd-tools.sh" ]; then
   . "$PLUGIN_ROOT/hooks/gsd-tools.sh"
-  ENABLED="$(gsd_tools config-get ponytail.enabled --default true 2>/dev/null || echo true)"
-  LEVEL="$(gsd_tools config-get ponytail.level --default full 2>/dev/null || echo full)"
+  ENABLED="$(gsd_tools config-get ponytail.enabled --default true 2>/dev/null)"; ENABLED_STATUS=$?
+  if [ "$ENABLED_STATUS" -eq 127 ]; then
+    ENABLED=true
+  elif [ "$ENABLED_STATUS" -ne 0 ]; then
+    echo "ponytail: gsd_tools config-get ponytail.enabled failed (exit $ENABLED_STATUS); disabling advisory banner" >&2
+    ENABLED=false
+  fi
+  LEVEL="$(gsd_tools config-get ponytail.level --default full 2>/dev/null)"; LEVEL_STATUS=$?
+  if [ "$LEVEL_STATUS" -ne 0 ]; then
+    [ "$LEVEL_STATUS" -eq 127 ] || echo "ponytail: gsd_tools config-get ponytail.level failed (exit $LEVEL_STATUS); using default" >&2
+    LEVEL=full
+  fi
 else
   ENABLED=true
   LEVEL=full
