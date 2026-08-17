@@ -56,16 +56,14 @@ task-state bookkeeping survives in `.planning/`.
   real `/plugin marketplace add` → `/plugin install` → `/plugin uninstall` round trip executed
   against the public repo — Phase 8
 
+- ✓ **PUB-11**: `.agents/skills/beads/SKILL.md` expanded toward upstream `beads` skill parity —
+  Phase 9
+- ✓ **PUB-12**: A gsd-tailored `.beads/PRIME.md` ships, overriding beads' generic `bd prime`
+  default output — Phase 9 (`v1.1.1` released)
+
 ### Active
 
-- [ ] **PUB-11**: `.agents/skills/beads/SKILL.md` expanded toward upstream `beads` skill parity —
-  Phase 9
-- [ ] **PUB-12**: A gsd-tailored `.beads/PRIME.md` ships, overriding beads' generic `bd prime`
-  default output — Phase 9
-
-Both emerged from Phase 8 UAT (user ruled hard requirements for v1.1, not deferred); v1.1.0 has
-already shipped without them, so Phase 9 completing means a `v1.1.1` patch release replaces it.
-See `.planning/REQUIREMENTS.md` for full traceability.
+(v1.2 requirements pending definition — see Step 9 of `/gsd-core:new-milestone`)
 
 ### Out of Scope
 
@@ -83,16 +81,30 @@ See `.planning/REQUIREMENTS.md` for full traceability.
   the failure mode is a second review pipeline nobody asked for; revisit only after `beads` has
   shipped and only if the LLM plan-checker is observed spending judgement on decidable properties
 
-## Current Milestone: v1.1 Publish & Document
+## Current Milestone: v1.2 New Capability Plugins
 
-**Goal:** Ship gsd-beads as an installable Claude Code plugin on GitHub, with a README that lets
-a stranger evaluate, install, and remove it without reading the source.
+**Goal:** Ship three new gsd-core capability plugins — `pr-workflow`, `markdown-linting`,
+`get-available-resources` — each dogfooded in this repo then extracted to its own public GitHub
+repo and marketplace entry, exactly matching the proven Phase 10/11 (build) → Phase 12 (extract
++ publish) pattern already shipped for `ponytail-everywhere` and `sota-numerics`.
 
 **Target features:**
-- Claude Code plugin manifest (`.claude-plugin/plugin.json`, marketplace-installable structure)
-- GitHub repository with remote, pushed history
-- README.md: purpose, capabilities, installation, deinstallation, requirements, caveats, link to
-  gsd-core
+- `pr-workflow` capability: wraps `gh pr create`/`gh pr checks --watch`/`gh api`; `ship:pre` gate
+  (advisory by default) on failing/pending checks, `ship:post` action to open a draft PR
+- `markdown-linting` capability: wraps `markdownlint-cli2` over `.planning/**/*.md`; `verify:post`
+  report of MD0XX violations, `ship:pre` gate (mirrors `beads.ship_gate`'s pattern)
+- `get-available-resources` capability: wraps a CPU/GPU/memory/disk detection script producing
+  `.claude_resources.json`; advisory-only fragment at `plan:pre`/`execute:wave:pre`, no gate
+- Each ships first as a dogfooded `.gsd/capabilities/<id>/` subdirectory in this repo, then gets
+  its own public repo (`davdittrich/<id>`) and a `git`-source `marketplace.json` entry alongside
+  `beads`, `ponytail-everywhere`, `sota-numerics`
+
+**Milestone v1.1 status:** Publish & Document — Phases 5-9 shipped and verified; Phase 10/11/11.1
+(ponytail-everywhere, sota-numerics, beads-default-flip) shipped; Phase 12 (public extraction of
+those two plugins) has all 4 plans' work done and pushed per the decision log below, but
+ROADMAP.md's checkboxes are stale (a known upstream gsd-core plan-scan misclassification, see
+STATE.md) — not formally closed via `/gsd-complete-milestone`. User explicitly chose to proceed to
+v1.2 rather than block on that formality (2026-08-18).
 
 ## Context
 
@@ -196,7 +208,11 @@ Phase 4 SUMMARY.md files missing `requirements-completed` frontmatter, and Phase
 reconciled Nyquist `VALIDATION.md` coverage — neither blocks shipped functionality).
 
 ---
-*Last updated: 2026-08-17 — Phase 10.1 (capability auto-install) complete: shared
+*Last updated: 2026-08-18 — Milestone v1.2 (New Capability Plugins) started: PUB-11/PUB-12 moved
+to Validated (Phase 9 shipped, `v1.1.1` released); Current Milestone section repointed at v1.2's
+three new capability plugins (`pr-workflow`, `markdown-linting`, `get-available-resources`).*
+
+*Previously: 2026-08-17 — Phase 10.1 (capability auto-install) complete: shared
 SessionStart-triggered auto-install/re-grant mechanism shipped for both `beads` and
 `ponytail-everywhere`, reversing the T-06-01 "do not build it" decision and closing the
 silent-invalidation gap discovered debugging Phase 10 (see Key Decisions). No PUB-XX requirement
