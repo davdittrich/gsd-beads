@@ -5,15 +5,15 @@ milestone_name: Publish & Document
 current_phase: 12
 current_phase_name: ship-ponytail-everywhere-and-sota-numerics-plugins-publicly
 status: executing
-stopped_at: Completed 12-01-PLAN.md
-last_updated: "2026-08-17T15:41:36.106Z"
+stopped_at: Completed 12-02-PLAN.md
+last_updated: "2026-08-17T16:32:14.720Z"
 last_activity: 2026-08-17
 last_activity_desc: All v1.1 phases (5-9, plus inserted 10/10.1/11/11.1) verified complete; ROADMAP.md tracking corrected — Phase 9's Progress row and milestone checkbox were stale (query-blocked by an upstream gsd-core plan-scan bug misclassifying 09-PLAN-CHECK.md as an unsummarized plan)
 progress:
   total_phases: 10
   completed_phases: 8
   total_plans: 25
-  completed_plans: 21
+  completed_plans: 22
   percent: 80
 ---
 
@@ -29,7 +29,7 @@ stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[████████░░] 84%
+progress:[█████████░] 88%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -50,7 +50,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 12 (ship-ponytail-everywhere-and-sota-numerics-plugins-publicly) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Last activity: 2026-08-17 — Phase 12 execution started
 
@@ -106,6 +106,7 @@ Last activity: 2026-08-17 — Phase 12 execution started
 | Phase 11.1 P01 | 12min | 2 tasks | 5 files |
 | Phase 11.1 P02 | 8min | 3 tasks | 5 files |
 | Phase 12 P01 | 18min | 4 tasks | 6 files |
+| Phase 12 P02 | ~15min | 4 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -129,6 +130,7 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase ?]: [Phase 11.1]: global-scope installed capability copy (~/.gsd/capabilities/beads/) is a materialized snapshot, not a live read of the source bundle -- must be refreshed via hooks/capability-auto-install.sh (or a fresh SessionStart) after any source bundle edit, same gotcha PROJECT.md already documents for project-scope consent.
 - [Phase ?]: [Phase 11.1]: doc sweep (README, PRIME.md twins, PRD) brought in line with beads.enabled default true; CHANGELOG.md created at repo root keyed to capability.json 0.2.0, stating explicit beads.enabled values in .planning/config.json are unaffected
 - [Phase ?]: [Phase 12]: davdittrich/ponytail-everywhere shipped as standalone public repo (fresh git init, commit 36245fe), proving the stage-outside-tree + fix-relocation-paths + gh-repo-create-push + fresh-clone-verify tracer sequence for Plan 02 to repeat against sota-numerics
+- [Phase ?]: [Phase 12]: davdittrich/sota-numerics shipped as standalone public repo (fresh git init, commit 31608f2), proving the 12-01 tracer sequence generalizes to a plugin with a blocking plan:post gate and a Python unittest suite (19 tests); test_check_alternatives.py's PROJECT_ROOT walk-up required a tests/.planning/.gitkeep placeholder in the staging tree, file itself left byte-identical
 
 ### Pending Todos
 
@@ -176,8 +178,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T15:41:36.099Z
-Stopped at: Completed 12-01-PLAN.md
+Last session: 2026-08-17T16:32:14.713Z
+Stopped at: Completed 12-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
