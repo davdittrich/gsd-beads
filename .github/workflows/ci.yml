@@ -10,13 +10,5 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Vendored-copy parity (D-06 / CAP-07)
-        run: |
-          cmp hooks/capability-auto-install.sh ponytail-everywhere/hooks/capability-auto-install.sh
-          diff -r .gsd/capabilities/ponytail ponytail-everywhere/.gsd/capabilities/ponytail
-
       - name: Capability auto-install smoke test
         run: bash tests/test-capability-auto-install.sh
-
-      - name: ponytail-everywhere session-start smoke test
-        run: bash ponytail-everywhere/tests/test-session-start.sh

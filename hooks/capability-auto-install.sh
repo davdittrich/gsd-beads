@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Vendored auto-install hook (D-05: vendored copy per plugin, not shared at
-# runtime -- see ponytail-everywhere/hooks/capability-auto-install.sh for the
-# byte-identical sibling copy, Phase 10.1 Plan 02).
+# runtime -- see davdittrich/ponytail-everywhere's hooks/capability-auto-install.sh
+# for the byte-identical sibling copy, Phase 10.1 Plan 02).
 #
 # Detects bundle drift via a whole-directory hash and re-grants the
 # capability at global ("user") scope on every SessionStart (D-01..D-03).
@@ -53,8 +53,8 @@ NEW_HASH="$(bundle_hash)"
 [ "$NEW_HASH" = "$OLD_HASH" ] && exit 0
 
 # gsd_tools() resolver, inlined verbatim from
-# ponytail-everywhere/hooks/gsd-tools.sh rather than sourced -- the root
-# plugin ships no gsd-tools.sh, and an inline copy keeps this script
+# davdittrich/ponytail-everywhere's hooks/gsd-tools.sh rather than sourced --
+# the root plugin ships no gsd-tools.sh, and an inline copy keeps this script
 # dependency-free within its own plugin (D-05).
 gsd_tools() {
   if [ -z "${_GSD_TOOLS_ARGS_SET+x}" ]; then
