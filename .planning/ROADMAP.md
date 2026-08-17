@@ -25,7 +25,7 @@ Full detail: `.planning/milestones/v1.0-ROADMAP.md`
 - [x] **Phase 6: Runtime Integration** - A plugin install delivers a working capability and its session hook, not just cached files (completed 2026-08-16)
 - [x] **Phase 7: Hygiene & Publication** - Public GitHub repo whose history carries zero machine-local dev state (completed 2026-08-16)
 - [x] **Phase 8: README, Release & Ship Gate** - A stranger can evaluate, install, and remove it from the README alone (completed 2026-08-16)
-- [ ] **Phase 9: Beads Content Depth** - The shipped plugin's beads guidance matches upstream depth and is tailored to gsd-core
+- [x] **Phase 9: Beads Content Depth** - The shipped plugin's beads guidance matches upstream depth and is tailored to gsd-core (completed 2026-08-16)
 
 ## Phase Details
 
@@ -204,7 +204,7 @@ Plans:
 | 6. Runtime Integration | 1/1 | Complete    | 2026-08-16 |
 | 7. Hygiene & Publication | 2/2 | Complete    | 2026-08-16 |
 | 8. README, Release & Ship Gate | 3/3 | Complete    | 2026-08-16 |
-| 9. Beads Content Depth | 4/4 | In Progress|  |
+| 9. Beads Content Depth | 4/4 | Complete    | 2026-08-16 |
 
 ## Notes
 

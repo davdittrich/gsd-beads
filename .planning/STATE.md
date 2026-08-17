@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 9
-current_phase_name: Beads Content Depth
-status: planning
+current_phase: null
+current_phase_name: null
+status: milestone-complete
 stopped_at: Completed 11.1-02-PLAN.md
-last_updated: "2026-08-17T13:12:35.309Z"
+last_updated: "2026-08-17T13:53:35Z"
 last_activity: 2026-08-17
-last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
+last_activity_desc: All v1.1 phases (5-9, plus inserted 10/10.1/11/11.1) verified complete; ROADMAP.md tracking corrected — Phase 9's Progress row and milestone checkbox were stale (query-blocked by an upstream gsd-core plan-scan bug misclassifying 09-PLAN-CHECK.md as an unsummarized plan)
 progress:
   total_phases: 9
   completed_phases: 8
@@ -45,14 +45,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 11.1 — beads-enabled-default-flip-to-true
+**Current focus:** v1.1 Publish & Document — all phases complete, no phase currently in progress
 
 ## Current Position
 
-Phase: 9 — Beads Content Depth
+Phase: None — v1.1 milestone complete (Phases 5-9, plus inserted 10/10.1/11/11.1)
 Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-08-17 — Phase 11.1 complete, transitioned to Phase 9
+Status: Awaiting next milestone or gap-closure phase
+Last activity: 2026-08-17 — Phase 11.1 complete; corrected stale ROADMAP.md tracking for Phase 9 (already shipped as v1.1.1, tracking never updated)
 
 ## Performance Metrics
 
