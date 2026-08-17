@@ -340,3 +340,19 @@ Plans:
 **Wave 2** *(blocked on Wave 1 completion)*
 
 - [x] 11.1-02-PLAN.md — Sweep the live docs (README, both PRIME.md twins, PRD schema) to the new default and create CHANGELOG.md
+
+### Phase 12: Ship ponytail-everywhere and sota-numerics plugins publicly
+
+**Goal:** `ponytail-everywhere` and `sota-numerics` — currently dogfooded only as subdirectories of
+this repo (Phase 10, 11) — each get their own public GitHub repo, published exactly as
+`beads-lifecycle` was in Phase 5-8 (README, LICENSE, `claude plugin validate . --strict`, a real
+marketplace round trip). This repo's `.claude-plugin/marketplace.json` keeps hosting the shared
+marketplace, with the two entries switched from local Directory sources to git-sources pointing at
+the new repos. See 12-CONTEXT.md for the full decision set (D-01 through D-10).
+**Requirements**: TBD (no requirement IDs defined for this project; traceability is via CONTEXT.md decisions D-01..D-10)
+**Depends on:** Phase 10, Phase 11
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 12 to break down)
