@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
 current_phase_name: null
-status: milestone-complete
+status: executing
 stopped_at: Phase 12 context gathered
-last_updated: "2026-08-17T14:06:29.054Z"
+last_updated: "2026-08-17T14:47:19.761Z"
 last_activity: 2026-08-17
 last_activity_desc: All v1.1 phases (5-9, plus inserted 10/10.1/11/11.1) verified complete; ROADMAP.md tracking corrected — Phase 9's Progress row and milestone checkbox were stale (query-blocked by an upstream gsd-core plan-scan bug misclassifying 09-PLAN-CHECK.md as an unsummarized plan)
 progress:
   total_phases: 10
   completed_phases: 8
-  total_plans: 21
+  total_plans: 25
   completed_plans: 20
   percent: 80
 current_phase: null
@@ -24,7 +24,7 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: Ready to plan
+status: Ready to execute
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16

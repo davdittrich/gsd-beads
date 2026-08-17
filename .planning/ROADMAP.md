@@ -354,8 +354,22 @@ the new repos. See 12-CONTEXT.md for the full decision set (D-01 through D-10).
 **Plans:** 4 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 12-01-PLAN.md — Extract `ponytail-everywhere` to its own public repo (TRACER: proves the whole extraction sequence end-to-end)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 12-02-PLAN.md — Extract `sota-numerics` to its own public repo, repeating the proven sequence
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 12-03-PLAN.md — Repoint `marketplace.json` at both new repos and run the D-10 install/uninstall round trip
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 12-04-PLAN.md — Remove both subdirectories from `gsd-beads`, repair the orphaned CI/release/comment references, push and verify
+
+**Cross-cutting constraints:**
+
+- `claude plugin validate . --strict` exits 0 from a fresh clone of the pushed repo (D-10)
