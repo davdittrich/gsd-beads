@@ -119,5 +119,18 @@ run_and_cleanup
 [ "$OUT_SET" = "$OUT_UNSET" ] || fail "case10: CLAUDE_PLUGIN_ROOT set/unset outputs differ"
 pass "case10: PLUGIN_ROOT fallback byte-identical"
 
+# --- Case 11: CLAUDE_CONFIG_DIR containing a space -> resolver must not word-split (CR-01 regression) ---
+SPACE_HOME="$(mktemp -d)/config space"
+mkdir -p "$SPACE_HOME/gsd-core/bin"
+ln -s "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/gsd-tools.cjs" "$SPACE_HOME/gsd-core/bin/gsd-tools.cjs"
+mk_scratch '{"ponytail": {"enabled": false, "level": "full"}}'
+OUT="$(CLAUDE_CONFIG_DIR="$SPACE_HOME" CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" bash "$SCRIPT")"
+STATUS=$?
+run_and_cleanup
+rm -rf "${SPACE_HOME%/*}"
+[ -z "$OUT" ] || fail "case11: enabled=false via space-path CLAUDE_CONFIG_DIR produced output (CR-01 word-split regression)"
+[ "$STATUS" -eq 0 ] || fail "case11: enabled=false via space-path CLAUDE_CONFIG_DIR exited non-zero"
+pass "case11: CLAUDE_CONFIG_DIR containing a space resolves correctly (CR-01 regression)"
+
 echo "ALL PASS"
 exit 0
