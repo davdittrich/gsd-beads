@@ -1,0 +1,16 @@
+{
+  "version": "1",
+  "updatedAt": "2026-08-17T00:26:17.147Z",
+  "entries": {
+    "ponytail": {
+      "id": "ponytail",
+      "version": "0.1.0",
+      "source": "./.gsd/capabilities/ponytail",
+      "integrity": "",
+      "files": [
+        ".gsd/capabilities/ponytail"
+      ],
+      "sharedEdits": []
+    }
+  }
+}
