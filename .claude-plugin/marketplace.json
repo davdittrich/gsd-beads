@@ -14,16 +14,16 @@
     {
       "name": "ponytail-everywhere",
       "source": {
-        "source": "github",
-        "repo": "davdittrich/ponytail-everywhere"
+        "source": "url",
+        "url": "https://github.com/davdittrich/ponytail-everywhere.git"
       },
       "description": "Advisory-only lazy-ladder discipline reminders across gsd's plan/execute/verify/ship lifecycle"
     },
     {
       "name": "sota-numerics",
       "source": {
-        "source": "github",
-        "repo": "davdittrich/sota-numerics"
+        "source": "url",
+        "url": "https://github.com/davdittrich/sota-numerics.git"
       },
       "description": "SOTA-research/numerical-stability advisory steering across gsd's plan/execute/verify/ship lifecycle, plus a blocking plan:post gate that mechanically enforces a compliant Alternatives Considered section on every plan in a phase"
     }
