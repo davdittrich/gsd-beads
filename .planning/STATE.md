@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 10.1
+current_phase: 11
 current_phase_name: "capability auto-install: SessionStart-triggered user-scope consent, applied to beads and ponytail-everywhere, reused by sota-numerics when planned"
 status: planning
-stopped_at: Completed 10-02-PLAN.md
-last_updated: "2026-08-17T07:40:00Z"
+stopped_at: Phase 10.1 context gathered
+last_updated: "2026-08-17T07:53:56.893Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
-  total_phases: 7
+  total_phases: 8
   completed_phases: 5
   total_plans: 14
   completed_plans: 13
-  percent: 71
+  percent: 63
 ---
 
 Total Phases: 3
@@ -155,9 +155,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T01:50:00Z
-Stopped at: Phase 10 complete (verified, reviewed, UAT 6/6 passed, threats_open: 0), ready to plan Phase 11
-Resume file: None
+Last session: 2026-08-17T07:53:56.885Z
+Stopped at: Phase 10.1 context gathered
+Resume file: /home/dd/projects/gsd-beads/.planning/phases/10.1-capability-auto-install-sessionstart-triggered-user-scope-co/10.1-CONTEXT.md
 
 ## Operator Next Steps
 
