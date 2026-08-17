@@ -1,8 +1,10 @@
 # Stack Research
 
-**Domain:** Claude Code plugin packaging & GitHub publishing (distribution tooling, not application code)
-**Researched:** 2026-08-16
-**Confidence:** MEDIUM (official docs fetched directly from code.claude.com and cross-checked against independent community sources; no Anthropic-versioned changelog was diffed against a specific Claude Code build, so exact field-availability version gates below are trusted from the docs page, not independently reproduced)
+**Domain:** gsd-core capability plugins (`pr-workflow`, `markdown-linting`, `get-available-resources`) for gsd-beads
+**Researched:** 2026-08-18
+**Confidence:** HIGH (verified against official `cli.github.com`/GitHub docs and `DavidAnson/markdownlint-cli2`
+GitHub source/package.json; MEDIUM on stdlib-vs-psutil recommendation, corroborated across multiple sources but
+no single canonical spec)
 
 ## Recommended Stack
 
@@ -10,138 +12,146 @@
 
 | Technology | Version | Purpose | Why Recommended |
 |------------|---------|---------|-----------------|
-| `.claude-plugin/plugin.json` manifest | schema current as of Claude Code v2.1.229+ docs | Declares the plugin's identity (`name`) and points Claude Code at the beads capability's existing skills | Only file Claude Code's plugin loader requires to recognize a directory as a plugin; `name` is genuinely the only mandatory field, so this is the minimum viable manifest |
-| `.claude-plugin/marketplace.json` catalog | same schema family | Makes the same repo self-installable via `/plugin marketplace add <owner>/<repo>` — no separate marketplace repo needed | A single-plugin repo can be its own marketplace (`source: "./"` entry); this is a documented, supported pattern, not a workaround |
-| GitHub repository (public) | — | Distribution transport — plugin/marketplace sources resolve as `github` (owner/repo shorthand) | Anthropic's own docs name GitHub as "the recommended way to host and distribute a marketplace"; `/plugin marketplace add owner/repo` is the shortest install path for a stranger |
+| `gh` CLI | `>=2.97.0` current stable (2026-07-31); any `gh` supporting `pr checks --json` (shipped years ago) works | Backs `pr-workflow`'s `gh pr create`/`gh pr checks --watch`/`gh api` calls | Official GitHub CLI, already the transitive tool this repo's own git workflow assumes (`gh repo create`/`gh release create` appear in global CLAUDE.md); no alternative ships an equivalent authenticated, machine-parseable PR/checks API from the shell |
+| `markdownlint-cli2` | `0.23.2` (npm, published ~2 weeks before research date) | Backs `markdown-linting`'s lint pass over `.planning/**/*.md` | Same engine used by the `davidanson.vscode-markdownlint` VS Code extension and the official `markdownlint-cli2-action`; config-file-driven (no CLI flag sprawl), fast, and is the tool this repo's own inspiring skill (`~/.claude/skills/markdown-linting/`) already standardizes on — no reason to diverge |
+| Python 3 stdlib (`os`, `shutil`, `platform`, `subprocess`) | whatever Python 3 this repo already requires for `beads`/`sota-numerics` scripts | Backs `get-available-resources`'s CPU/GPU/memory/disk detection | Matches N5 exactly (beads' Out-of-Scope: "Any dependency beyond the `bd` binary and Python 3 standard library") — extending that same constraint to the two new Python-backed capabilities keeps one dependency policy across the whole repo instead of one-off exceptions |
 
 ### Supporting Libraries
 
-None. This milestone adds zero runtime dependencies — `plugin.json` and `marketplace.json` are static JSON files interpreted by Claude Code itself, not by any package manager or build step.
+None. All three capabilities are shell/stdlib wrappers around already-external CLIs (`gh`, `markdownlint-cli2`)
+or the Python 3 standard library — no new pip package is needed for any of the three.
 
 ### Development Tools
 
 | Tool | Purpose | Notes |
 |------|---------|-------|
-| `claude plugin validate ./` | Lints `plugin.json` against the schema before publishing | Run with `--strict` to turn unrecognized-field warnings into hard errors — catches typos (e.g. `discription`) that the default mode only suggests-corrects for |
-| `hesreallyhim/claude-code-json-schema` (unofficial, on schemastore.org as `claude-code-plugin-manifest.json` / `claude-code-marketplace.json`) | Editor autocomplete/validation via `$schema` field | Optional — add `"$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json"` to `plugin.json` for IDE hints; ignored by Claude Code at load time, so it costs nothing to include and nothing to omit |
+| `gh pr checks --json bucket,state,name,link,workflow` | Machine-parseable check status for the `ship:pre` gate | `--json` accepts exactly these fields: `bucket`, `completedAt`, `description`, `event`, `link`, `name`, `startedAt`, `state`, `workflow`. `bucket` is the field to gate on — it collapses `state` into one of `pass`/`fail`/`pending`/`skipping`/`cancel`, so the gate script does not need to enumerate raw CI-provider state strings. Exit code `8` = "checks pending" (distinct from a genuine non-zero failure) — a gate script must branch on this before treating a non-zero exit as a hard failure. |
+| `markdownlint-cli2 "**/*.md"` against `.planning/**/*.md` via `.markdownlint-cli2.jsonc` | Verify/ship-lifecycle lint gate | Exit codes: `0` clean, `1` lint errors found (this is the gate's real fail signal), `2` tool/config failure (crash, bad config — should route through `onError`, not "lint failed") |
+| `os.cpu_count()`, `shutil.disk_usage()`, `/proc/meminfo` (Linux) / `sysctl`+`vm_stat` (macOS) / `nvidia-smi`/`rocm-smi` (GPU) | CPU/mem/disk/GPU detection with zero new deps | See "What NOT to Use" — `psutil` is the one dependency in the inspiring skill this capability must NOT inherit |
 
 ## Installation
 
-Not an `npm install` — these are hand-authored JSON files placed in the repo. No package manager step exists in this pipeline:
+No `npm install`/`pip install` step ships inside any of the three capability bundles. Each capability's
+`capability.json` documents its external prerequisite the same way `beads` documents `bd`:
 
 ```bash
-# Structure to create (see Architecture section for exact placement)
-mkdir -p .claude-plugin
-# then write plugin.json and marketplace.json by hand (see field tables below)
+# pr-workflow prerequisite (not installed by the plugin — user-provided, like bd)
+gh --version   # >=2.97.0 recommended; any gh with `pr checks --json` support works
+gh auth status
+
+# markdown-linting prerequisite (Node/npm — NEW class of dependency for this repo, see below)
+npx markdownlint-cli2 --version   # or: npm install -g markdownlint-cli2
+
+# get-available-resources: zero prerequisite beyond python3 already required by beads/sota-numerics
+python3 --version
 ```
-
-## Manifest Schema — `plugin.json`
-
-**Location:** `.claude-plugin/plugin.json` (this directory may contain *only* `plugin.json` — every other component directory sits at plugin root, not inside `.claude-plugin/`).
-
-**Required field:** `name` (string, kebab-case) — this is the *only* mandatory field. Everything else is optional.
-
-| Field | Type | Purpose | gsd-beads recommendation |
-|---|---|---|---|
-| `name` | string | Unique id, used for namespacing (`plugin-name:skill-name`) | `"beads"` — matches the capability id already registered in `.gsd-capabilities.json` |
-| `version` | string | Semver; **pins the install** — users get updates only when this string changes | Start at `"0.1.0"` to match the capability's existing `version` in `.gsd-capabilities.json` |
-| `description` | string | Shown in `/plugin` UI | One line: what beads-sync does for gsd's lifecycle |
-| `author` | object | `{name}` required if present; `email`/`url` optional | `{"name": "..."}` |
-| `homepage`, `repository`, `license` | string | Doc/source/license links | `repository` = the GitHub URL once pushed; `license` = SPDX id matching the `LICENSE` file |
-| `keywords` | array | Discovery tags | e.g. `["gsd", "gsd-core", "beads", "task-tracking"]` |
-| `skills` | string\|array | **Adds to** (does not replace) the default `skills/` scan | Set explicitly to `"./.gsd/capabilities/beads/skills/"` — the four existing skills (`beads-recall`, `beads-sync`, `beads-status`, `beads-migrate-todos`) live there, not at repo-root `skills/`, and moving them is out of scope for this milestone |
-| `commands`, `agents`, `workflows`, `outputStyles` | string\|array | **Replace** the default scan for that component | Leave unset — gsd-beads ships no plugin-level slash commands or agents; setting these to an empty/absent value keeps default (empty) scans, which is correct since none exist |
-| `metadata` | object | Free-form, unread by Claude Code | Skip — no known consumer for it in this project |
-| `dependencies`, `userConfig`, `channels` | — | Plugin-to-plugin deps, config prompts, chat-bot channels | Skip — `beads` has one real runtime dependency (the `bd` binary), which is a `command-exists` *gate*, not a Claude Code plugin dependency; there is no field for "external CLI binary must be on PATH," so this stays documented in README, not the manifest |
-
-### What NOT to set
-
-| Field | Why not |
-|---|---|
-| `dependencies` | No other Claude Code *plugin* is required — `bd` is a system binary, out of this schema's scope entirely |
-| `commands` / `agents` (declared but empty) | Declaring an empty array actively suppresses auto-discovery semantics for other tooling reading the manifest; simply omit the key |
-| `userConfig` | No user-supplied secrets/config exist for this capability (config lives in `beads.*` gsd-core settings, not plugin install-time prompts) |
-| `strict: false` (marketplace entry) | Would make the marketplace entry the sole source of truth and forbid `plugin.json` from declaring anything — the opposite of what's needed since `plugin.json` is the authoritative source here |
-
-## Manifest Schema — `marketplace.json`
-
-**Location:** `.claude-plugin/marketplace.json`, repo root (same `.claude-plugin/` directory as `plugin.json` is a valid, documented pattern for a single-plugin self-hosting repo — real-world precedent confirmed, e.g. MemoryStore's marketplace repo).
-
-**Required top-level fields:** `name`, `owner` (object, `name` required), `plugins` (array).
-
-```json
-{
-  "name": "gsd-beads",
-  "owner": { "name": "<github-username-or-org>" },
-  "plugins": [
-    {
-      "name": "beads",
-      "source": "./",
-      "description": "Syncs gsd's PLAN.md tasks to beads (bd) issues",
-      "version": "0.1.0"
-    }
-  ]
-}
-```
-
-Key rules that affect this repo specifically:
-- `source: "./"` means "the marketplace root is also the plugin root" — correct here since there is exactly one plugin and it is the repo itself.
-- **Reserved names are rejected**: `claude-code-marketplace`, `claude-code-plugins`, `anthropic-*`, and several others cannot be used as the marketplace `name` — `gsd-beads` is clear of all of them.
-- Never declare `version` in *both* `plugin.json` and the marketplace entry — `plugin.json`'s value silently wins with no warning if they diverge, which would mask an intended bump. Pick one place; `plugin.json` is recommended since it travels with the plugin regardless of which marketplace lists it.
-
-## Install Command (what a stranger runs)
-
-```
-/plugin marketplace add <github-owner>/gsd-beads
-/plugin install beads@gsd-beads
-```
-
-This is the exact sequence the README's "Installation" section must document. `/plugin marketplace add` accepts GitHub `owner/repo` shorthand directly — no separate marketplace repo, no publishing to the official Anthropic catalog, and no approval/review step required for this path (that review process only applies to inclusion in Anthropic's curated `claude-plugins-official`/`claude-community` catalogs, which is explicitly out of scope for this milestone per PROJECT.md's goal of "installable... on GitHub").
 
 ## Alternatives Considered
 
 | Recommended | Alternative | When to Use Alternative |
 |-------------|-------------|--------------------------|
-| Single repo self-hosts both `plugin.json` and `marketplace.json` at root (`source: "./"`) | Separate `plugins/beads/` subdirectory with its own nested `.claude-plugin/plugin.json`, marketplace at repo root | Use the nested form only if this repo will ever host a *second*, unrelated plugin — premature here since gsd-beads ships exactly one capability and nesting would relocate the existing `.gsd/capabilities/beads/` tree for no functional gain |
-| `skills` field pointing at the existing `.gsd/capabilities/beads/skills/` path | Physically move/duplicate the four skill directories to a root-level `skills/` to match Claude Code's default auto-discovery path | Moving is a larger, riskier diff (breaks the gsd-core capability loader's expected path `.gsd/capabilities/<id>/`) for zero benefit — the explicit path field exists precisely to avoid this move |
-| GitHub `owner/repo` self-hosted marketplace, no submission to Anthropic's official catalog | Submit to `claude-plugins-official` external-plugins review queue | Only worth it later if broader discoverability beyond direct GitHub install is desired; adds a multi-day review process and a `CODEOWNERS` file requirement that this milestone does not ask for |
-| Static `.mit`/`Apache-2.0` `LICENSE` + plain README | Automated marketplace-scanning tooling (e.g. `ccpi` CLI generators) to scaffold the manifest | Those tools solve "publish many plugins fast"; gsd-beads has exactly one plugin and hand-writing ~15 lines of JSON is faster than adopting a generator dependency |
+| `gh pr checks --json` + `bucket` field | Polling `gh api repos/{owner}/{repo}/commits/{sha}/check-runs` directly | Only if a capability needs raw per-check-run metadata (log URLs, annotations) that `gh pr checks --json` doesn't expose — adds JSON-shape complexity for no benefit to a pass/fail/pending gate |
+| `markdownlint-cli2` | `markdownlint-cli` (v1, the older/simpler CLI) | Only for flat rule-only linting with no glob/ignore config needs; `-cli2` is what the inspiring skill, the VS Code extension, and the official GitHub Action all standardize on today — no reason to pick the older tool |
+| `markdownlint-cli2` | `remark-lint` / `remark-cli` | If the project needed AST-level custom lint rules or markdown transforms beyond style checking; pure style/MD0XX linting doesn't need a full unified/remark pipeline |
+| stdlib + `/proc`/`sysctl`/`nvidia-smi` shell-outs | `psutil` (the inspiring skill's actual dependency) | Only if the capability needs live *process*-level metrics (per-process CPU%, memory maps) rather than one-shot host-level totals — a `plan:pre`/`execute:wave:pre` advisory snapshot never needs that, and `psutil` is a binary-wheel C-extension dependency this repo's N5 constraint exists specifically to avoid |
+| stdlib + `nvidia-smi`/`rocm-smi` GPU shell-outs | `torch.cuda.is_available()` / `pynvml` | Only if the capability needs to run *inside* a Python process that already imports PyTorch — this is a standalone pre-execution advisory hook, so importing a multi-hundred-MB ML framework just to detect a GPU is the wrong tool for the job |
 
 ## What NOT to Use
 
 | Avoid | Why | Use Instead |
 |-------|-----|--------------|
-| A `CODEOWNERS` file | Only required for submissions into Anthropic's official/community marketplace review queue — not for a self-hosted GitHub marketplace, which is this milestone's actual target | Skip it; add later only if submitting to the official catalog |
-| `strict: false` in the marketplace entry | Forces the marketplace entry to be the sole component definition and forbids `plugin.json` from declaring `skills` — breaks the explicit skills-path override this repo needs | Default `strict: true` (or omit the field) |
-| Placing `commands/`, `agents/`, or `skills/` directories inside `.claude-plugin/` | Directly contradicts the documented structural rule; Claude Code will not discover components placed there | Keep `.claude-plugin/` containing only `plugin.json` (and, for this repo, `marketplace.json`); everything functional stays at existing paths under `.gsd/capabilities/beads/` |
-| GitHub topic tag `claude-code-marketplace` alone for discoverability | Ecosystem discoverability is fragmented across 5–6 overlapping, non-canonical topic tags (`claude-code-plugin`, `claude-code-plugin-marketplace`, `claude-marketplace`, `claude-plugins`, `claude-code-plugins-marketplace`) — no single tag is authoritative | Apply the topic *set*: `claude-code-plugin`, `claude-code-plugin-marketplace`, `claude-plugins` — stacking multiple tags is the observed real-world convention, not over-tagging |
+| `psutil` (the inspiring `get-available-resources` skill's actual runtime dependency, per its own SKILL.md `## Dependencies` section: `uv pip install psutil`) | Breaks N5 (beads' documented "no dependency beyond `bd` and Python 3 stdlib") the moment it's copied into this repo — introduces the first pip dependency across all four capabilities, plus platform-specific wheel-build risk (musl/ARM edge cases) for a lifecycle hook that must be zero-friction to auto-install | `os.cpu_count()`/`shutil.disk_usage()` for CPU count and disk; `/proc/meminfo` parse on Linux, `sysctl -n hw.memsize` + `vm_stat` parse on macOS for memory (see Stack Patterns below) |
+| `detect_resources.py`'s bare `except Exception: pass` around every subprocess call | Silently swallows the *reason* a GPU/tool wasn't found (missing binary vs. permission error vs. malformed output) — fine for an interactive skill a human can re-run with `-v`, wrong for a non-interactive lifecycle hook where the only artifact anyone reads is the JSON file; a swallowed exception there is indistinguishable from "no GPU present" | Catch `FileNotFoundError` (binary absent — expected, silent) separately from any other exception (unexpected — log to stderr once, still degrade fail-open) |
+| `detect_resources.py`'s non-deterministic `timestamp` field (`datetime.now().isoformat()`) as part of the JSON gsd fragments hash/diff against | A lifecycle hook's output feeds a *prompt fragment* injected every `plan:pre`/`execute:wave:pre`; a timestamp that changes every run defeats any future idempotency/caching check (the same class of bug the `beads` capability had to fix for its own generated artifacts — B5, "sync is idempotent") | Keep `timestamp` for human-readability in `.claude_resources.json` but do not let any gate/step declare it as a `produces`/cache key; the fragment consumed by the planner should summarize *ranges* ("8+ logical cores → high_parallelism"), not raw numbers, so the fragment text itself is stable run-to-run on an unchanged machine |
+| A declarative `command-exists` gate predicate for detecting `gh`/`markdownlint-cli2`/GPU tools | **Does not exist.** Read directly from `gate-predicate-evaluator.cjs`: `EVALUATOR_KINDS = ['command-exit-zero', 'artifact-frontmatter-equals']` — no `command-exists` kind is implemented, despite PROJECT.md's Constraints section naming it as one of "only two predicate kinds" (that line is stale/wrong) | Presence-detection is a *runtime* check inside each capability's own script, exactly like `beads/scripts/sync.py:89`'s `shutil.which("bd") is None` fail-open branch — `pr-workflow` and `markdown-linting` scripts must open with `shutil.which("gh")`/`shutil.which("markdownlint-cli2")` and degrade to a no-op-with-notice (B6's pattern) before doing anything else; any *gate* still expressed declaratively uses `command-exit-zero` wrapping a script that internally handles the missing-binary case and exits 0 (pass/skip) rather than crashing |
+| Auto-installing `markdownlint-cli2` (or Node itself) from inside a capability hook | gsd-core capabilities have no package-manager-invocation contribution point, and silently running `npm install -g` from a `plan:pre`/`ship:pre` hook is a supply-chain and consent problem worse than the one CB-3 already exists to gate for capability *bundles* themselves | Document `gh`/Node+`markdownlint-cli2` as an explicit prerequisite in each capability's README, exactly like `bd` is documented for `beads` — detect absence, degrade fail-open, never auto-provision |
 
-## GitHub Repo Conventions for Discoverability
+## Stack Patterns by Variant
 
-| Convention | Status for gsd-beads | Action |
-|---|---|---|
-| Public repository | Not yet — no git remote configured (per milestone context) | Required before `/plugin marketplace add` can work for anyone but the author; must be public unless distributed only through org-managed settings |
-| `LICENSE` file | Missing | Add one (MIT or Apache-2.0 are the two community-observed defaults for open-source Claude Code plugins) — referenced by `plugin.json`'s `license` field |
-| `README.md` | Missing (this milestone's own deliverable) | Must cover: what it does, install command (`/plugin marketplace add` + `/plugin install`), requirements (`bd` on PATH, gsd-core `>=1.6.0`), uninstall, link to gsd-core — this is both a UX requirement and a documented trust signal reviewers/users check before installing a plugin that ships hooks/scripts |
-| GitHub topics | Not set (no remote yet) | Set after push: `claude-code-plugin`, `claude-code-plugin-marketplace`, `claude-plugins`, `gsd`, `beads` |
-| Releases / tags | None yet | Optional for this milestone — `version` pinning in `plugin.json` works without GitHub Releases; a tagged `v0.1.0` release is a nice-to-have that lets the marketplace entry's `source.ref` pin to a tag instead of tracking `main`, but is not required for `/plugin install` to work |
-| `${CLAUDE_PLUGIN_ROOT}` path discipline | N/A — this plugin ships no hooks/scripts referencing plugin-relative paths outside `.gsd/capabilities/beads/` | Confirm at implementation time that nothing in the capability's `scripts/` assumes an absolute repo-root path that would break once the plugin is copied into `~/.claude/plugins/cache/` on install |
+**If detecting memory on Linux:**
+- Parse `/proc/meminfo` directly (`MemTotal`, `MemAvailable` keys) — no subprocess needed, stdlib `open()` only
+- `MemAvailable` (not `MemFree`) is the correct "free for new allocation" figure — matches what `free -h` reports and what `psutil.virtual_memory().available` computes internally
+
+**If detecting memory on macOS:**
+- `sysctl -n hw.memsize` (bytes, total) via `subprocess.run` — stdlib-only, no new dependency
+- `vm_stat` output parse for free/active/inactive page counts if "available" (not just "total") memory is needed; page size comes from the first line of `vm_stat`'s own output (`page size of 4096 bytes` — do not hardcode 4096, Apple Silicon can differ)
+
+**If detecting GPUs:**
+- NVIDIA: `nvidia-smi --query-gpu=... --format=csv,noheader,nounits` (already the inspiring skill's approach — this part is sound, keep it)
+- AMD: `rocm-smi` (keep — same as inspiring skill)
+- Apple Silicon: `sysctl -n machdep.cpu.brand_string` + `system_profiler SPDisplaysDataType` (keep — same as inspiring skill; `system_profiler` is slow (~1-2s) but this is a one-shot `plan:pre` hook, not a hot path)
+- All three: wrap in a 3-5s `subprocess.run(..., timeout=N)` exactly as the inspiring skill already does — a hung `nvidia-smi` on a broken driver must not stall the whole gsd lifecycle step
+
+**If a hook needs the resources JSON to feed a prompt fragment (not just a file on disk):**
+- Follow `sota-numerics`' pattern (`contributions[]`, `fragment.path`, no `steps[]`, no `skills[]`) rather than `beads`' pattern (`steps[]` + `skills[]`) — `get-available-resources` is purely advisory with no state to sync, so it needs no skill invocation step, just a `plan:pre`/`execute:wave:pre` `contributions[]` entry whose fragment text is generated by a `scripts/detect-resources.py` the fragment template shells out to (or a pre-generated `.claude_resources.json` the fragment reads)
 
 ## Version Compatibility
 
-| Component | Compatible With | Notes |
+| Package A | Compatible With | Notes |
 |-----------|------------------|-------|
-| `plugin.json` `skills` explicit-path field | Any Claude Code version supporting the plugin system (component path overrides are core, not gated behind a specific version note in the docs) | No version floor found for this specific field beyond general plugin-system availability |
-| `defaultEnabled`, `displayName`, `relevance` | Require Claude Code v2.1.154+, v2.1.143+, v2.1.152+ respectively | None of these are needed for this milestone's minimal manifest — noted only so a future editor doesn't add them assuming universal support |
-| `archive` / `command` plugin sources | Require v2.1.224+ / v2.1.229+ | Irrelevant here — gsd-beads uses a plain relative-path source (`"./"`), which has no version gate |
+| `markdownlint-cli2@0.23.2` | Node.js `>=20` (from upstream `package.json` `engines.node`) | This is a genuinely new dependency class for gsd-beads — every other capability in this repo (`beads`, `ponytail-everywhere`, `sota-numerics`) requires only `bd`/Python; `markdown-linting` is the first to require Node/npm. Document this explicitly and loudly in its own README's prerequisites section — do not bury it as a footnote |
+| `gh@2.97.0` | No Node/Python dependency — single static Go binary | Orthogonal to the Node requirement above; `pr-workflow` stays dependency-light like `beads`/`sota-numerics` even though `markdown-linting` does not |
+| `markdownlint-cli2-action@v22` | `actions/checkout@v5` | Only relevant if/when this repo also wires markdown linting into its own `.github/workflows/*.yml` — not required for the capability plugin itself, which runs via `verify:post`/`ship:pre` hooks inside the gsd lifecycle, not CI |
+
+## Answers to the Specific Questions
+
+**`gh pr checks --json` current fields/exit codes:** Confirmed via `cli.github.com/manual/gh_pr_checks`.
+Fields: `bucket, completedAt, description, event, link, name, startedAt, state, workflow`. Exit code `8` =
+"checks pending" — a gate script must treat this as a distinct outcome from a real failure, not `exit != 0
+== block`. `bucket` (not raw `state`) is the field to build the gate predicate on, since it's already
+normalized to `pass`/`fail`/`pending`/`skipping`/`cancel` across every CI provider gh talks to.
+
+**`markdownlint-cli2` version/config/Node dependency:** `0.23.2` current stable. Config precedence for the
+richer `.markdownlint-cli2.*` family (glob/ignore control, not just rule config) is `.jsonc` > `.yaml` >
+`.cjs` > `.mjs`; use `.markdownlint-cli2.jsonc` — it is both first in precedence and what the inspiring skill
+and this domain's ecosystem already converge on. It requires Node.js `>=20` — this **is** a new dependency
+class for gsd-beads (every other capability requires only `bd`/Python). Document it as a hard, loud
+prerequisite, not something auto-installed.
+
+**Cross-platform resource detection, zero new pip/npm deps:** stdlib (`os.cpu_count`, `shutil.disk_usage`,
+`platform`) covers CPU-count/disk/OS entirely with no subprocess. Memory has no stdlib equivalent — parse
+`/proc/meminfo` on Linux, shell out to `sysctl`+`vm_stat` on macOS (both zero-dependency, subprocess-only).
+GPU detection has no stdlib path on any platform — the inspiring skill's `nvidia-smi`/`rocm-smi`/
+`system_profiler` shell-out approach is genuinely the current best practice here (no better stdlib-only
+alternative exists) and should be kept largely as-is. What should change for a lifecycle-hook (deterministic,
+non-interactive) context rather than an interactive-skill context: (1) drop `psutil` entirely — it's the one
+piece of the inspiring skill that violates this repo's N5 constraint and has a stdlib-only substitute for
+everything except memory, which subprocess-parsing covers; (2) stop swallowing all subprocess exceptions
+identically — distinguish "binary absent" (expected, silent) from "binary present but errored" (log once,
+still fail-open); (3) treat the JSON's `timestamp` field as human-readable metadata only, never as part of
+any idempotency/cache key, and keep the prompt-fragment text itself expressed in stable qualitative buckets
+rather than raw numbers that drift run-to-run on an otherwise-unchanged machine.
+
+**`gh`/`markdownlint-cli2` as assumed-present prerequisites vs. auto-detect + graceful degrade:** Both should
+be **documented prerequisites with runtime detect-and-degrade**, matching B6's `bd` pattern exactly — not
+auto-installed (no safe mechanism exists inside a gsd capability hook for invoking `npm install -g` or
+`brew install gh`), but also not silently assumed present without a check. Concretely: each capability's own
+script opens with `shutil.which("gh")` / `shutil.which("markdownlint-cli2")`; on `None`, print one visible
+notice and no-op (matching B6's exact wording), and any declarative gate wraps that same script via
+`command-exit-zero` — the *evaluator* only supports `command-exit-zero`/`artifact-frontmatter-equals`
+(verified by reading `gate-predicate-evaluator.cjs`'s `EVALUATOR_KINDS`; there is no `command-exists`
+predicate kind despite PROJECT.md's Constraints section implying one exists), so presence-detection cannot
+be pushed into a declarative gate — it must live in the wrapped script itself, one layer below the gate.
+`gh` is the safer assumption of the two (near-ubiquitous on dev machines already using this repo's own
+git/PR workflow per global CLAUDE.md; a single static binary, no runtime dependency chain).
+`markdownlint-cli2` is the riskier assumption — it drags in an entire Node/npm toolchain this repo has never
+required before — so its README prerequisite section should be the most explicit of the three capabilities
+about what "missing" looks like and how the capability behaves when it's absent (silent skip + one notice,
+never a blocking crash).
 
 ## Sources
 
-- https://code.claude.com/docs/en/plugins-reference — fetched directly (WebFetch), full `plugin.json` schema, directory structure, versioning resolution order — MEDIUM confidence (official docs, single fetch, not diffed against a live Claude Code binary)
-- https://code.claude.com/docs/en/plugin-marketplaces — fetched directly (WebFetch), full `marketplace.json` schema, plugin source types, install command semantics, reserved-name list — MEDIUM confidence
-- WebSearch corroboration across `hesreallyhim/claude-code-json-schema`, `anthropics/claude-code` reference repo, `systemprompt.io` publishing guide, GitHub topic pages — used to cross-check field lists and discoverability conventions, not as primary source
-- Repo layout verified directly: `find .gsd/capabilities/beads -maxdepth 3 -type d` — confirms actual skill paths this manifest must reference
+- [gh pr checks — official CLI manual](https://cli.github.com/manual/gh_pr_checks) — verified `--json` field list and exit code 8, HIGH confidence (official docs, WebFetch-verified)
+- [cli/cli GitHub Releases](https://github.com/cli/cli/releases) — verified current `gh` stable is `2.97.0` (2026-07-31), HIGH confidence
+- [markdownlint-cli2 — npm](https://www.npmjs.com/package/markdownlint-cli2) — verified current version `0.23.2`, HIGH confidence
+- [DavidAnson/markdownlint-cli2 — GitHub](https://github.com/DavidAnson/markdownlint-cli2) — verified config precedence, exit codes (0/1/2), Docker-implies-Node, HIGH confidence (official repo, WebFetch-verified)
+- `DavidAnson/markdownlint-cli2/package.json` `engines.node` field (via web search corroboration) — Node `>=20` requirement, MEDIUM-HIGH confidence (not directly WebFetched, but consistent across multiple independent search results)
+- Stdlib-vs-psutil resource-detection approach — synthesized from multiple independent sources (Sling Academy, BioErrorLog, psutil's own docs confirming no stdlib memory equivalent), MEDIUM confidence (no single canonical spec, but convergent across sources)
+- `/home/dd/.claude/gsd-core/bin/lib/gate-predicate-evaluator.cjs` (local source read) — verified `EVALUATOR_KINDS = ['command-exit-zero', 'artifact-frontmatter-equals']`, HIGH confidence (direct source read, not inference)
+- `/home/dd/.claude/gsd-core/workflows/ship.md` (local source read, Step 8) — verified the local `ship:pre` patch generically dispatches non-security/broken-windows gates via `command.query`/`command.predicate`, HIGH confidence
+- `/home/dd/projects/gsd-beads/.gsd/capabilities/beads/scripts/sync.py:89` (local source read) — verified `shutil.which("bd") is None` as the actual B6 degrade-detection pattern to replicate for `gh`/`markdownlint-cli2`, HIGH confidence
+- `~/.claude/skills/pr-workflow/SKILL.md`, `~/.claude/skills/markdown-linting/SKILL.md`, `~/.claude/skills/get-available-resources/SKILL.md` (local reads) — inspiring skills' mechanisms, used as a starting point and explicitly revised where current best practice or this repo's constraints diverge
 
 ---
-*Stack research for: Claude Code plugin packaging + GitHub publishing*
-*Researched: 2026-08-16*
+*Stack research for: gsd-core capability plugins (pr-workflow, markdown-linting, get-available-resources)*
+*Researched: 2026-08-18*

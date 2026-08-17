@@ -1,304 +1,433 @@
-# Architecture Research: Claude Code Plugin Packaging for gsd-beads
+# Architecture Research: pr-workflow, markdown-linting, get-available-resources
 
-**Domain:** Claude Code plugin manifest integration into an existing multi-runtime agent-config repo
-**Researched:** 2026-08-16
-**Confidence:** HIGH (official `code.claude.com/docs` fetched directly, corroborated by 3 independent
-secondary sources; repo layout verified against `git ls-files`/`du`, not inferred)
+**Domain:** gsd-core capability plugin integration (Claude Code marketplace + `.gsd/capabilities/` overlay)
+**Researched:** 2026-08-18
+**Confidence:** HIGH — every claim below is sourced from a direct read of gsd-core's generated
+Loop Host Contract, its gate-predicate evaluator, its capability validator, and this repo's own
+shipped `beads`/`sota-numerics`/`ponytail` capability manifests. No web research was needed or
+used; this is a closed-world question about code already present on this machine.
+
+**Correction to the brief's framing (load-bearing, read first):** the brief states gate
+predicates are "restricted to `command-exists` and `artifact-frontmatter-equals`." That is
+imprecise. Read directly from `~/.claude/gsd-core/bin/lib/gate-predicate-evaluator.cjs:37`:
+
+```js
+const EVALUATOR_KINDS = Object.freeze(['command-exit-zero', 'artifact-frontmatter-equals']);
+```
+
+`command-exists` is a *different* mechanism (`reviewer.probe.kind` for code-review lane probes,
+validated in `capability-validator.cjs`'s `validateLaneProbe`, ~line 1901) — it has nothing to do
+with `gates[].check.predicate`. The two real gate predicate kinds are **`command-exit-zero`**
+(run a bounded `sh -c` command, block if exit code ≠ 0) and **`artifact-frontmatter-equals`**
+(compare a frontmatter field on a named artifact to a literal). `sota-numerics`' own shipped gate
+already uses `command-exit-zero` — it is not a hypothetical.
+
+This correction changes the answer to the brief's second question: `command-exit-zero` **can**
+call an external tool (`gh`, `bd`, `markdownlint-cli2`, anything) directly inside the gate check —
+no intermediate generated artifact is structurally required. The generated-artifact route
+(`BEADS.md`) is `beads`' choice because that artifact is *already* being computed and cached for
+other consumers (planner/executor prompt context) every step; reusing it for the gate is DRY, not
+a workaround forced by a missing predicate kind. Each of the three new capabilities needs its own
+answer, not a copy-paste of `beads`' pattern — see Patterns below.
 
 ## Standard Architecture
 
-### How Claude Code resolves a plugin
+### System Overview — Loop Host Contract (ground truth, not inferred)
+
+Source: `~/.claude/gsd-core/bin/lib/loop-host-contract.cjs` (generated, `DO NOT EDIT BY HAND`,
+ADR-894 §3). `contributions[].into` is mechanically validated against this table at capability
+load/validate time (`capability-validator.cjs:2380-2389`, `validateAgainstContract`) — a
+contribution naming a role outside its point's `agentRoles` is a hard validation error, not a
+runtime surprise.
 
 ```
-┌──────────────────────────────────────────────────────────────────┐
-│  Marketplace catalog (.claude-plugin/marketplace.json)            │
-│  — lists plugins + where to fetch each one ("source")             │
-└───────────────────────────┬────────────────────────────────────────┘
-                             │ source: relative path | github | url |
-                             │ git-subdir | npm | archive | command
-                             ▼
-┌──────────────────────────────────────────────────────────────────┐
-│  Plugin root  (dir containing .claude-plugin/plugin.json)         │
-│  ┌───────────┐ ┌──────────┐ ┌────────┐ ┌────────────┐            │
-│  │ skills/   │ │commands/ │ │agents/ │ │hooks/*.json│  ...        │
-│  └───────────┘ └──────────┘ └────────┘ └────────────┘            │
-│  Everything here is COPIED VERBATIM into ~/.claude/plugins/cache  │
-│  on every install (except symlinks resolving outside the copied   │
-│  tree, which are skipped).                                        │
-└──────────────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────────────┐
+│ step     │ points                                    │ agentRoles              │
+├──────────┼───────────────────────────────────────────┼─────────────────────────┤
+│ discuss  │ discuss:pre, discuss:post                  │ orchestrator            │
+│ plan     │ plan:pre, plan:post                        │ researcher, planner,    │
+│          │                                             │ checker                 │
+│ execute  │ execute:pre, execute:wave:pre,              │ executor, verifier      │
+│          │ execute:wave:post, execute:post             │                         │
+│ verify   │ verify:pre, verify:post                    │ orchestrator            │
+│ ship     │ ship:pre, ship:post                        │ orchestrator            │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Two manifests, two jobs — do not conflate them:
-
-| File | Job | Cardinality |
-|------|-----|-------------|
-| `.claude-plugin/plugin.json` | Describes **one plugin**: its components (skills/commands/agents/hooks/mcpServers) and metadata | One per plugin |
-| `.claude-plugin/marketplace.json` | A **catalog** users add with `/plugin marketplace add`; lists one or more plugins and where to fetch each | One per marketplace repo (can list 1 plugin — the "self-hosted, single-plugin marketplace" pattern) |
+**Direct confirmation of the brief's question:** `ship:pre`/`ship:post` have `agentRoles:
+["orchestrator"]` — byte-identical restriction to `verify:pre`/`verify:post`, not merely
+analogous. `sota-numerics`' `ship:pre` contribution already declares `"into": "orchestrator"`
+(the only value that would pass validation) — confirmed by reading
+`.gsd/capabilities/sota-numerics/capability.json` in this repo. **Every `ship:pre`/`ship:post`
+contribution the new capabilities add must use `"into": "orchestrator"`.** `execute:wave:pre`/
+`execute:wave:post` are the only points where `into: "executor"` or `into: "verifier"` is legal
+(this is what `ponytail`'s `executor-ladder.md`/`verifier-ladder.md` fragments rely on).
 
 ### Component Responsibilities
 
-| Component | Responsibility | This repo's status |
-|-----------|-----------------|---------------------|
-| `.claude-plugin/plugin.json` | Plugin identity, version, and component path declarations | **New** |
-| `.claude-plugin/marketplace.json` | Makes the repo `/plugin marketplace add`-able; declares the plugin entry's fetch `source` | **New** |
-| `skills/` (default scan) or a custom `skills` path in `plugin.json` | User- and agent-invocable `SKILL.md` bundles | **Reused** — point at existing `.agents/skills/beads/`, do not duplicate |
-| `hooks/hooks.json` | Declarative lifecycle hooks (SessionStart, PostToolUse, …) | **New** — lift the existing `bd prime --hook-json` SessionStart hook out of `.claude/settings.json` so plugin installers get it too |
-| `.gsd/capabilities/beads/` | gsd-core's own capability-overlay format (`capability.json`, `steps[]`, `gates[]`) — a **different consumer, different loader**, installed via gsd-core's capability mechanism, not Claude's `/plugin install` | **Untouched** — not a Claude plugin component; ships as inert repo content alongside the plugin (see Integration Points) |
+| Component | Responsibility | This repo's precedent |
+|-----------|-----------------|------------------------|
+| `capability.json` | Declares `contributions[]` (prompt injection), `gates[]` (block/pass), `config` (typed keys under `<id>.*`), `steps[]` (skill/agent dispatch at a point) | all three existing capabilities |
+| `fragments/*.md` | The literal prompt text injected verbatim (`loop-hook-dispatch.md`: "Do not paraphrase — the text is the product") | `ponytail`'s 3 fragments, `sota-numerics`' 4 fragments |
+| generated artifact (e.g. `BEADS.md`) | Projects live external-tool state into frontmatter a gate predicate can read; regenerated by a `steps[]` skill at one or more points | `beads`' `BEADS.md`, regenerated at `execute:wave:pre/post` and `verify:post` |
+| gate script (e.g. `check-alternatives.py`) | Runs synchronously inside a `command-exit-zero` predicate; exit code IS the block decision | `sota-numerics`' `scripts/check-alternatives.py` |
+| `hooks/hooks.json` | SessionStart hook (e.g. `bd prime`) | `beads` |
+| `hooks/capability-auto-install.sh` | Vendored per-plugin (not shared at runtime, D-05 in Phase 10.1); hashes the bundle dir, re-grants `capability install --scope <global\|project> --yes` on drift, called from `session-start.sh` before `exec` | `beads`, `ponytail-everywhere` (Phase 10.1) |
 
-## Recommended Project Structure
+## Recommended Project Structure (per new capability, dogfooded copy)
 
 ```
-gsd-beads/                                   # repo root == plugin root (single-plugin repo)
-├── .claude-plugin/
-│   ├── plugin.json            # NEW — the plugin manifest
-│   └── marketplace.json       # NEW — self-hosted single-plugin marketplace catalog
-├── hooks/
-│   └── hooks.json             # NEW — SessionStart: `bd prime --hook-json` (mirrors .claude/settings.json)
-├── .agents/skills/beads/      # EXISTING, UNCHANGED — referenced by plugin.json's `skills` path,
-│   ├── SKILL.md               #   not moved, not duplicated (frontmatter already matches Claude's
-│   └── agents/openai.yaml     #   SKILL.md schema — see "Cross-runtime skill" below)
-├── .gsd/capabilities/beads/   # EXISTING, UNCHANGED — gsd-core capability overlay (separate
-│   ├── capability.json        #   distribution channel; not a plugin component)
-│   ├── scripts/sync.py
-│   ├── skills/*/SKILL.md      #   gsd-core's own internal skills, invoked by gsd-core's step
-│   └── tests/                 #   system at lifecycle points — NOT user-facing Claude skills
-├── .claude/settings.json      # EXISTING, UNCHANGED — this repo's own dev-session hook; stays
-│                               #   (separate from the plugin's shipped hooks/hooks.json — see
-│                               #   Anti-Patterns)
-├── README.md                  # NEW (separate milestone target, referenced here for ordering)
-├── LICENSE                    # NEW — required for plugin.json's `license` field to mean anything
-├── .planning/                 # EXISTING, UNCHANGED — this project's own GSD dev planning.
-├── .beads/                    # EXISTING, UNCHANGED — this project's own local Dolt DB + hooks.
-└── (packaging step excludes .planning/ and .beads/ from what ships — see Data Flow)
+.gsd/capabilities/<id>/
+├── capability.json              # contributions[], gates[], config, steps[]
+├── fragments/
+│   └── <role>-<point>.md        # one file per contribution
+├── scripts/                     # only if a gate needs one (pr-workflow, markdown-linting)
+│   └── <check>.sh|.py
+└── hooks/                       # only if SessionStart behavior is needed (none of the 3 need this)
 ```
 
-### Structure Rationale
-
-- **`.claude-plugin/` at repo root, not a `plugins/<name>/` subtree.** This is a *single-plugin*
-  repo, not a multi-plugin marketplace monorepo. The docs draw a hard line: `.claude-plugin/`
-  contains only `plugin.json` (and, for a self-hosted marketplace, `marketplace.json`); every
-  component directory (`skills/`, `commands/`, `agents/`, `hooks/`) lives at **plugin root**, one
-  level up — nesting a component dir inside `.claude-plugin/` is the single most common
-  reported mistake and fails silently (plugin loads, components go missing).
-- **No new `skills/` directory.** `.agents/skills/beads/SKILL.md` already has Claude-Code-shaped
-  frontmatter (`name:`, `description:`) — it *is* a valid `<name>/SKILL.md` bundle today. Claude's
-  default scan only looks in `skills/`, not `.agents/skills/`, so `plugin.json` must declare a
-  custom path: `"skills": "./.agents/skills/"` (custom `skills` paths *add to* the default scan
-  rather than replacing it, and accept any relative path starting with `./`). Duplicating the file
-  into a second `skills/beads/SKILL.md` would create two sources of truth for one skill — reject
-  that per repo's own DRY posture.
-- **`hooks/hooks.json` is new, `.claude/settings.json` is untouched.** They serve different
-  consumers: `.claude/settings.json` configures *this repo's own* dev Claude session (already
-  fires `bd prime --hook-json` on SessionStart); `hooks/hooks.json` is what ships *inside the
-  plugin* and fires that same hook in any project where a user installs `gsd-beads`. Merging them
-  would either strip the repo's own dev hook or leak plugin-authoring hook config into every
-  installer — keep them separate, accept the harmless double-fire when this repo's own Claude
-  session also has the plugin installed locally for dev/testing (idempotent command, no state risk).
-- **`.gsd/capabilities/beads/` is not wired into `plugin.json`.** It has its own manifest format
-  (`capability.json` with `steps[]`/`gates[]`/`contributions[]`) consumed by gsd-core's
-  `capability-loader.cts`, an entirely different loader than Claude's plugin system. There is no
-  Claude component type (`skills`/`commands`/`agents`/`hooks`/`mcpServers`) that maps onto a
-  capability overlay. It stays in the repo as product payload for gsd-core users (installed via
-  gsd-core's own capability-install path), and rides along in the plugin's copied tree as inert,
-  harmless content — it is *not* on the exclusion list (unlike `.planning/`/`.beads/`, it is
-  product code, not this project's internal meta-state).
+`get-available-resources` needs no `scripts/` gate target and no `hooks/` — it is a
+fragment-only, zero-gate capability, structurally identical to `ponytail`
+(`.gsd/capabilities/ponytail/`: `capability.json` + `fragments/` only, `gates: []`).
 
 ## Architectural Patterns
 
-### Pattern 1: Self-hosted single-plugin marketplace
+### Pattern 1 — Fragment-only, zero-gate (`get-available-resources`)
 
-**What:** A repo ships both `.claude-plugin/plugin.json` (the plugin) and
-`.claude-plugin/marketplace.json` (a one-entry catalog whose `source` for that entry resolves to
-the plugin's own packaged payload). This is the documented pattern for "one repo, one plugin,
-marketplace-installable" — distinct from a monorepo marketplace that lists N plugins under
-`plugins/<name>/`.
-**When to use:** Exactly gsd-beads' case — one plugin, one repo, wants both
-`/plugin install https://github.com/owner/gsd-beads` (direct) **and**
-`/plugin marketplace add owner/gsd-beads` → `/plugin install gsd-beads@gsd-beads` (discoverable,
-versioned, update-tracked) to work.
-**Trade-offs:** Two JSON files to keep in sync (`plugin.json`'s own `version`, if set, is always
-authoritative over any `version` set in the matching `marketplace.json` entry — set it in exactly
-one place to avoid a masked mismatch).
+**What:** `contributions[]` only, `gates: []`. Matches `ponytail` exactly — 3 fragments
+(`plan:pre`, `execute:wave:pre`, `execute:wave:post`), all `into: "planner"`/`"executor"`/
+`"verifier"` respectively, no `steps[]`, no `hooks[]`.
+**When to use:** advisory-only guidance with no enforceable pass/fail condition — this is
+explicitly the milestone's own framing ("advisory-only fragment... no gate").
+**Trade-offs:** none of significance; this is the simplest of the three capabilities and has zero
+dependency on the other two.
 
-**Example (`marketplace.json`):**
+`capability.json` sketch (values only, mirroring `ponytail`'s shape):
+
 ```json
 {
-  "name": "gsd-beads",
-  "owner": { "name": "<author>" },
-  "plugins": [
+  "id": "get-available-resources",
+  "role": "feature",
+  "config": {
+    "get-available-resources.enabled": { "type": "boolean", "default": true }
+  },
+  "steps": [
     {
-      "name": "gsd-beads",
-      "description": "bd (beads) issue tracking for Claude Code, plus a gsd-core capability overlay",
-      "source": { "source": "archive", "url": "https://github.com/<owner>/gsd-beads/releases/download/v1.1.0/gsd-beads-plugin.zip" }
+      "point": "plan:pre",
+      "ref": { "skill": "detect-resources" },
+      "produces": ["RESOURCES.md"],
+      "consumes": [],
+      "when": "get-available-resources.enabled",
+      "onError": "skip"
+    }
+  ],
+  "contributions": [
+    {
+      "point": "plan:pre",
+      "into": "planner",
+      "fragment": { "path": "fragments/planner-resources.md" },
+      "consumes": ["RESOURCES.md"],
+      "when": "get-available-resources.enabled",
+      "onError": "skip"
+    },
+    {
+      "point": "execute:wave:pre",
+      "into": "executor",
+      "fragment": { "path": "fragments/executor-resources.md" },
+      "consumes": ["RESOURCES.md"],
+      "when": "get-available-resources.enabled",
+      "onError": "skip"
+    }
+  ],
+  "gates": []
+}
+```
+
+One design note: the milestone description says the underlying script "produc[es]
+`.claude_resources.json`" — that is the existing `get-available-resources` *skill's* own
+detection-script output (repo-root scratch file, not a `.planning/` artifact). Wrapping it as a
+gsd-core `steps[]` entry additionally regenerating a `.planning/`-scoped `RESOURCES.md` (as
+sketched above) is optional polish, not required for the "no gate" answer — the minimal version
+is a `contributions[]`-only capability whose fragment text simply tells the planner/executor to
+run the existing skill/script themselves. Ship the minimal version first; add the `steps[]`
+auto-regeneration only if UAT shows agents aren't invoking the skill on their own.
+
+### Pattern 2 — Direct `command-exit-zero` gate, no intermediate artifact (`pr-workflow`)
+
+**What:** the gate's `check.predicate` runs `gh pr checks` (or `gh api`) directly; the command's
+own exit code is the block decision, and `gate-predicate-evaluator.cjs`'s
+`evaluateCommandExitZero` already surfaces up to 2000 chars of the command's stdout/stderr tail
+as `check.message` on failure (`gate-predicate-evaluator.cjs:95-101`) — so the "which check
+failed" detail reaches the user without a generated report file.
+**When to use:** when the live state you're gating on (a GitHub PR's check-run status) is
+naturally expressed as a single command's exit code, and nothing else in the lifecycle needs that
+state cached for other prompts (unlike `beads`, where `BEADS.md` also feeds the planner's
+`BEADS-RECALL.md` and the executor's live-issue-state fragment).
+**Trade-offs:** `gh pr checks` can block for a while if run with `--watch`; bound it with the
+predicate's own `timeout` field (same field `sota-numerics` sets to 30s) rather than reaching for
+`--watch`. At `ship:pre`, no PR may exist yet on a first run (this capability's own `ship:post`
+step is what opens the draft PR) — the command must treat "no PR found for this branch" as
+pass-through (exit 0), not failure, or every first ship on a phase would spuriously block.
+
+`capability.json` sketch:
+
+```json
+{
+  "id": "pr-workflow",
+  "config": {
+    "pr-workflow.enabled": { "type": "boolean", "default": true },
+    "pr-workflow.ship_gate": { "type": "boolean", "default": true }
+  },
+  "contributions": [
+    {
+      "point": "ship:post",
+      "into": "orchestrator",
+      "fragment": { "path": "fragments/ship-open-pr.md" },
+      "when": "pr-workflow.enabled",
+      "onError": "skip"
+    }
+  ],
+  "gates": [
+    {
+      "point": "ship:pre",
+      "check": {
+        "predicate": {
+          "kind": "command-exit-zero",
+          "command": "PR_CHECK_SCRIPT=\"$(git rev-parse --show-toplevel)/.gsd/capabilities/pr-workflow/scripts/check-pr-status.sh\"; test -x \"$PR_CHECK_SCRIPT\" || exit 0; \"$PR_CHECK_SCRIPT\"",
+          "timeout": 30
+        }
+      },
+      "when": "pr-workflow.ship_gate",
+      "blocking": false,
+      "onError": "skip"
     }
   ]
 }
 ```
 
-### Pattern 2: Payload-selecting `archive` source (packaging exclusion mechanism)
+`blocking: false` is a literal value in the gate object (`capability-validator.cjs`'s
+`validateGate` requires `gate.blocking` be a boolean, not a config-driven value) — "advisory by
+default" is satisfied by shipping it hardcoded `false`. **Do not build a blocking/advisory config
+toggle** (e.g. a second mutually-exclusive gate entry gated by opposite `when` config keys) unless
+a real need for hard-blocking on failing CI surfaces later — that is exactly the kind of
+speculative flexibility the milestone's own precedent (`beads`' Out-of-Scope N3: "this capability
+tracks work, it does not decide how work is planned") argues against building pre-emptively.
+`check-pr-status.sh`'s own exit-0-if-missing-PR guard, not `onError: skip`, is what should absorb
+the "not a PR yet" case — `onError` governs the *command itself* erroring (missing `gh` binary,
+timeout), not a legitimate "nothing to check yet" outcome, mirroring `sota-numerics`' documented
+distinction between the two (`sota-numerics/capability.json`'s gate `description` field).
 
-**What:** Instead of pointing the marketplace entry's `source` at `"./"` (whole repo, whatever is
-git-tracked at the pinned ref) or a `github`/`url` source (same effect — full clone becomes the
-plugin root), point it at a release-built zip via `"source": "archive"`, built by explicitly
-including only the plugin payload paths.
-**When to use:** Whenever the plugin's git repo also carries files that must never reach an
-installer's `~/.claude/plugins/cache` — exactly gsd-beads' situation (see Data Flow below for the
-concrete numbers that make this non-optional here, not cosmetic).
-**Trade-offs:** Requires a release-time build step (one `zip` invocation is enough at this scale)
-versus zero-build direct-git install. In exchange it gives an **allowlist** of what ships
-(`.claude-plugin/`, `hooks/`, `.agents/skills/`, `README.md`, `LICENSE`) instead of a denylist that
-has to be kept in sync with every future dev-only directory added to the repo.
+### Pattern 3 — Generated artifact + `artifact-frontmatter-equals`, mirroring `beads` exactly (`markdown-linting`)
 
-**Example (build step, run before tagging a release):**
-```bash
-zip -r gsd-beads-plugin.zip \
-  .claude-plugin hooks .agents/skills README.md LICENSE
+**What:** a `steps[]` entry at `verify:post` regenerates `.planning/LINT-REPORT.md` from a live
+`markdownlint-cli2` run over `.planning/**/*.md`, with YAML frontmatter carrying a single
+machine-checkable field; `ship:pre`'s gate reads that frontmatter via
+`artifact-frontmatter-equals` — structurally identical to `beads`' `BEADS.md` →
+`blocking_open`/`diverged` → `ship:pre` gate chain.
+**When to use:** the milestone description explicitly calls for this ("`ship:pre` gate (mirrors
+`beads.ship_gate`'s pattern)") — this is a locked decision from `PROJECT.md`, not a choice to
+re-derive. Also structurally correct independent of that instruction: `verify:post`'s own
+`LINT-REPORT.md` is worth generating regardless of the gate (the milestone also wants a
+human-readable "report of MD0XX violations" at `verify:post`), so the gate reusing that same
+artifact is free — no second computation.
+**Trade-offs:** one extra generated file to keep out of the ship diff / gitignore discussion
+(same class of housekeeping `beads` already solved for `BEADS.md`).
+
+`LINT-REPORT.md` frontmatter (minimal — one field, mirroring `beads`' two-gate/two-field shape
+only if a real need for finer granularity than "any violation" surfaces):
+
+```yaml
+---
+generated_by: markdown-linting
+generated_at: 2026-08-18T00:00:00Z
+violation_count: 0
+---
 ```
-Relative paths inside the zip are preserved, so `plugin.json`'s `"skills": "./.agents/skills/"`
-resolves identically whether the plugin is loaded from the raw repo (for `claude plugin validate`
-during development) or from the built archive.
 
-### Pattern 3: Cross-runtime skill reused, not forked
+`capability.json` sketch:
 
-**What:** `.agents/skills/beads/` is this repo's existing cross-runtime skill convention — one
-`SKILL.md` (frontmatter-compatible with Claude's schema) plus per-runtime metadata blocks
-(`agents/openai.yaml` for OpenAI-family runtimes). Claude Code's plugin `skills` loader reads only
-`<dir>/SKILL.md`; sibling files/subdirectories inside a skill directory are inert to it. That means
-the *same* directory that already serves Codex/Cursor via `.agents/skills/beads/` can be pointed at
-directly by `plugin.json` with zero forking and zero format translation.
-**When to use:** Any time an existing cross-runtime skill's `SKILL.md` frontmatter already
-satisfies Claude's schema (`name`, `description` — verified present in
-`.agents/skills/beads/SKILL.md`).
-**Trade-offs:** None identified — this is strictly additive reuse, not a compromise.
+```json
+{
+  "id": "markdown-linting",
+  "config": {
+    "markdown-linting.enabled": { "type": "boolean", "default": true },
+    "markdown-linting.ship_gate": { "type": "boolean", "default": true }
+  },
+  "steps": [
+    {
+      "point": "verify:post",
+      "ref": { "skill": "markdown-lint-report" },
+      "produces": ["LINT-REPORT.md"],
+      "consumes": [],
+      "when": "markdown-linting.enabled",
+      "onError": "skip"
+    }
+  ],
+  "gates": [
+    {
+      "point": "ship:pre",
+      "check": {
+        "predicate": {
+          "kind": "artifact-frontmatter-equals",
+          "artifact": "LINT-REPORT.md",
+          "field": "violation_count",
+          "equals": 0
+        }
+      },
+      "when": "markdown-linting.ship_gate",
+      "blocking": true,
+      "onError": "skip"
+    }
+  ]
+}
+```
+
+`onError: skip` here for the same reason `beads`' two `ship:pre` gates use `skip`, not
+`sota-numerics`' `halt`: a missing/unreadable `LINT-REPORT.md` (capability just installed,
+`markdownlint-cli2` absent) must fail open, not strand a finished phase — this is the general
+rule stated in `PROJECT.md`'s Constraints for `beads` and it applies identically here (same
+predicate kind, same "no predicate queries an external tool directly" root cause).
 
 ## Data Flow
 
-### Install-time packaging flow
+### Direct command-exit-zero flow (pr-workflow)
 
 ```
-git tag v1.1.0
-    ↓
-build script: zip { .claude-plugin/, hooks/, .agents/skills/, README.md, LICENSE }
-    ↓
-gh release upload  →  gsd-beads-plugin.zip attached to the GitHub Release
-    ↓
-marketplace.json's plugin entry: source: {source: "archive", url: "<release asset url>"}
-    ↓
-user: /plugin marketplace add <owner>/gsd-beads
-      /plugin install gsd-beads@gsd-beads
-    ↓
-Claude Code downloads + verifies the zip, unpacks into ~/.claude/plugins/cache/
-    (contains ONLY the 5 allowlisted paths — .planning/, .beads/, .gsd/, docs/,
-     .codex/, .cursor/, .git* never leave this repo)
+gh pr checks (or gh api)
+    ↓ (exit code + stdout/stderr, run inside the predicate's own sh -c, bounded by "timeout")
+gate-predicate-evaluator.evaluateCommandExitZero
+    ↓ (exit 0 → block:false | exit ≠0 → block:true, message = stderr/stdout tail, capped 2000 chars)
+ship.md's generic ship:pre gate dispatch (blocking:false → advisory, surfaced but does not stop ship)
 ```
 
-### Why "must not ship `.planning/`" is a real constraint, not cosmetic
+### Generated-artifact flow (markdown-linting, mirrors beads)
 
-Verified against this repo's actual git-tracked state (`git ls-files`), not assumed:
+```
+markdownlint-cli2 --config ... .planning/**/*.md   (run inside verify:post's steps[] skill)
+    ↓ (violation list + count)
+.planning/LINT-REPORT.md  (YAML frontmatter: violation_count, generated_at)
+    ↓ (read by artifact-frontmatter-equals — never queries markdownlint-cli2 directly)
+gate-predicate-evaluator.evaluateArtifactFrontmatterEquals
+    ↓ (violation_count == 0 → block:false | else → block:true)
+ship.md's generic ship:pre gate dispatch (blocking:true → hard-stops ship, per beads.ship_gate precedent)
+```
 
-| Path | Tracked files | Size | Ships in a **whole-repo** (`github`/`url`/`"./"`) plugin source? |
-|------|---------------|------|---------------------------------------------------------------|
-| `.planning/` | 82 files | 1.2 MB | Yes — includes phase PLAN/SUMMARY/REVIEW/VALIDATION docs, milestone audits, this repo's own `RETROSPECTIVE.md` |
-| `.beads/` (tracked subset) | 22 files (`config.yaml`, `metadata.json`, `hooks/*`, `README.md`) | small | Yes — git hook scripts and Dolt metadata that are meaningless (and confusing) outside this exact repo |
-| `.beads/embeddeddolt` (the actual issue DB) | **untracked** (already excluded, just not via `.gitignore` — verify before relying on this) | ~3.5 MB on disk | No — but only by accident of never having been `git add`ed, not by a documented exclusion rule |
-| `.pytest_cache/`, `__pycache__/` | **untracked** (nested `.pytest_cache/.gitignore` + top-level `__pycache__/`/`*.pyc` rules already work) | — | No — already correctly excluded, no action needed |
-| `.gsd/capabilities/beads/` | 15 files | 752 KB | Yes, and **intentionally** — this is product payload, not dev meta-state (see Structure Rationale) |
+### Fragment-only flow (get-available-resources)
 
-Total tracked repo weight is ~1.5 MB, of which `.planning/` alone is ~80%. A whole-repo plugin
-source would hand every installer this project's internal phase-by-phase planning history,
-decision logs, and milestone audits — the milestone context's exclusion requirement is about not
-leaking a stranger's internal project-management trail into their own `~/.claude/plugins/cache`,
-independent of the (modest) byte cost.
+```
+(existing) get-available-resources skill/script  →  .claude_resources.json
+    ↓ (referenced by prose, not by a gate)
+fragments/planner-resources.md, fragments/executor-resources.md
+    ↓ (injected verbatim via contributions[], no produces/consumes coupling to a gate)
+planner / executor prompt context
+```
 
 ## Anti-Patterns
 
-### Anti-Pattern 1: Nesting component directories inside `.claude-plugin/`
+### Anti-Pattern 1 — Building a `PR-STATUS.md`-with-frontmatter artifact for `pr-workflow` "because that's what `beads` did"
 
-**What people do:** Put `skills/`, `commands/`, `hooks/` under `.claude-plugin/skills/` etc.,
-reasoning "it's all plugin metadata."
-**Why it's wrong:** `.claude-plugin/` is reserved for the manifest file(s) only. Components nested
-there are silently never discovered — the plugin still loads (no error), just missing.
-**Do this instead:** `.claude-plugin/plugin.json` only; `skills/`, `hooks/`, `commands/`, `agents/`
-sit as direct siblings of `.claude-plugin/` at plugin root.
+**What people do:** copy `beads`' generated-artifact-plus-`artifact-frontmatter-equals` shape
+onto every gate, treating it as gsd-core's only supported way to gate on external state.
+**Why it's wrong:** `command-exit-zero` already runs an arbitrary bounded shell command and
+already surfaces its output as the gate message — for a single external command whose exit code
+already means "pass/fail" (`gh pr checks`), an intermediate artifact is a second moving part (a
+regeneration step, a frontmatter schema, a staleness question — "was this file regenerated since
+the PR's last push?") that buys nothing. This is the same shape of over-build the milestone's own
+`beads` capability explicitly rejects elsewhere (Out-of-Scope N3).
+**Do this instead:** `command-exit-zero` directly, per Pattern 2. Reserve the generated-artifact
+route for cases where the same computation is *already* needed by another lifecycle point (as
+`LINT-REPORT.md` is, per the milestone's own `verify:post` requirement) or where the underlying
+tool has no single clean exit-code-means-pass/fail contract.
 
-### Anti-Pattern 2: Relying on `.gitignore` to retroactively exclude already-tracked dev directories
+### Anti-Pattern 2 — A `contributions[]` entry at `verify:pre`/`verify:post`/`ship:pre`/`ship:post` with `into` set to `"executor"` or `"verifier"`
 
-**What people do:** Add `.planning/` and `.beads/` to `.gitignore` and assume that keeps them out
-of a `github`/`url`-sourced plugin install.
-**Why it's wrong:** `.gitignore` only prevents *future* `git add`s. Both directories are already
-committed in this repo's history; a whole-repo clone at any tagged ref still contains them
-regardless of a `.gitignore` entry added afterward. Actually excluding them requires either (a)
-`git rm --cached -r` plus `.gitignore` (removes them from tracking going forward — a real
-workflow change, since `PROJECT.md`'s Key Decisions table cites specific commits for `.planning/`
-provenance), or (b) never letting the plugin source be "whole repo" in the first place (Pattern 2
-above).
-**Do this instead:** Use an `archive` (or `git-subdir`, if the payload is physically relocated into
-its own subdirectory) marketplace source with an explicit file allowlist, so exclusion doesn't
-depend on git-tracking history at all.
-
-### Anti-Pattern 3: Symlinking a plugin's `skills/` across a `git-subdir` sparse clone boundary
-
-**What people do:** To reuse `.agents/skills/beads/` from inside a dedicated `git-subdir`-sourced
-plugin folder, symlink `plugin/skills/beads -> ../../.agents/skills/beads`.
-**Why it's wrong:** `git-subdir` does a **sparse, partial clone** of only the declared subdirectory
-path; the symlink's target may never be fetched, and Claude's own docs state a symlink resolving
-**outside the copied plugin directory is skipped for security** during caching — so this either
-breaks at clone time or silently drops the skill at cache time.
-**Do this instead:** If choosing `git-subdir` over `archive`, physically place (or generate at
-build time) the skill file inside the dedicated plugin subdirectory rather than reaching outside it
-— or prefer the `archive` pattern (Pattern 2), which has no sparse-clone edge case at all.
+**What people do:** copy the `execute:wave:pre`/`execute:wave:post` contribution shape
+(`into: "executor"`/`"verifier"`, which is legal there) onto a `verify:*`/`ship:*` point.
+**Why it's wrong:** `capability-validator.cjs`'s `validateAgainstContract` hard-rejects this at
+load time — `verify` and `ship` steps have `agentRoles: ["orchestrator"]` only. The capability
+would fail to install, not silently misbehave, but it is still a wasted planning/build cycle to
+discover this at validation time instead of at design time.
+**Do this instead:** every `verify:*`/`ship:*` contribution declares `"into": "orchestrator"`,
+full stop — confirmed structurally identical for both steps, not merely by analogy.
 
 ## Integration Points
 
-### Internal Boundaries
+### New components (per capability)
 
-| Boundary | Communication | Notes |
-|----------|---------------|-------|
-| `.claude-plugin/plugin.json` ↔ `.agents/skills/beads/` | `plugin.json`'s `"skills": "./.agents/skills/"` path field | One-directional reference, zero duplication; `.agents/skills/beads/agents/openai.yaml` is inert to Claude's loader |
-| `.claude-plugin/plugin.json` ↔ `hooks/hooks.json` | Default `hooks/hooks.json` scan location (no custom `hooks` field needed) | New file; content mirrors (does not replace) the SessionStart hook already in `.claude/settings.json` |
-| `.claude-plugin/marketplace.json` ↔ packaged archive | `source: {source: "archive", url: ...}` | Decouples "where `plugin.json` is authored" (repo root, for `claude plugin validate` during dev) from "what ships" (the release zip's allowlisted contents) |
-| Claude plugin surface ↔ `.gsd/capabilities/beads/` | None (no shared component type) | Two independent distribution channels living in one repo; do not wire together, do not merge manifests |
-| This repo's own `.claude/settings.json` ↔ shipped `hooks/hooks.json` | None (both independently fire the same idempotent `bd prime --hook-json` command) | Accept the harmless double-fire if this repo ever installs its own built plugin locally for dev-testing |
+| Capability | New files | Gate needed? |
+|---|---|---|
+| `get-available-resources` | `.gsd/capabilities/get-available-resources/capability.json`, `fragments/planner-resources.md`, `fragments/executor-resources.md` | No — `gates: []` |
+| `pr-workflow` | `.gsd/capabilities/pr-workflow/capability.json`, `fragments/ship-open-pr.md`, `scripts/check-pr-status.sh` | Yes — `command-exit-zero`, `blocking: false` |
+| `markdown-linting` | `.gsd/capabilities/markdown-linting/capability.json`, skill or script that writes `.planning/LINT-REPORT.md`, gate reading it | Yes — `artifact-frontmatter-equals`, `blocking: true` |
 
-### External Services
+### Modified components (repo-wide, one-time)
 
-| Service | Integration Pattern | Notes |
-|---------|---------------------|-------|
-| GitHub (repo host + Releases) | Marketplace source repo (`/plugin marketplace add owner/gsd-beads`); Release asset hosts the packaged `archive` zip | Recommended host per docs (version control, issue tracking, release assets in one place) |
-| `claude plugin validate ./` | CLI smoke test before publishing | Run with `--strict` in CI/pre-push to catch unrecognized-field typos as errors instead of silent warnings |
+| File | Change |
+|---|---|
+| `.claude-plugin/marketplace.json` | Add 3 entries once each capability is extracted to its own public repo — `"source": {"source": "url", "url": "https://github.com/davdittrich/<id>.git"}`, exactly the shape already used for `ponytail-everywhere`/`sota-numerics` (confirmed by reading this repo's current `marketplace.json`) |
+| `.gsd-capabilities.json` | Machine-local consent record; not git-tracked — each new capability needs a fresh `capability install --scope <global\|project> --yes` after its bundle is authored, same as every prior capability in this repo |
 
-## Suggested Build Order
+### Extraction-to-public-repo playbook (reuse Phase 12's proven decisions, not rediscovery)
 
-1. **`.claude-plugin/plugin.json`** — `name: "gsd-beads"` (not `"beads"` — avoid colliding in
-   users' minds with the gsd-core capability id `"beads"`, and with any unrelated third-party
-   `bd`/beads plugin), `version`, `description`, `author`, `license`, `skills: "./.agents/skills/"`.
-   No dependencies — do first.
-2. **`hooks/hooks.json`** — lift the SessionStart hook out of `.claude/settings.json` verbatim.
-   Depends on (1) only in that `plugin.json`'s default `hooks/hooks.json` scan must find it.
-3. **`LICENSE`** — needed for `plugin.json`'s `license` field and for the public-repo push already
-   planned as a milestone target; no code dependency, but blocks (1) being fully meaningful.
-4. **Packaging-exclusion decision + mechanism** (Pattern 2: `archive` build script, or the
-   `git-subdir` relocation alternative) — must land **before** the first public GitHub push/tag,
-   since it's what makes the "must not ship `.planning/`/`.beads/`" requirement actually true at
-   the moment a stranger first installs. Depends on (1)+(2) existing (the zip needs something to
-   include).
-5. **`.claude-plugin/marketplace.json`** — one plugin entry, `source` set to whatever (4) produced
-   (an `archive` URL, or a `git-subdir` path). Depends on (4)'s decision.
-6. **`README.md`** — separate milestone target (purpose/install/deinstall/requirements/caveats);
-   no hard code dependency on the above, but should reference the exact `/plugin marketplace add`
-   / `/plugin install` commands only after (5) is real, so the copy-pasted commands in the README
-   are verified working, not aspirational.
-7. **`claude plugin validate ./ --strict`** — run after (1)-(3), and again against the unpacked
-   archive after (4), as the acceptance check before tagging/pushing.
+Confirmed from `.planning/milestones/v1.1-phases/12-.../12-CONTEXT.md` (the actual precedent
+this milestone's own `PROJECT.md` cites: "exactly matching the proven Phase 10/11 (build) →
+Phase 12 (extract + publish) pattern"):
+
+- Each capability is first dogfooded as a `.gsd/capabilities/<id>/` subdirectory in *this* repo
+  (build phase) — no different from how `beads`, `ponytail`, `sota-numerics` started.
+- Extraction is a **separate, later phase**: fresh `git init` per new repo, no history carried
+  over (D-03) — do not conflate the two; the build phase should not pre-optimize for extraction.
+- `marketplace.json`'s `"source": {"source": "url", "url": "..."}` shape (not a GitHub-shorthand
+  `owner/repo` string) is the schema already proven twice in this repo — reuse verbatim, do not
+  re-research the schema per capability (see commit `f706179` in this repo's own history: "use
+  url source type, not github shorthand, for both plugins").
+- README structure (purpose, requirements, install, uninstall, caveats, license, gsd-core link)
+  and `claude plugin validate . --strict` + real marketplace round-trip are the fixed bar for
+  every extracted repo (D-09/D-10) — apply identically to all three new capabilities when their
+  turn comes.
+
+## Build Order
+
+Dependency analysis: `get-available-resources` has zero coupling to gate mechanics (Pattern 1) —
+it can be built, tested, and shipped fully independently of the other two. `pr-workflow` and
+`markdown-linting` both need a gate pattern proven once before the second repeats it, but they
+use **different** patterns from each other (Pattern 2 vs Pattern 3) — there is no shared
+artifact-schema work between them the way the brief's framing assumed. The actual shared risk is
+narrower: "does a `command-exit-zero` gate correctly surface a failing external command as an
+advisory block, end-to-end, through `ship.md`'s generic dispatch" (Pattern 2) and "does an
+`artifact-frontmatter-equals` gate correctly re-derive from a freshly-regenerated non-`beads`
+artifact" (Pattern 3) are two independent proofs, not one proof repeated.
+
+Recommended order:
+
+1. **`get-available-resources`** first — no gate, no external-tool timing/availability risk,
+   fastest to a shipped, dogfooded state; also the smallest surface for the first
+   `capability install`/consent round-trip of this milestone.
+2. **`markdown-linting`** second — its gate pattern (`artifact-frontmatter-equals`) is a
+   byte-for-byte structural repeat of `beads.ship_gate`, the most-proven gate pattern in this
+   repo (3 phases of live verification behind it: Phase 2/3 build, Phase 3's `ship.md` patch
+   fix, Phase 4's real-`bd` round trip). Lowest-risk of the two gated capabilities to build next
+   precisely because it reuses a mechanism already debugged here, not a new one.
+3. **`pr-workflow`** third — its gate pattern (`command-exit-zero` calling `gh` directly) has one
+   proven precedent in this repo (`sota-numerics`' `check-alternatives.py` gate) but a materially
+   different risk profile: `gh` is a *network*-dependent external command (auth state, rate
+   limits, PR-not-yet-existing on first run), where `sota-numerics`' gate command is a fully
+   local, deterministic Python script. Build this last so the advisory-only fail-open behavior
+   (`blocking: false`, `onError: skip`) can be validated against `markdown-linting`'s already-
+   proven blocking-gate wiring as a known-good baseline to diff against if something misbehaves.
 
 ## Sources
 
-- [Plugins reference — code.claude.com](https://code.claude.com/docs/en/plugins-reference) — fetched directly; manifest schema, directory-layout rules, symlink/path-traversal caching behavior, lockfile handling (HIGH confidence, primary source)
-- [Create and distribute a plugin marketplace — code.claude.com](https://code.claude.com/docs/en/plugin-marketplaces) — fetched directly; marketplace.json schema, all plugin `source` types (`relative path`, `github`, `url`, `git-subdir`, `npm`, `archive`, `command`), strict-mode semantics, version-pinning rules (HIGH confidence, primary source)
-- [Plugin Structure and Manifest — DeepWiki (anthropics/claude-plugins-official)](https://deepwiki.com/anthropics/claude-plugins-official/4.1-plugin-structure-and-manifest) — corroborating secondary source (MEDIUM confidence)
-- [Plugin Structure and Conventions — DeepWiki (melodic-software/claude-code-plugins)](https://deepwiki.com/melodic-software/claude-code-plugins/6.1-plugin-structure-and-conventions) — corroborating secondary source (MEDIUM confidence)
-- Repo state verified directly via `git ls-files`, `du -sh`, and `find` against this working tree (2026-08-16) — not inferred (HIGH confidence, primary evidence)
+- `~/.claude/gsd-core/bin/lib/loop-host-contract.cjs` (generated Loop Host Contract — HIGH, primary source)
+- `~/.claude/gsd-core/bin/lib/gate-predicate-evaluator.cjs` (real predicate kinds, message surfacing — HIGH, primary source)
+- `~/.claude/gsd-core/bin/lib/capability-validator.cjs` (contribution.into ∈ agentRoles enforcement, lane-probe `command-exists` distinction — HIGH, primary source)
+- `~/.claude/gsd-core/references/loop-hook-dispatch.md` (dispatch envelope contract — HIGH, primary source)
+- `/home/dd/projects/gsd-beads/.planning/PROJECT.md` (milestone target features, `beads` Key Decisions on gate predicate restriction — HIGH, project source of truth)
+- `/home/dd/projects/gsd-beads/.gsd/capabilities/beads/capability.json`, `.gsd/capabilities/sota-numerics/capability.json`, `.gsd/capabilities/ponytail/capability.json` (three shipped structural precedents — HIGH, primary source)
+- `/home/dd/projects/gsd-beads/.gsd/capabilities/beads/skills/beads-status/SKILL.md` (BEADS.md frontmatter generation — HIGH, primary source)
+- `/home/dd/projects/gsd-beads/.claude-plugin/marketplace.json` and `.planning/milestones/v1.1-phases/12-.../12-CONTEXT.md` (extraction-to-public-repo playbook — HIGH, primary source)
+- `/home/dd/projects/gsd-beads/hooks/capability-auto-install.sh` (auto-install hook shape — HIGH, primary source)
 
 ---
-*Architecture research for: Claude Code plugin packaging, gsd-beads repo*
-*Researched: 2026-08-16*
+*Architecture research for: gsd-core capability plugin integration (pr-workflow, markdown-linting, get-available-resources)*
+*Researched: 2026-08-18*
