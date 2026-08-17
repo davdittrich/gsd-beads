@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 11.1
-current_phase_name: beads-enabled-default-flip-to-true
-status: verifying
+current_phase: 9
+current_phase_name: Beads Content Depth
+status: planning
 stopped_at: Completed 11.1-02-PLAN.md
-last_updated: "2026-08-17T13:03:57.557Z"
+last_updated: "2026-08-17T13:12:35.309Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
@@ -24,7 +24,7 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: Phase complete — ready for verification
+status: Ready to plan
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
@@ -49,16 +49,16 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 11.1 (beads-enabled-default-flip-to-true) — EXECUTING
-Plan: 2 of 2
+Phase: 9 — Beads Content Depth
+Plan: Not started
 Status: Phase complete — ready for verification
-Last activity: 2026-08-17 — Phase 11.1 execution started
+Last activity: 2026-08-17 — Phase 11.1 complete, transitioned to Phase 9
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 4
+- Total plans completed: 6
 - Average duration: - min
 - Total execution time: 0 hours
 
@@ -68,6 +68,7 @@ Last activity: 2026-08-17 — Phase 11.1 execution started
 |-------|-------|-------|----------|
 | 10 | 2 | - | - |
 | 10.1 | 2 | - | - |
+| 11.1 | 2 | - | - |
 
 **Recent Trend:**
 

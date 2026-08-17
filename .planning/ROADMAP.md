@@ -330,13 +330,13 @@ reaches them. Covers the config default, the skill gates that duplicate it, the 
 surface, and a new repo-root CHANGELOG.
 **Requirements**: TBD (no requirement IDs defined for this project; traceability is via CONTEXT.md decisions D-01..D-04)
 **Depends on:** Phase 11
-**Plans:** 2 plans
+**Plans:** 2/2 plans complete
 
 Plans:
 **Wave 1**
 
-- [ ] 11.1-01-PLAN.md — Flip the shipped default to `true` (capability.json v0.2.0) and invert the four beads skills' Step 1 config gates to opt-out polarity
+- [x] 11.1-01-PLAN.md — Flip the shipped default to `true` (capability.json v0.2.0) and invert the four beads skills' Step 1 config gates to opt-out polarity
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 11.1-02-PLAN.md — Sweep the live docs (README, both PRIME.md twins, PRD schema) to the new default and create CHANGELOG.md
+- [x] 11.1-02-PLAN.md — Sweep the live docs (README, both PRIME.md twins, PRD schema) to the new default and create CHANGELOG.md
