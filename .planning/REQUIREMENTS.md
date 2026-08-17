@@ -1,101 +1,109 @@
-# Requirements — Milestone v1.1: Publish & Document
+# Requirements: gsd-beads — Milestone v1.2
 
-## v1.1 Requirements
+**Defined:** 2026-08-18
+**Core Value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
+duplicated task-state bookkeeping survives in `.planning/`.
 
-### Plugin Packaging
+## v1 Requirements
 
-- [x] **PUB-01**: `.claude-plugin/plugin.json` declares plugin identity (name, version, license,
-      author), points `skills` at existing `.agents/skills/beads/`, and passes
-      `claude plugin validate . --strict` (one documented, permanent exception: the root `CLAUDE.md`
-      warning — see ROADMAP.md Phase 5 success criterion 1, 05-CONTEXT.md)
+Two new gsd-core capability plugins, each dogfooded in this repo then extracted to its own
+public GitHub repo and marketplace entry, following the proven Phase 10/11 → Phase 12 pattern
+already shipped for `ponytail-everywhere` and `sota-numerics`. `get-available-resources` (a
+third candidate surfaced during scoping) is explicitly deferred — see Out of Scope.
 
-- [x] **PUB-02**: `.claude-plugin/marketplace.json` self-hosted entry makes
-      `/plugin marketplace add <owner>/gsd-beads` then `/plugin install beads@gsd-beads` work
+### PR-WORKFLOW
 
-- [x] **PUB-03**: The capability-loader bridge is explicitly decided and implemented (or the
-      manual alternative documented) so a Claude plugin install actually surfaces the gsd-core
-      `beads` capability, not just a cached repo copy
+- [ ] **PRW-01**: A `PR.md` artifact is generated at `execute:wave:post` reporting PR status
+      (`none`/`passing`/`pending`/`failing`), regenerated every step — mirrors `BEADS.md`'s
+      "regenerated every step, never hand-edited" discipline (B11), required because gsd-core's
+      gate predicates cannot query `gh` directly
+- [ ] **PRW-02**: A `ship:pre` gate reads `PR.md`'s frontmatter via `artifact-frontmatter-equals`,
+      tri-state (blocks on both `pending` and `failing`, matching GitHub's own required-check
+      semantics), `onError: skip`, default **advisory** (warn, don't block) until proven against
+      a real PR cycle in this repo
+- [ ] **PRW-03**: `ship:post` prints a warn-only notice when no open PR exists for the current
+      branch — never auto-creates one (matches the source `pr-workflow` skill's own "ask before
+      creating" spirit; avoids PR spam)
+- [ ] **PRW-04**: `gh` absent or unauthenticated degrades to a no-op with one visible notice
+      (B6's fail-open pattern, `shutil.which("gh")` + `gh auth status` guard)
 
-### Release & Repo Hygiene
+### MARKDOWN-LINTING
 
-- [x] **PUB-04**: Release archive is built from an explicit allowlist (`.claude-plugin/`,
-      `hooks/`, `.agents/skills/`, `README.md`, `LICENSE`) and attached to a GitHub Release —
-      `.planning/` and `.beads/` never ship to installers
+- [ ] **MDL-01**: A curated `rumdl` config (MD001/MD003/MD009/MD012/MD022/MD024/MD040-equivalent
+      rules only — structural rules; line-length/inline-HTML/first-line-heading explicitly
+      disabled, they fight `.planning/`'s frontmatter-led, agent-generated, `<details>`-using
+      content) is invoked with an always-explicit `--config` path (rumdl's config auto-discovery
+      was measured to silently ignore `.markdownlint-cli2.jsonc` otherwise), validated at 0
+      violations against this repo's own `.planning/` tree before the gate ships. The plugin's
+      own README documents rumdl's measured detection-logic divergence from markdownlint-cli2 on
+      this exact ruleset (45% miss rate measured in this repo, e.g. MD001: 14 vs 1) as a known,
+      accepted behavior difference — not silently glossed over
+- [ ] **MDL-02**: A `verify:post` fragment reports the violation count, `onError: skip`
+- [ ] **MDL-03**: A `ship:pre` gate reads the violation count via `artifact-frontmatter-equals`,
+      default **advisory** (no comparable tool defaults to hard-blocking on install; teams opt
+      into required-status-check enforcement after tuning)
+- [ ] **MDL-04**: `rumdl` absent degrades to a no-op with one visible notice (B6 pattern,
+      `shutil.which("rumdl")`) — single static binary (`uvx`/`pip`/`cargo`/`brew`-installable),
+      introduces no Node/npm dependency class, unlike the markdownlint-cli2 alternative
 
-- [x] **PUB-05**: Pre-push git hygiene audit completed — `.beads/config.yaml`,
-      `.beads/metadata.json`, `.claude/.headroom_wrap_marker.json`, `.gsd-capabilities.json`
-      untracked; `.gitignore` extended to cover backup/Dolt artifacts before first push
+## v2 Requirements
 
-### Runtime Integration
+Deferred to future release. Tracked but not in current roadmap.
 
-- [x] **PUB-06**: `hooks/hooks.json` ships the SessionStart `bd prime` hook (lifted from
-      `.claude/settings.json`) so plugin installers get it without manual config
+### Ship Gate Maturity
 
-### Documentation
+- **PRW-05**: `pr-workflow.ship_gate` flips to blocking-by-default — trigger: at least one real
+  PR cycle in this repo confirms the tri-state predicate reads `PR.md` correctly and doesn't
+  false-block on a `gh` auth hiccup
+- **MDL-05**: `markdown-linting.ship_gate` flips to blocking-by-default — trigger: curated
+  rule-set has run clean across a full milestone's worth of `.planning/` edits with zero false
+  positives
 
-- [x] **PUB-07**: `README.md` documents purpose, capabilities, installation, deinstallation,
-      requirements, caveats, and a link to gsd-core — drafted via `authentic-writing` and edited
-      via `academic-prose-editing`, transcribed from verified commands (not aspirational)
+### get-available-resources
 
-### Ship Gate
-
-- [x] **PUB-08**: `LICENSE` file (MIT) present at repo root, referenced in `plugin.json`'s
-      `license` field
-
-- [x] **PUB-09**: Final validation gate passes: `claude plugin validate . --strict` clean, a real
-      `/plugin marketplace add` + `/plugin install` + `/plugin uninstall` round trip succeeds
-
-- [x] **PUB-10**: GitHub repository created (public, personal account, `gsd-beads`), remote
-      configured, history pushed
-
-### Plugin Content Depth
-
-- [x] **PUB-11**: `.agents/skills/beads/SKILL.md` expanded toward upstream `beads` skill parity
-      (dependencies, labels, comments, search, `compact`, `import`, `stats`, `blocked`, worktrees,
-      async gates, resumability, `--stealth`/`BEADS_DIR` git-free mode, troubleshooting) — found
-      materially thinner than upstream during Phase 8 UAT; a `resources/`/`commands/`
-      progressive-disclosure structure is acceptable, not required verbatim
-
-- [x] **PUB-12**: A gsd-tailored `.beads/PRIME.md` ships with the plugin, overriding beads'
-      generic `bd prime` default output with content specific to gsd-core integration (phase
-      epics, `plan:post`/`execute:wave:post`/`verify:post` sync points, `ship:pre` gates) — found
-      missing during Phase 8 UAT; `bd prime --help` confirms `.beads/PRIME.md` is beads' supported
-      override mechanism
-
-## Future Requirements
-
-- CI badge / GitHub Actions test workflow — deferred until a public test workflow exists
-  (FEATURES.md: "should have" once wired)
-
-- Postinstall-hook environment verification if PUB-03's bridge turns out to require one —
-  hands-on Claude Code hook API research, flagged as a Phase 4-equivalent gap in SUMMARY.md
+- **RES-01**: Fragment-only advisory capability (CPU/GPU/memory/disk, stdlib-only detection —
+  `psutil` explicitly excluded per N5-style dependency discipline) at `plan:pre`/
+  `execute:wave:pre`, zero gates, mirroring `ponytail`'s pattern
 
 ## Out of Scope
 
-- Submission to Anthropic's official curated plugin catalog — this ships as an independent,
-  self-hosted marketplace only; no review/approval process invoked
+Explicitly excluded. Documented to prevent scope creep.
 
-- Multi-language README translations — zero non-English demand for a niche dev-tool plugin
-  (FEATURES.md anti-feature)
-
-- Any new runtime dependency beyond the `bd` binary and Python 3 stdlib — inherited from v1.0's
-  N5 constraint, unchanged by packaging work
+| Feature | Reason |
+|---------|--------|
+| `get-available-resources` capability | Deferred, not cut — FEATURES.md flagged a real gap: gsd-core has no "this phase is compute-heavy" signal today, so nothing would consume the advisory automatically yet. Build it once that signal exists, not before (user decision, 2026-08-18) |
+| `pr-workflow`: auto-merge on green CI | Violates the source skill's own hardest constraint ("never merge a PR, the user decides"); no CI system defaults to auto-merge without explicit opt-in |
+| `pr-workflow`: auto-assign-reviewers, review-thread addressing/resolution | Requires live conversational judgment a one-shot `gates[]`/`contributions[]` predicate architecturally cannot exercise; stays in the existing interactive `pr-workflow` skill |
+| `pr-workflow`: `gh pr-review` extension dependency | Only needed for review-thread automation, which is out of scope; this capability depends on `gh` CLI only |
+| `pr-workflow`: draft-PR auto-create on `ship:post` | Would spam PRs for phases the user isn't ready to open one for; capability has no branch/commit-strategy awareness (that's git, out of gsd's binding model) |
+| `markdown-linting`: `markdownlint-cli2` as the linting engine | Superseded by `rumdl` after a real head-to-head benchmark (2026-08-18): ~80x faster, single static binary vs. a new Node≥20 dependency class this repo has never required. Accepted tradeoff: rumdl's 45% detection-logic gap on the curated ruleset vs. markdownlint-cli2, documented in the plugin's own README rather than silently accepted |
+| `markdown-linting`: `mdsmith` as the linting engine | Ruled out — real project (`jeduden/mdsmith`, Go) but uses its own `MDSxxx` rule namespace, not MD0XX-compatible, defeating the "curate an MD0XX subset" requirement outright; 12-star early-stage adoption. (Note: `npm mdsmith` is an unrelated README-generator by a different author — a real name-collision trap, not the linter) |
+| `markdown-linting`: "NO AUTOMATED SCRIPTS" manual-fix workflow from the source skill | A lifecycle gate reports and (optionally) blocks; it must never itself attempt fixes — fixing stays in the pre-existing interactive skill |
+| `markdown-linting`: VS Code / GitHub Actions setup automation from the source skill | Out of a lifecycle capability's scope; stays in the interactive skill |
 
 ## Traceability
 
+Which phases cover which requirements. Updated during roadmap creation.
+
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| PUB-01 | Phase 5 | Complete |
-| PUB-02 | Phase 5 | Complete |
-| PUB-08 | Phase 5 | Complete |
-| PUB-03 | Phase 6 | Complete (v1.1.0 shipped this way — see Phase 10.1, shipped 2026-08-17, which supersedes the underlying decision going forward; PUB-03 itself stays Complete as a historical record of what v1.1.0 shipped) |
-| PUB-06 | Phase 6 | Complete |
-| PUB-05 | Phase 7 | Complete |
-| PUB-10 | Phase 7 | Complete |
-| PUB-04 | Phase 8 | Complete |
-| PUB-07 | Phase 8 | Complete |
-| PUB-09 | Phase 8 | Complete |
-| PUB-11 | Phase 9 | Complete |
-| PUB-12 | Phase 9 | Complete |
+| MDL-01 | TBD | Pending |
+| MDL-02 | TBD | Pending |
+| MDL-03 | TBD | Pending |
+| MDL-04 | TBD | Pending |
+| PRW-01 | TBD | Pending |
+| PRW-02 | TBD | Pending |
+| PRW-03 | TBD | Pending |
+| PRW-04 | TBD | Pending |
 
-**Coverage:** 12/12 v1.1 requirements mapped, each to exactly one phase.
+**Coverage:**
+- v1 requirements: 8 total
+- Mapped to phases: 0 (roadmap not yet created)
+- Unmapped: 8 ⚠️ (pending `gsd-roadmapper`)
+
+---
+*Requirements defined: 2026-08-18*
+*Last updated: 2026-08-18 after initial definition — markdown-linting's engine changed from
+markdownlint-cli2 to rumdl following a real, sandboxed head-to-head benchmark against this
+repo's own `.planning/` tree; get-available-resources scoped out to v2 pending a
+compute-heavy-phase signal in gsd-core.*
