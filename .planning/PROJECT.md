@@ -194,6 +194,11 @@ Phase 4 SUMMARY.md files missing `requirements-completed` frontmatter, and Phase
 reconciled Nyquist `VALIDATION.md` coverage — neither blocks shipped functionality).
 
 ---
-*Last updated: 2026-08-16 — Phase 8 (README, Release & Ship Gate) complete: PUB-04/PUB-07/PUB-09
-shipped, verified, and gap-closed (G-08-1). `v1.1.0` public on GitHub. Phase 9 (Beads Content
-Depth) created for PUB-11/PUB-12, required before v1.1 is considered done.*
+*Last updated: 2026-08-17 — Phase 10 (ponytail-everywhere capability plugin) complete: a second,
+unrelated capability + Claude Code plugin (`ponytail-everywhere` / `.gsd/capabilities/ponytail/`)
+shipped in this repo, out of the v1.1 milestone's requirement set (new scope routed directly from
+`/gsd-explore`, no PUB-XX requirement IDs — decisions tracked locally in `10-CONTEXT.md` as
+D-01..D-05, not here). Does not touch beads' requirements, Active list, or Out of Scope. Phase 8
+(README, Release & Ship Gate) complete: PUB-04/PUB-07/PUB-09 shipped, verified, and gap-closed
+(G-08-1). `v1.1.0` public on GitHub. Phase 9 (Beads Content Depth) created for PUB-11/PUB-12,
+required before v1.1 is considered done.*
