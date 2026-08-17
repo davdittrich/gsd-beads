@@ -3,7 +3,7 @@
   "role": "feature",
   "version": "0.1.0",
   "title": "Ponytail lazy-ladder discipline",
-  "description": "Advisory-only ladder-discipline reminders (YAGNI, reuse, stdlib/native before dependencies, shortest working diff) surfaced at plan:pre, execute:wave:pre, and verify:pre.",
+  "description": "Advisory-only ladder-discipline reminders (YAGNI, reuse, stdlib/native before dependencies, shortest working diff) surfaced at plan:pre, execute:wave:pre, and execute:wave:post.",
   "tier": "full",
   "requires": [],
   "engines": {
@@ -66,7 +66,7 @@
       "onError": "skip"
     },
     {
-      "point": "verify:pre",
+      "point": "execute:wave:post",
       "into": "verifier",
       "produces": [],
       "consumes": [],

@@ -1,7 +1,22 @@
 # ponytail capability — what actually reaches an agent
 
 This capability declares three `contributions[]` entries at `plan:pre`, `execute:wave:pre`, and
-`verify:pre`. Only one of them is functional at gsd-core 1.10.0.
+`execute:wave:post`. Only one of them is functional at gsd-core 1.10.0.
+
+**Point correction (discovered at install time, not by RESEARCH.md):** the third entry was
+originally authored at `verify:pre` with `into: "verifier"`. `capability install` rejected it:
+gsd-core's generated Loop Host Contract (`bin/lib/loop-host-contract.cjs`) restricts `verify:pre`/
+`verify:post`'s valid `contribution.into` values to `["orchestrator"]` only — the `"verifier"`
+agent role is contractually valid solely within the `execute` step's points
+(`execute:pre`/`execute:wave:pre`/`execute:wave:post`/`execute:post`, agentRoles
+`["executor", "verifier"]`), never within the `verify` step's own points. The entry was relocated
+to `execute:wave:post` (post-wave, pairing naturally with `execute:wave:pre`'s pre-wave executor
+reminder) with `into: "verifier"` preserved, rather than keeping the point and changing `into` to
+`"orchestrator"` — the latter would satisfy validation but defeat D-05's role-matched intent, since
+the fragment's whole purpose is to speak to "the verifier," not a second generic orchestrator
+reminder. `capability-validator.cjs`'s only contract check for `contributions[]` is
+`contrib.into ∈ POINT_TO_CONTRACT.get(contrib.point).agentRoles`; no other structural constraint was
+violated.
 
 ## Functional today
 
@@ -12,14 +27,17 @@ subagent's own prompt, along with the resolved `ponytail.level` value via `confi
 
 ## Forward-compatible no-ops today
 
-`execute:wave:pre` → `into: "executor"` and `verify:pre` → `into: "verifier"` are schema-valid and
-are returned by `gsd_run loop render-hooks <point> --raw` in `activeHooks` exactly like the
+`execute:wave:pre` → `into: "executor"` and `execute:wave:post` → `into: "verifier"` are schema-valid
+and are returned by `gsd_run loop render-hooks <point> --raw` in `activeHooks` exactly like the
 `plan:pre` entry — the resolver is generic across all lifecycle points. But no workflow markdown at
 either of those points contains a `kind == "contribution"` read-and-inject instruction, so today
 these two entries are read by nobody. They are declared anyway, matching D-05's role-tailored intent
 and this repo's own `beads` capability precedent of declaring `steps[]` entries beyond the minimum
 functional set — should a future gsd-core version add generic contribution dispatch at those points,
-these entries activate with no change to this capability.
+these entries activate with no change to this capability. `gsd_run loop render-hooks verify:pre --raw`
+returns zero `ponytail` entries, and always will under this design — `verify:pre`'s only legal
+`contribution.into` value is `"orchestrator"` (see Point correction above), which this capability
+does not target.
 
 Actual execute-time and verify-time reach in this repo comes from a different mechanism entirely:
 the sibling `ponytail-everywhere` Claude Code plugin's role-matched `SubagentStart` hooks (Plan 01),
