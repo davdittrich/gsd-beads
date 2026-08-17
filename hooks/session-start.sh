@@ -10,4 +10,6 @@ if [ -d ".beads" ] && [ ! -e "$DEST" ] && [ -f "$SOURCE" ]; then
   cp "$SOURCE" "$DEST" 2>/dev/null || true
 fi
 
+bash "$PLUGIN_ROOT/hooks/capability-auto-install.sh" beads || true
+
 exec bd prime --hook-json
