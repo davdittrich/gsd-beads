@@ -292,3 +292,14 @@ capability's own consent from the start rather than retrofitting it later.
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 11 to break down)
+
+### Phase 11.1: beads.enabled default flip to true (INSERTED)
+
+**Goal:** [Urgent work - to be planned]
+**Requirements**: TBD
+**Depends on:** Phase 11
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 11.1 to break down)
