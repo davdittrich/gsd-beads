@@ -290,42 +290,49 @@ and mechanically blocks at `plan:post` any PLAN.md lacking a cited, dated, ranke
 rather than retrofitting it later.
 **Requirements**: TBD
 **Depends on:** Phase 10, Phase 10.1
-**Plans:** 3 plans
+**Plans:** 3/3 plans complete
 
 Plans:
 
 **Wave 1**
 
-- [ ] 11-01-PLAN.md — Gate spine: `check-alternatives.py`, `capability.json` with the blocking
+- [x] 11-01-PLAN.md — Gate spine: `check-alternatives.py`, `capability.json` with the blocking
       `plan:post` `command-exit-zero` gate, unit tests, plugin packaging, dogfood install,
       marketplace entry
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 11-02-PLAN.md — D-12's four stage-tailored steering fragments and their `contributions[]`
+- [x] 11-02-PLAN.md — D-12's four stage-tailored steering fragments and their `contributions[]`
       entries at `plan:pre`, `execute:wave:pre`, `execute:wave:post`, `ship:pre`
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 11-03-PLAN.md — D-08 citation-plausibility route decision (core patch vs deterministic-only)
+- [x] 11-03-PLAN.md — D-08 citation-plausibility route decision (core patch vs deterministic-only)
       and NOTES.md documenting the two deliberate divergences
 
 Cross-cutting constraints:
 
 - The plugin bundle under `sota-numerics/.gsd/capabilities/sota-numerics/` and the repo-root
   dogfood copy under `.gsd/capabilities/sota-numerics/` must stay byte-identical (D-04).
+
 - `sota-numerics.enabled` is the single config key governing both steering and the gate (D-11),
   default `true` (D-10).
+
 - `gates[0].onError` is `halt` while every `contributions[].onError` is `skip` — a deliberate,
   documented divergence.
 
 ### Phase 11.1: beads.enabled default flip to true (INSERTED)
 
-**Goal:** [Urgent work - to be planned]
-**Requirements**: TBD
+**Goal:** Flip the beads capability's shipped default `beads.enabled` from `false` to `true`, so a
+fresh install runs with beads issue tracking on out of the box instead of requiring a manual
+opt-in — and make the four beads skills' own config gates honor that default, so the flip actually
+reaches them. Covers the config default, the skill gates that duplicate it, the live documentation
+surface, and a new repo-root CHANGELOG.
+**Requirements**: TBD (no requirement IDs defined for this project; traceability is via CONTEXT.md decisions D-01..D-04)
 **Depends on:** Phase 11
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 11.1 to break down)
+- [ ] 11.1-01-PLAN.md — Flip the shipped default to `true` (capability.json v0.2.0) and invert the four beads skills' Step 1 config gates to opt-out polarity
+- [ ] 11.1-02-PLAN.md — Sweep the live docs (README, both PRIME.md twins, PRD schema) to the new default and create CHANGELOG.md
