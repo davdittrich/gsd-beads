@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 11
-current_phase_name: "sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)"
-status: planning
-stopped_at: Phase 11 context gathered
-last_updated: "2026-08-17T09:31:00.805Z"
+current_phase_name: sota-numerics-capability-plugin-sota-efficiency-numerical-st
+status: executing
+stopped_at: Completed 11-01-PLAN.md
+last_updated: "2026-08-17T11:09:28.274Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
-  total_phases: 8
+  total_phases: 9
   completed_phases: 6
-  total_plans: 16
-  completed_plans: 15
-  percent: 75
+  total_plans: 19
+  completed_plans: 16
+  percent: 67
 ---
 
 Total Phases: 3
@@ -24,12 +24,12 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: Ready to plan
+status: Ready to execute
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[█████████░] 94%
+progress:[████████░░] 84%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -45,14 +45,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 10.1 — capability-auto-install-sessionstart-triggered-user-scope-co
+**Current focus:** Phase 11 — sota-numerics-capability-plugin-sota-efficiency-numerical-st
 
 ## Current Position
 
-Phase: 11 — sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)
-Plan: Not started
-Status: Phase complete — ready for verification
-Last activity: 2026-08-17 — Phase 10.1 complete, transitioned to Phase 11
+Phase: 11 (sota-numerics-capability-plugin-sota-efficiency-numerical-st) — EXECUTING
+Plan: 2 of 3
+Status: Ready to execute
+Last activity: 2026-08-17 — Phase 11 execution started
 
 ## Performance Metrics
 
@@ -99,6 +99,7 @@ Last activity: 2026-08-17 — Phase 10.1 complete, transitioned to Phase 11
 | Phase 10 P02 | ~20min | 3 tasks | 6 files |
 | Phase 10.1 P01 | 15min | 2 tasks | 3 files |
 | Phase 10.1 P02 | 12min | 3 tasks | 9 files |
+| Phase 11 P01 | 35min | 3 tasks | 20 files |
 
 ## Accumulated Context
 
@@ -113,6 +114,8 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase 10]: Code review found a real, reproduced critical bug (CR-01) — ponytail-everywhere/hooks/gsd-tools.sh built its node invocation as an unquoted string, breaking on any repo/HOME path containing a space and silently fail-opening to enabled:true; fixed via --fix (array-based invocation) with a genuine regression test
 - [Phase ?]: Tracer feedback gate (Task 1) accepted as-is by user at checkpoint; Task 2 plugin-root parity case compares two independent first-install runs (separate GSD_HOME sidecars) for byte-identity rather than first-vs-second.
 - [Phase ?]: Real marketplace install performed directly to close RESEARCH Assumption A2 (subdirectory-plugin cache layout confirmed); macOS shasum fallback (A3) accepted as documented gap, no macOS hardware available.
+- [Phase ?]: [Phase 11]: sota-numerics plan:post gate uses onError: halt (deliberate divergence from every other gate in this repo) and resolves its script path via $(git rev-parse --show-toplevel), not ${CLAUDE_PLUGIN_ROOT} -- the gate subprocess's environment is unverified
+- [Phase ?]: [Phase 11]: check-alternatives.py's validate_plan reports only the first offending alternative entry per plan (fail-fast), not every entry -- the gate is a structural backstop, the checker's pre-commit revision loop is the primary enforcement point
 
 ### Pending Todos
 
@@ -160,9 +163,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T09:31:00.797Z
-Stopped at: Phase 11 context gathered
-Resume file: /home/dd/projects/gsd-beads/.planning/phases/11-sota-numerics-capability-plugin-sota-efficiency-numerical-st/11-CONTEXT.md
+Last session: 2026-08-17T11:09:28.267Z
+Stopped at: Completed 11-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
