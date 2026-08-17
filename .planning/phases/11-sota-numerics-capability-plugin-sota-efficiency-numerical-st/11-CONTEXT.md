@@ -209,9 +209,8 @@ Justification / Spec gate) — those sections are the closest thing this phase h
   `beads` should also default enabled=true on install, matching D-10's sota-numerics choice and
   ponytail's existing default-true. This is a change to the already-shipped `beads` capability's
   `capability.json` (`.gsd/capabilities/beads/capability.json`), not part of Phase 11's
-  `sota-numerics` scope — belongs in its own quick task / phase against the `beads` capability,
-  not folded into this CONTEXT.md's decisions. Not acted on here; flagged for the user to route
-  (quick task vs. new phase) separately from Phase 11 planning.
+  `sota-numerics` scope. Routed to its own phase, inserted after Phase 11 —
+  see `.planning/phases/11.1-beads-enabled-default-flip-to-true/`.
 
 </deferred>
 
