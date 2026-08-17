@@ -88,7 +88,7 @@
 | PUB-01 | Phase 5 | Complete |
 | PUB-02 | Phase 5 | Complete |
 | PUB-08 | Phase 5 | Complete |
-| PUB-03 | Phase 6 | Complete |
+| PUB-03 | Phase 6 | Complete (v1.1.0 shipped this way — see Phase 12, added 2026-08-17, which supersedes the underlying decision going forward; PUB-03 itself stays Complete as a historical record of what v1.1.0 shipped) |
 | PUB-06 | Phase 6 | Complete |
 | PUB-05 | Phase 7 | Complete |
 | PUB-10 | Phase 7 | Complete |

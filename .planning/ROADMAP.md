@@ -264,3 +264,22 @@ Plans:
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 11 to break down)
+
+### Phase 12: beads auto-install
+
+**Goal:** On first `/plugin install beads@gsd-beads` (or first session in a project without a
+consent record), a SessionStart-triggered mechanism grants `capability install --scope user
+--yes` for `beads` automatically — no manual command required. Reverses Phase 6's T-06-01
+decision (previously: "do not build it," decided by the planner without user sign-off, never
+actually put to the user). Must also close the silent-invalidation gap discovered in Phase 10:
+`.gsd-capabilities.json` isn't git-tracked, so a bundle edit after consent (or simply starting a
+fresh checkout/session) currently degrades the capability with zero visible warning — the new
+mechanism must detect and re-grant, not just grant once.
+**Requirements**: TBD (revisits PUB-03 disposition — CB-3 human-gated consent tradeoff explicitly
+re-decided by user 2026-08-17, see PROJECT.md Key Decisions)
+**Depends on:** Phase 6 (Runtime Integration — beads capability + SessionStart hook shipped there)
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 12 to break down)
