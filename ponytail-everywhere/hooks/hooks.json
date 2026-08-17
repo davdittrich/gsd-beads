@@ -10,9 +10,21 @@
     ],
     "SubagentStart": [
       {
-        "matcher": "gsd-planner|gsd-executor|gsd-verifier",
+        "matcher": "gsd-planner",
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\"" }
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\" planner" }
+        ]
+      },
+      {
+        "matcher": "gsd-executor",
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\" executor" }
+        ]
+      },
+      {
+        "matcher": "gsd-verifier",
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/session-start.sh\" verifier" }
         ]
       }
     ]
