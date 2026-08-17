@@ -53,6 +53,23 @@ already has real generic contribution dispatch, and the `ponytail-everywhere` pl
 the remaining reach without touching gsd-core at all. Patching `plan-phase.md`/`execute-plan.md` to
 add contribution dispatch at more points is out of scope for this phase.
 
+## Toggle-testing gotcha: `--cwd` mirror alone is not enough (discovered at Task 3)
+
+`gsd-tools`'s project-scope consent (`#1459`) binds to the *realpath of the project root*, not
+just to the capability bundle's content hash. A `mktemp -d` mirror directory symlinked back to
+this repo's `.gsd`/`.gsd-capabilities.json`/`.git` — even with a real, unmodified copy of
+`.planning/config.json` — resolves to a **different** realpath than this repo's own root, so
+`gsd_tools loop render-hooks <point> --raw --cwd <mirror>` reports `ponytail` as
+`"discovered — no user consent record (inactive)"` even though the real root shows it active.
+Testing the `ponytail.enabled` toggle against such a mirror therefore requires granting a
+*separate* consent record for the mirror's own realpath — done here via the `GSD_HOME` env var
+(an existing, already-documented gsd-tools override, not new infrastructure), pointed at a second
+`mktemp -d` scratch directory so the record never touches the real `$HOME/.claude` consent store:
+`GSD_HOME=<scratch> gsd_tools capability install ./.gsd/capabilities/ponytail --scope project
+--yes --cwd <mirror>`, then `GSD_HOME=<scratch> gsd_tools loop render-hooks ... --cwd <mirror>`
+for both the baseline and `ponytail.enabled: false` checks. Both scratch directories are removed
+on exit; nothing under `$HOME/.claude` or this repo's `.planning/config.json` is touched.
+
 ## Re-consent after any edit
 
 Project-scope consent (`capability install ./.gsd/capabilities/ponytail --scope project --yes`) is a
