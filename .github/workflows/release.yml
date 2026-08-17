@@ -20,6 +20,9 @@ jobs:
             hooks \
             .agents/skills \
             .gsd \
+            ponytail-everywhere/.claude-plugin \
+            ponytail-everywhere/hooks \
+            ponytail-everywhere/.gsd \
             README.md \
             LICENSE
 
