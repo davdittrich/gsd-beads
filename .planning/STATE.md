@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase_name: null
+current_phase: 12
+current_phase_name: ship-ponytail-everywhere-and-sota-numerics-plugins-publicly
 status: executing
-stopped_at: Phase 12 context gathered
-last_updated: "2026-08-17T14:47:19.761Z"
+stopped_at: Completed 12-01-PLAN.md
+last_updated: "2026-08-17T15:41:36.106Z"
 last_activity: 2026-08-17
 last_activity_desc: All v1.1 phases (5-9, plus inserted 10/10.1/11/11.1) verified complete; ROADMAP.md tracking corrected — Phase 9's Progress row and milestone checkbox were stale (query-blocked by an upstream gsd-core plan-scan bug misclassifying 09-PLAN-CHECK.md as an unsummarized plan)
 progress:
   total_phases: 10
   completed_phases: 8
   total_plans: 25
-  completed_plans: 20
+  completed_plans: 21
   percent: 80
-current_phase: null
 ---
 
 Total Phases: 3
@@ -29,7 +29,7 @@ stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[██████████] 95%
+progress:[████████░░] 84%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -45,14 +45,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** v1.1 Publish & Document — all phases complete, no phase currently in progress
+**Current focus:** Phase 12 — ship-ponytail-everywhere-and-sota-numerics-plugins-publicly
 
 ## Current Position
 
-Phase: None — v1.1 milestone complete (Phases 5-9, plus inserted 10/10.1/11/11.1)
-Plan: Not started
-Status: Awaiting next milestone or gap-closure phase
-Last activity: 2026-08-17 — Phase 11.1 complete; corrected stale ROADMAP.md tracking for Phase 9 (already shipped as v1.1.1, tracking never updated)
+Phase: 12 (ship-ponytail-everywhere-and-sota-numerics-plugins-publicly) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
+Last activity: 2026-08-17 — Phase 12 execution started
 
 ## Performance Metrics
 
@@ -105,6 +105,7 @@ Last activity: 2026-08-17 — Phase 11.1 complete; corrected stale ROADMAP.md tr
 | Phase 11 P03 | 20min | 3 tasks | 2 files |
 | Phase 11.1 P01 | 12min | 2 tasks | 5 files |
 | Phase 11.1 P02 | 8min | 3 tasks | 5 files |
+| Phase 12 P01 | 18min | 4 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -127,6 +128,7 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase ?]: [Phase 11.1]: beads.enabled shipped default flipped false->true (capability.json 0.2.0); all four beads skills' Step 1 gate inverted to opt-out polarity so a silent project runs beads by default while explicit beads.enabled:false still fully disables it.
 - [Phase ?]: [Phase 11.1]: global-scope installed capability copy (~/.gsd/capabilities/beads/) is a materialized snapshot, not a live read of the source bundle -- must be refreshed via hooks/capability-auto-install.sh (or a fresh SessionStart) after any source bundle edit, same gotcha PROJECT.md already documents for project-scope consent.
 - [Phase ?]: [Phase 11.1]: doc sweep (README, PRIME.md twins, PRD) brought in line with beads.enabled default true; CHANGELOG.md created at repo root keyed to capability.json 0.2.0, stating explicit beads.enabled values in .planning/config.json are unaffected
+- [Phase ?]: [Phase 12]: davdittrich/ponytail-everywhere shipped as standalone public repo (fresh git init, commit 36245fe), proving the stage-outside-tree + fix-relocation-paths + gh-repo-create-push + fresh-clone-verify tracer sequence for Plan 02 to repeat against sota-numerics
 
 ### Pending Todos
 
@@ -174,9 +176,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T14:06:29.045Z
-Stopped at: Phase 12 context gathered
-Resume file: /home/dd/projects/gsd-beads/.planning/phases/12-ship-ponytail-everywhere-and-sota-numerics-plugins-publicly/12-CONTEXT.md
+Last session: 2026-08-17T15:41:36.099Z
+Stopped at: Completed 12-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
