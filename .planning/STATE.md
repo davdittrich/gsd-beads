@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 09
-current_phase_name: beads-content-depth
-status: verifying
-stopped_at: Phase 10 context gathered
-last_updated: "2026-08-16T22:40:47.250Z"
-last_activity: 2026-08-16
-last_activity_desc: Phase 08 execution started
+current_phase: 10
+current_phase_name: ponytail-everywhere-capability-plugin-advisory-only-ladder-d
+status: executing
+stopped_at: Completed 10-01-PLAN.md
+last_updated: "2026-08-17T00:08:38.640Z"
+last_activity: 2026-08-17
+last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 7
   completed_phases: 4
-  total_plans: 12
-  completed_plans: 11
+  total_plans: 14
+  completed_plans: 12
   percent: 57
 ---
 
@@ -24,12 +24,12 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: Phase complete — ready for verification
+status: Ready to execute
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[█████████░] 92%
+progress:[█████████░] 86%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -45,14 +45,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 09 — beads-content-depth
+**Current focus:** Phase 10 — ponytail-everywhere-capability-plugin-advisory-only-ladder-d
 
 ## Current Position
 
-Phase: 09 (beads-content-depth) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
-Last activity: 2026-08-16 — Phase 09 execution started
+Phase: 10 (ponytail-everywhere-capability-plugin-advisory-only-ladder-d) — EXECUTING
+Plan: 2 of 2
+Status: Ready to execute
+Last activity: 2026-08-17 — Phase 10 execution started
 
 ## Performance Metrics
 
@@ -95,6 +95,7 @@ Last activity: 2026-08-16 — Phase 09 execution started
 | Phase 09 P02 | 30min | 3 tasks | 7 files |
 | Phase 09 P03 | 34min | 3 tasks | 9 files |
 | Phase 09 P04 | 42min | 3 tasks | 1 files |
+| Phase 10 P01 | 35min | 2 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -102,6 +103,8 @@ Last activity: 2026-08-16 — Phase 09 execution started
 
 Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone archived to
 `.planning/milestones/v1.0-ROADMAP.md` for phase-level detail). Cleared here at milestone close.
+
+- [Phase ?]: ponytail-everywhere plugin: gsd-tools resolves via CLAUDE_CONFIG_DIR branch (repo-local absent, PATH absent); claude plugin validate . --strict accepted ./ponytail-everywhere source on first try; test harness proves scratch-dir config isolation with zero repo mutation
 
 ### Pending Todos
 
@@ -149,9 +152,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-16T22:40:47.243Z
-Stopped at: Phase 10 context gathered
-Resume file: /home/dd/projects/gsd-beads/.planning/phases/10-ponytail-everywhere-capability-plugin-advisory-only-ladder-d/10-CONTEXT.md
+Last session: 2026-08-17T00:08:38.633Z
+Stopped at: Completed 10-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
