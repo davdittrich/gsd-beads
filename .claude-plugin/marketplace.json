@@ -10,6 +10,11 @@
       "name": "beads-lifecycle",
       "source": "./",
       "description": "Beads issue tracking for gsd-core's plan→execute→verify→ship lifecycle"
+    },
+    {
+      "name": "ponytail-everywhere",
+      "source": "./ponytail-everywhere",
+      "description": "Advisory-only lazy-ladder discipline reminders across gsd's plan/execute/verify/ship lifecycle"
     }
   ]
 }
