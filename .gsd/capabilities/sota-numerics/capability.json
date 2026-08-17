@@ -26,7 +26,52 @@
     }
   },
   "steps": [],
-  "contributions": [],
+  "contributions": [
+    {
+      "point": "plan:pre",
+      "into": "planner",
+      "produces": [],
+      "consumes": [],
+      "fragment": {
+        "path": "fragments/planner-sota.md"
+      },
+      "when": "sota-numerics.enabled",
+      "onError": "skip"
+    },
+    {
+      "point": "execute:wave:pre",
+      "into": "executor",
+      "produces": [],
+      "consumes": [],
+      "fragment": {
+        "path": "fragments/executor-numerics.md"
+      },
+      "when": "sota-numerics.enabled",
+      "onError": "skip"
+    },
+    {
+      "point": "execute:wave:post",
+      "into": "verifier",
+      "produces": [],
+      "consumes": [],
+      "fragment": {
+        "path": "fragments/verifier-precision.md"
+      },
+      "when": "sota-numerics.enabled",
+      "onError": "skip"
+    },
+    {
+      "point": "ship:pre",
+      "into": "orchestrator",
+      "produces": [],
+      "consumes": [],
+      "fragment": {
+        "path": "fragments/ship-precision-advisory.md"
+      },
+      "when": "sota-numerics.enabled",
+      "onError": "skip"
+    }
+  ],
   "gates": [
     {
       "point": "plan:post",
