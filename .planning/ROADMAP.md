@@ -274,12 +274,12 @@ git-tracked and is deliberately kept so, per RESEARCH.md's Runtime State Invento
 mechanism writes to the end user's *global* ledger, a different file.)
 **Depends on:** Phase 10 (needs both `beads`, shipped Phase 6, and `ponytail-everywhere`, shipped
 Phase 10, as concrete targets)
-**Plans:** 1/2 plans executed
+**Plans:** 2/2 plans executed
 
 Plans:
 
 - [x] 10.1-01-PLAN.md — Author the auto-install hook script, wire it into the `beads` plugin's SessionStart, prove it end-to-end with bash smoke tests
-- [ ] 10.1-02-PLAN.md — Vendor the bundle + script copy into `ponytail-everywhere`, add CI byte-parity and release-artifact guards
+- [x] 10.1-02-PLAN.md — Vendor the bundle + script copy into `ponytail-everywhere`, add CI byte-parity and release-artifact guards
 
 ### Phase 11: sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)
 
