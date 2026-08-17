@@ -25,13 +25,13 @@ mk_scratch() {
   local _cfg="config.json"
   mkdir -p "$SCRATCH/$_pdir"
   printf '%s\n' "$1" > "$SCRATCH/$_pdir/$_cfg"
-  cd "$SCRATCH"
+  cd "$SCRATCH" || { echo "FAIL: cd to scratch dir failed"; exit 1; }
 }
 
 run_and_cleanup() {
   # nothing to do beyond removing scratch; kept explicit for readability
   rm -rf "$SCRATCH" 2>/dev/null
-  cd "$REPO_ROOT"
+  cd "$REPO_ROOT" || { echo "FAIL: cd back to repo root failed"; exit 1; }
 }
 
 # --- Case 1: level=lite -> condensed single line, distinct from full banner ---
