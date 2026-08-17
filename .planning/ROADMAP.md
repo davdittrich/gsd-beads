@@ -274,7 +274,7 @@ git-tracked and is deliberately kept so, per RESEARCH.md's Runtime State Invento
 mechanism writes to the end user's *global* ledger, a different file.)
 **Depends on:** Phase 10 (needs both `beads`, shipped Phase 6, and `ponytail-everywhere`, shipped
 Phase 10, as concrete targets)
-**Plans:** 2/2 plans executed
+**Plans:** 2/2 plans complete
 
 Plans:
 
