@@ -351,8 +351,11 @@ marketplace, with the two entries switched from local Directory sources to git-s
 the new repos. See 12-CONTEXT.md for the full decision set (D-01 through D-10).
 **Requirements**: TBD (no requirement IDs defined for this project; traceability is via CONTEXT.md decisions D-01..D-10)
 **Depends on:** Phase 10, Phase 11
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 12 to break down)
+- [ ] 12-01-PLAN.md — Extract `ponytail-everywhere` to its own public repo (TRACER: proves the whole extraction sequence end-to-end)
+- [ ] 12-02-PLAN.md — Extract `sota-numerics` to its own public repo, repeating the proven sequence
+- [ ] 12-03-PLAN.md — Repoint `marketplace.json` at both new repos and run the D-10 install/uninstall round trip
+- [ ] 12-04-PLAN.md — Remove both subdirectories from `gsd-beads`, repair the orphaned CI/release/comment references, push and verify
