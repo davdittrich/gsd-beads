@@ -3,6 +3,8 @@ set -u
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
+bash "$PLUGIN_ROOT/hooks/capability-auto-install.sh" ponytail || true
+
 if [ -f "$PLUGIN_ROOT/hooks/gsd-tools.sh" ]; then
   . "$PLUGIN_ROOT/hooks/gsd-tools.sh"
   ENABLED="$(gsd_tools config-get ponytail.enabled --default true 2>/dev/null)"; ENABLED_STATUS=$?
