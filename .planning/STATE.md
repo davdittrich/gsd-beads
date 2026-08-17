@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 10
-current_phase_name: ponytail-everywhere-capability-plugin-advisory-only-ladder-d
+current_phase_name: repro-test
 status: executing
-stopped_at: Completed 10-01-PLAN.md
-last_updated: "2026-08-17T00:08:38.640Z"
+stopped_at: Completed 10-02-PLAN.md
+last_updated: "2026-08-17T00:37:05.298Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10 execution started
 progress:
   total_phases: 7
-  completed_phases: 4
+  completed_phases: 5
   total_plans: 14
-  completed_plans: 12
-  percent: 57
+  completed_plans: 13
+  percent: 71
 ---
 
 Total Phases: 4
@@ -29,7 +29,7 @@ stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[█████████░] 86%
+progress:[█████████░] 93%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -45,14 +45,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 10 — ponytail-everywhere-capability-plugin-advisory-only-ladder-d
+**Current focus:** Phase 10 — repro-test
 
 ## Current Position
 
-Phase: 10 (ponytail-everywhere-capability-plugin-advisory-only-ladder-d) — EXECUTING
+Phase: 10 (repro-test) — EXECUTING
 Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-08-17 — Phase 10 execution started
+Last activity: 2026-08-17 — Phase 10 execution resumed (wave continue)
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Last activity: 2026-08-17 — Phase 10 execution started
 | Phase 09 P03 | 34min | 3 tasks | 9 files |
 | Phase 09 P04 | 42min | 3 tasks | 1 files |
 | Phase 10 P01 | 35min | 2 tasks | 6 files |
+| Phase 10 P02 | ~20min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -105,6 +106,8 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 `.planning/milestones/v1.0-ROADMAP.md` for phase-level detail). Cleared here at milestone close.
 
 - [Phase ?]: ponytail-everywhere plugin: gsd-tools resolves via CLAUDE_CONFIG_DIR branch (repo-local absent, PATH absent); claude plugin validate . --strict accepted ./ponytail-everywhere source on first try; test harness proves scratch-dir config isolation with zero repo mutation
+- [Phase ?]: Phase 10 Plan 02: relocated the verifier contribution from verify:pre to execute:wave:post — gsd-core's Loop Host Contract restricts verify:pre/post's contribution.into to [orchestrator] only, 'verifier' is only valid within the execute step's points
+- [Phase ?]: Phase 10 Plan 02: project-scope capability consent binds to realpath(projectRoot) (#1459) — a --cwd symlink mirror needs its own GSD_HOME-scoped consent record to test the ponytail.enabled toggle, not just matching bundle content
 
 ### Pending Todos
 
@@ -152,8 +155,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T00:08:38.633Z
-Stopped at: Completed 10-01-PLAN.md
+Last session: 2026-08-17T00:37:05.292Z
+Stopped at: Completed 10-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
