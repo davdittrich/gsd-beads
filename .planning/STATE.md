@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 11
-current_phase_name: "capability auto-install: SessionStart-triggered user-scope consent, applied to beads and ponytail-everywhere, reused by sota-numerics when planned"
-status: planning
-stopped_at: Phase 10.1 context gathered
-last_updated: "2026-08-17T07:53:56.893Z"
+current_phase: 10.1
+current_phase_name: capability-auto-install-sessionstart-triggered-user-scope-co
+status: executing
+stopped_at: Completed 10.1-01-PLAN.md
+last_updated: "2026-08-17T08:46:47.488Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
   total_phases: 8
   completed_phases: 5
-  total_plans: 14
-  completed_plans: 13
+  total_plans: 16
+  completed_plans: 14
   percent: 63
 ---
 
@@ -24,12 +24,12 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: Ready to plan
+status: Ready to execute
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[█████████░] 93%
+progress:[█████████░] 88%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -45,14 +45,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 11 — sota-numerics capability plugin
+**Current focus:** Phase 10.1 — capability-auto-install-sessionstart-triggered-user-scope-co
 
 ## Current Position
 
-Phase: 11 — sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)
-Plan: Not started
+Phase: 10.1 (capability-auto-install-sessionstart-triggered-user-scope-co) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-08-17 — Phase 10 complete, transitioned to Phase 11
+Last activity: 2026-08-17 — Phase 10.1 execution started
 
 ## Performance Metrics
 
@@ -96,6 +96,7 @@ Last activity: 2026-08-17 — Phase 10 complete, transitioned to Phase 11
 | Phase 09 P04 | 42min | 3 tasks | 1 files |
 | Phase 10 P01 | 35min | 2 tasks | 6 files |
 | Phase 10 P02 | ~20min | 3 tasks | 6 files |
+| Phase 10.1 P01 | 15min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -108,6 +109,7 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase 10]: Plan 02 relocated the verifier contribution from verify:pre to execute:wave:post — gsd-core's Loop Host Contract restricts verify:pre/post's contribution.into to [orchestrator] only, 'verifier' is only valid within the execute step's points
 - [Phase 10]: Plan 02 — project-scope capability consent binds to realpath(projectRoot) (#1459) — a --cwd symlink mirror needs its own GSD_HOME-scoped consent record to test the ponytail.enabled toggle, not just matching bundle content
 - [Phase 10]: Code review found a real, reproduced critical bug (CR-01) — ponytail-everywhere/hooks/gsd-tools.sh built its node invocation as an unquoted string, breaking on any repo/HOME path containing a space and silently fail-opening to enabled:true; fixed via --fix (array-based invocation) with a genuine regression test
+- [Phase ?]: Tracer feedback gate (Task 1) accepted as-is by user at checkpoint; Task 2 plugin-root parity case compares two independent first-install runs (separate GSD_HOME sidecars) for byte-identity rather than first-vs-second.
 
 ### Pending Todos
 
@@ -155,9 +157,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T07:53:56.885Z
-Stopped at: Phase 10.1 context gathered
-Resume file: /home/dd/projects/gsd-beads/.planning/phases/10.1-capability-auto-install-sessionstart-triggered-user-scope-co/10.1-CONTEXT.md
+Last session: 2026-08-17T08:46:47.481Z
+Stopped at: Completed 10.1-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
