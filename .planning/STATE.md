@@ -4,17 +4,17 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 12
 current_phase_name: ship-ponytail-everywhere-and-sota-numerics-plugins-publicly
-status: executing
-stopped_at: Completed 12-03-PLAN.md
-last_updated: "2026-08-17T16:37:03.654Z"
+status: verifying
+stopped_at: Completed 12-04-PLAN.md
+last_updated: "2026-08-17T16:42:46.550Z"
 last_activity: 2026-08-17
 last_activity_desc: All v1.1 phases (5-9, plus inserted 10/10.1/11/11.1) verified complete; ROADMAP.md tracking corrected — Phase 9's Progress row and milestone checkbox were stale (query-blocked by an upstream gsd-core plan-scan bug misclassifying 09-PLAN-CHECK.md as an unsummarized plan)
 progress:
   total_phases: 10
-  completed_phases: 8
+  completed_phases: 9
   total_plans: 25
-  completed_plans: 23
-  percent: 80
+  completed_plans: 24
+  percent: 90
 ---
 
 Total Phases: 3
@@ -24,12 +24,12 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: Ready to execute
+status: Phase complete — ready for verification
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[█████████░] 92%
+progress:[██████████] 96%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -51,7 +51,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 Phase: 12 (ship-ponytail-everywhere-and-sota-numerics-plugins-publicly) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Last activity: 2026-08-17 — Phase 12 execution started
 
 ## Performance Metrics
@@ -108,6 +108,7 @@ Last activity: 2026-08-17 — Phase 12 execution started
 | Phase 12 P01 | 18min | 4 tasks | 6 files |
 | Phase 12 P02 | ~15min | 4 tasks | 7 files |
 | Phase 12 P03 | ~20min | 2 tasks | 1 files |
+| Phase 12 P04 | 12min | 2 tasks | 36 files |
 
 ## Accumulated Context
 
@@ -133,6 +134,7 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase ?]: [Phase 12]: davdittrich/ponytail-everywhere shipped as standalone public repo (fresh git init, commit 36245fe), proving the stage-outside-tree + fix-relocation-paths + gh-repo-create-push + fresh-clone-verify tracer sequence for Plan 02 to repeat against sota-numerics
 - [Phase ?]: [Phase 12]: davdittrich/sota-numerics shipped as standalone public repo (fresh git init, commit 31608f2), proving the 12-01 tracer sequence generalizes to a plugin with a blocking plan:post gate and a Python unittest suite (19 tests); test_check_alternatives.py's PROJECT_ROOT walk-up required a tests/.planning/.gitkeep placeholder in the staging tree, file itself left byte-identical
 - [Phase ?]: [Phase 12]: marketplace.json repointed to davdittrich/ponytail-everywhere and davdittrich/sota-numerics via github source objects (D-02); D-10 round trip proven against scratch gsd-beads-verify marketplace before commit cb4d49d, live gsd-beads marketplace and beads-lifecycle install undisturbed
+- [Phase ?]: [Phase 12]: ponytail-everywhere and sota-numerics subdirectories removed from gsd-beads (D-04); ci.yml/release.yml repaired in same commit (52b53d2); 95 accumulated commits pushed to origin/main (fast-forward, origin was stale since phase 09); both plugins proven install/uninstall via real davdittrich/gsd-beads marketplace, beads-lifecycle unaffected, CI green, v1.2.0 tag untouched
 
 ### Pending Todos
 
@@ -180,8 +182,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T16:37:03.646Z
-Stopped at: Completed 12-03-PLAN.md
+Last session: 2026-08-17T16:42:46.542Z
+Stopped at: Completed 12-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
