@@ -254,32 +254,36 @@ Plans:
 - [x] 10-01-PLAN.md — `ponytail-everywhere` plugin: dual-event hooks, config-driven level/role reminder script, marketplace entry
 - [x] 10-02-PLAN.md — `ponytail` capability: config keys, three stage-tailored contributions, consent gate, `plan:pre` reach proof
 
+### Phase 10.1: capability auto-install (INSERTED)
+
+**Goal:** A shared SessionStart-triggered mechanism grants `capability install --scope user --yes`
+automatically for a capability the first time it's needed — no manual command required. Applied
+to both capabilities that exist today: `beads` (Phase 6) and `ponytail` (Phase 10). Must close
+the silent-invalidation gap discovered debugging Phase 10: `.gsd-capabilities.json` isn't
+git-tracked, so a bundle edit after consent (or a fresh checkout/session) currently degrades a
+capability with zero visible warning — detect-and-re-grant, not grant-once. Reverses Phase 6's
+T-06-01 decision (previously "do not build it," decided by the planner without user sign-off,
+never actually put to the user — see PROJECT.md Key Decisions, corrected 2026-08-17). The
+resulting pattern is what Phase 11 (sota-numerics) should reuse from the start rather than
+retrofit.
+**Requirements**: TBD (revisits PUB-03 disposition — CB-3 human-gated consent tradeoff explicitly
+re-decided by user 2026-08-17: auto-install accepted at user scope)
+**Depends on:** Phase 10 (needs both `beads`, shipped Phase 6, and `ponytail-everywhere`, shipped
+Phase 10, as concrete targets)
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 10.1 to break down)
+
 ### Phase 11: sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)
 
-**Goal:** [To be planned]
+**Goal:** [To be planned] — when planned, reuse Phase 10.1's auto-install mechanism for this
+capability's own consent from the start rather than retrofitting it later.
 **Requirements**: TBD
-**Depends on:** Phase 10
+**Depends on:** Phase 10, Phase 10.1
 **Plans:** 0 plans
 
 Plans:
 
 - [ ] TBD (run /gsd-plan-phase 11 to break down)
-
-### Phase 12: beads auto-install
-
-**Goal:** On first `/plugin install beads@gsd-beads` (or first session in a project without a
-consent record), a SessionStart-triggered mechanism grants `capability install --scope user
---yes` for `beads` automatically — no manual command required. Reverses Phase 6's T-06-01
-decision (previously: "do not build it," decided by the planner without user sign-off, never
-actually put to the user). Must also close the silent-invalidation gap discovered in Phase 10:
-`.gsd-capabilities.json` isn't git-tracked, so a bundle edit after consent (or simply starting a
-fresh checkout/session) currently degrades the capability with zero visible warning — the new
-mechanism must detect and re-grant, not just grant once.
-**Requirements**: TBD (revisits PUB-03 disposition — CB-3 human-gated consent tradeoff explicitly
-re-decided by user 2026-08-17, see PROJECT.md Key Decisions)
-**Depends on:** Phase 6 (Runtime Integration — beads capability + SessionStart hook shipped there)
-**Plans:** 0 plans
-
-Plans:
-
-- [ ] TBD (run /gsd-plan-phase 12 to break down)

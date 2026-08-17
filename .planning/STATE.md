@@ -2,13 +2,13 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 11
-current_phase_name: "sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)"
+current_phase: 10.1
+current_phase_name: "capability auto-install: SessionStart-triggered user-scope consent, applied to beads and ponytail-everywhere, reused by sota-numerics when planned"
 status: planning
 stopped_at: Completed 10-02-PLAN.md
-last_updated: "2026-08-17T01:44:57.583Z"
+last_updated: "2026-08-17T07:40:00Z"
 last_activity: 2026-08-17
-last_activity_desc: Phase 10 execution started
+last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
   total_phases: 7
   completed_phases: 5
@@ -17,7 +17,7 @@ progress:
   percent: 71
 ---
 
-Total Phases: 4
+Total Phases: 3
 ---
 gsd_state_version: 1.0
 milestone: v1.1
