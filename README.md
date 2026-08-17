@@ -51,11 +51,12 @@ claude plugin install beads-lifecycle@gsd-beads -y
 
 ### Example workflow
 
-The capability is off until `beads.enabled` is set `true` in the project's
+The capability is on by default: `beads.enabled` defaults to `true`, so a fresh install runs
+with issue tracking on. Opt out by setting `beads.enabled: false` in the project's
 `.planning/config.json` — every step below checks that gate first and no-ops with a visible
-notice otherwise.
+notice when a project has opted out.
 
-With it on, gsd-core's own lifecycle commands drive `bd` state directly:
+gsd-core's own lifecycle commands drive `bd` state directly:
 
 1. `/gsd-plan-phase` — before planning, `beads-recall` queries existing open issues so
    already-ticketed work isn't planned twice; after the plan is written, `beads-sync` creates
