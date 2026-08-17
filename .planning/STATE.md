@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.1
 milestone_name: Publish & Document
-current_phase: 11
+current_phase: 11.1
+current_phase_name: beads-enabled-default-flip-to-true
 status: executing
-stopped_at: Phase 11.1 context gathered
-last_updated: "2026-08-17T12:52:24.090Z"
+stopped_at: Completed 11.1-01-PLAN.md
+last_updated: "2026-08-17T13:00:34.132Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
   total_phases: 9
   completed_phases: 7
   total_plans: 21
-  completed_plans: 18
+  completed_plans: 19
   percent: 78
-current_phase_name: sota-numerics-capability-plugin-sota-efficiency-numerical-st
 ---
 
 Total Phases: 3
@@ -29,7 +29,7 @@ stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[██████████] 95%
+progress:[█████████░] 90%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -45,14 +45,14 @@ See: .planning/PROJECT.md (updated 2026-08-15)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 11 — sota-numerics-capability-plugin-sota-efficiency-numerical-st
+**Current focus:** Phase 11.1 — beads-enabled-default-flip-to-true
 
 ## Current Position
 
-Phase: 11 — COMPLETE
-Plan: 3 of 3
+Phase: 11.1 (beads-enabled-default-flip-to-true) — EXECUTING
+Plan: 2 of 2
 Status: Ready to execute
-Last activity: 2026-08-17 — Phase 11 marked complete
+Last activity: 2026-08-17 — Phase 11.1 execution started
 
 ## Performance Metrics
 
@@ -102,6 +102,7 @@ Last activity: 2026-08-17 — Phase 11 marked complete
 | Phase 11 P01 | 35min | 3 tasks | 20 files |
 | Phase 11 P02 | 30min | 2 tasks | 8 files |
 | Phase 11 P03 | 20min | 3 tasks | 2 files |
+| Phase 11.1 P01 | 12min | 2 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -121,6 +122,8 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase ?]: [Phase 11]: sota-numerics D-12 four-point advisory spread wired -- planner/executor/verifier/orchestrator each get a distinct fragment gated solely on sota-numerics.enabled, no configValues (D-11); ship:pre contribution's into must be orchestrator per the loop-host contract's ship-step agentRoles
 - [Phase ?]: [Phase 11]: D-08 resolved mechanical (Task 1 checkpoint, coordinator decision) -- check-alternatives.py's deterministic placeholder/TODO-TBD rejection stands in for gsd-plan-checker's LLM-mediated citation-plausibility spot-check; no gsd-core patch, no checker fragment, deferred pending a D-04 dogfood false-negative signal
 - [Phase ?]: [Phase 11]: sota-numerics NOTES.md re-verified the plan-phase.md 13a-13e step ordering live (not from RESEARCH memory) -- unchanged: plan:post gate still fires after commit and STATE.md 'Ready to execute', checker revision loop remains the primary enforcement point
+- [Phase ?]: [Phase 11.1]: beads.enabled shipped default flipped false->true (capability.json 0.2.0); all four beads skills' Step 1 gate inverted to opt-out polarity so a silent project runs beads by default while explicit beads.enabled:false still fully disables it.
+- [Phase ?]: [Phase 11.1]: global-scope installed capability copy (~/.gsd/capabilities/beads/) is a materialized snapshot, not a live read of the source bundle -- must be refreshed via hooks/capability-auto-install.sh (or a fresh SessionStart) after any source bundle edit, same gotcha PROJECT.md already documents for project-scope consent.
 
 ### Pending Todos
 
@@ -168,9 +171,9 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T12:21:08.031Z
-Stopped at: Phase 11.1 context gathered
-Resume file: .planning/phases/11.1-beads-enabled-default-flip-to-true/11.1-CONTEXT.md
+Last session: 2026-08-17T13:00:34.124Z
+Stopped at: Completed 11.1-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
