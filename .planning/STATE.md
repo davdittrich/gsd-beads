@@ -4,16 +4,16 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 11
 current_phase_name: sota-numerics-capability-plugin-sota-efficiency-numerical-st
-status: executing
-stopped_at: Completed 11-01-PLAN.md
-last_updated: "2026-08-17T11:09:28.274Z"
+status: verifying
+stopped_at: Completed 11-02-PLAN.md
+last_updated: "2026-08-17T11:15:38.847Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
   total_phases: 9
   completed_phases: 6
   total_plans: 19
-  completed_plans: 16
+  completed_plans: 17
   percent: 67
 ---
 
@@ -24,12 +24,12 @@ milestone: v1.1
 milestone_name: Publish & Document
 current_phase: 08
 current_phase_name: readme-release-ship-gate
-status: Ready to execute
+status: Phase complete — ready for verification
 stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[████████░░] 84%
+progress:[█████████░] 89%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -50,8 +50,8 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 11 (sota-numerics-capability-plugin-sota-efficiency-numerical-st) — EXECUTING
-Plan: 2 of 3
-Status: Ready to execute
+Plan: 3 of 3
+Status: Phase complete — ready for verification
 Last activity: 2026-08-17 — Phase 11 execution started
 
 ## Performance Metrics
@@ -100,6 +100,7 @@ Last activity: 2026-08-17 — Phase 11 execution started
 | Phase 10.1 P01 | 15min | 2 tasks | 3 files |
 | Phase 10.1 P02 | 12min | 3 tasks | 9 files |
 | Phase 11 P01 | 35min | 3 tasks | 20 files |
+| Phase 11 P02 | 30min | 2 tasks | 8 files |
 
 ## Accumulated Context
 
@@ -116,6 +117,7 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase ?]: Real marketplace install performed directly to close RESEARCH Assumption A2 (subdirectory-plugin cache layout confirmed); macOS shasum fallback (A3) accepted as documented gap, no macOS hardware available.
 - [Phase ?]: [Phase 11]: sota-numerics plan:post gate uses onError: halt (deliberate divergence from every other gate in this repo) and resolves its script path via $(git rev-parse --show-toplevel), not ${CLAUDE_PLUGIN_ROOT} -- the gate subprocess's environment is unverified
 - [Phase ?]: [Phase 11]: check-alternatives.py's validate_plan reports only the first offending alternative entry per plan (fail-fast), not every entry -- the gate is a structural backstop, the checker's pre-commit revision loop is the primary enforcement point
+- [Phase ?]: [Phase 11]: sota-numerics D-12 four-point advisory spread wired -- planner/executor/verifier/orchestrator each get a distinct fragment gated solely on sota-numerics.enabled, no configValues (D-11); ship:pre contribution's into must be orchestrator per the loop-host contract's ship-step agentRoles
 
 ### Pending Todos
 
@@ -163,8 +165,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T11:09:28.267Z
-Stopped at: Completed 11-01-PLAN.md
+Last session: 2026-08-17T11:15:38.840Z
+Stopped at: Completed 11-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
