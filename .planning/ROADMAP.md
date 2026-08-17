@@ -266,15 +266,20 @@ T-06-01 decision (previously "do not build it," decided by the planner without u
 never actually put to the user — see PROJECT.md Key Decisions, corrected 2026-08-17). The
 resulting pattern is what Phase 11 (sota-numerics) should reuse from the start rather than
 retrofit.
-**Requirements**: TBD (revisits PUB-03 disposition — CB-3 human-gated consent tradeoff explicitly
-re-decided by user 2026-08-17: auto-install accepted at user scope)
+**Requirements**: CAP-01, CAP-02, CAP-03, CAP-04, CAP-05, CAP-06, CAP-07 (minted at planning
+2026-08-17; revisits PUB-03 disposition — CB-3 human-gated consent tradeoff explicitly
+re-decided by user 2026-08-17: auto-install accepted at user scope. Note: the goal text above
+says `.gsd-capabilities.json` "isn't git-tracked" — that is stale; this repo's root copy IS
+git-tracked and is deliberately kept so, per RESEARCH.md's Runtime State Inventory. The
+mechanism writes to the end user's *global* ledger, a different file.)
 **Depends on:** Phase 10 (needs both `beads`, shipped Phase 6, and `ponytail-everywhere`, shipped
 Phase 10, as concrete targets)
-**Plans:** 0 plans
+**Plans:** 2 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 10.1 to break down)
+- [ ] 10.1-01-PLAN.md — Author the auto-install hook script, wire it into the `beads` plugin's SessionStart, prove it end-to-end with bash smoke tests
+- [ ] 10.1-02-PLAN.md — Vendor the bundle + script copy into `ponytail-everywhere`, add CI byte-parity and release-artifact guards
 
 ### Phase 11: sota-numerics capability plugin: SOTA/efficiency/numerical-stability steering with blocking plan:post Alternatives-Considered gate (SessionStart hook + plan/execute/verify/ship contribution fragments)
 
