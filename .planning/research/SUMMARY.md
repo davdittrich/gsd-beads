@@ -1,6 +1,6 @@
 # Project Research Summary
 
-**Project:** gsd-beads milestone 10.2 — three new gsd-core capability plugins
+**Project:** gsd-beads milestone v1.2 — three new gsd-core capability plugins
 **Domain:** gsd-core capability plugin architecture (pr-workflow, markdown-linting, get-available-resources)
 **Researched:** 2026-08-18
 **Confidence:** HIGH
@@ -84,54 +84,99 @@ All three capabilities follow gsd-core's Loop Host Contract. Gate predicates sup
 
 Based on research, three capabilities share common dogfood-build phases (sequential, not parallel) followed by public extraction. Ordering driven by: (1) consent-hash pitfall requires re-consent after edits; (2) ship:pre gate dispatch pitfall requires explicit smoke-test; (3) external-tool degradation pitfall requires testing on clean machines.
 
-### Phase 1: Dogfood pr-workflow capability
+**Correction (post-synthesis reconciliation):** the first draft of this section ordered pr-workflow
+first, calling its `command-exit-zero` gate "simplest." Both ARCHITECTURE.md and FEATURES.md
+independently converge on the opposite order — `command-exit-zero` is a predicate kind **no
+shipped capability uses yet** (`beads`/`sota-numerics` both use `artifact-frontmatter-equals`),
+making it the *less* proven mechanism, and `pr-workflow` carries the only genuinely new external
+runtime dependency (`gh`, network-reachable). Reordered below to match the converging source
+evidence.
 
-**Rationale:** Simplest gate pattern (direct command-exit-zero), simplest validation. Serves as proof-of-concept for gate dispatch verification and consent re-grant cycle.
+### Phase 1: Dogfood get-available-resources capability
 
-**Delivers:** `.gsd/capabilities/pr-workflow/` with capability.json, ship:pre gate (command-exit-zero), ship:post action (draft PR), check-pr-status.sh script, live verification (smoke-test gates + re-consent).
+**Rationale:** Zero gates — fragment-only, structurally identical to the already-shipped
+`ponytail` capability (Pattern 1). No new predicate kind, no external network dependency, no
+consent/gate-dispatch risk. Lowest-risk phase; validates the three-capability build discipline
+(bundle hashing, consent re-grant) before any gate is involved.
 
-**Implements from ARCHITECTURE:** Pattern 2 (direct command-exit-zero gate), command-exit-zero predicate kind.
-
-**Avoids:** Pitfall 1 (explicit smoke-test), Pitfall 4 (shutil.which + gh auth check).
-
-### Phase 2: Dogfood markdown-linting capability
-
-**Rationale:** Depends on gate dispatch proven by Phase 1. Generated-artifact gate pattern (moderate complexity) requires both step and gate working. Needs corpus validation against `.planning/` tree.
-
-**Delivers:** `.gsd/capabilities/markdown-linting/` with capability.json, .markdownlint-cli2.jsonc (curated rules: MD001, MD003, MD009, MD012, MD022, MD024, MD040; disable MD013/MD033/MD041), verify:post step regenerating LINT-REPORT.md, ship:pre gate (artifact-frontmatter-equals), lint-report.sh script, live verification (corpus validation + re-consent).
-
-**Implements from ARCHITECTURE:** Pattern 3 (generated-artifact gate mirroring beads), artifact-frontmatter-equals predicate.
-
-**Avoids:** Pitfall 1 (smoke-test with LINT-REPORT.md), Pitfall 2 (re-consent after config changes), Pitfall 4 (npx + shutil.which check), Pitfall 5 (explicit paths-with-spaces tests).
-
-### Phase 3: Dogfood get-available-resources capability
-
-**Rationale:** No gate (Pitfall 1 doesn't apply), no generated artifact (Pitfall 2 risk minimized). Simplest architecture but hardest runtime correctness. Test on clean machine with container restrictions.
-
-**Delivers:** `.gsd/capabilities/get-available-resources/` with capability.json (plan:pre, execute:wave:pre contributions[], zero gates), fragments (structured recommendations, hedge "unknown"), detect-resources.py (CPU/disk/memory/GPU detection with "unknown" vs "0" distinction), live verification (clean-machine container test).
+**Delivers:** `.gsd/capabilities/get-available-resources/` with capability.json (`plan:pre`,
+`execute:wave:pre` contributions[], zero gates), fragments (structured recommendations, hedge
+"unknown"), detect-resources.py (CPU/disk/memory/GPU detection, stdlib-only per STACK.md —
+`psutil` explicitly dropped, distinguishes "0" from "unknown"), live verification (clean-machine
++ container test).
 
 **Implements from ARCHITECTURE:** Pattern 1 (fragment-only, zero-gate, mirroring ponytail).
 
-**Avoids:** Pitfall 4 (graceful probe failure → "unknown"), Pitfall 6 (JSON distinguishes "0" from "unknown"; fragment hedging; sandboxed environment testing).
+**Avoids:** Pitfall 4 (graceful probe failure → "unknown"), Pitfall 6 (JSON distinguishes "0"
+from "unknown"; fragment hedging; sandboxed environment testing).
+
+### Phase 2: Dogfood markdown-linting capability
+
+**Rationale:** Reuses `beads`' own proven gate mechanism byte-for-byte — `artifact-frontmatter-equals`
+against a generated `LINT-REPORT.md`, mirroring `BEADS.md`. This is the *proven* gate pattern
+(shipped twice already: `beads`, and `sota-numerics`'s `plan:post` gate), so it validates the
+generic `ship:pre` dispatch machinery (Pitfall 1) using a mechanism with zero open questions,
+before Phase 3 attempts a genuinely new predicate kind.
+
+**Delivers:** `.gsd/capabilities/markdown-linting/` with capability.json,
+`.markdownlint-cli2.jsonc` (curated rules: MD001, MD003, MD009, MD012, MD022, MD024, MD040;
+disable MD013/MD033/MD041 per FEATURES.md), `verify:post` step regenerating `LINT-REPORT.md`,
+`ship:pre` gate (`artifact-frontmatter-equals`, advisory-default per FEATURES.md — no comparable
+tool defaults to hard-blocking), lint-report.sh script, live verification (corpus validation
+against this repo's own `.planning/` tree + re-consent).
+
+**Implements from ARCHITECTURE:** Pattern 3 (generated-artifact gate mirroring beads),
+`artifact-frontmatter-equals` predicate.
+
+**Avoids:** Pitfall 1 (smoke-test with LINT-REPORT.md — the FIRST live proof the generic
+`ship:pre` dispatch actually fires for a capId other than `security`/`broken-windows`, since
+`beads`'s own gate predates and never tested that generalization), Pitfall 2 (re-consent after
+config changes), Pitfall 4 (npx + shutil.which check), Pitfall 5 (explicit paths-with-spaces
+tests).
+
+### Phase 3: Dogfood pr-workflow capability
+
+**Rationale:** Highest-risk phase, deliberately last: introduces the one genuinely new predicate
+kind (`command-exit-zero`, unused by any shipped capability) AND the one genuinely new
+network-dependent external tool (`gh`). Benefits from Phase 1's proven bundle-consent discipline
+and Phase 2's proven generic-gate-dispatch baseline to diff against if something breaks.
+
+**Delivers:** `.gsd/capabilities/pr-workflow/` with capability.json, `ship:pre` gate
+(`command-exit-zero` running `gh pr checks`, tri-state pass/pending/fail per STACK.md's
+`bucket`-field finding — block on both pending and failing), `ship:post` action (draft PR,
+opt-in only, never auto-created per FEATURES.md), check-pr-status.sh script (`shutil.which("gh")`
++ `gh auth status` guard, B6 fail-open pattern), live verification (real PR against this repo).
+
+**Implements from ARCHITECTURE:** Pattern 2 (direct `command-exit-zero` gate) — no intermediate
+generated artifact required, unlike markdown-linting, since `command-exit-zero` can call `gh`
+directly and surface its own stdout/stderr as the gate message.
+
+**Avoids:** Pitfall 1 (explicit smoke-test, now against a second predicate kind), Pitfall 4
+(`shutil.which` + `gh auth` check).
 
 ### Phase Ordering Rationale
 
-- **Sequential, not parallel:** Consent-hash pitfall (Pitfall 2) and gate dispatch pitfall (Pitfall 1) require re-consent and live smoke-test, which serialize verification.
-- **pr-workflow first:** Simplest gate pattern, clearest success criteria. Proves gate dispatch and consent machinery before Phase 2.
-- **markdown-linting second:** Depends on Phase 1's gate dispatch; introduces generated-artifact pattern; requires corpus validation.
-- **get-available-resources third:** Zero gate (independent of Pitfall 1), pure fragment (independent of gate machinery), but requires hardest validation (sandboxed hardware detection). Coming last does not block pr-workflow/markdown-linting shipping if resource validation uncovers iteration needs.
+- **Sequential, not parallel:** Consent-hash pitfall (Pitfall 2) and gate dispatch pitfall
+  (Pitfall 1) require re-consent and live smoke-test, which serialize verification regardless of
+  which capability goes first.
+- **get-available-resources first:** Zero gate, zero new predicate kind, zero network dependency —
+  validates the shared build/consent discipline at minimum risk.
+- **markdown-linting second:** Proves the generic `ship:pre` dispatch fires for a non-`beads`
+  capId using the one gate mechanism (`artifact-frontmatter-equals`) already shipped twice.
+- **pr-workflow third:** Carries both open risks (new predicate kind, network-dependent tool) —
+  ships last so it inherits a proven dispatch baseline to diff against, per ARCHITECTURE.md and
+  FEATURES.md's independently converging recommendation.
 
 ### Research Flags
 
 Phases likely needing deeper research:
-- **Phase 1:** gate-dispatch patching status upstream — verify gsd-core#3559 merge status before kickoff
-- **Phase 2:** `.markdownlint-cli2.jsonc` rule validation against existing `.planning/` corpus (MEDIUM confidence; likely needs one iteration)
-- **Phase 3:** GPU detection cross-platform correctness under CI/container restrictions (needs sandboxed test, currently testable only on author's machine)
+- **Phase 3 (pr-workflow):** gate-dispatch patching status upstream — verify gsd-core#3559 merge status before kickoff; `command-exit-zero` predicate kind has no prior shipped example to copy
+- **Phase 2 (markdown-linting):** `.markdownlint-cli2.jsonc` rule validation against existing `.planning/` corpus (MEDIUM confidence; likely needs one iteration)
+- **Phase 1 (get-available-resources):** GPU detection cross-platform correctness under CI/container restrictions (needs sandboxed test, currently testable only on author's machine)
 
 Phases with standard patterns (skip research):
-- **Phase 1:** command-exit-zero proven by sota-numerics; gate evaluator established; success criteria objective
-- **Phase 2:** artifact-frontmatter-equals directly mirrors beads; capability.json structure is standard
-- **Phase 3:** fragment contribution mirrors ponytail; zero gates/steps means no edge cases
+- **Phase 2 (markdown-linting):** `artifact-frontmatter-equals` directly mirrors beads; capability.json structure is standard
+- **Phase 1 (get-available-resources):** fragment contribution mirrors ponytail; zero gates/steps means no edge cases
 
 ## Confidence Assessment
 
