@@ -333,6 +333,10 @@ surface, and a new repo-root CHANGELOG.
 **Plans:** 2 plans
 
 Plans:
+**Wave 1**
 
 - [ ] 11.1-01-PLAN.md — Flip the shipped default to `true` (capability.json v0.2.0) and invert the four beads skills' Step 1 config gates to opt-out polarity
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 11.1-02-PLAN.md — Sweep the live docs (README, both PRIME.md twins, PRD schema) to the new default and create CHANGELOG.md
