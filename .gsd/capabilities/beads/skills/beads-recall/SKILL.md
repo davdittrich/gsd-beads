@@ -24,8 +24,8 @@ Then proceed to Step 1.
 Check whether the beads capability is enabled by reading `.planning/config.json` directly with the Read tool.
 
 1. Read `.planning/config.json` with the Read tool.
-2. If the file does not exist, or `config.beads` is absent, or `config.beads.enabled !== true`: display the disabled message and **STOP**.
-3. Otherwise proceed to Step 2.
+2. If the file exists, `config.beads` is present, and `config.beads.enabled` is explicitly the boolean `false`: display the disabled message and **STOP**.
+3. Otherwise -- the file is missing, `config.beads` is absent, or `config.beads` is present with no `enabled` key -- fall through to the shipped default (`beads.enabled: true` in `capability.json`) and proceed to Step 2.
 
 **Disabled message:**
 
