@@ -5,16 +5,16 @@ milestone_name: Publish & Document
 current_phase: 11
 current_phase_name: sota-numerics-capability-plugin-sota-efficiency-numerical-st
 status: verifying
-stopped_at: Completed 11-02-PLAN.md
-last_updated: "2026-08-17T11:15:38.847Z"
+stopped_at: Completed 11-03-PLAN.md
+last_updated: "2026-08-17T11:42:27.876Z"
 last_activity: 2026-08-17
 last_activity_desc: Phase 10.1 inserted (capability auto-install) ahead of Phase 11
 progress:
   total_phases: 9
-  completed_phases: 6
+  completed_phases: 7
   total_plans: 19
-  completed_plans: 17
-  percent: 67
+  completed_plans: 18
+  percent: 78
 ---
 
 Total Phases: 3
@@ -29,7 +29,7 @@ stopped_at: Phase 8 context gathered
 last_updated: "2026-08-16T15:30:06.762Z"
 last_activity: 2026-08-16
 last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[█████████░] 89%
+progress:[██████████] 95%
   total_phases: 4
   completed_phases: 3
   total_plans: 6
@@ -101,6 +101,7 @@ Last activity: 2026-08-17 — Phase 11 execution started
 | Phase 10.1 P02 | 12min | 3 tasks | 9 files |
 | Phase 11 P01 | 35min | 3 tasks | 20 files |
 | Phase 11 P02 | 30min | 2 tasks | 8 files |
+| Phase 11 P03 | 20min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -118,6 +119,8 @@ Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone arch
 - [Phase ?]: [Phase 11]: sota-numerics plan:post gate uses onError: halt (deliberate divergence from every other gate in this repo) and resolves its script path via $(git rev-parse --show-toplevel), not ${CLAUDE_PLUGIN_ROOT} -- the gate subprocess's environment is unverified
 - [Phase ?]: [Phase 11]: check-alternatives.py's validate_plan reports only the first offending alternative entry per plan (fail-fast), not every entry -- the gate is a structural backstop, the checker's pre-commit revision loop is the primary enforcement point
 - [Phase ?]: [Phase 11]: sota-numerics D-12 four-point advisory spread wired -- planner/executor/verifier/orchestrator each get a distinct fragment gated solely on sota-numerics.enabled, no configValues (D-11); ship:pre contribution's into must be orchestrator per the loop-host contract's ship-step agentRoles
+- [Phase ?]: [Phase 11]: D-08 resolved mechanical (Task 1 checkpoint, coordinator decision) -- check-alternatives.py's deterministic placeholder/TODO-TBD rejection stands in for gsd-plan-checker's LLM-mediated citation-plausibility spot-check; no gsd-core patch, no checker fragment, deferred pending a D-04 dogfood false-negative signal
+- [Phase ?]: [Phase 11]: sota-numerics NOTES.md re-verified the plan-phase.md 13a-13e step ordering live (not from RESEARCH memory) -- unchanged: plan:post gate still fires after commit and STATE.md 'Ready to execute', checker revision loop remains the primary enforcement point
 
 ### Pending Todos
 
@@ -165,8 +168,8 @@ Items acknowledged and carried forward from previous milestone close:
 
 ## Session Continuity
 
-Last session: 2026-08-17T11:15:38.840Z
-Stopped at: Completed 11-02-PLAN.md
+Last session: 2026-08-17T11:42:27.868Z
+Stopped at: Completed 11-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
