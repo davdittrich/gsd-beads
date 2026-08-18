@@ -28,5 +28,14 @@ __pycache__/
 # Project-scope capability install destination (per-machine runtime overlay) plus staging
 # and dispatch state — gsd-core's capability loader always installs project-scope bundles to
 # <projectRoot>/.gsd/capabilities/<id>/, copied from a plugin's own tracked source tree
-# (e.g. plugins/beads-lifecycle/.gsd/capabilities/beads/); never track the copy here again.
-.gsd/
+# (e.g. plugins/beads-lifecycle/.gsd/capabilities/beads/); never track that copy here again.
+# Deviation (Phase 13, plan 01): a bare `.gsd/` ignores every subdirectory unconditionally,
+# which also blocks the v1.2 dogfood pattern PROJECT.md documents for brand-new capabilities
+# that have no extracted plugin source yet (matches Phase 10/11's proven precedent for
+# ponytail-everywhere/sota-numerics, which WERE tracked in-repo during their own dogfood
+# phases before extraction). Ignore capability subdirectories by default, then explicitly
+# un-ignore each capability actively being dogfooded in this repo right now.
+.gsd/*
+!.gsd/capabilities/
+.gsd/capabilities/*
+!.gsd/capabilities/markdown-linting/
