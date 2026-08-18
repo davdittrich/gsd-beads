@@ -111,8 +111,23 @@ this repo (`.gsd/capabilities/pr-workflow/`) — 27/27 unit tests, live four-sta
 code review (4 findings fixed post-review), phase verification passed 6/6. Dogfooding surfaced a
 gsd-core capability-consent defect (bytecode-cache artifacts silently invalidate consent);
 interim in-scope mitigation applied, root cause filed upstream as
-[open-gsd/gsd-core#3631](https://github.com/open-gsd/gsd-core/issues/3631). Next: Phase 15
-(public extraction of markdown-linting + pr-workflow).
+[open-gsd/gsd-core#3631](https://github.com/open-gsd/gsd-core/issues/3631).
+
+**Phase 15 (public extraction of markdown-linting + pr-workflow) complete (2026-08-18):** both
+capabilities shipped as standalone public repos — `davdittrich/markdown-linting` and
+`davdittrich/pr-workflow`, fresh single-commit history, MIT LICENSE, `claude plugin validate .
+--strict` clean from a fresh HTTPS clone. `gsd-beads`' shared `marketplace.json` repointed at both
+via `url`-type HTTPS sources (no SSH-shorthand regression), real marketplace add/install/uninstall
+round trip proven twice (scratch pre-push, real marketplace post-push). Both `ship:pre` gates
+re-proven live from the marketplace-installed copy, reproducing Phase 13's/14's smoke-test outcomes
+exactly (`15-GATE-REPROOF.md`). Per an explicit operator instruction superseding this phase's own
+locked D-00 "stay untouched" clause, both in-repo dogfood bundles were then removed from
+`gsd-beads` entirely (tracked and on disk) — CI green on the removal commit, `beads-lifecycle`
+still installs from the same marketplace, both capabilities remain active here from their
+user-scope grants. Phase verification passed 10/10 (all four ROADMAP success criteria SC-1..SC-4
+independently re-checked against live `gh`/`claude plugin`/CI state, not just SUMMARY narration).
+Next: Phase 16 (`get-available-resources` capability, or milestone close if v1.2 scope is
+considered satisfied by the two shipped plugins — see ROADMAP.md).
 
 ## Context
 
@@ -216,7 +231,11 @@ Phase 4 SUMMARY.md files missing `requirements-completed` frontmatter, and Phase
 reconciled Nyquist `VALIDATION.md` coverage — neither blocks shipped functionality).
 
 ---
-*Last updated: 2026-08-18 — Phase 14 (pr-workflow dogfood) complete. Milestone v1.2 (New Capability Plugins) started: PUB-11/PUB-12 moved
+*Last updated: 2026-08-18 — Phase 15 (public extraction of markdown-linting + pr-workflow) complete:
+both plugins public, marketplace-reachable, gate-proven from the installed copy; both in-repo
+dogfood bundles removed per explicit operator instruction. See Current Milestone section above.*
+
+*Previously: 2026-08-18 — Phase 14 (pr-workflow dogfood) complete. Milestone v1.2 (New Capability Plugins) started: PUB-11/PUB-12 moved
 to Validated (Phase 9 shipped, `v1.1.1` released); Current Milestone section repointed at v1.2's
 three new capability plugins (`pr-workflow`, `markdown-linting`, `get-available-resources`).*
 
