@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: New Capability Plugins
-current_phase: 13
-current_phase_name: markdown-linting-capability-dogfood
-status: executing
+current_phase: 14
+current_phase_name: pr-workflow capability (dogfood)
+status: planning
 stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-08-18T14:15:57.994Z"
+last_updated: "2026-08-18T14:29:47.071Z"
 last_activity: 2026-08-18
 last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
@@ -29,11 +29,11 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 13 (markdown-linting-capability-dogfood) — EXECUTING
-Plan: 2 of 4
-Status: Ready to execute
+Phase: 14 — pr-workflow capability (dogfood)
+Plan: Not started
+Status: Ready to plan
 Progress: [██████████] 100% (0/3 phases)
-Last activity: 2026-08-18 — Phase 13 execution started
+Last activity: 2026-08-18 — Phase 13 complete, transitioned to Phase 14
 
 ## Performance Metrics
 
@@ -83,17 +83,13 @@ Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 Full decision log lives in PROJECT.md's Key Decisions table. Carried forward into v1.2 because
 Phase 15 repeats the Phase 12 extraction playbook directly:
 
-- [Phase 3]: `ship:pre` gate dispatch in the installed `ship.md` is a **machine-local patch**
   (upstream open-gsd/gsd-core#3559 filed, merge status unconfirmed). Any new gate must verify the
   patch marker is present and prove itself live via `gsd_run check predicate` before being trusted.
 
-- [Phase 6/10]: gsd-core capability consent is a content hash over the whole bundle — any
   post-consent edit silently deactivates the capability with no error. Re-consent after every edit.
 
-- [Phase 10.1]: `hooks/capability-auto-install.sh` hashes the bundle against a per-id sidecar and
   re-grants on drift; vendored into each plugin's `session-start.sh`.
 
-- [Phase 11]: `sota-numerics`' `plan:post` gate uses `onError: halt` (deliberate divergence) and
   resolves its script path via `git rev-parse --show-toplevel`, not `${CLAUDE_PLUGIN_ROOT}`.
 
 - [Phase 12]: `davdittrich/ponytail-everywhere` and `davdittrich/sota-numerics` shipped via the

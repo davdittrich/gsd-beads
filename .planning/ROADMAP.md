@@ -36,7 +36,7 @@
 
 ### v1.2 New Capability Plugins (Phases 13-15)
 
-- [ ] **Phase 13: markdown-linting capability (dogfood)** - `.planning/` markdown quality is measured, reported, and gated advisory — on the already-proven `artifact-frontmatter-equals` mechanism
+- [x] **Phase 13: markdown-linting capability (dogfood)** - `.planning/` markdown quality is measured, reported, and gated advisory — on the already-proven `artifact-frontmatter-equals` mechanism (completed 2026-08-18)
 - [ ] **Phase 14: pr-workflow capability (dogfood)** - PR check status is projected into a generated artifact and gated advisory at `ship:pre`, degrading cleanly without `gh`
 - [ ] **Phase 15: Ship markdown-linting and pr-workflow plugins publicly** - Both capabilities become public, marketplace-installable plugins with their gates still firing after extraction
 
@@ -174,7 +174,7 @@ entry"). Traceability follows Phase 12's extraction playbook decisions D-01..D-1
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 13. markdown-linting capability (dogfood) | 4/4 | In Progress|  |
+| 13. markdown-linting capability (dogfood) | 4/4 | Complete    | 2026-08-18 |
 | 14. pr-workflow capability (dogfood) | 0/? | Not started | - |
 | 15. Ship both plugins publicly | 0/? | Not started | - |
 

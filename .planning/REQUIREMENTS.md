@@ -32,7 +32,7 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
 
 ### MARKDOWN-LINTING
 
-- [ ] **MDL-01**: A curated `rumdl` config (MD001/MD003/MD009/MD012/MD022/MD024/MD040-equivalent
+- [x] **MDL-01**: A curated `rumdl` config (MD001/MD003/MD009/MD012/MD022/MD024/MD040-equivalent
       rules only — structural rules; line-length/inline-HTML/first-line-heading explicitly
       disabled, they fight `.planning/`'s frontmatter-led, agent-generated, `<details>`-using
       content) is invoked with an always-explicit `--config` path (rumdl's config auto-discovery
@@ -42,8 +42,8 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
       this exact ruleset (45% miss rate measured in this repo, e.g. MD001: 14 vs 1) as a known,
       accepted behavior difference — not silently glossed over
 
-- [ ] **MDL-02**: A `verify:post` fragment reports the violation count, `onError: skip`
-- [ ] **MDL-03**: A `ship:pre` gate reads the violation count via `artifact-frontmatter-equals`,
+- [x] **MDL-02**: A `verify:post` fragment reports the violation count, `onError: skip`
+- [x] **MDL-03**: A `ship:pre` gate reads the violation count via `artifact-frontmatter-equals`,
       default **advisory** (no comparable tool defaults to hard-blocking on install; teams opt
       into required-status-check enforcement after tuning)
 
@@ -93,9 +93,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MDL-01 | Phase 13 | Gaps Found |
-| MDL-02 | Phase 13 | Gaps Found |
-| MDL-03 | Phase 13 | Gaps Found |
+| MDL-01 | Phase 13 | Complete |
+| MDL-02 | Phase 13 | Complete |
+| MDL-03 | Phase 13 | Complete |
 | MDL-04 | Phase 13 | Complete |
 | PRW-01 | Phase 14 | Pending |
 | PRW-02 | Phase 14 | Pending |

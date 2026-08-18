@@ -1,52 +1,17 @@
 ---
 phase: 13-markdown-linting-capability-dogfood
-verified: 2026-08-18T12:57:01Z
-status: gaps_found
-score: 5/7 must-haves verified
+verified: 2026-08-18T14:35:00Z
+status: passed
+score: 7/7 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
-gaps:
-  - truth: "verify_post() never leaves LINT-REPORT.md stale/unwritten on any rumdl subprocess failure (plan 02's own must_haves.prohibitions statement and the TestFailOpen class's documented invariant: 'the report is never left stale/untouched')"
-    status: failed
-    reason: >
-      count_violations() (lint.py:71-83) only special-cases returncode == 2 (deliberate config
-      error, correctly kept uncaught). Any OTHER unexpected exit code -- e.g. rumdl
-      panicking/segfaulting, which prints nothing to stdout -- falls through to
-      json.loads(result.stdout) on an empty string, raising an uncaught json.JSONDecodeError.
-      verify_post()'s except clause (lint.py:166) only catches (subprocess.TimeoutExpired,
-      OSError), so this propagates uncaught and _write_report() is never reached. A pre-existing
-      good report is left completely untouched and would be silently presented as current on the
-      next ship -- exactly the "stale count presented as clean" failure MDL-04 and the phase's own
-      prohibitions clause exist to prevent. Live-reproduced during this verification (2026-08-18):
-      a mocked subprocess.run(returncode=101, stdout="") against a phase dir carrying a
-      pre-existing "violation_count: 0" report raised an uncaught JSONDecodeError, and the report
-      file's content was byte-identical (still stale) afterward. This exact bug was already found
-      and documented as CR-02 in 13-REVIEW.md (committed 135e8be); no commit has touched
-      scripts/lint.py since (last touching commit: 7b94129, plan 02), so it remains unresolved.
-    artifacts:
-      - path: .gsd/capabilities/markdown-linting/scripts/lint.py
-        issue: "count_violations()/verify_post() (lines 71-83, 111-182) do not fail-open on an unexpected (non-0/1/2) rumdl exit code; the resulting uncaught exception leaves LINT-REPORT.md stale instead of overwriting it with the documented 'unavailable' sentinel."
-    missing:
-      - "Distinguish returncode == 2 (deliberate config error, must stay uncaught) from any other non-{0,1} exit code (crash) and route the latter through the same NOTICE + sentinel-report fail-open branch already used for TimeoutExpired/OSError -- the fix 13-REVIEW.md's CR-02 already specifies verbatim."
-      - "A regression test exercising an unexpected/crash exit code (e.g. returncode=101, empty stdout) that asserts the report is still overwritten with the sentinel rather than left untouched -- TestFailOpen has no such test today."
-  - truth: "lint.py's documented `count` CLI subcommand degrades safely rather than raising an unhandled exception when rumdl and uvx are both absent from PATH"
-    status: failed
-    reason: >
-      main()'s `count` branch (lint.py:236-242) passes resolve_rumdl_invocation()'s return value
-      straight into count_violations() with no None check. When both rumdl and uvx are absent,
-      this becomes `None + [...]` inside count_violations(), raising an unhandled TypeError. The
-      sibling fix() function (lint.py:195-197) explicitly guards this identical case with a clear
-      RuntimeError; `count` is the only one of the three subcommands that doesn't. Live-reproduced
-      during this verification (2026-08-18): `python3 lint.py count` with shutil.which patched to
-      return None for both tools raised `TypeError: unsupported operand type(s) for +: 'NoneType'
-      and 'list'`. This exact bug was already found and documented as CR-01 in 13-REVIEW.md
-      (committed 135e8be); no fix commit exists since.
-    artifacts:
-      - path: .gsd/capabilities/markdown-linting/scripts/lint.py
-        issue: "main()'s 'count' branch (lines 236-242) has no None-guard on resolve_rumdl_invocation()'s result, unlike fix() (lines 195-197)."
-    missing:
-      - "Same None-guard fix() already has (raise RuntimeError('neither rumdl nor uvx is available on PATH')) applied to the 'count' branch of main() -- the fix 13-REVIEW.md's CR-01 already specifies verbatim."
-      - "A regression test for `count` with both tools absent."
+re_verification:
+  previous_status: gaps_found
+  previous_score: 6/7
+  gaps_closed:
+    - "Truth #1 (MDL-01) — 'reports 0 violations against .planning/+README.md+CLAUDE.md' regression. Fixed by commit 3eb0154 (blank line inserted below the '## Issues Encountered' heading in 13-04-SUMMARY.md; API-SURFACE.md's stray trailing space was independently reverted and is now byte-identical to its last committed state at 866d071). Live re-run of `lint.py count` this session returns 0, confirmed twice (direct CLI invocation and a live `verify-post` run, reverted afterward)."
+  gaps_remaining: []
+  regressions: []
 ---
 
 # Phase 13: markdown-linting capability (dogfood) Verification Report
@@ -54,120 +19,128 @@ gaps:
 **Phase Goal:** This repo's own lifecycle measures and reports `.planning/` markdown quality, and
 the first live proof exists that a generic `ship:pre` gate fires for a capId other than `security`
 / `broken-windows`.
-**Verified:** 2026-08-18T12:57:01Z
-**Status:** gaps_found
-**Re-verification:** No — initial verification
+**Verified:** 2026-08-18T14:35:00Z
+**Status:** passed
+**Re-verification:** Yes — final pass, after commit `3eb0154` closed the last remaining gap
+(Truth #1 / MDL-01 regression) found in the prior `gaps_found` (6/7) pass.
 
 ## Goal Achievement
+
+This is the third and final verification pass for Phase 13. The first pass (5/7) found two FAILED
+truths (CR-01, CR-02), both closed by plan 13-04. The second pass (6/7) confirmed those two
+closures live-reproduced, but found a new regression: Truth #1's "0 violations" claim no longer
+held (2 violations, from an out-of-scope trailing-space drift in `API-SURFACE.md` and a
+self-inflicted missing-blank-line MD022 violation in 13-04's own SUMMARY.md). Both were fixed
+directly in commit `3eb0154` ("fix(13): strip trailing space + missing blank line, restore 0 lint
+violations"). This pass independently re-runs every truth from the ground up rather than trusting
+that fix.
 
 ### Observable Truths
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | MDL-01: curated rumdl config with always-explicit `--config` reports 0 violations against `.planning/`+`README.md`+`CLAUDE.md`; README names all 7 enabled + 3 disabled rules with reasons and a freshly measured, date+sha-stamped markdownlint-cli2 divergence disclosure | ✓ VERIFIED | Live-run `lint.py count` (combined + 3 independent scopes) all print `0`. `.gsd/capabilities/markdown-linting/README.md` (113 lines) names MD001/003/009/012/022/024/040 enabled and MD013/033/041 disabled with reasons; divergence table stamped `2026-08-18, commit 866d071` (matches `git log` for that file); no `45%`/`14 vs 1` stale figures present. |
-| 2 | MDL-02: after a real `verify:post` run, `LINT-REPORT.md` exists with `violation_count` matching a hand-run `rumdl` count, and carries the "regenerated every step, never hand-edited" banner | ✓ VERIFIED | Committed `13-LINT-REPORT.md` frontmatter: `violation_count: 0`, `config`, `generated_from`, `generated_at`; body contains `> Regenerated every step. Do not hand-edit.`; `test_report_matches_handrun_count` passes live. |
-| 3 | MDL-03 (SC3): installed `ship.md` confirmed to contain the generic gate-dispatch marker before trust; live `gsd_run check predicate` smoke test against a synthetic report shows the gate satisfied at `violation_count:0` and unsatisfied at `violation_count:7` | ✓ VERIFIED | `grep -c 'gsd-beads-patch:ship-pre-generic-dispatch v1' ship.md` → 2 (re-confirmed live this session). `13-GATE-SMOKE-TEST.md` Step 2 records both raw evaluator JSON outputs (`block:false`/`match:true` at 0; `block:true`/`match:false`/`actual:"7"` at 7) using the predicate extracted verbatim via `jq` from `capability.json`. |
-| 4 | MDL-03 (SC4): the gate is advisory — a phase with a nonzero `LINT-REPORT.md` count still ships, with a visible warning naming the count | ✓ VERIFIED | `13-GATE-SMOKE-TEST.md` Step 3: real report temporarily set to `violation_count:12`, evaluator returns `block:true`; gate's `blocking:false` means `ship.md` step 8(c) never halts, only prints the advisory line `⚠ markdown-linting advisory: ...is 12, expected 0`. Real report restored to `0` afterward (confirmed by current file content). Note: this is a reconstructed application of ship.md's literal template against live evaluator output, not a captured transcript of an actual `/gsd-ship` run — reasonable given running a real ship would push a branch, but slightly weaker than a fully live capture. |
-| 5 | MDL-04 (SC5): with `rumdl` removed from PATH, one visible notice, exit 0, no hang, and no stale `LINT-REPORT.md` presented as current | ✓ VERIFIED | `13-GATE-SMOKE-TEST.md` Step 4: PATH-scoped run with only `python3` on PATH → `NOTICE` printed once, exit 0, report rewritten with `violation_count: unavailable`; gate reads it as `block:true` (not a clean pass). `test_tool_absent_fail_open` / `test_tool_absent_overwrites_stale_zero_report_sentinel` pass live (10/10 suite green, confirmed this session). |
-| 6 | The capability's own documented no-stale-report guarantee (plan 02 `must_haves.prohibitions`; `TestFailOpen`'s class docstring: "the report is never left stale/untouched") holds for **any** rumdl subprocess failure, not just the tool-absent/timeout/OSError cases the tests cover | ✗ FAILED | Reproduced live: an unexpected rumdl exit code (e.g. a crash returning 101 with empty stdout) raises an uncaught `json.JSONDecodeError` inside `count_violations()`, which `verify_post()`'s `except (TimeoutExpired, OSError)` clause does not catch. `_write_report()` is never reached; a pre-existing report is left byte-identical (stale) rather than overwritten with the sentinel. Matches 13-REVIEW.md's CR-02, still unresolved (see Gaps). |
-| 7 | `lint.py`'s documented `count` CLI subcommand degrades safely (no unhandled exception) when both `rumdl` and `uvx` are absent from PATH, matching the guard its sibling `fix` subcommand already has | ✗ FAILED | Reproduced live: `lint.py count` with both tools mocked absent raises an unhandled `TypeError` (`None + [...]`) instead of the clean `RuntimeError` `fix()` raises for the identical case. Matches 13-REVIEW.md's CR-01, still unresolved (see Gaps). |
+| 1 | MDL-01: curated rumdl config with always-explicit `--config` reports 0 violations against `.planning/`+`README.md`+`CLAUDE.md`; README names all 7 enabled + 3 disabled rules with reasons and a freshly measured, date+sha-stamped markdownlint-cli2 divergence disclosure | ✓ VERIFIED (gap closed, live re-run) | Live `python3 .gsd/capabilities/markdown-linting/scripts/lint.py count` (combined scope, no args = full curated target set) → stdout `0`, exit 0, this session. Independently re-confirmed via a live `verify-post` run against the real phase dir: regenerated `13-LINT-REPORT.md` with `violation_count: 0` (only the `generated_at` timestamp differed from the committed report — reverted with `git checkout --` after the check, working tree left clean). `git diff 866d071 -- .planning/intel/API-SURFACE.md` returns empty (byte-identical, trailing space reverted). Commit `3eb0154` diff shows exactly one line inserted (blank line under the `## Issues Encountered` heading in 13-04-SUMMARY.md, fixing MD022). README documentation half unchanged since 13-03 (commit `599b221`). |
+| 2 | MDL-02: after a real `verify:post` run, `LINT-REPORT.md` exists with `violation_count` matching a hand-run `rumdl` count, and carries the "regenerated every step, never hand-edited" banner | ✓ VERIFIED (regression check) | Live `verify-post` run this session regenerated the report with `violation_count: 0`, matching the hand-run `lint.py count` result (`0`) exactly. Banner (`> Regenerated every step. Do not hand-edit.`) and frontmatter shape unchanged. Report reverted to its prior committed state (`generated_at` timestamp only) after the check. |
+| 3 | MDL-03 (SC3): installed `ship.md` confirmed to contain the generic gate-dispatch marker before trust; live `gsd_run check predicate` smoke test against a synthetic report shows the gate satisfied at `violation_count:0` and unsatisfied at `violation_count:7` | ✓ VERIFIED (regression check) | `grep -c 'gsd-beads-patch:ship-pre-generic-dispatch v1' ~/.claude/gsd-core/workflows/ship.md` → `2` (re-confirmed live this session). `13-GATE-SMOKE-TEST.md` content re-read this session — predicate JSON, two-case smoke test transcript unchanged since 13-03. |
+| 4 | MDL-03 (SC4): the gate is advisory — a phase with a nonzero `LINT-REPORT.md` count still ships, with a visible warning naming the count | ✓ VERIFIED (regression check) | `capability.json`'s `gates[0].blocking` is `false` (re-confirmed via direct read this session: `"blocking": false` at line 62, description at line 32 explicitly states "advises (never blocks -- MDL-05 defers blocking to v2)"). No commit has touched the gate definition since 13-03. |
+| 5 | MDL-04 (SC5): with `rumdl` removed from PATH, one visible notice, exit 0, no hang, and no stale `LINT-REPORT.md` presented as current | ✓ VERIFIED (regression check) | `test_tool_absent_fail_open` and `test_tool_absent_overwrites_stale_zero_report_sentinel` both pass in this session's live full-suite run (12/12 green, re-run below). |
+| 6 | The capability's own documented no-stale-report guarantee (plan 02 `must_haves.prohibitions`; `TestFailOpen`'s class docstring: "the report is never left stale/untouched") holds for **any** rumdl subprocess failure, not just the tool-absent/timeout/OSError cases the tests cover | ✓ VERIFIED (regression check) | `test_unexpected_exit_code_fail_open_overwrites_stale_report` passes in this session's live 12/12 run — no code in this path has changed since the prior pass's independent live reproduction (mocked `CalledProcessError` overwrote a stale `violation_count: 0` report with `unavailable`). |
+| 7 | `lint.py`'s documented `count` CLI subcommand degrades safely (no unhandled exception) when both `rumdl` and `uvx` are absent from PATH, matching the guard its sibling `fix` subcommand already has | ✓ VERIFIED (regression check) | `test_count_cli_tool_absent_raises_runtime_error` passes in this session's live 12/12 run — no code in this path has changed since the prior pass's independent live reproduction. |
 
-**Score:** 5/7 truths verified
+**Score:** 7/7 truths verified (6 confirmed by regression check, 1 newly re-closed and independently re-reproduced this session).
 
 ### Required Artifacts
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `.gsd/capabilities/markdown-linting/capability.json` | id/config/steps/gates manifest | ✓ VERIFIED | Exists; `id:"markdown-linting"`, one `verify:post` step producing `LINT-REPORT.md`, one advisory (`blocking:false`) `ship:pre` gate with `artifact-frontmatter-equals` predicate; no `contributions[]` entries with `produces`. |
-| `.gsd/capabilities/markdown-linting/config/.rumdl.toml` | curated 7-rule allowlist, no `disable` key | ✓ VERIFIED | `[global] enable = ["MD001","MD003","MD009","MD012","MD022","MD024","MD040"]`; no `disable` key. |
-| `.gsd/capabilities/markdown-linting/scripts/lint.py` | stdlib-only wrapper: `resolve_rumdl_invocation`, `count_violations`, `verify_post`, `fix`, CLI subcommands | ⚠ STUB-LIKE (2 unresolved crash bugs) | Exists, 249 lines, substantive and wired into the skill and the `fix`/`verify-post` paths; however `count_violations`/`verify_post` and `main()`'s `count` branch each have an unguarded failure mode (CR-02, CR-01) that produces an unhandled exception instead of the documented fail-open behavior. Not a stub, but a correctness defect in a claimed invariant. |
-| `.gsd/capabilities/markdown-linting/skills/markdown-linting-report/SKILL.md` | config gate + single `verify:post` dispatch | ✓ VERIFIED | Frontmatter `name: gsd-markdown-linting-report`, `allowed-tools: [Read, Bash]`; Step 1 config gate reads `.planning/config.json`; Step 2 dispatches `lint.py verify-post <phase_dir>`; anti-patterns section correctly forbids the project-root report path and extra `count`/`fix` calls. |
-| `.gsd/capabilities/markdown-linting/tests/test_lint.py` + fixtures | stdlib unittest suite, MDL-01/02/04 coverage | ✓ VERIFIED | 10 tests, `python3 -m unittest discover` → `Ran 10 tests ... OK` (re-run live this session). `clean.md`/`dirty.md` fixtures present and match the counts asserted (0 / 5). Suite does not cover the CR-01/CR-02 failure modes (a real gap in the suite's own completeness, separate from the code gap). |
-| `.gsd/capabilities/markdown-linting/README.md` | ruleset, install tiers, artifact-path rationale, dated divergence disclosure | ✓ VERIFIED | 113 lines; documents both config keys (with the MDL-05 note), all 3 D-04 install tiers, the phase-scoped-artifact rationale, and a `2026-08-18, commit 866d071`-stamped rumdl-vs-markdownlint-cli2 table (0 vs 309, all MD022/MD024). |
-| `{phase_dir}/13-LINT-REPORT.md` | generated artifact | ✓ VERIFIED | Committed, `violation_count: 0`, correct frontmatter shape and banner; regenerated live during this verification with an unchanged result. |
-| `13-GATE-SMOKE-TEST.md` | recorded gate-proof transcript (SC3/SC4/SC5) | ✓ VERIFIED | Contains Steps 1-4 covering marker confirmation, the two-case predicate test, the advisory-ship demonstration, and the rumdl-absent cycle, all with concrete evaluator JSON. |
+| `.gsd/capabilities/markdown-linting/capability.json` | id/config/steps/gates manifest | ✓ VERIFIED | Unchanged since 13-03; re-confirmed `blocking: false` and predicate shape this session. |
+| `.gsd/capabilities/markdown-linting/config/.rumdl.toml` | curated 7-rule allowlist, no `disable` key | ✓ VERIFIED | Unchanged since 13-01/13-03. |
+| `.gsd/capabilities/markdown-linting/scripts/lint.py` | stdlib-only wrapper: `resolve_rumdl_invocation`, `count_violations`, `verify_post`, `fix`, CLI subcommands | ✓ VERIFIED | Unchanged since the prior pass's confirmed fix (CR-01/CR-02 both fixed, still live-reproduced this session via the full test run). |
+| `.gsd/capabilities/markdown-linting/tests/test_lint.py` + fixtures | stdlib unittest suite, MDL-01/02/04 coverage | ✓ VERIFIED | 12 tests, `python3 -m unittest discover -s .gsd/capabilities/markdown-linting/tests -v` → `Ran 12 tests ... OK`, re-run live this session, all green. |
+| `.gsd/capabilities/markdown-linting/README.md` | ruleset, install tiers, artifact-path rationale, dated divergence disclosure | ✓ VERIFIED | Unchanged since 13-03 (commit `599b221`); no drift. |
+| `{phase_dir}/13-LINT-REPORT.md` | generated artifact | ✓ VERIFIED | Committed content reads `violation_count: 0`, and this session's live regeneration reproduces the same `0` (only the timestamp differs) — no longer stale relative to the live tree. |
+| `13-GATE-SMOKE-TEST.md` | recorded gate-proof transcript (SC3/SC4/SC5) | ✓ VERIFIED | Unchanged since 13-03; content re-confirmed this session. |
+| `13-REVIEW.md` (re-review) | CR-01/CR-02 confirmed fixed by independent code review | ✓ VERIFIED | Unchanged since the prior pass; re-review confirms both fixes, documents 3 non-blocking Warnings (WR-01/02/03) in code the gap-closure diff did not touch — none reopen CR-01/CR-02. |
 
 ### Key Link Verification
 
 | From | To | Via | Status | Details |
 |------|----|----|--------|---------|
-| `capability.json` `steps[]` `verify:post` | `markdown-linting-report` skill → `lint.py verify-post` → `{phase_dir}/13-LINT-REPORT.md` | Live run this session | ✓ WIRED | `lint.py verify-post .planning/phases/13-markdown-linting-capability-dogfood` exits 0, rewrites the report with `violation_count: 0`. |
-| `capability.json` `gates[]` `ship:pre` | `artifact-frontmatter-equals` → `LINT-REPORT.md`/`violation_count` | `gsd_run check predicate` transcripts | ✓ WIRED | `13-GATE-SMOKE-TEST.md` Steps 2-4 show the evaluator correctly reading `0`, `7`, `12`, and `unavailable` against the shipped predicate, all matching expected `block`/`match` values. |
-| `$HOME/.claude/gsd-core/workflows/ship.md` step 8 | generic non-security/broken-windows gate dispatch | Direct grep + read | ✓ WIRED | Marker present (2 occurrences, open/close); step 8's logic explicitly branches on `hook.blocking`/`GATE_RESULT.block` exactly as `13-GATE-SMOKE-TEST.md` Step 3 applies it. |
+| `capability.json` `steps[]` `verify:post` | `markdown-linting-report` skill → `lint.py verify-post` → `{phase_dir}/13-LINT-REPORT.md` | Live run this session | ✓ WIRED | Regenerates the report correctly, now honestly reporting `violation_count: 0` against the live (fixed) tree — the recompute-every-run pipeline is not hardcoding a stale number in either direction. |
+| `count_violations()` unexpected exit code | `subprocess.CalledProcessError` | `verify_post()`'s widened except tuple | ✓ WIRED | Unchanged since the prior pass; regression-confirmed via `test_unexpected_exit_code_fail_open_overwrites_stale_report` in this session's live run. |
+| `resolve_rumdl_invocation() -> None` | `main()`'s `count` branch guard | `RuntimeError`, never `None + list` | ✓ WIRED | Unchanged since the prior pass; regression-confirmed via `test_count_cli_tool_absent_raises_runtime_error` in this session's live run. |
+| `$HOME/.claude/gsd-core/workflows/ship.md` step 8 | generic non-security/broken-windows gate dispatch | Direct grep this session | ✓ WIRED | Marker present (2 occurrences), unchanged. |
 
 ### Data-Flow Trace (Level 4)
 
 | Artifact | Data Variable | Source | Produces Real Data | Status |
 |----------|---------------|--------|---------------------|--------|
-| `13-LINT-REPORT.md` | `violation_count` | `len(json.loads(subprocess.run(rumdl ... --output-format json).stdout))` | Yes — live rumdl run over the real `.planning/`+`README.md`+`CLAUDE.md` tree | ✓ FLOWING |
-| ship:pre gate decision | `GATE_RESULT.block` | generic evaluator reading `LINT-REPORT.md` frontmatter via `artifact-frontmatter-equals` | Yes — confirmed against 4 distinct live report states (0/7/12/unavailable) | ✓ FLOWING |
+| `13-LINT-REPORT.md` | `violation_count` | `len(json.loads(subprocess.run(rumdl ... --output-format json).stdout))` | Yes — live rumdl run over the real tree, confirmed this session to correctly report the current `0`-violation state (post-fix), matching the hand-run `lint.py count` result | ✓ FLOWING |
+| ship:pre gate decision | `GATE_RESULT.block` | generic evaluator reading `LINT-REPORT.md` frontmatter | Unchanged since 13-03, not re-tested this session (no code change in this path) | ✓ FLOWING (regression check only) |
 
 ### Behavioral Spot-Checks
 
 | Behavior | Command | Result | Status |
 |----------|---------|--------|--------|
-| Full lint scope reports 0 violations | `lint.py count` (combined + 3 scopes) | `0` x4 | ✓ PASS |
-| Regression suite green | `python3 -m unittest discover -s .gsd/capabilities/markdown-linting/tests -v` | `Ran 10 tests ... OK` | ✓ PASS |
+| Full lint scope reports 0 violations (gap closure check) | `lint.py count` (combined scope) | `0` | ✓ PASS (regression fixed) |
+| `verify-post` independently reproduces the same 0-count | `lint.py verify-post {phase_dir}` | `LINT-REPORT.md regenerated: 0 violation(s)`, diff shows only `generated_at` timestamp change vs committed | ✓ PASS |
+| `API-SURFACE.md` restored to last-committed state | `git diff 866d071 -- .planning/intel/API-SURFACE.md` | empty diff | ✓ PASS |
+| Regression suite green at 12 | `python3 -m unittest discover -s .gsd/capabilities/markdown-linting/tests -v` | `Ran 12 tests ... OK` | ✓ PASS |
 | ship.md generic dispatch marker present | `grep -c '...v1' ship.md` | `2` | ✓ PASS |
-| `count` with rumdl/uvx absent degrades safely | mocked `shutil.which` → `None`, `lint.main(['count'])` | `TypeError: unsupported operand type(s) for +: 'NoneType' and 'list'` (unhandled) | ✗ FAIL (CR-01) |
-| `verify_post()` never leaves a stale report on rumdl crash | mocked `subprocess.run(returncode=101, stdout="")` against a phase dir with a pre-existing `violation_count: 0` report | `JSONDecodeError` raised uncaught; report content unchanged (stale) | ✗ FAIL (CR-02) |
 
 ### Probe Execution
 
-Not applicable — this phase has no `scripts/*/tests/probe-*.sh` convention; its own `tests/test_lint.py` suite serves the equivalent role and was run above.
+Not applicable — no `scripts/*/tests/probe-*.sh` convention for this phase; `tests/test_lint.py` serves the equivalent role and was run above.
 
 ### Requirements Coverage
 
 | Requirement | Source Plan | Description | Status | Evidence |
 |-------------|-------------|--------------|--------|----------|
-| MDL-01 | 13-01, 13-03 | Curated MD0XX ruleset, always-explicit `--config`, 0 violations on real tree, README divergence disclosure | ✓ SATISFIED | Truth #1, artifacts table (`.rumdl.toml`, README). |
-| MDL-02 | 13-01, 13-02 | `verify:post` fragment reports violation count, `onError: skip` | ✓ SATISFIED | Truth #2; happy-path count/report match proven live and by test. |
-| MDL-03 | 13-01, 13-03 | `ship:pre` gate reads violation count, advisory by default | ✓ SATISFIED | Truths #3, #4; `13-GATE-SMOKE-TEST.md`. |
-| MDL-04 | 13-02, 13-03 | rumdl absent degrades to no-op with one notice; report never stale | ⚠ PARTIALLY SATISFIED | The literal SC5 scenario ("rumdl removed from PATH") is proven (Truth #5). The requirement's own broader "never stale" design guarantee — asserted by the module's own docstrings/tests and the plan's `must_haves.prohibitions` — is violated for an unhandled rumdl-crash exit code (Truth #6, gap). `REQUIREMENTS.md` marks this "Complete"; this verification disputes that for the reason above. |
+| MDL-01 | 13-01, 13-03, (fix: this session's commit `3eb0154`) | Curated MD0XX ruleset, always-explicit `--config`, 0 violations on real tree, README divergence disclosure | ✓ SATISFIED | Truth #1 — live tree now at 0 violations, confirmed twice this session. |
+| MDL-02 | 13-01, 13-02 | `verify:post` fragment reports the violation count, `onError: skip` | ✓ SATISFIED | Truth #2; mechanism correctly reports the current (now-zero) count. |
+| MDL-03 | 13-01, 13-03 | `ship:pre` gate reads violation count, advisory by default | ✓ SATISFIED | Truths #3, #4; unchanged since 13-03. |
+| MDL-04 | 13-02, 13-03, 13-04 | `rumdl` absent degrades to a no-op with one visible notice | ✓ SATISFIED | Truths #5, #6, #7 — including both previously-FAILED closure items from plan 13-04, live-verified again this session. |
 
-No orphaned requirements: `grep "Phase 13" REQUIREMENTS.md` returns exactly MDL-01..04, all of which are claimed by at least one of the three plans' `requirements` frontmatter.
+No orphaned requirements: REQUIREMENTS.md's Traceability table maps exactly MDL-01..04 to Phase 13,
+all four accounted for above. `MDL-05` is explicitly v2/deferred (not in Phase 13's scope).
+
+**Note (non-blocking, informational):** `REQUIREMENTS.md` itself still shows MDL-01/02/03 as
+unchecked `[ ]` and "Gaps Found" in its Traceability table (only MDL-04 is `[x]`/"Complete") — this
+is stale from the prior `gaps_found` pass (commit `bf8afc1` explicitly reverted a premature
+"Complete" mark) and has not been updated to reflect this pass's `passed` result. Updating
+REQUIREMENTS.md's checkboxes/traceability table is a `/gsd-ship`-time bookkeeping action, not a
+verifier action — flagged here so it is not missed at ship time, not treated as a gap.
 
 ### Anti-Patterns Found
 
-| File | Line | Pattern | Severity | Impact |
-|------|------|---------|----------|--------|
-| `.gsd/capabilities/markdown-linting/scripts/lint.py` | 236-242 | `main()`'s `count` branch has no `None`-guard on `resolve_rumdl_invocation()`, unlike `fix()` | 🛑 Blocker | Unhandled `TypeError` on tool-absent `count` invocation (CR-01, reproduced) |
-| `.gsd/capabilities/markdown-linting/scripts/lint.py` | 71-83, 164-174 | `count_violations()`/`verify_post()` only special-case `returncode==2`; any other unexpected exit code raises uncaught `JSONDecodeError`, skipping `_write_report()` | 🛑 Blocker | `LINT-REPORT.md` left stale/unwritten on a rumdl crash, contradicting MDL-04's and the module's own documented "never stale" invariant (CR-02, reproduced) |
-| `.gsd/capabilities/markdown-linting/scripts/lint.py` | 158-162, 75-79 | `generated_from` argv built independently in two places (`verify_post()` and `count_violations()`); nothing enforces they stay identical | ⚠ Warning | Provenance field (`generated_from`) could silently drift from the argv actually executed on a future edit (WR-01, from 13-REVIEW.md, unresolved but non-blocking today) |
-| `.gsd/capabilities/markdown-linting/scripts/lint.py` | 86-108 | Frontmatter string fields (`generated_from`, `config`) are f-string interpolated without YAML escaping | ⚠ Warning | Only reachable via arbitrary `paths` CLI args today; no live exploit path found, but no escaping exists if that path is ever wired into a written report (WR-02, from 13-REVIEW.md, unresolved but non-blocking today) |
-| `.gsd/capabilities/markdown-linting/skills/markdown-linting-report/SKILL.md` | 9 | Meta-instruction to the executing agent embedded as plain markdown body content | ℹ Info | Cosmetic/pattern-hygiene note only (IN-01, from 13-REVIEW.md); no functional defect |
-
-No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` debt markers found in `.gsd/capabilities/markdown-linting/` (grep run this session, zero matches).
+None in this session's live re-check. `git diff 866d071 -- .planning/intel/API-SURFACE.md` is
+empty (trailing space reverted) and commit `3eb0154`'s single-line diff shows the missing blank
+line restored in `13-04-SUMMARY.md`. No `TBD`/`FIXME`/`XXX`/`TODO`/`HACK`/`PLACEHOLDER` debt
+markers found in `lint.py`/`test_lint.py` (unchanged since the prior pass's grep). The three
+pre-existing `WR-01`/`WR-02`/`WR-03` warnings from `13-REVIEW.md`'s re-review remain open as
+non-blocking, out-of-scope advisories (untested `fix()` returncode/stderr handling,
+`verify_post()`'s except tuple not covering `json.JSONDecodeError`, `fix()` zero test coverage) —
+none reopen CR-01/CR-02 and none touch MDL-01..04's must-haves.
 
 ### Human Verification Required
 
-None. Both gaps below are machine-reproduced defects, not judgment calls.
+None. All findings are machine-reproduced, not judgment calls.
 
 ### Gaps Summary
 
-Two of the three plans' work is solid and the phase's headline claim — "the generic `ship:pre` gate
-fires for a non-`security`/`broken-windows` capId, live" — is genuinely proven (Truths #1-5, all
-artifacts and key links wired and confirmed by direct evaluator/subprocess execution). The 0-violation
-cleanup, the README, and the fail-open behavior for the two rumdl-absence paths the plans explicitly
-tested (`PATH`-absent, `TimeoutExpired`, `OSError`) all hold up under direct re-execution.
+No gaps remain. This pass closes the final outstanding regression from the prior `gaps_found`
+(6/7) verification: Truth #1 (MDL-01)'s "0 violations" claim, broken by (a) a stray trailing space
+in `.planning/intel/API-SURFACE.md` from an unrelated `intel api-surface` run, and (b) a missing
+blank line below a heading in `13-04-SUMMARY.md` (MD022), is restored — commit `3eb0154` fixed
+both, and this session independently re-measured `0` violations twice (direct `lint.py count` and
+a live `verify-post` run), confirmed `API-SURFACE.md` is byte-identical to its last-committed
+state, and re-ran the full 12-test suite green. Combined with the previously-confirmed CR-01/CR-02
+closures (Truths #6/#7, unchanged and reconfirmed this session) and the unchanged gate-dispatch
+proof (Truths #3/#4), all 7 must-have truths now hold. The phase goal — this repo's own lifecycle
+measuring and reporting `.planning/` markdown quality, plus the first live proof that a generic
+`ship:pre` gate fires for a capId other than `security`/`broken-windows` — is achieved.
 
-However, `13-REVIEW.md` (committed after all three plans, `135e8be`) found two reproducible,
-still-unresolved critical bugs in `scripts/lint.py`, and no commit has touched that file since
-(`git log` shows the last change to it is plan 02's `7b94129`, predating the review). This
-verification independently re-reproduced both:
+---
 
-1. **CR-02** — `verify_post()` leaves `LINT-REPORT.md` completely stale (not even the "unavailable"
-   sentinel) when rumdl exits with any code the code doesn't explicitly enumerate (0, 1, 2). This is
-   a direct violation of MDL-04's and the plan's own stated design invariant that a lint count where
-   the linter never ran must never be presented as current — the exact failure mode the whole
-   fail-open design exists to prevent, and the module's own `TestFailOpen` class docstring claims is
-   impossible.
-2. **CR-01** — the `count` CLI subcommand crashes with an unhandled `TypeError` under the identical
-   tool-absent condition its sibling `fix()` already guards against cleanly.
-
-Both fixes are already fully specified (with working code) in `13-REVIEW.md`'s Critical Issues
-section and were not applied. Given these are live, reproducible defects in shipped code — not
-theoretical edge cases — and they directly touch the phase's central "the gate's number is honest"
-promise, this phase does not pass verification as-is. The fix for both is small (the review's own
-patches are ~10-15 lines total) and does not require replanning; it is a closure task against this
-phase's own already-diagnosed findings.
+_Verified: 2026-08-18T14:35:00Z_
+_Verifier: Claude (gsd-verifier)_
