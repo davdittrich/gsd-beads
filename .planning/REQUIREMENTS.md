@@ -17,13 +17,16 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
       (`none`/`passing`/`pending`/`failing`), regenerated every step — mirrors `BEADS.md`'s
       "regenerated every step, never hand-edited" discipline (B11), required because gsd-core's
       gate predicates cannot query `gh` directly
+
 - [ ] **PRW-02**: A `ship:pre` gate reads `PR.md`'s frontmatter via `artifact-frontmatter-equals`,
       tri-state (blocks on both `pending` and `failing`, matching GitHub's own required-check
       semantics), `onError: skip`, default **advisory** (warn, don't block) until proven against
       a real PR cycle in this repo
+
 - [ ] **PRW-03**: `ship:post` prints a warn-only notice when no open PR exists for the current
       branch — never auto-creates one (matches the source `pr-workflow` skill's own "ask before
       creating" spirit; avoids PR spam)
+
 - [ ] **PRW-04**: `gh` absent or unauthenticated degrades to a no-op with one visible notice
       (B6's fail-open pattern, `shutil.which("gh")` + `gh auth status` guard)
 
@@ -38,10 +41,12 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
       own README documents rumdl's measured detection-logic divergence from markdownlint-cli2 on
       this exact ruleset (45% miss rate measured in this repo, e.g. MD001: 14 vs 1) as a known,
       accepted behavior difference — not silently glossed over
-- [ ] **MDL-02**: A `verify:post` fragment reports the violation count, `onError: skip`
-- [ ] **MDL-03**: A `ship:pre` gate reads the violation count via `artifact-frontmatter-equals`,
+
+- [x] **MDL-02**: A `verify:post` fragment reports the violation count, `onError: skip`
+- [x] **MDL-03**: A `ship:pre` gate reads the violation count via `artifact-frontmatter-equals`,
       default **advisory** (no comparable tool defaults to hard-blocking on install; teams opt
       into required-status-check enforcement after tuning)
+
 - [ ] **MDL-04**: `rumdl` absent degrades to a no-op with one visible notice (B6 pattern,
       `shutil.which("rumdl")`) — single static binary (`uvx`/`pip`/`cargo`/`brew`-installable),
       introduces no Node/npm dependency class, unlike the markdownlint-cli2 alternative
@@ -55,6 +60,7 @@ Deferred to future release. Tracked but not in current roadmap.
 - **PRW-05**: `pr-workflow.ship_gate` flips to blocking-by-default — trigger: at least one real
   PR cycle in this repo confirms the tri-state predicate reads `PR.md` correctly and doesn't
   false-block on a `gh` auth hiccup
+
 - **MDL-05**: `markdown-linting.ship_gate` flips to blocking-by-default — trigger: curated
   rule-set has run clean across a full milestone's worth of `.planning/` edits with zero false
   positives
@@ -88,8 +94,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | MDL-01 | Phase 13 | Pending |
-| MDL-02 | Phase 13 | Pending |
-| MDL-03 | Phase 13 | Pending |
+| MDL-02 | Phase 13 | Complete |
+| MDL-03 | Phase 13 | Complete |
 | MDL-04 | Phase 13 | Pending |
 | PRW-01 | Phase 14 | Pending |
 | PRW-02 | Phase 14 | Pending |
