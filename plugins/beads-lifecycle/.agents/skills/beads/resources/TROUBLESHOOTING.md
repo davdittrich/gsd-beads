@@ -113,8 +113,8 @@ If `bd prime` works manually but the hook never fired, the harness may not be pi
 ```bash
 test -f .beads/PRIME.md && echo present || echo missing
 ```
-If missing, the fix is that the SessionStart hook (`hooks/session-start.sh`) should have restored it from `.agents/skills/beads/PRIME.md` on the last session start. Check the hook actually ran (see "Nothing Injected at Session Start" above), or restore it directly:
+If missing, the fix is that the SessionStart hook (`hooks/session-start.sh`) should have restored it from `$CLAUDE_PLUGIN_ROOT/.agents/skills/beads/PRIME.md` on the last session start. Check the hook actually ran (see "Nothing Injected at Session Start" above), or restore it directly:
 ```bash
-cp .agents/skills/beads/PRIME.md .beads/PRIME.md
+cp "$CLAUDE_PLUGIN_ROOT/.agents/skills/beads/PRIME.md" .beads/PRIME.md
 bd prime | grep -qF 'execute:wave:post' && echo "override active"
 ```

@@ -1,6 +1,6 @@
 # Changelog
 
-Versions in this file track `.gsd/capabilities/beads/capability.json`.
+Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`.
 
 ## 0.2.0
 

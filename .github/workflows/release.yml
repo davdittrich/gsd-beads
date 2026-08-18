@@ -17,9 +17,7 @@ jobs:
         run: |
           zip -r gsd-beads.zip \
             .claude-plugin \
-            hooks \
-            .agents/skills \
-            .gsd \
+            plugins/beads-lifecycle \
             README.md \
             LICENSE
 

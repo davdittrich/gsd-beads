@@ -1,14 +1,14 @@
 {
   "version": "1",
-  "updatedAt": "2026-08-17T00:34:00.868Z",
+  "updatedAt": "2026-08-18T11:26:57.130Z",
   "entries": {
-    "ponytail": {
-      "id": "ponytail",
-      "version": "0.1.0",
-      "source": "./.gsd/capabilities/ponytail",
+    "beads": {
+      "id": "beads",
+      "version": "0.2.0",
+      "source": "./plugins/beads-lifecycle/.gsd/capabilities/beads",
       "integrity": "",
       "files": [
-        ".gsd/capabilities/ponytail"
+        ".gsd/capabilities/beads"
       ],
       "sharedEdits": []
     }

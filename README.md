@@ -102,9 +102,17 @@ claude plugin uninstall beads -y
 - **Installing via the marketplace flow (`claude plugin install`) copies the entire cloned
   repository into the installer's local plugin cache** under `~/.claude/plugins/cache/`,
   including this project's own `.planning/` and `.beads/` directories — this is a documented
-  Claude Code cache behavior, not something this repo controls. It is distinct from the
-  GitHub Release archive, which ships only `.claude-plugin/`, `hooks/`, `.agents/skills/`,
-  `README.md`, and `LICENSE`.
+  Claude Code cache behavior, not something this repo controls. The plugin *root* itself is
+  the scoped `plugins/beads-lifecycle/` subdirectory, so `.planning/` and `.beads/` are not
+  part of the loaded plugin. Installing is distinct from the GitHub Release archive, which
+  ships only `.claude-plugin/`, `plugins/beads-lifecycle/` (the plugin's own manifest, hooks,
+  skill, and `beads` capability bundle), `README.md`, and `LICENSE`.
+- **`gsd-beads` is the source of exactly one capability, `beads`.** `ponytail-everywhere` and
+  `sota-numerics` are separate projects living in their own repositories
+  (`davdittrich/ponytail-everywhere`, `davdittrich/sota-numerics`), listed in this
+  marketplace only as url-type entries pointing at those repositories. This project
+  *consumes* them the same way any other user would — a normal plugin install — with no copy
+  of their content vendored here.
 
 ## License
 

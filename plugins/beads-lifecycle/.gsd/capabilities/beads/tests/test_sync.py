@@ -1,4 +1,4 @@
-"""Tests for .gsd/capabilities/beads/scripts/sync.py.
+"""Tests for plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py.
 
 Stdlib unittest only (N5). sync.py's parent directory is put on sys.path at
 module import so no package __init__.py and no install step is needed.
@@ -44,7 +44,15 @@ def _capability_json_has_beads_md_gate():
     the skip condition for TestShipPreGenericDispatch's fourth test."""
     try:
         project_root = sync.find_project_root(Path(__file__).resolve().parent)
-        cap_path = project_root / ".gsd" / "capabilities" / "beads" / "capability.json"
+        cap_path = (
+            project_root
+            / "plugins"
+            / "beads-lifecycle"
+            / ".gsd"
+            / "capabilities"
+            / "beads"
+            / "capability.json"
+        )
         cap = json.loads(cap_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
@@ -2034,7 +2042,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
                     str(_gsd_tools_path()),
                     "capability",
                     "install",
-                    "./.gsd/capabilities/beads",
+                    "./plugins/beads-lifecycle/.gsd/capabilities/beads",
                     "--scope",
                     "project",
                     "--yes",
@@ -2644,7 +2652,15 @@ class TestMilestoneEpic(unittest.TestCase):
 
     def test_capability_json_declares_epic_per_enum_key(self):
         project_root = sync.find_project_root(Path(__file__).resolve().parent)
-        cap_path = project_root / ".gsd" / "capabilities" / "beads" / "capability.json"
+        cap_path = (
+            project_root
+            / "plugins"
+            / "beads-lifecycle"
+            / ".gsd"
+            / "capabilities"
+            / "beads"
+            / "capability.json"
+        )
         cap = json.loads(cap_path.read_text(encoding="utf-8"))
         epic_per_cfg = cap["config"]["beads.epic_per"]
         self.assertEqual(epic_per_cfg["type"], "enum")
