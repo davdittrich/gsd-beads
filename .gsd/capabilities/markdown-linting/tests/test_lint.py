@@ -154,6 +154,35 @@ class TestFailOpen(unittest.TestCase):
             report_path = phase_dir / "13-LINT-REPORT.md"
             self.assertFalse(report_path.exists())
 
+    def test_unexpected_exit_code_fail_open_overwrites_stale_report(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            report_path = phase_dir / "13-LINT-REPORT.md"
+            report_path.write_text(
+                "---\nviolation_count: 0\n---\n\nstale\n", encoding="utf-8"
+            )
+            before_text = report_path.read_text(encoding="utf-8")
+            captured = io.StringIO()
+            completed = subprocess.CompletedProcess(
+                args=["rumdl"], returncode=101, stdout="",
+                stderr="thread 'main' panicked at rumdl/src/main.rs:1:1",
+            )
+            with mock.patch(
+                "shutil.which",
+                side_effect=lambda name: "/usr/bin/rumdl" if name == "rumdl" else None,
+            ):
+                with mock.patch("subprocess.run", return_value=completed):
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = lint.verify_post(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(captured.getvalue().count(lint.NOTICE), 1)
+            text = report_path.read_text(encoding="utf-8")
+            self.assertNotEqual(text, before_text)
+            self.assertIn("violation_count: unavailable", text)
+            self.assertNotIn("violation_count: 0\n", text)
+            self.assertIn("CalledProcessError", text)
+
 
 class TestCuratedRuleset(unittest.TestCase):
     """MDL-01: the checked-in fixtures pin the curated 7-rule allowlist's
@@ -215,7 +244,10 @@ class TestReportMatchesHandRun(unittest.TestCase):
 
 class TestToolResolution(unittest.TestCase):
     """D-04 tier ordering: uvx is used only when rumdl is absent from
-    PATH, and the actual argv invoked reflects that."""
+    PATH, and the actual argv invoked reflects that. Also covers that
+    every CLI subcommand guards the both-absent case rather than
+    crashing -- this class is the D-04 tier ordering plus its absent
+    tier, and the test below is the absent tier for `count`."""
 
     def test_uvx_fallback_used_when_rumdl_absent(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -233,6 +265,23 @@ class TestToolResolution(unittest.TestCase):
             self.assertGreaterEqual(mock_run.call_count, 1)
             argv = mock_run.call_args_list[0].args[0]
             self.assertEqual(argv[:2], ["uvx", "rumdl"])
+
+    def test_count_cli_tool_absent_raises_runtime_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _make_fake_project_root(tmp_path)
+            with mock.patch.object(lint.Path, "cwd", return_value=tmp_path):
+                with mock.patch("shutil.which", return_value=None):
+                    with mock.patch(
+                        "subprocess.run",
+                        side_effect=AssertionError("rumdl/uvx must not be invoked when absent"),
+                    ):
+                        with self.assertRaises(RuntimeError) as ctx:
+                            lint.main(["count"])
+
+            self.assertIn(
+                "neither rumdl nor uvx is available on PATH", str(ctx.exception)
+            )
 
 
 class TestEmptyTargetSet(unittest.TestCase):
