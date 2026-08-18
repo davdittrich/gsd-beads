@@ -23,6 +23,13 @@ from pathlib import Path
 NOTICE_GH_ABSENT = "gh not found on PATH -- install: https://cli.github.com"
 NOTICE_GH_UNAUTH = "gh not authenticated -- run: gh auth login"
 
+# Third fail-open notice: gh_available() passed (gh present, authenticated),
+# but a live gh call after that guard raised a transient error (timeout,
+# OS-level spawn failure, or unparseable JSON). Distinct from the two guard
+# notices above -- this path is reached only once gh has already been
+# confirmed present and authenticated.
+NOTICE_GH_ERROR = "gh command failed unexpectedly -- PR status unavailable this run"
+
 
 def find_project_root(start):
     """Walk up from `start` to the nearest ancestor containing `.planning/`.
@@ -155,10 +162,22 @@ def verify_post(phase_dir_arg):
     """execute:wave:post dispatch: fully overwrite
     `{phase_dir}/{padded_phase}-PR.md` from a live `gh` read.
 
-    PRW-04 fail-open path (`gh` absent or unauthenticated): print the
-    matching notice exactly once and still fully overwrite the report with
-    `pr_status: unavailable`, `pr_gate_ok: false` -- an unmeasured status can
-    never satisfy the ship:pre gate (T-14-01).
+    PRW-04 fail-open paths -- all print exactly one notice and still fully
+    overwrite the report with `pr_status: unavailable`, `pr_gate_ok: false`:
+    `gh` absent or unauthenticated (`gh_available()` guard), or a live `gh`
+    call raising `subprocess.TimeoutExpired`/`OSError`/`json.JSONDecodeError`
+    after that guard already passed. An unmeasured status can never satisfy
+    the ship:pre gate (T-14-01) -- this is a **deliberate divergence** from
+    beads/scripts/sync.py::regenerate_beads_md (which leaves a prior report
+    untouched when `bd` is unavailable), mirroring markdown-linting's
+    lint.py::verify_post docstring on the same point. A future editor must
+    not "fix" this back to a leave-it-alone behavior.
+
+    The one exception left uncaught on purpose: `check_buckets()` raises
+    `RuntimeError` for a `gh pr checks` non-zero exit whose stderr matches
+    neither documented zero-checks string (RESEARCH Pitfall 3) -- a genuine
+    tool failure that is not the zero-checks case must not be laundered into
+    any `pr_status`.
     """
     phase_dir = Path(phase_dir_arg).resolve()
     project_root = find_project_root(phase_dir)
@@ -178,28 +197,39 @@ def verify_post(phase_dir_arg):
         )
         return 0
 
-    branch = current_branch()
-    prs = find_open_pr(branch)
-    generated_from = f"gh pr list --head {branch} --state open --json number,url"
+    try:
+        branch = current_branch()
+        prs = find_open_pr(branch)
+        generated_from = f"gh pr list --head {branch} --state open --json number,url"
 
-    if not prs:
+        if not prs:
+            _write_report(
+                out_path, phase_dir, generated_at, generated_from=generated_from,
+                pr_status="none", pr_gate_ok=True,
+                pr_number=None, open_pr_count=0,
+            )
+            print("PR.md regenerated: no open PR (pr_status=none)")
+            return 0
+
+        # D-02/RESEARCH A4: more than one open PR can target one head
+        # branch (different base branches). Take the first entry and record
+        # the count rather than silently collapsing it.
+        open_pr_count = len(prs)
+        pr_number = prs[0]["number"]
+        buckets = check_buckets(pr_number)
+        pr_status = rollup_pr_status(buckets)
+        pr_gate_ok = derive_gate_ok(pr_status)
+        generated_from += f"; gh pr checks {pr_number} --json bucket"
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
+        print(NOTICE_GH_ERROR)
         _write_report(
-            out_path, phase_dir, generated_at, generated_from=generated_from,
-            pr_status="none", pr_gate_ok=True,
+            out_path, phase_dir, generated_at,
+            generated_from="none (gh command failed)",
+            pr_status="unavailable", pr_gate_ok=False,
             pr_number=None, open_pr_count=0,
+            unavailable_reason=f"{type(exc).__name__}: {exc}",
         )
-        print("PR.md regenerated: no open PR (pr_status=none)")
         return 0
-
-    # D-02/RESEARCH A4: more than one open PR can target one head branch
-    # (different base branches). Take the first entry and record the count
-    # rather than silently collapsing it.
-    open_pr_count = len(prs)
-    pr_number = prs[0]["number"]
-    buckets = check_buckets(pr_number)
-    pr_status = rollup_pr_status(buckets)
-    pr_gate_ok = derive_gate_ok(pr_status)
-    generated_from += f"; gh pr checks {pr_number} --json bucket"
 
     _write_report(
         out_path, phase_dir, generated_at, generated_from=generated_from,

@@ -6,6 +6,7 @@ third-party test runner. pr_status.py's parent directory is put on sys.path
 at module import so no package __init__.py and no install step is needed --
 mirrors test_lint.py's own sys.path.insert technique.
 """
+import io
 import json
 import subprocess
 import sys
@@ -156,6 +157,155 @@ class TestVerifyPost(unittest.TestCase):
             self.assertEqual(first_text.count("---"), 2)
             self.assertEqual(second_text.count("---"), 2)
             self.assertEqual(first_text, second_text)
+
+
+class TestFailOpen(unittest.TestCase):
+    """PRW-04: `gh` absent or unauthenticated, or a live `gh` call blowing up
+    with a transient error, all degrade to exit 0, exactly one notice, and a
+    sentinel report that fully overwrites any prior content -- mirrors
+    markdown-linting's TestFailOpen shape (test_lint.py)."""
+
+    def test_gh_absent_fail_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            captured = io.StringIO()
+            with mock.patch("shutil.which", return_value=None):
+                with mock.patch(
+                    "subprocess.run",
+                    side_effect=AssertionError("gh must not be invoked when absent from PATH"),
+                ) as mock_run:
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = pr_status.verify_post(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(captured.getvalue().count(pr_status.NOTICE_GH_ABSENT), 1)
+            self.assertEqual(mock_run.call_count, 0)
+            text = (phase_dir / "14-PR.md").read_text(encoding="utf-8")
+            self.assertIn("pr_status: unavailable", text)
+            self.assertIn("pr_gate_ok: false", text)
+            self.assertIn("unavailable_reason", text)
+
+    def test_gh_unauthenticated_fail_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            captured = io.StringIO()
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 1, stderr="not logged in")
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = pr_status.verify_post(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            output = captured.getvalue()
+            self.assertEqual(output.count(pr_status.NOTICE_GH_UNAUTH), 1)
+            self.assertNotIn(pr_status.NOTICE_GH_ABSENT, output)
+            text = (phase_dir / "14-PR.md").read_text(encoding="utf-8")
+            self.assertIn("pr_status: unavailable", text)
+            self.assertIn("pr_gate_ok: false", text)
+
+    def test_stale_passing_status_replaced_by_sentinel(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            report_path = phase_dir / "14-PR.md"
+            report_path.write_text(
+                "---\npr_status: passing\npr_gate_ok: true\n---\n\nstale\n", encoding="utf-8"
+            )
+            with mock.patch("shutil.which", return_value=None):
+                with mock.patch(
+                    "subprocess.run",
+                    side_effect=AssertionError("gh must not be invoked when absent from PATH"),
+                ):
+                    pr_status.verify_post(str(phase_dir))
+
+            text = report_path.read_text(encoding="utf-8")
+            self.assertIn("pr_status: unavailable", text)
+            self.assertNotIn("pr_status: passing", text)
+            self.assertNotIn("pr_gate_ok: true", text)
+
+    def test_gh_pr_list_timeout_fail_open(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            captured = io.StringIO()
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed("main\n", 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    raise subprocess.TimeoutExpired(cmd=argv, timeout=30)
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = pr_status.verify_post(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(captured.getvalue().count(pr_status.NOTICE_GH_ERROR), 1)
+            text = (phase_dir / "14-PR.md").read_text(encoding="utf-8")
+            self.assertIn("pr_status: unavailable", text)
+            self.assertIn("pr_gate_ok: false", text)
+
+    def test_checks_zero_checks_stderr_is_passing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed("feature-x\n", 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    return _completed(PR_LIST_ONE_OPEN, 0)
+                if argv[:3] == ["gh", "pr", "checks"]:
+                    return _completed("", 1, stderr="no checks reported on the 'feature-x' branch")
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    exit_code = pr_status.verify_post(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            text = (phase_dir / "14-PR.md").read_text(encoding="utf-8")
+            self.assertIn("pr_status: passing", text)
+            self.assertIn("pr_gate_ok: true", text)
+
+    def test_checks_unrelated_stderr_raises(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed("feature-x\n", 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    return _completed(PR_LIST_ONE_OPEN, 0)
+                if argv[:3] == ["gh", "pr", "checks"]:
+                    return _completed("", 1, stderr="thread panicked at checks.go:1:1")
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    with self.assertRaises(RuntimeError):
+                        pr_status.verify_post(str(phase_dir))
+
+
+class TestNoticeDistinctness(unittest.TestCase):
+    """D-04: the user must be able to tell which fix applies -- the two
+    notices must be distinct strings and neither a substring of the other."""
+
+    def test_notices_are_distinct_and_not_substrings(self):
+        a, b = pr_status.NOTICE_GH_ABSENT, pr_status.NOTICE_GH_UNAUTH
+        self.assertNotEqual(a, b)
+        self.assertNotIn(a, b)
+        self.assertNotIn(b, a)
 
 
 class TestConfined(unittest.TestCase):
