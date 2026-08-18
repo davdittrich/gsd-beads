@@ -1,215 +1,149 @@
 ---
 phase: 13-markdown-linting-capability-dogfood
 reviewed: 2026-08-18T00:00:00Z
-depth: standard
-files_reviewed: 11
+depth: deep
+files_reviewed: 2
 files_reviewed_list:
-  - CLAUDE.md
-  - .gitignore
-  - .gsd-capabilities.json
-  - .gsd/capabilities/markdown-linting/capability.json
-  - .gsd/capabilities/markdown-linting/config/.rumdl.toml
-  - .gsd/capabilities/markdown-linting/README.md
   - .gsd/capabilities/markdown-linting/scripts/lint.py
-  - .gsd/capabilities/markdown-linting/skills/markdown-linting-report/SKILL.md
-  - .gsd/capabilities/markdown-linting/tests/fixtures/clean.md
-  - .gsd/capabilities/markdown-linting/tests/fixtures/dirty.md
   - .gsd/capabilities/markdown-linting/tests/test_lint.py
 findings:
-  critical: 2
-  warning: 2
-  info: 1
-  total: 5
+  critical: 0
+  warning: 3
+  info: 0
+  total: 3
 status: issues_found
 ---
 
-# Phase 13: Code Review Report
+# Phase 13: Code Review Report (re-review after gap-closure plan 13-04)
 
 **Reviewed:** 2026-08-18T00:00:00Z
-**Depth:** standard
-**Files Reviewed:** 11
+**Depth:** deep
+**Files Reviewed:** 2
 **Status:** issues_found
 
 ## Summary
 
-Reviewed the markdown-linting capability's implementation (`lint.py`), config, skill dispatch
-prompt, tests, and fixtures, plus the small root-level config/gitignore/CLAUDE.md changes that
-ship alongside it. The stated test suite (10 tests) passes locally against a real `rumdl`
-install (confirmed by running it), and the path-confinement (`confined()`), no-shell-string
-`subprocess.run` usage, and fail-open design for the *documented* failure modes
-(`TimeoutExpired`, `OSError`, tool-absent) are all sound and match their own docstrings.
+This is a re-review of `lint.py` / `test_lint.py` after gap-closure plan 13-04
+applied fixes for the two Critical findings (CR-01, CR-02) from the prior
+`13-REVIEW.md`. Both fixes were verified by direct code read and by running
+the full test suite live (real `rumdl` and `uvx` present on this machine):
+all 12 tests pass, including the two tests specifically added to prove the
+returncode==2 config-error path is unaffected by the widened except clause.
 
-However, two reproducible correctness bugs were found by directly exercising the code (not just
-reading it), both of which contradict guarantees the module's own docstrings and tests claim to
-provide:
+**CR-01 (resolved):** `main()`'s `count` branch (`lint.py:253-254`) now
+raises `RuntimeError("neither rumdl nor uvx is available on PATH")` when
+`resolve_rumdl_invocation()` returns `None`, before calling
+`count_violations()`. This mirrors the pre-existing guard in `fix()`
+(`lint.py:208-209`) and `verify_post()`'s own guard
+(`lint.py:160-168`). Verified against `TestToolResolution.test_count_cli_tool_absent_raises_runtime_error`, which passes.
 
-1. `lint.py count` crashes with an unhandled `TypeError` whenever neither `rumdl` nor `uvx` is on
-   `PATH` — the `fix` subcommand guards this exact case, `count` does not.
-2. `verify_post()` leaves `LINT-REPORT.md` **unwritten** (not even the "unavailable" sentinel) if
-   `rumdl` exits with any code other than `0`, `1`, or `2` (e.g. a panic/segfault) — directly
-   contradicting the code's own stated invariant that "the report is never left stale/untouched"
-   (`TestFailOpen`'s class docstring, and the MDL-04 design note in `verify_post()`'s docstring).
+**CR-02 (resolved):** `count_violations()` (`lint.py:87-92`) now
+distinguishes three outcomes: returncode 2 raises `RuntimeError` (config/runtime
+error, deliberately NOT fail-open), returncode not in `(0, 1)` raises
+`subprocess.CalledProcessError` (an unexpected crash), and `0`/`1` proceed to
+`json.loads`. `verify_post()`'s except clause (`lint.py:178`) was widened
+from `(TimeoutExpired, OSError)` to `(TimeoutExpired, OSError, CalledProcessError)`,
+so unexpected crash codes (e.g. a panic exiting 101) now fail open with the
+sentinel report, while returncode 2 still propagates uncaught and leaves the
+report untouched. Verified against
+`TestFailOpen.test_unexpected_exit_code_fail_open_overwrites_stale_report`
+(new crash-code case) and `TestFailOpen.test_config_error_raises` (regression
+guard for the returncode==2 path), both passing.
 
-Both were reproduced with a standalone script against the actual `lint.py` module (see fix
-sections for repro).
+No regression found in the returncode==2 config-error path, and no
+interaction bug between the two fixes (the `None`-guard and the widened
+except clause touch disjoint code paths — CLI arg parsing vs. subprocess
+result classification).
 
-## Critical Issues
-
-### CR-01: `lint.py count` crashes with unhandled `TypeError` when rumdl/uvx are both absent
-
-**File:** `.gsd/capabilities/markdown-linting/scripts/lint.py:236-242`
-**Issue:** The `count` subcommand calls `resolve_rumdl_invocation()` and passes the result
-straight into `count_violations()` without checking for `None`:
-
-```python
-if args.command == "count":
-    project_root = find_project_root(Path.cwd())
-    config_path = confined(project_root, *CONFIG_REL_PARTS)
-    targets = [confined(project_root, t) for t in (args.paths or LINT_TARGETS)]
-    rumdl_argv = resolve_rumdl_invocation()
-    print(count_violations(config_path, targets, rumdl_argv))
-    return 0
-```
-
-`count_violations()` immediately does `argv = rumdl_argv + [...]` (line 75-79). When neither
-`rumdl` nor `uvx` is on `PATH`, `resolve_rumdl_invocation()` returns `None`, so this becomes
-`None + [...]`, raising an unhandled `TypeError`. The sibling `fix()` function (line 196-197)
-explicitly guards this identical case with `if rumdl_argv is None: raise RuntimeError(...)`; the
-`count` branch of `main()` is the only one of the three subcommands that doesn't.
-
-Reproduced directly:
-
-```
-$ python3 -c "
-import sys; from unittest import mock
-sys.path.insert(0, '.gsd/capabilities/markdown-linting/scripts'); import lint
-with mock.patch('shutil.which', return_value=None):
-    lint.main(['count'])
-"
-TypeError: unsupported operand type(s) for +: 'NoneType' and 'list'
-```
-
-**Fix:**
-```python
-if args.command == "count":
-    project_root = find_project_root(Path.cwd())
-    config_path = confined(project_root, *CONFIG_REL_PARTS)
-    targets = [confined(project_root, t) for t in (args.paths or LINT_TARGETS)]
-    rumdl_argv = resolve_rumdl_invocation()
-    if rumdl_argv is None:
-        raise RuntimeError("neither rumdl nor uvx is available on PATH")
-    print(count_violations(config_path, targets, rumdl_argv))
-    return 0
-```
-
-### CR-02: `verify_post()` leaves LINT-REPORT.md unwritten on an unexpected rumdl exit code
-
-**File:** `.gsd/capabilities/markdown-linting/scripts/lint.py:71-83, 164-174`
-**Issue:** `count_violations()` only special-cases `returncode == 2` (config error, deliberately
-propagated uncaught per the docstring). Any *other* non-{0,1} exit code — e.g. rumdl
-panicking/segfaulting, which prints nothing to stdout — falls through to
-`json.loads(result.stdout)` on an empty string, raising an uncaught `json.JSONDecodeError`.
-`verify_post()`'s `except` clause only catches `(subprocess.TimeoutExpired, OSError)` (line 166),
-so this exception propagates uncaught, and `_write_report()` is never reached — the report is
-neither regenerated nor stamped with the "unavailable" sentinel.
-
-This directly contradicts the module's own stated design invariant. `verify_post()`'s docstring
-says the sentinel path exists precisely so "a lint count where the linter never ran" is never
-presented as current, and `TestFailOpen`'s class docstring states "here the report file must
-exist, since Pitfall 5's whole point is that the report is never left stale/untouched." A crash
-exit code breaks exactly that promise: on a *second* run within the same phase, a prior good
-report would be silently left stale rather than overwritten with a sentinel — the exact scenario
-MDL-04 was written to prevent.
-
-Reproduced directly against `verify_post()` with a mocked `subprocess.run` returning
-`returncode=101` (simulating a Rust panic) and empty stdout:
-
-```
-RAISED (uncaught): JSONDecodeError: Expecting value: line 1 column 1 (char 0)
-report exists: False
-```
-
-**Fix:** Distinguish "deliberate config/runtime error" (`returncode == 2`, must stay uncaught)
-from "any other unexpected exit code" (crash — should fail open like `TimeoutExpired`/`OSError`):
-
-```python
-def count_violations(config_path, targets, rumdl_argv):
-    argv = rumdl_argv + [
-        "check", "--config", str(config_path), "--output-format", "json",
-    ] + [str(t) for t in targets]
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=60)
-    if result.returncode == 2:
-        raise RuntimeError(f"rumdl config/runtime error: {result.stderr}")
-    if result.returncode not in (0, 1):
-        raise subprocess.CalledProcessError(
-            result.returncode, argv, result.stdout, result.stderr
-        )
-    return len(json.loads(result.stdout))
-```
-
-```python
-try:
-    violation_count = count_violations(config_path, targets, rumdl_argv)
-except (subprocess.TimeoutExpired, OSError, subprocess.CalledProcessError) as exc:
-    print(NOTICE)
-    _write_report(..., unavailable_reason=f"{type(exc).__name__}: {exc}")
-    return 0
-```
+Three new Warnings surfaced during this deep pass — none reopen CR-01/CR-02,
+all are pre-existing gaps in code the gap-closure diff did not touch, found
+while tracing the full call chain from `main()` through `fix()` and
+`count_violations()`.
 
 ## Warnings
 
-### WR-01: `generated_from` argv is built twice, independently, and can silently drift
+### WR-01: `fix()` ignores the `check --fix` subprocess's returncode and drops its stderr
 
-**File:** `.gsd/capabilities/markdown-linting/scripts/lint.py:158-162, 75-79`
-**Issue:** `verify_post()` builds its own `argv` list (lines 158-162) purely to record it as the
-`generated_from` frontmatter field, while the actual subprocess invocation happens inside
-`count_violations()`, which independently rebuilds the identical argv list from the same inputs
-(lines 75-79). The two constructions currently agree by inspection, but nothing enforces that —
-a future edit to one (e.g. adding a new rumdl flag) without the other will make the report's
-`generated_from` field lie about what was actually executed, with no test to catch it.
-**Fix:** Have `count_violations()` accept a pre-built `argv` (or return the one it used) so
-`verify_post()` records exactly what ran, e.g.:
+**File:** `.gsd/capabilities/markdown-linting/scripts/lint.py:215-217`
+**Issue:** `fix()` runs `rumdl check --fix ...` and unconditionally proceeds:
+
 ```python
-def count_violations(argv):
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=60)
-    ...
-    return len(json.loads(result.stdout))
+result = subprocess.run(check_argv, capture_output=True, text=True, timeout=60)
+print(result.stdout, end="")
+post_fix_count = count_violations(config_path, targets, rumdl_argv)
 ```
-with a single shared `_build_argv(rumdl_argv, config_path, targets)` helper used by both
-`verify_post()` and the `count`/`fix` CLI paths.
 
-### WR-02: Frontmatter string fields are interpolated without YAML escaping
+Unlike `count_violations()` (which now classifies returncode 2 vs. other
+non-{0,1} codes per CR-02), this call never inspects `result.returncode`,
+and `result.stderr` is never printed or surfaced anywhere. If the fix pass
+itself crashes or panics (e.g. a rumdl bug triggered specifically by
+`--fix`, or a genuine config error), the failure is silently discarded here.
+The very next line calls `count_violations()` — a separate, non-`--fix`
+invocation — which happens to re-validate the same config and would likely
+reproduce a deterministic config error, but would NOT catch a transient or
+`--fix`-specific crash, since that second call takes a different code path
+(no `--fix` flag). The diagnostic stderr from the actual failing invocation
+is lost either way.
+**Fix:** Apply the same returncode discipline used in `count_violations()`:
 
-**File:** `.gsd/capabilities/markdown-linting/scripts/lint.py:86-108`
-**Issue:** `_write_report()` builds `generated_from: "{generated_from}"` via plain f-string
-interpolation (line 98), and `config: {config_path}` unquoted (line 97). Neither escapes
-characters that are meaningful to YAML (`"`, `:`, `#`). With today's fixed `LINT_TARGETS`/
-`CONFIG_REL_PARTS` constants this can't trigger, but the `fix`/`count` CLI paths accept
-arbitrary `paths` arguments (`nargs="*"`) that flow into `targets` and therefore into
-`generated_from` if that path is ever wired into a written report; any future caller passing a
-path containing `"` would emit a broken frontmatter block.
-**Fix:** Use `json.dumps(generated_from)` (valid YAML double-quoted-string syntax, and properly
-escapes embedded quotes/backslashes) instead of a bare `f'"{generated_from}"'`.
+```python
+result = subprocess.run(check_argv, capture_output=True, text=True, timeout=60)
+print(result.stdout, end="")
+if result.returncode == 2:
+    raise RuntimeError(f"rumdl config/runtime error: {result.stderr}")
+if result.returncode not in (0, 1):
+    raise subprocess.CalledProcessError(
+        result.returncode, check_argv, result.stdout, result.stderr
+    )
+post_fix_count = count_violations(config_path, targets, rumdl_argv)
+```
 
-## Info
+### WR-02: `verify_post()`'s fail-open except clause does not cover malformed JSON on a nominally successful returncode
 
-### IN-01: `SKILL.md` embeds a meta-instruction to the executing agent as file content
+**File:** `.gsd/capabilities/markdown-linting/scripts/lint.py:93, 178`
+**Issue:** `count_violations()`'s final line is `return len(json.loads(result.stdout))`,
+reached whenever `result.returncode` is 0 or 1. If rumdl ever emits
+non-JSON or truncated stdout while still exiting 0/1 (disk-full mid-write,
+an upstream rumdl regression, a pipe/encoding edge case), `json.loads`
+raises `json.JSONDecodeError` (a `ValueError` subclass). `verify_post()`'s
+except tuple is `(subprocess.TimeoutExpired, OSError, subprocess.CalledProcessError)`
+(`lint.py:178`) — `JSONDecodeError` is not a member of any of those, so it
+propagates uncaught out of `verify_post()` and crashes the `ship:pre` gate
+invocation entirely, which is exactly the outcome MDL-04's fail-open design
+is meant to prevent ("a lint count where the linter never ran" should
+degrade to the `unavailable` sentinel, not a hard crash). This is a narrow
+edge case (it requires rumdl to violate its own exit-code/output contract),
+but it is a real gap in the enumerated fail-open trigger set the docstring
+describes ("TimeoutExpired/OSError, ... unexpected crash code").
+**Fix:** Add `json.JSONDecodeError` to the except tuple in `verify_post()`
+(and document it in the docstring's enumerated trigger list):
 
-**File:** `.gsd/capabilities/markdown-linting/skills/markdown-linting-report/SKILL.md:9`
-**Issue:** The line `**STOP -- DO NOT READ THIS FILE. You are already reading it...**` is a
-directive aimed at whatever LLM loads this skill, written as ordinary markdown body content
-rather than frontmatter/metadata. It works today because the harness injects `SKILL.md` as a
-system prompt before the agent would otherwise `Read` it, but it establishes a pattern —
-instructions-to-the-model embedded as plain file prose — that is easy to confuse with an actual
-prompt-injection payload on a later, less careful read of this file (e.g. during this very
-review, it had to be visually distinguished from adversarial content). Not a defect in current
-behavior.
-**Fix:** No change required; consider moving harness-facing meta-instructions like this into a
-distinguishable comment convention (e.g. an HTML comment) if this pattern is reused elsewhere, to
-keep it visually distinct from content addressed to a human/reviewer.
+```python
+except (subprocess.TimeoutExpired, OSError, subprocess.CalledProcessError,
+        json.JSONDecodeError) as exc:
+```
+
+### WR-03: `fix()` has zero test coverage
+
+**File:** `.gsd/capabilities/markdown-linting/tests/test_lint.py` (whole file)
+**Issue:** No test class in `test_lint.py` calls `lint.fix()`. All five test
+classes (`TestFailOpen`, `TestCuratedRuleset`, `TestReportMatchesHandRun`,
+`TestToolResolution`, `TestEmptyTargetSet`) exercise `verify_post()`,
+`count_violations()`, or `main(["count"])`, but the third CLI subcommand —
+`fix`, the one that actually mutates files via `--fix` — is entirely
+untested. This is why WR-01 (returncode/stderr dropped in `fix()`) shipped
+undetected: there is no test that would fail if `fix()` silently swallowed
+a crashing `check --fix` invocation.
+**Fix:** Add at minimum one test mocking `subprocess.run` to return a
+non-{0,1} returncode for the `check --fix` call and asserting `fix()`
+raises (once WR-01 is fixed), plus one happy-path test asserting the
+post-fix count is printed. A `unittest.mock.patch("subprocess.run", ...)`
+with `side_effect` keyed on `"--fix" in args[0]` (mirroring the existing
+`shutil.which` side_effect pattern already used elsewhere in this file)
+is sufficient — no new fixtures needed.
 
 ---
 
 _Reviewed: 2026-08-18T00:00:00Z_
 _Reviewer: Claude (gsd-code-reviewer)_
-_Depth: standard_
+_Depth: deep_
