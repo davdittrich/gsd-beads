@@ -146,6 +146,36 @@ class TestVerifyPost(unittest.TestCase):
             self.assertIn("pr_status: failing", text)
             self.assertIn("pr_gate_ok: false", text)
 
+    def test_branch_with_embedded_quote_does_not_break_frontmatter(self):
+        # WR-03: git allows `"` in ref names; generated_from must escape it
+        # rather than terminating the quoted YAML scalar early.
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed('feature"pwn\n', 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    return _completed(_fixture("pr_list_empty.json"), 0)
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    exit_code = pr_status.verify_post(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            text = (phase_dir / "14-PR.md").read_text(encoding="utf-8")
+            line = next(l for l in text.splitlines() if l.startswith("generated_from:"))
+            self.assertEqual(
+                line,
+                'generated_from: "gh pr list --head feature\\"pwn --state open --json number,url"',
+            )
+            # frontmatter block boundaries stay intact -- no unquoted
+            # trailing text leaked onto the generated_from line.
+            self.assertEqual(text.count("---"), 2)
+
     def test_rerun_overwrites_not_appends(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _write_phase_dir(Path(tmp))

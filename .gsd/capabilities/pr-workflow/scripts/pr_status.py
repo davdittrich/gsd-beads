@@ -172,7 +172,11 @@ def _write_report(out_path, phase_dir, generated_at, generated_from, pr_status,
     ]
     if unavailable_reason is not None:
         lines.append(f"unavailable_reason: {unavailable_reason}")
-    lines.append(f'generated_from: "{generated_from}"')
+    # WR-03: git allows `"` in branch names, and generated_from embeds the
+    # live branch verbatim -- json.dumps' C-string-style escaping is valid
+    # inside a YAML double-quoted scalar and prevents a crafted branch name
+    # (e.g. `feature"pwn`) from terminating the quoted string early.
+    lines.append(f"generated_from: {json.dumps(generated_from)}")
     lines.append(f"generated_at: {generated_at}")
     lines.append("---\n")
     body = (
