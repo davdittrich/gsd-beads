@@ -969,6 +969,50 @@ def close_wave(phase_dir_arg, plan_ids):
     return 0
 
 
+def reconcile_stale_closed(phase_dir_arg):
+    """Phase-wide, idempotent backstop for D-08: close every task-complete
+    (SUMMARY.md exists) issue that is still open in bd, across every plan in
+    phase_dir -- not just the plan ids one wave's close-wave dispatch was
+    given. A repeat call over an already-reconciled phase issues zero `bd
+    close` calls, because filter_open_ids re-queries bd's live status before
+    closing (B5)."""
+    if not bd_available():
+        print(NOTICE)
+        try:
+            project_root = find_project_root(Path(phase_dir_arg).resolve())
+        except ValueError:
+            project_root = None
+        if project_root is not None:
+            append_state_blocker(
+                confined(project_root, ".planning", "STATE.md"),
+                "bd unavailable -- beads-status reconcile-stale-closed skipped (B6/D-08)",
+            )
+        return 0
+
+    phase_dir = Path(phase_dir_arg).resolve()
+
+    plan_ids = discover_plan_files(phase_dir)
+    skipped_total = 0
+    for plan_id in plan_ids:
+        _, skipped = find_completed_task_ids(phase_dir, plan_id)
+        skipped_total += skipped
+
+    completed_ids = sorted(_resolve_completed_task_ids(phase_dir))
+    to_close = filter_open_ids(completed_ids)
+
+    if to_close:
+        reason = f"phase-wide reconciliation: {phase_dir.name}"
+        result = run_bd(["bd", "close", *to_close, "--reason", reason])
+        if result.returncode != 0:
+            print(f"reconcile-stale-closed: bd close failed: {result.stderr.strip()}")
+
+    print(
+        f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) in {phase_dir.name}; "
+        f"skipped {skipped_total} task(s) with no beads-id"
+    )
+    return 0
+
+
 def create_issues(plan_arg):
     if not bd_available():
         print(NOTICE)
@@ -1760,6 +1804,11 @@ def main(argv=None):
     )
     close_p.add_argument("phase_dir")
     close_p.add_argument("plan_ids", nargs="+")
+    reconcile_p = sub.add_parser(
+        "reconcile-stale-closed",
+        help="Phase-wide idempotent backstop: close every task-complete issue still open in bd, across every plan in the phase (D-08)",
+    )
+    reconcile_p.add_argument("phase_dir")
     recall_p = sub.add_parser(
         "beads-recall",
         help="Scan open bd issues and write BEADS-RECALL.md naming any issue touching this phase's scope",
@@ -1801,6 +1850,8 @@ def main(argv=None):
         return create_issues(args.plan_path)
     if args.command == "close-wave":
         return close_wave(args.phase_dir, args.plan_ids)
+    if args.command == "reconcile-stale-closed":
+        return reconcile_stale_closed(args.phase_dir)
     if args.command == "beads-recall":
         return beads_recall(args.phase_dir)
     if args.command == "regenerate-beads-md":

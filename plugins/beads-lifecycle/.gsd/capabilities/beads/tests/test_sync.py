@@ -1277,6 +1277,166 @@ class TestCloseWave(unittest.TestCase):
             self.assertEqual(state_text.count("bd unavailable"), 1)
 
 
+class TestReconcileStaleClosed(unittest.TestCase):
+    """D-08: a phase-wide, idempotent close backstop -- closes every
+    task-complete-but-bd-open issue across every plan in phase_dir, not just
+    the plan ids one wave's close-wave dispatch was given."""
+
+    @mock.patch("subprocess.run")
+    def test_two_completed_plans_closes_four_ids_in_one_call(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            plan_b = (FIXTURES_DIR / "plan-wave-b.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-05", plan_b, True)],
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(len(close_argvs), 1)
+        reason_idx = close_argvs[0].index("--reason")
+        closed_ids = close_argvs[0][2:reason_idx]
+        self.assertEqual(
+            set(closed_ids),
+            {"tracer-wave1.1", "tracer-wave1.2", "tracer-wave1.3", "tracer-wave1.4"},
+        )
+
+    @mock.patch("subprocess.run")
+    def test_incomplete_plan_contributes_nothing_and_never_appears_in_close_argv(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            plan_b = (FIXTURES_DIR / "plan-wave-b.md").read_text(encoding="utf-8")
+            # plan-wave-b is NOT yet complete (no SUMMARY.md) -- none of its
+            # task ids may appear in the close argv, even though it exists
+            # in phase_dir alongside the completed plan.
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-05", plan_b, False)],
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(len(close_argvs), 1)
+        reason_idx = close_argvs[0].index("--reason")
+        closed_ids = set(close_argvs[0][2:reason_idx])
+        self.assertEqual(closed_ids, {"tracer-wave1.1", "tracer-wave1.2"})
+        self.assertNotIn("tracer-wave1.3", closed_ids)
+        self.assertNotIn("tracer-wave1.4", closed_ids)
+
+    @mock.patch("subprocess.run")
+    def test_task_with_no_beads_id_skipped_and_reported(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-06", _three_task_two_synced_plan_text(), True)]
+            )
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(len(close_argvs), 1)
+        reason_idx = close_argvs[0].index("--reason")
+        closed_ids = set(close_argvs[0][2:reason_idx])
+        self.assertEqual(closed_ids, {"tracer-wave2.1", "tracer-wave2.2"})
+        self.assertIn("skipped 1 task(s)", captured.getvalue())
+
+    @mock.patch("subprocess.run")
+    def test_repeat_run_over_already_reconciled_phase_issues_zero_close_calls(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            plan_b = (FIXTURES_DIR / "plan-wave-b.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-05", plan_b, True)],
+            )
+            sync.reconcile_stale_closed(str(phase_dir))
+            mock_run.reset_mock()
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(close_argvs, [])
+
+    @mock.patch("subprocess.run")
+    def test_reason_string_names_phase_wide_reconciliation_not_wave(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            sync.reconcile_stale_closed(str(phase_dir))
+
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        reason = close_argvs[0][close_argvs[0].index("--reason") + 1]
+        self.assertIn("phase-wide reconciliation", reason)
+        self.assertNotIn("wave complete", reason)
+
+    def test_empty_phase_directory_returns_zero_and_issues_no_close_call(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(Path(tmp), [])
+            with mock.patch("subprocess.run") as mock_run:
+                mock_run.side_effect = _make_close_wave_bd_side_effect()
+                exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(close_argvs, [])
+
+    def test_bd_unavailable_exits_zero_with_one_notice_and_closes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                tmp_path, [("01-04", plan_a, True)], with_state=True
+            )
+            state_path = tmp_path / ".planning" / "STATE.md"
+
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                with mock.patch("shutil.which", return_value=None):
+                    with mock.patch(
+                        "subprocess.run",
+                        side_effect=AssertionError("bd must not be invoked when absent"),
+                    ):
+                        exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
+            state_text = state_path.read_text(encoding="utf-8")
+            self.assertEqual(state_text.count("### Blockers/Concerns"), 1)
+            self.assertEqual(state_text.count("bd unavailable"), 1)
+
+    def test_cli_dispatch_routes_through_main(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(Path(tmp), [])
+            with mock.patch("shutil.which", return_value=None):
+                exit_code = sync.main(["reconcile-stale-closed", str(phase_dir)])
+        self.assertEqual(exit_code, 0)
+
+
 class TestFailOpen(unittest.TestCase):
     """B6: bd absent, or every bd invocation failing, degrades to exit 0, one
     stdout notice, one STATE.md bullet, and no BEADS.md -- never an
