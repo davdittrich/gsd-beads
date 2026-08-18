@@ -41,6 +41,12 @@ DONE_RE = re.compile(r"<done>(.*?)</done>", re.DOTALL)
 # than a tag body -- run it against a TASK_RE match's whole block
 # (m.group(0)), same way NAME_RE.search(block) etc. already run (D-03).
 TASK_TYPE_RE = re.compile(r'<task\b[^>]*\btype="([^"]*)"')
+# 16-01 Task 2 (D-06): <objective> is plan-level only -- it appears exactly
+# once per PLAN.md, before <tasks>, and never inside an individual <task>
+# block (verified against gsd-core's canonical phase-prompt.md template and
+# a real executed PLAN.md, 16-RESEARCH.md Priority 3). Matched against the
+# whole plan text, not a TASK_RE block, unlike every regex above.
+OBJECTIVE_RE = re.compile(r"<objective>(.*?)</objective>", re.DOTALL)
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
@@ -577,6 +583,29 @@ def milestone_epic_title(state_path):
     return f"Milestone {milestone}: {milestone_name}"
 
 
+def get_milestone_bullet(roadmap_path, milestone):
+    """B14/D-06: return the `## Milestones` bullet line whose text contains
+    `milestone` verbatim (no translation) -- modeled on `get_phase_header`,
+    but unlike that function a miss returns "" rather than raising, since
+    `resolve_milestone_epic` must stay fail-open (a missing bullet is a
+    formatting variation, not a corrupt roadmap). A milestone epic spans
+    many phases, so no single plan's <objective> describes it honestly; the
+    ROADMAP milestone bullet is the one existing verbatim statement of that
+    milestone's scope, mirroring get_phase_header's no-translation
+    discipline."""
+    text = Path(roadmap_path).read_text(encoding="utf-8")
+    section_m = re.search(
+        r"^##\s+Milestones\s*$\n(.*?)(?=^##\s|\Z)", text, re.MULTILINE | re.DOTALL
+    )
+    if not section_m:
+        return ""
+    for line in section_m.group(1).splitlines():
+        line = line.strip()
+        if line.startswith("-") and milestone in line:
+            return line
+    return ""
+
+
 def resolve_milestone_epic(project_root):
     """B14: return one epic id shared across every phase in the current
     milestone. Scans every plan's `beads_epic` frontmatter value across
@@ -597,6 +626,21 @@ def resolve_milestone_epic(project_root):
         # rather than an uncaught FileNotFoundError (CR-01).
         raise RuntimeError("STATE.md not found -- cannot resolve milestone epic")
     title = milestone_epic_title(state_path)
+
+    # 16-01 Task 2 (D-06): same STATE.md frontmatter milestone_epic_title
+    # already parses -- read the bare milestone token (e.g. "v1.2") to look
+    # up ROADMAP.md's own bullet for it, resolved through confined() per
+    # T-01-02, never a path built from artifact text.
+    state_text = state_path.read_text(encoding="utf-8")
+    state_fm_match = FRONTMATTER_RE.match(state_text)
+    state_frontmatter = state_fm_match.group(1) if state_fm_match else ""
+    milestone_token_m = MILESTONE_RE.search(state_frontmatter)
+    milestone_token = milestone_token_m.group(1) if milestone_token_m else ""
+    milestone_bullet = (
+        get_milestone_bullet(confined(project_root, ".planning", "ROADMAP.md"), milestone_token)
+        if milestone_token
+        else ""
+    )
 
     phases_root = confined(project_root, ".planning", "phases")
     candidate_ids = []
@@ -629,13 +673,17 @@ def resolve_milestone_epic(project_root):
             "milestone_name may have changed)"
         )
 
-    result = run_bd(["bd", "create", title, "--type", "epic", "--silent"])
+    argv = ["bd", "create", title]
+    if milestone_bullet:
+        argv += ["-d", _epic_description(milestone_bullet)]
+    argv += ["--type", "epic", "--silent"]
+    result = run_bd(argv)
     if result.returncode != 0:
         raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
     return result.stdout.strip()
 
 
-def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root):
+def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, objective=""):
     """Return (epic_id, needs_write, stale_epic_id). Resolve-by-id first,
     create only on confirmed absence -- never by title (B4/B5 pattern
     applied to the epic level too).
@@ -680,10 +728,30 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root):
             return shared_epic_id, True, stale_epic_id
 
     title = get_phase_header(roadmap_path, phase_num)
-    result = run_bd(["bd", "create", title, "--type", "epic", "--silent"])
+    description = _epic_description(objective)
+    argv = ["bd", "create", title]
+    if description:
+        argv += ["-d", description]
+    argv += ["--type", "epic", "--silent"]
+    result = run_bd(argv)
     if result.returncode != 0:
         raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
     return result.stdout.strip(), True, stale_epic_id
+
+
+def _epic_description(objective):
+    """Fold an epic's source content into one `-d` prose string, cloning
+    `_task_description`'s one-place-writes-the-shape discipline: a single
+    `## Objective` section for non-empty input, the empty string otherwise
+    -- callers append `-d` only when this is non-empty, so an empty
+    description is never written (D-06). Reused for both phase epics (fed
+    the plan's <objective>) and milestone epics (fed the ROADMAP milestone
+    bullet, see get_milestone_bullet) -- one renderer, two content sources,
+    matching resolve_epic's own "one place, either source" call shape.
+    """
+    if not objective:
+        return ""
+    return f"## Objective\n{objective}\n"
 
 
 def resolve_issue(task, epic_id, ordinal_prefix, task_index):
@@ -920,6 +988,8 @@ def create_issues(plan_arg):
     roadmap_path = confined(project_root, ".planning", "ROADMAP.md")
 
     text, frontmatter, tasks = parse_plan(plan_path)
+    objective_m = OBJECTIVE_RE.search(text)
+    objective = objective_m.group(1).strip() if objective_m else ""
 
     plan_filename_stem = plan_path.stem  # e.g. "01-01-PLAN" -> ordinal "01-01"
     ordinal_prefix = "-".join(plan_filename_stem.split("-")[:2])
@@ -932,7 +1002,7 @@ def create_issues(plan_arg):
     # that case: degrade to the same fail-open notice, not a crash.
     try:
         epic_id, epic_created, stale_epic_id = resolve_epic(
-            frontmatter, roadmap_path, phase_num, plan_path.parent, project_root
+            frontmatter, roadmap_path, phase_num, plan_path.parent, project_root, objective
         )
         if stale_epic_id is not None:
             print(

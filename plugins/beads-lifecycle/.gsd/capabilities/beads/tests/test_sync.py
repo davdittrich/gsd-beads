@@ -6,6 +6,7 @@ module import so no package __init__.py and no install step is needed.
 import contextlib
 import io
 import json
+import re
 import os
 import shutil
 import subprocess
@@ -544,6 +545,79 @@ class TestTaskDescription(unittest.TestCase):
         description = sync._task_description(task)
         self.assertNotIn("- src/example.py exists", description)
         self.assertNotIn("acceptance", description.lower())
+
+
+class TestEpicDescription(unittest.TestCase):
+    """D-06: phase-epic bd create argvs carry -d when the plan has an
+    <objective>, and carry no -d at all when it doesn't -- an empty
+    description is never written."""
+
+    @mock.patch("subprocess.run")
+    def test_phase_epic_create_carries_description_when_plan_has_objective(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        self.assertIn("<objective>", plan_text)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        epic_creates = TestCreateIssues._create_argvs(mock_run.call_args_list, "epic")
+        self.assertEqual(len(epic_creates), 1)
+        argv = epic_creates[0]
+        self.assertIn("-d", argv)
+        description = argv[argv.index("-d") + 1]
+        self.assertTrue(description.strip())
+        self.assertIn("## Objective", description)
+
+    @mock.patch("subprocess.run")
+    def test_phase_epic_create_omits_description_when_plan_has_no_objective(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        no_objective_text = re.sub(
+            r"<objective>.*?</objective>\n\n", "", plan_text, flags=re.DOTALL
+        )
+        self.assertNotIn("<objective>", no_objective_text)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), no_objective_text)
+            exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        epic_creates = TestCreateIssues._create_argvs(mock_run.call_args_list, "epic")
+        self.assertEqual(len(epic_creates), 1)
+        self.assertNotIn("-d", epic_creates[0])
+
+    def test_epic_description_renders_objective_section(self):
+        self.assertEqual(
+            sync._epic_description("Ship the write path."),
+            "## Objective\nShip the write path.\n",
+        )
+
+    def test_epic_description_empty_for_empty_objective(self):
+        self.assertEqual(sync._epic_description(""), "")
+
+    def test_get_milestone_bullet_hit(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            roadmap_path = Path(tmp) / "ROADMAP.md"
+            roadmap_path.write_text(
+                "## Milestones\n\n"
+                "- v1.0 milestone -- Phases 1-4\n"
+                "- v1.2 New Capability Plugins -- Phases 13-15\n\n"
+                "## Phases\n",
+                encoding="utf-8",
+            )
+            bullet = sync.get_milestone_bullet(roadmap_path, "v1.2")
+        self.assertEqual(bullet, "- v1.2 New Capability Plugins -- Phases 13-15")
+
+    def test_get_milestone_bullet_miss_returns_empty_string(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            roadmap_path = Path(tmp) / "ROADMAP.md"
+            roadmap_path.write_text(
+                "## Milestones\n\n- v1.0 milestone -- Phases 1-4\n\n## Phases\n",
+                encoding="utf-8",
+            )
+            bullet = sync.get_milestone_bullet(roadmap_path, "v9.9")
+        self.assertEqual(bullet, "")
 
 
 class TestDependencyMapping(unittest.TestCase):
