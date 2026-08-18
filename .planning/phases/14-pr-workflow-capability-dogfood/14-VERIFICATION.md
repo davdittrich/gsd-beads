@@ -17,6 +17,7 @@ tracked_upstream:
     scope: "~/.claude/gsd-core/bin/lib/capability-consent.cjs — outside this repo, outside every 14-01/14-02/14-03 files_modified list. Not a phase-14 plan defect."
     interim_mitigation_applied: "14-01/14-02/14-03-PLAN.md verify commands changed from `python3 -m unittest discover ...` to `python3 -B -m unittest discover ...` (commit 8cc4f4e), preventing bytecode-cache writes inside the bundle dir. Verified this session: with -B, __pycache__ is never created and `capability list --raw` stays \"active\" across a full 27-test run. Root cause is not fixed (any invocation without -B/PYTHONDONTWRITEBYTECODE=1 still reproduces it) — a bug report against gsd-core is the durable fix, tracked separately, not blocking this phase."
     disposition: "user-directed: mark phase 14 complete; verify, root-cause, and file the gsd-core bug upstream (this session's finding + interim mitigation constitute that verification and root-cause writeup)."
+    issue: "https://github.com/open-gsd/gsd-core/issues/3631"
 ---
 
 # Phase 14: pr-workflow capability (dogfood) Verification Report
