@@ -237,27 +237,26 @@ carries a title only.
 13/14 dogfood precedent already exist; queued after v1.2's pending work (Phase 14 execution,
 Phase 15 extraction) finishes first, not architecturally gated on them.
 
-**Requirements**: TBD — discuss-phase must resolve two competing proposals surfaced 2026-08-18:
+**Requirements**: D-01 through D-08, recorded in
+`.planning/phases/16-beads-issue-content-parity/16-CONTEXT.md`. No `REQ-*` entries exist in
+REQUIREMENTS.md for this phase; the discuss-phase decisions are the requirements source of truth
+and every plan tags the decision ids it implements.
 
-1. **Minimal fix**: extend the task parser (currently only extracts `name`/`beads_id`/`files`
-   from each `<task>` block) to also capture `<objective>`/`<action>`/`<behavior>`/
-   `<acceptance_criteria>`, write a one-shot `--description` at `bd create` time. `PLAN.md`
-   stays the executor's read path, unchanged.
+Discuss-phase (2026-08-19) resolved the two competing proposals surfaced 2026-08-18 — a minimal
+one-shot `--description` write versus a full inversion — in favour of **full inversion** (D-01):
+task content is written to `bd` at creation, `PLAN.md` becomes a name + `beads-id` pointer for
+`auto`/`tracer` tasks, and `gsd-executor` reads task instructions from `bd show`. Checkpoint tasks
+are excluded (D-03), plan-level sections stay in `PLAN.md` (D-02), a `bd show` failure is a hard
+halt with no `PLAN.md` fall-back (D-04), the gsd-core read-path change runs as a documented
+machine-local patch and is filed upstream immediately (D-05), and both the description backfill
+and the `PLAN.md` migration are forward-only (D-06, D-07). D-08 adds the root-cause remediation
+for Phase 14's four stale-open issues.
 
-2. **Full inversion** (matches `planning-with-beads`'s own model, the project's original
-   inspiration — ticket is the sole self-sufficient source of WHAT/HOW, a pointer doc carries
-   IDs only): after sync, strip the detailed content out of `PLAN.md`, leaving title +
-   `beads-id` pointer; `gsd-executor` reads task content from `bd show` instead of `PLAN.md`'s
-   `<task>` blocks. Larger blast radius — touches the executor contract, not just `sync.py`.
-
-Both a direct assessment and an independent `agy`/Gemini Pro review (2026-08-18) agree
-title-only is an unforced gap, not a load-bearing consequence of `beads.sync_mode:
-authoritative` — a one-shot `PLAN.md -> bd` write at creation carries none of the two-way merge
-risk that mode was built to avoid. They diverge on how far to go (option 1 vs 2 above); resolve
-via discuss-phase.
-
-**Plans:** 0 plans
+**Plans:** 4 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 16 to break down)
+- [ ] 16-01-PLAN.md — Write path: parse task content, render it, create bd issues with `-d`/`--acceptance`; epics gain descriptions (D-06, D-02, D-03)
+- [ ] 16-02-PLAN.md — D-08: phase-wide idempotent `reconcile-stale-closed` backstop at `verify:post`, then close Phase 14's four stale issues with it as live proof
+- [ ] 16-03-PLAN.md — Read-path enablement in `sync.py`: `check_execute_plan_patch` detector and the patch-gated `strip_task_bodies` that turns a synced plan into a pointer (D-01, D-03, D-05, D-07)
+- [ ] 16-04-PLAN.md — Install and document the machine-local `execute-plan.md` bd task-read patch, dispatch its detector at `plan:pre`, file the change upstream (D-01, D-04, D-05)
