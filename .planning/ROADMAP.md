@@ -137,6 +137,10 @@ when this phase's higher-risk gate is introduced)
 Plans:
 
 - [ ] 14-01-PLAN.md — Tracer: build the pr-workflow capability end-to-end (capability.json,
+
+**Cross-cutting constraints:**
+
+- Shipping a phase on a branch with no open PR prints exactly one warn-only notice, and `gh pr list` for that branch returns the same (empty) result before and after — nothing was created. (ROADMAP SC4, PRW-03)
       pr_status.py, skill, tests) so a real branch's PR check status becomes a gate-readable
       `14-PR.md`, then prove the `ship:pre` predicate fires across all four states
 

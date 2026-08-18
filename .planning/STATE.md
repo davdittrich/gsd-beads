@@ -4,15 +4,15 @@ milestone: v1.2
 milestone_name: New Capability Plugins
 current_phase: 14
 current_phase_name: pr-workflow capability (dogfood)
-status: planning
+status: executing
 stopped_at: Phase 14 context gathered
-last_updated: "2026-08-18T14:53:25.605Z"
+last_updated: "2026-08-18T15:25:16.511Z"
 last_activity: 2026-08-18
 last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 4
+  total_plans: 7
   completed_plans: 4
   percent: 33
 ---
@@ -31,7 +31,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 Phase: 14 — pr-workflow capability (dogfood)
 Plan: Not started
-Status: Ready to plan
+Status: Ready to execute
 Progress: [██████████] 100% (0/3 phases)
 Last activity: 2026-08-18 — Phase 13 complete, transitioned to Phase 14
 
