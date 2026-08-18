@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: New Capability Plugins
-current_phase: 15
-status: completed
-stopped_at: Phase 16 context gathered
-last_updated: "2026-08-18T22:38:16.902Z"
-last_activity: 2026-08-18
-last_activity_desc: Phase 14 complete (all 3 plans executed, live degrade-cycle evidence recorded)
+current_phase: 16
+current_phase_name: beads-issue-content-parity
+status: executing
+stopped_at: Completed 16-01-PLAN.md
+last_updated: "2026-08-18T23:44:38.513Z"
+last_activity: 2026-08-19
+last_activity_desc: Phase 16 execution started
 progress:
   total_phases: 3
   completed_phases: 3
   total_plans: 12
   completed_plans: 12
   percent: 100
-current_phase_name: ship-markdown-linting-and-pr-workflow-plugins-publicly
 ---
 
 # Project State
@@ -25,15 +25,15 @@ See: .planning/PROJECT.md (updated 2026-08-18)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 15 — ship-markdown-linting-and-pr-workflow-plugins-publicly
+**Current focus:** Phase 16 — beads-issue-content-parity
 
 ## Current Position
 
-Phase: 15
-Plan: Not started
-Status: All phases complete
+Phase: 16 (beads-issue-content-parity) — EXECUTING
+Plan: 2 of 4
+Status: Ready to execute
 Progress: [██████████] 100% (7/7 plans, v1.2)
-Last activity: 2026-08-18 — Phase 15 complete
+Last activity: 2026-08-19 — Phase 16 execution started
 
 ## Performance Metrics
 
@@ -76,6 +76,7 @@ Last activity: 2026-08-18 — Phase 15 complete
 | Phase 14 P01 | ~25min | 2 tasks | 12 files |
 | Phase 14 P02 | ~20min | 2 tasks | 4 files |
 | Phase 14 P03 | ~25min | 2 tasks | 3 files |
+| Phase 16 P01 | 14min | 2 tasks | 2 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -119,6 +120,8 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 14]: ship_post_notice() never reads PR.md -- PRW-03's no-open-PR answer is always a live gh pr list re-probe, never a possibly-stale generated artifact
 - [Phase 14]: re-consented pr-workflow capability (capability install --scope project --yes) before trusting any live dispatch this session -- 14-01/14-02 both edited files inside the bundle after the original consent, silently deactivating it until re-installed
 - [Phase 14]: Phase 14 complete -- all four requirements (PRW-01..04) and all five ROADMAP Success Criteria closed with live-cycle evidence in 14-GATE-SMOKE-TEST.md, not unit assertions alone
+- [Phase ?]: [Phase 16, plan 01]: Edited plugins/beads-lifecycle/.gsd/capabilities/beads/ (the git-tracked plugin source) instead of the plan-specified .gsd/capabilities/beads/, which is a gitignored runtime-install mirror silently re-synced from the tracked source
+- [Phase ?]: [Phase 16, plan 01]: get_milestone_bullet fails open (returns empty string on a miss) unlike its get_phase_header model, since resolve_milestone_epic must stay fail-open per B6/D-08
 
 ### Pending Todos
 
@@ -154,9 +157,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T22:38:16.895Z
-Stopped at: Phase 16 context gathered
-Resume file: .planning/phases/16-beads-issue-content-parity/16-CONTEXT.md
+Last session: 2026-08-18T23:44:38.506Z
+Stopped at: Completed 16-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
