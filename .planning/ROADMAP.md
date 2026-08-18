@@ -38,7 +38,7 @@
 
 - [x] **Phase 13: markdown-linting capability (dogfood)** - `.planning/` markdown quality is measured, reported, and gated advisory — on the already-proven `artifact-frontmatter-equals` mechanism (completed 2026-08-18)
 - [x] **Phase 14: pr-workflow capability (dogfood)** - PR check status is projected into a generated artifact and gated advisory at `ship:pre`, degrading cleanly without `gh` (completed 2026-08-18)
-- [ ] **Phase 15: Ship markdown-linting and pr-workflow plugins publicly** - Both capabilities become public, marketplace-installable plugins with their gates still firing after extraction
+- [x] **Phase 15: Ship markdown-linting and pr-workflow plugins publicly** - Both capabilities become public, marketplace-installable plugins with their gates still firing after extraction (completed 2026-08-18)
 
 ## Phase Details
 
@@ -200,7 +200,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 13. markdown-linting capability (dogfood) | 4/4 | Complete    | 2026-08-18 |
 | 14. pr-workflow capability (dogfood) | 3/3 | Complete    | 2026-08-18 |
-| 15. Ship both plugins publicly | 5/5 | In Progress|  |
+| 15. Ship both plugins publicly | 5/5 | Complete    | 2026-08-18 |
 
 ## Cross-Cutting Constraints (v1.2)
 

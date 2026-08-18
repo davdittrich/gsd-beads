@@ -3,18 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: New Capability Plugins
 current_phase: 15
-current_phase_name: ship-markdown-linting-and-pr-workflow-plugins-publicly
-status: executing
+status: completed
 stopped_at: Phase 15 context gathered
-last_updated: "2026-08-18T20:58:51.140Z"
+last_updated: "2026-08-18T21:53:39.844Z"
 last_activity: 2026-08-18
 last_activity_desc: Phase 14 complete (all 3 plans executed, live degrade-cycle evidence recorded)
 progress:
   total_phases: 3
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 12
-  completed_plans: 7
-  percent: 58
+  completed_plans: 12
+  percent: 100
+current_phase_name: ship-markdown-linting-and-pr-workflow-plugins-publicly
 ---
 
 # Project State
@@ -29,11 +29,11 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 15 (ship-markdown-linting-and-pr-workflow-plugins-publicly) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 15
+Phase: 15
+Plan: Not started
+Status: All phases complete
 Progress: [██████████] 100% (7/7 plans, v1.2)
-Last activity: 2026-08-18 — Phase 15 execution started
+Last activity: 2026-08-18 — Phase 15 complete
 
 ## Performance Metrics
 
