@@ -184,7 +184,15 @@ entry"). Traceability follows Phase 12's extraction playbook decisions D-01..D-1
      `release.yml` / doc reference is repaired in the same commit, CI is green, and a
      `beads-lifecycle` install from the same marketplace still works.
 
-**Plans**: TBD
+**Plans**: 5 plans
+
+Plans:
+
+- [ ] 15-01-PLAN.md — Wrap, stage, publish, and fresh-clone-verify `davdittrich/markdown-linting` (tracer)
+- [ ] 15-02-PLAN.md — Wrap, stage, publish, and fresh-clone-verify `davdittrich/pr-workflow`
+- [ ] 15-03-PLAN.md — Append both `url`-type marketplace entries, prove the round trip twice, push
+- [ ] 15-04-PLAN.md — Re-prove auto-install, re-consent, and both `ship:pre` gates from the installed copies
+- [ ] 15-05-PLAN.md — Audit and decide the dogfood-bundle disposition, execute it, push, prove CI green
 
 ## Progress
 
