@@ -308,6 +308,103 @@ class TestNoticeDistinctness(unittest.TestCase):
         self.assertNotIn(b, a)
 
 
+class TestShipPostNotice(unittest.TestCase):
+    """PRW-03: `ship:post` warn-only notice when no open PR exists for the
+    current branch. Writes no file, mutates no git/GitHub state, and never
+    reads `PR.md` -- the probe is always live (RESEARCH Pitfall 2)."""
+
+    def test_no_open_pr_prints_one_notice_naming_branch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            captured = io.StringIO()
+            calls = []
+
+            def fake_run(argv, **kwargs):
+                calls.append(argv)
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed("feature-y\n", 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    return _completed(_fixture("pr_list_empty.json"), 0)
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = pr_status.ship_post_notice(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            output = captured.getvalue()
+            lines = [line for line in output.splitlines() if line.strip()]
+            self.assertEqual(len(lines), 1)
+            self.assertIn(pr_status.NOTICE_NO_OPEN_PR, output)
+            self.assertIn("feature-y", output)
+            for argv in calls:
+                for forbidden in ("create", "merge", "comment", "edit", "review"):
+                    self.assertNotIn(forbidden, argv)
+
+    def test_open_pr_prints_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            captured = io.StringIO()
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed("feature-y\n", 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    return _completed(PR_LIST_ONE_OPEN, 0)
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = pr_status.ship_post_notice(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(captured.getvalue(), "")
+
+    def test_gh_absent_prints_prw04_notice_not_no_pr_notice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            captured = io.StringIO()
+            with mock.patch("shutil.which", return_value=None):
+                with mock.patch(
+                    "subprocess.run",
+                    side_effect=AssertionError("gh must not be invoked when absent from PATH"),
+                ):
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = pr_status.ship_post_notice(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            output = captured.getvalue()
+            self.assertEqual(output.count(pr_status.NOTICE_GH_ABSENT), 1)
+            self.assertNotIn(pr_status.NOTICE_NO_OPEN_PR, output)
+
+    def test_never_reads_pr_md(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            self.assertFalse((phase_dir / "14-PR.md").exists())
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed("main\n", 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    return _completed(_fixture("pr_list_empty.json"), 0)
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    exit_code = pr_status.ship_post_notice(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            self.assertFalse((phase_dir / "14-PR.md").exists())
+
+
 class TestConfined(unittest.TestCase):
     """T-14-03: confined() must reject any resolved escape from the
     project root -- copied verbatim from lint.py, re-tested independently

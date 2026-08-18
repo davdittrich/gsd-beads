@@ -30,13 +30,21 @@ PR workflow reporting is disabled (pr-workflow.enabled).
 Nothing was regenerated; the loop proceeds normally.
 ```
 
-This step is `onError: skip` at its single dispatch point (`execute:wave:post`) -- no dispatch
-ever fails a phase.
+This step is `onError: skip` at both dispatch points (`execute:wave:post`, `ship:post`) -- no
+dispatch ever fails a phase.
+
+## Step 1.5 -- Lifecycle-point branch
+
+This skill is registered at **two** `capability.json` `steps[]` entries, both `ref.skill:
+"pr-workflow-report"`: `execute:wave:post` and `ship:post`. Determine which point dispatched this
+run and follow the matching branch -- do not collapse the two into one call.
+
+**At `execute:wave:post`**: proceed to **Step 2** below.
+
+**At `ship:post`**: proceed to **Step 2b** below, then stop -- do not also run Step 2's
+`verify-post` dispatch from this point.
 
 ## Step 2 -- execute:wave:post: Regenerate PR.md
-
-This skill has exactly one `capability.json` `steps[]` entry (`execute:wave:post`), so there is no
-lifecycle-point branch to resolve -- unlike `beads-status`, which dispatches at four points.
 
 Run one Bash call passing only the phase directory:
 
@@ -47,6 +55,18 @@ python3 .gsd/capabilities/pr-workflow/scripts/pr_status.py verify-post <phase di
 Print `pr_status.py`'s stdout summary verbatim (`PR.md regenerated: pr_status=<state>` or
 `PR.md regenerated: no open PR (pr_status=none)`).
 
+## Step 2b -- ship:post: warn-only no-open-PR notice
+
+Run one Bash call passing only the phase directory:
+
+```bash
+python3 .gsd/capabilities/pr-workflow/scripts/pr_status.py ship-post-notice <phase directory>
+```
+
+Print its stdout verbatim, including the empty-output case (`ship_post_notice` prints nothing when
+an open PR already exists for the current branch -- the notice is warn-only and conditional, not a
+banner that always fires).
+
 ## Anti-Patterns
 
 1. DO NOT write `PR.md` at a project-root path (`.planning/PR.md`) -- the generic gate evaluator
@@ -54,5 +74,7 @@ Print `pr_status.py`'s stdout summary verbatim (`PR.md regenerated: pr_status=<s
    already writes the correct phase-scoped path; this skill must never override that with a
    different destination.
 2. DO NOT re-run the config gate's check more than once per invocation, and DO NOT call any other
-   `pr_status.py` subcommand from this dispatch point -- this dispatch point only regenerates the
-   report.
+   `pr_status.py` subcommand from either dispatch point beyond the one named in its own branch.
+3. DO NOT create, open, or draft a PR from the `ship:post` dispatch point, and DO NOT read `PR.md`
+   for the answer there -- a stale artifact could report a PR that has since been merged or closed
+   (14-RESEARCH.md Pitfall 2). `ship_post_notice`'s probe is always live.

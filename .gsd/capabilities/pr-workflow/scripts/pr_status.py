@@ -30,6 +30,12 @@ NOTICE_GH_UNAUTH = "gh not authenticated -- run: gh auth login"
 # confirmed present and authenticated.
 NOTICE_GH_ERROR = "gh command failed unexpectedly -- PR status unavailable this run"
 
+# PRW-03: ship:post warn-only notice for "no open PR exists for this
+# branch". Never printed together with any of the three notices above --
+# ship_post_notice() checks gh_available() first and returns early on
+# failure there.
+NOTICE_NO_OPEN_PR = "no open PR exists for this branch -- ship proceeding, nothing created"
+
 
 def find_project_root(start):
     """Walk up from `start` to the nearest ancestor containing `.planning/`.
@@ -240,6 +246,29 @@ def verify_post(phase_dir_arg):
     return 0
 
 
+def ship_post_notice(phase_dir_arg):
+    """ship:post dispatch (PRW-03): print a warn-only notice when the
+    current branch has no open PR. `phase_dir_arg` is accepted only for CLI
+    signature parity with `verify-post` -- this function reads and writes
+    no file (never `PR.md`, which could be stale for a PR merged or closed
+    since the last `execute:wave:post` run -- RESEARCH Pitfall 2) and
+    mutates no git/GitHub state. Returns 0 on every path; issues no `gh`
+    subcommand beyond `gh_available()`'s `auth status` and `find_open_pr`'s
+    `pr list`.
+    """
+    del phase_dir_arg  # unused: no file is read or written on this path
+    available, reason = gh_available()
+    if not available:
+        print(reason)
+        return 0
+
+    branch = current_branch()
+    prs = find_open_pr(branch)
+    if not prs:
+        print(f"{NOTICE_NO_OPEN_PR} (branch: {branch})")
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="pr_status.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -250,10 +279,18 @@ def main(argv=None):
     )
     verify_p.add_argument("phase_dir")
 
+    ship_p = sub.add_parser(
+        "ship-post-notice",
+        help="Print a warn-only notice when the current branch has no open PR (writes nothing)",
+    )
+    ship_p.add_argument("phase_dir")
+
     args = parser.parse_args(argv)
 
     if args.command == "verify-post":
         return verify_post(args.phase_dir)
+    if args.command == "ship-post-notice":
+        return ship_post_notice(args.phase_dir)
     return 1
 
 

@@ -44,6 +44,16 @@
       "consumes": [],
       "when": "pr-workflow.enabled",
       "onError": "skip"
+    },
+    {
+      "point": "ship:post",
+      "ref": {
+        "skill": "pr-workflow-report"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "pr-workflow.enabled",
+      "onError": "skip"
     }
   ],
   "contributions": [],
