@@ -121,6 +121,7 @@ None — no bugs, missing functionality, or blockers required a Rule 1-3 fix bey
 **Impact on plan:** None on the delivered fix — both VERIFICATION.md truths (#6, #7) are now satisfied and machine-asserted exactly as specified. The discrepancies are in the plan's own predicted grep counts / live-tree baseline, not in the code.
 
 ## Issues Encountered
+
 None beyond the acceptance-criteria discrepancies documented above.
 
 ## User Setup Required
