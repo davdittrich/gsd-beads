@@ -5,16 +5,16 @@ milestone_name: New Capability Plugins
 current_phase: 14
 current_phase_name: pr-workflow capability (dogfood)
 status: executing
-stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-08-18T16:37:14.172Z"
+stopped_at: Completed 14-02-PLAN.md
+last_updated: "2026-08-18T16:52:29.214Z"
 last_activity: 2026-08-18
 last_activity_desc: Phase 13 complete, transitioned to Phase 14
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 7
-  completed_plans: 5
-  percent: 71
+  completed_plans: 6
+  percent: 33
 ---
 
 # Project State
@@ -30,17 +30,17 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 14 — pr-workflow capability (dogfood)
-Plan: 01 complete (1/3 plans)
+Plan: 02 complete (2/3 plans)
 Status: Executing
-Progress: [███████░░░] 71% (5/7 plans, v1.2)
-Last activity: 2026-08-18 — Plan 14-01 complete (pr-workflow tracer slice + four-state gate smoke test)
+Progress: [█████████░] 86% (6/7 plans, v1.2)
+Last activity: 2026-08-18 — Plan 14-02 complete (PRW-03/PRW-04 fail-open notices + ship:post no-open-PR notice)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed (v1.2): 5
-- Average duration: ~16min (Phase 13 P01-P04 + Phase 14 P01)
+- Total plans completed (v1.2): 6
+- Average duration: ~16min (Phase 13 P01-P04 + Phase 14 P01-P02)
 - Total execution time: -
 
 **Recent Trend:**
@@ -74,6 +74,7 @@ Last activity: 2026-08-18 — Plan 14-01 complete (pr-workflow tracer slice + fo
 | Phase 13 P03 | ~12min | 3 tasks | 118 files |
 | Phase 13 P04 | 10min | 2 tasks | 2 files |
 | Phase 14 P01 | ~25min | 2 tasks | 12 files |
+| Phase 14 P02 | ~20min | 2 tasks | 4 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -116,6 +117,8 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 14]: pr_status rollup extends D-01's precedence to gh's actual bucket vocabulary (skipping->passing, cancel->failing alongside fail), flagged per RESEARCH Pitfall 6 rather than silently reinterpreting D-01
 - [Phase 14]: un-ignored .gsd/capabilities/pr-workflow/ in .gitignore, same one-line pattern Phase 13 established for markdown-linting
 - [Phase 14]: the -t . unittest-discover verify-command defect (dotted-module-name incompatible with the hidden .gsd/ dir) was inherited from Phase 13's plan-doc shape and fixed at the plan-doc level for 14-01/14-02/14-03-PLAN.md (commit f31e6f4), mirroring Phase 13's own fix -- no code change, verification behavior unaffected
+- [Phase 14]: verify_post's live gh calls wrapped in a single try/except catching only TimeoutExpired/OSError/JSONDecodeError, leaving check_buckets' RuntimeError (unrelated gh pr checks stderr) uncaught on purpose
+- [Phase 14]: ship_post_notice() never reads PR.md -- PRW-03's no-open-PR answer is always a live gh pr list re-probe, never a possibly-stale generated artifact
 
 ### Pending Todos
 
@@ -151,12 +154,16 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T16:37:14.164Z
-Stopped at: Completed 14-01-PLAN.md
+Last session: 2026-08-18T16:52:29.208Z
+Stopped at: Completed 14-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Execute `14-02-PLAN.md` next (PRW-04: two distinct `gh`-absent/`gh`-unauthenticated fail-open
-  notices, `ship-post-notice` subcommand + `ship:post` step), then `14-03-PLAN.md` (PRW-03, live
-  degrade-cycle evidence appendix). Both build on `14-01`'s proven tracer slice and gate.
+- Execute `14-03-PLAN.md` next (live degrade-cycle evidence appendix closing out PRW-03/PRW-04's
+  live-verification scope). Builds on `14-01`'s proven tracer slice/gate and `14-02`'s fail-open
+  notices + `ship:post` no-open-PR notice, both already unit-tested and live-verified once each.
+- Re-run `capability install --scope project` (or global, matching the prior install) for
+  `pr-workflow` before trusting a real lifecycle dispatch -- `14-02` edited files inside the
+  bundle, invalidating the consent hash recorded after `14-01` (per-phase recurring gotcha, see
+  Decisions above).

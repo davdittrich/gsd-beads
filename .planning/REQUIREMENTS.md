@@ -23,11 +23,11 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
       semantics), `onError: skip`, default **advisory** (warn, don't block) until proven against
       a real PR cycle in this repo
 
-- [ ] **PRW-03**: `ship:post` prints a warn-only notice when no open PR exists for the current
+- [x] **PRW-03**: `ship:post` prints a warn-only notice when no open PR exists for the current
       branch — never auto-creates one (matches the source `pr-workflow` skill's own "ask before
       creating" spirit; avoids PR spam)
 
-- [ ] **PRW-04**: `gh` absent or unauthenticated degrades to a no-op with one visible notice
+- [x] **PRW-04**: `gh` absent or unauthenticated degrades to a no-op with one visible notice
       (B6's fail-open pattern, `shutil.which("gh")` + `gh auth status` guard)
 
 ### MARKDOWN-LINTING
@@ -99,8 +99,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MDL-04 | Phase 13 | Complete |
 | PRW-01 | Phase 14 | Complete |
 | PRW-02 | Phase 14 | Complete |
-| PRW-03 | Phase 14 | Pending |
-| PRW-04 | Phase 14 | Pending |
+| PRW-03 | Phase 14 | Complete |
+| PRW-04 | Phase 14 | Complete |
 
 **Coverage:**
 
