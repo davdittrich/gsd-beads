@@ -407,6 +407,34 @@ class TestShipPostNotice(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             self.assertEqual(captured.getvalue(), "")
 
+    def test_gh_pr_list_failure_fail_open(self):
+        # CR-01: a gh pr list blow-up after gh_available() already passed
+        # must fail open (print NOTICE_GH_ERROR, return 0), not crash with
+        # an uncaught RuntimeError/GhCommandError -- mirrors
+        # TestFailOpen::test_gh_pr_list_timeout_fail_open.
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            captured = io.StringIO()
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed("feature-y\n", 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    raise subprocess.TimeoutExpired(cmd=argv, timeout=30)
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = pr_status.ship_post_notice(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            output = captured.getvalue()
+            self.assertEqual(output.count(pr_status.NOTICE_GH_ERROR), 1)
+            self.assertNotIn(pr_status.NOTICE_NO_OPEN_PR, output)
+
     def test_gh_absent_prints_prw04_notice_not_no_pr_notice(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _write_phase_dir(Path(tmp))

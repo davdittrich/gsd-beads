@@ -274,6 +274,11 @@ def ship_post_notice(phase_dir_arg):
     mutates no git/GitHub state. Returns 0 on every path; issues no `gh`
     subcommand beyond `gh_available()`'s `auth status` and `find_open_pr`'s
     `pr list`.
+
+    CR-01: the two live calls are wrapped in the same fail-open except tuple
+    as `verify_post()` -- a `gh pr list`/`git branch` blow-up after the
+    availability guard already passed must not crash `ship:post`'s
+    onError: "skip" dispatch with an uncaught traceback.
     """
     del phase_dir_arg  # unused: no file is read or written on this path
     available, reason = gh_available()
@@ -281,8 +286,12 @@ def ship_post_notice(phase_dir_arg):
         print(reason)
         return 0
 
-    branch = current_branch()
-    prs = find_open_pr(branch)
+    try:
+        branch = current_branch()
+        prs = find_open_pr(branch)
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, GhCommandError):
+        print(NOTICE_GH_ERROR)
+        return 0
     if not prs:
         print(f"{NOTICE_NO_OPEN_PR} (branch: {branch})")
     return 0
