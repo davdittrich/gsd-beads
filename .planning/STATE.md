@@ -2,11 +2,11 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: New Capability Plugins
-current_phase: 14
-current_phase_name: pr-workflow capability (dogfood)
-status: Phase complete — ready for verification
+current_phase: 15
+current_phase_name: Ship markdown-linting and pr-workflow plugins publicly
+status: planning
 stopped_at: Completed 14-03-PLAN.md
-last_updated: "2026-08-18T17:07:35.551Z"
+last_updated: "2026-08-18T18:00:29.921Z"
 last_activity: 2026-08-18
 last_activity_desc: Phase 14 complete (all 3 plans executed, live degrade-cycle evidence recorded)
 progress:
@@ -29,11 +29,11 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 14 — pr-workflow capability (dogfood)
-Plan: 03 complete (3/3 plans)
-Status: Phase complete — ready for verification
+Phase: 15 — Ship markdown-linting and pr-workflow plugins publicly
+Plan: Not started
+Status: Ready to plan
 Progress: [██████████] 100% (7/7 plans, v1.2)
-Last activity: 2026-08-18 — Plan 14-03 complete (live degrade-cycle evidence, capability re-consent, advisory-gate proof; all 5 ROADMAP SCs mapped to evidence)
+Last activity: 2026-08-18 — Phase 14 complete, transitioned to Phase 15
 
 ## Performance Metrics
 
@@ -95,13 +95,10 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 
   resolves its script path via `git rev-parse --show-toplevel`, not `${CLAUDE_PLUGIN_ROOT}`.
 
-- [Phase 12]: `davdittrich/ponytail-everywhere` and `davdittrich/sota-numerics` shipped via the
   stage-outside-tree → fix-relocation-paths → `gh repo create` + push → fresh-clone-verify sequence.
 
-- [Phase 12]: `marketplace.json` entries must use `url`-type sources with explicit `https://` git
   URLs (commit `f706179`) — GitHub shorthand clones over SSH and breaks on SSH-keyless machines.
 
-- [Phase 12]: The claim previously recorded here — that dogfood subdirectories were removed from
   `gsd-beads` in the same commit that repaired the orphaned `ci.yml` / `release.yml` references —
   was found false during quick-task 260818-h2h: `git log --follow` showed no deletion commit ever
   existed for `.gsd/capabilities/{ponytail,sota-numerics}`, only their Phase 10/11 authoring
