@@ -241,14 +241,17 @@ def _write_plan_workspace(tmp_path, plan_text, with_state=False):
 ## Shared Patterns
 
 ### `bd` invocation convention
+
 **Source:** `sync.py` module docstring + `run_bd` (lines 1-10, 34-37)
 **Apply to:** every new `bd list`/`bd comment` call this phase adds — argv-list, `shell=False` implicit default, single call site (`run_bd`), never a shell string. The new commit-trailer write is `git`, not `bd`, but must follow the identical argv-list-not-shell-string discipline (T-01-01's rationale applies equally to any subprocess call mixing two trust principals).
 
 ### Fail-open (B6/D-08)
+
 **Source:** `bd_available` (lines 40-50) + `append_state_blocker` (lines 53-68), applied identically in `close_wave`, `create_issues`, `beads_recall`, `regenerate_beads_md`
 **Apply to:** the D-05 override-audit `bd comment` write — "best-effort, follows this project's existing fail-open convention (B6): if `bd` is unavailable at ship time, skip the comment write and note the skip, never block the ship on it" (CONTEXT.md D-05, verbatim). The commit trailer write is NOT fail-open — CONTEXT.md D-05 calls it "always written, durable" — do not wrap the trailer write in the same skip-on-failure branch as the `bd comment` write; only the `bd comment` half gets the B6 treatment.
 
 ### Gate predicates never call `bd` live
+
 **Source:** PROJECT.md locked decision, restated in CONTEXT.md canonical_refs — "gate predicates read only generated artifact frontmatter, never query `bd` directly"
 **Apply to:** the two new `gates[]` entries in `capability.json` — both must be `artifact-frontmatter-equals` over `BEADS.md`, never a new predicate kind (PRD §5.3 confirms only `command-exists` and `artifact-frontmatter-equals` exist).
 

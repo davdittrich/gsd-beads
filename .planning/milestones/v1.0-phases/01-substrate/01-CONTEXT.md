@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 Every `PLAN.md` task in a phase gets exactly one beads issue, parented to that phase's epic.
@@ -17,6 +18,7 @@ REQ-B6.
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### Content ownership (overrides prior PROJECT.md decision)
@@ -74,6 +76,7 @@ REQ-B6.
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -100,13 +103,16 @@ REQ-B6.
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
+
 None — this repository (`gsd-beads`) currently holds only `docs/prd-beads-capability.md` and
 `.planning/`; no source code exists yet (net-new capability, greenfield within this repo).
 
 ### Established Patterns
+
 None locally. The PRD names `capabilities/mempalace/capability.json` in the (unavailable)
 gsd-core checkout as the closest shipped analogue for shape and degrade-cleanly behavior — must
 be fetched and read per the canonical_refs blocker above before it can inform this phase's design.
@@ -119,6 +125,7 @@ be fetched and read per the canonical_refs blocker above before it can inform th
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No specific UI/UX references — this is an infrastructure/plumbing phase. The PRD's acceptance
@@ -129,6 +136,7 @@ mapping, orphan handling, notice destination) rather than broad exploratory ques
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 - PRD §12 open question: does `execute:wave:post` fire per task or per wave? Decides whether B3
@@ -142,6 +150,7 @@ mapping, orphan handling, notice destination) rather than broad exploratory ques
   visible afterward — relevant to Phase 3 (Enforcement), not Phase 1.
 
 ### Reviewed Todos (not folded)
+
 None — `todo.match-phase` returned zero matches for this phase.
 
 </deferred>

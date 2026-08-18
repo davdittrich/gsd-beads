@@ -148,7 +148,7 @@ Critical divergence from every existing gate in this repo (beads' two `ship:pre`
 ### `sota-numerics/.gsd/capabilities/sota-numerics/fragments/planner-sota.md` (component, transform)
 
 **Analog:** `.gsd/capabilities/ponytail/fragments/planner-ladder.md` (full text, 4 lines):
-```
+```text
 Ponytail lazy-ladder discipline for planning (advisory, not a gate).
 Pick the laziest viable task shape: fewest files, fewest new artifacts, drop tasks whose need is speculative — do not plan an abstraction with a single implementation or scaffolding built "for later."
 At the resolved ponytail.level: lite applies rungs 1-2 only (does this need to exist at all, is it already in this codebase); full climbs the whole ladder — stdlib, then a native platform feature, then an already-installed dependency, before anything new; ultra also prefers deleting existing code over adding new code.
@@ -384,20 +384,24 @@ Append after the existing `ponytail-everywhere` entry (index 2, zero-based) insi
 ## Shared Patterns
 
 ### Vendored auto-install (byte-identical, no modification)
+
 **Source:** `ponytail-everywhere/hooks/capability-auto-install.sh`, `ponytail-everywhere/hooks/gsd-tools.sh`
 **Apply to:** `sota-numerics/hooks/capability-auto-install.sh`, `sota-numerics/hooks/gsd-tools.sh`
 Copy verbatim, zero edits — Phase 10.1 D-05's per-plugin vendoring already proven working for two capabilities; a third `CAP_ID` argument is the only variable, and it's supplied by the caller, not hardcoded in these files.
 
 ### `onError: "skip"` fail-open, EXCEPT the blocking gate itself
+
 **Source:** every existing `steps[]`/`contributions[]` entry in `beads`/`ponytail` `capability.json` (all `onError: "skip"`)
 **Apply to:** all four `contributions[]` entries in `sota-numerics/capability.json` — use `onError: "skip"`.
 **Deliberate divergence:** the `plan:post` gate itself must use `onError: "halt"` (or otherwise not silently skip on command failure) — CONTEXT.md's Established Patterns section explicitly flags this as intentional, not an oversight to "fix" later. Document this divergence in the plan text itself.
 
 ### Two-step gate contract (read, do not reinvent)
+
 **Source:** RESEARCH.md's verified excerpt of `~/.claude/gsd-core/workflows/plan-phase.md:1369-1379`
 **Apply to:** the `check-alternatives.py` script's exit-code semantics and the gate's `check.predicate` declaration — Step 1 is command-success (script's own exit code + valid stdout), Step 2 is `GATE_RESULT.block` (derived from that exit code by the generic `command-exit-zero` evaluator, not by the script itself). Do not hand-roll a JSON `GATE_RESULT` output from the script — `evaluateCommandExitZero` (verified in RESEARCH.md's Code Examples) derives `block` purely from the process exit code, exit 0 = pass, non-zero = block.
 
 ### Path confinement / untrusted-content handling
+
 **Source:** `.gsd/capabilities/beads/scripts/sync.py`'s `find_project_root`/`confined` (T-01-02 threat model) and its module docstring's N4/T-01-01 rule ("PLAN.md text is authored by a different principal... no `bd` command is ever assembled as a shell string")
 **Apply to:** `check-alternatives.py` — confine all path joins to the resolved phase directory; never `eval`/shell-interpolate content read from a `PLAN.md` body (citation text, dates) when constructing the gate's own subprocess calls (there should be none needed — this script only reads and regex-matches, it does not shell out).
 

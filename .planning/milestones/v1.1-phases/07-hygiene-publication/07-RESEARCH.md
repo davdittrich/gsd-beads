@@ -5,6 +5,7 @@
 **Confidence:** HIGH
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -20,10 +21,12 @@
 - Exact `git filter-repo` invocation order (one `--path ... --invert-paths` call per file, or combined) as long as the end state matches ROADMAP Success Criterion 3 exactly (all 4 named files gone from every commit's tree).
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 None — discussion stayed within phase scope. README content, release archive allowlist, and final `claude plugin validate` gate are already correctly scoped to Phase 8 per ROADMAP.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 | ID | Description | Research Support |
@@ -54,6 +57,7 @@ Live inspection of this exact repository (not assumed) surfaced two things the R
 ## Standard Stack
 
 ### Core
+
 | Tool | Version (verified) | Purpose | Why Standard |
 |------|---------|---------|--------------|
 | `git-filter-repo` | commit `a40bce548d2c` (already installed at `/home/dd/.local/bin/git-filter-repo`) [VERIFIED: `git filter-repo --version` run in this repo, 2026-08-16] | Rewrite git history to strip paths | GitHub's own "Removing sensitive data from a repository" docs recommend it as the primary tool, explicitly over the deprecated `git filter-branch` [CITED: docs.github.com] |
@@ -61,6 +65,7 @@ Live inspection of this exact repository (not assumed) surfaced two things the R
 | `git` | (system git, already in use — 169 commits, single branch `main`, tag `v1.0`) [VERIFIED: `git log --oneline \| wc -l`, `git branch -a`, `git tag`, run in this repo, 2026-08-16] | Underlying VCS; filter-repo and gh CLI both shell out to it | N/A — not a choice, it's what's already there |
 
 ### Alternatives Considered
+
 | Instead of | Could Use | Tradeoff |
 |------------|-----------|----------|
 | `git filter-repo` | `git filter-branch` | Deprecated by Git itself; orders of magnitude slower on repos of any size; git's own docs steer users to filter-repo. Not viable — rejected. |
@@ -77,7 +82,7 @@ No new external packages are installed by this phase. `git-filter-repo` is alrea
 
 ### Operation Sequence Diagram
 
-```
+```text
 [dirty working tree]
         │
         ▼
@@ -120,7 +125,7 @@ No new external packages are installed by this phase. `git-filter-repo` is alrea
 ```
 
 ### Recommended local layout for the backup
-```
+```text
 /home/dd/Gemini/                       # sibling to the project root, not
 ├── gsd-beads/                         # nested inside it — avoids the mirror
 └── gsd-beads-backup-pre-filter-repo/  # accidentally getting swept into
@@ -129,6 +134,7 @@ No new external packages are installed by this phase. `git-filter-repo` is alrea
 Per CLAUDE.md ("Worktrees are under the project root never outside") this is a backup mirror, not a worktree — it does not need to live under the project root, and placing it there would risk it being picked up by later `git add -A`-style operations if anyone runs one. A sibling directory keeps it isolated while remaining trivially discoverable (`namei` before any destructive op on it, per CLAUDE.md).
 
 ### Pattern: single combined `--invert-paths` invocation
+
 **What:** One `git filter-repo` call listing all 4 `--path` flags followed by one `--invert-paths`, rather than 4 sequential invocations.
 **When to use:** Whenever removing multiple, unrelated paths in one rewrite.
 **Why:** This is the pattern in `git-filter-repo`'s own `--help` EXAMPLES section verbatim: `git filter-repo --path foo.zip --path bar/baz/zips/ --invert-paths` [VERIFIED: `git filter-repo -h` output, run in this repo, 2026-08-16 — reproduced in Code Examples below]. A single combined run also means the "fresh clone" / `--force` decision only has to be made once, and there is only one rewrite event to back up against, not four.
@@ -166,30 +172,35 @@ Per CLAUDE.md ("Worktrees are under the project root never outside") this is a b
 ## Common Pitfalls
 
 ### Pitfall 1: Stray `git stash` entry snapshots a target file
+
 **What goes wrong:** A leftover `stash@{0}` from an earlier session holds an old copy of `.gsd-capabilities.json`. It isn't pushed by normal `git push`, but it sits in the local object database untouched by filter-repo's documented behavior.
 **Why it happens:** Stashes are commits under `refs/stash`, a namespace outside `refs/heads`/`refs/tags` that filter-repo's default path-filtering doesn't reliably process (confirmed by the tool's own issue tracker, not assumed).
 **How to avoid:** `git stash drop` before running `git filter-repo`. Confirm with `git stash list` (must print nothing) before proceeding.
 **Warning signs:** `git filter-repo -h`'s own refusal message references "reflogs and old objects" being pruned — if a stash survives that pruning unexpectedly, it means filter-repo silently didn't touch `refs/stash`, which is the documented-but-opaque behavior, not a filter-repo bug.
 
 ### Pitfall 2: Commit count will visibly drop by more than 4
+
 **What goes wrong:** A plan or verification step that expects "history rewritten, same commit count, just smaller trees" will be surprised when `git log --oneline | wc -l` drops from 169 to as low as 166.
 **Why it happens:** `--prune-empty auto` (the default) deletes any commit that becomes empty once its only changed path(s) are removed. In this repo, exactly 3 commits touch **only** files from the removal set: `2075c5f` (stray milestone archival cleanup), `927e9de` (capability re-install/re-consent), `85aff2a` (capability re-consent after bundle hash change) [VERIFIED: computed from `git log --oneline --name-only` run in this repo, 2026-08-16, filtering for commits whose changed-file set is a subset of `{.beads/config.yaml, .beads/metadata.json, .claude/.headroom_wrap_marker.json, .gsd-capabilities.json}`].
 **How to avoid:** Treat this as expected, not a defect — do not write a verification step asserting "commit count unchanged." Assert instead on the specific criteria ROADMAP already gives (files absent from `git log -p`, files absent from `git ls-files`).
 **Warning signs:** `git rev-list --count HEAD` before vs. after differing is correct behavior here, not a red flag.
 
 ### Pitfall 3: `.beads/config.yaml` is a secrets-capable file even though today it has no live secret
+
 **What goes wrong:** Assuming this file is safe to leave tracked because "there's nothing sensitive in it right now."
 **Why it happens:** The file is beads' own template, entirely commented out today, but its own inline comments document the exact fields that would hold live credentials: `# Secret keys (stored in this file but prefer env vars to avoid git exposure): # - linear.api_key  → use LINEAR_API_KEY env var instead # - github.token    → use GITHUB_TOKEN env var instead` [VERIFIED: `.beads/config.yaml` lines 64-73, read in full this session — quoted verbatim above].
 **How to avoid:** This is exactly why ROADMAP already targets this file for removal from history, not just future-proofing against a hypothetical edit — confirm the plan doesn't relax this to "just add a warning comment" instead of the full untrack+rewrite.
 **Warning signs:** N/A — this pitfall's mitigation is already the phase's Success Criterion 1 and 3; noted here so the planner doesn't second-guess the file's inclusion.
 
 ### Pitfall 4: Editing `.beads/.gitignore` instead of the root `.gitignore`
+
 **What goes wrong:** `.beads/` already has its own nested `.gitignore` (58 lines, extensive Dolt/runtime coverage) that looks like the natural place to add `interactions.jsonl` and `*.bak` coverage.
 **Why it happens:** The nested file is tool-managed (by `bd`) and carries an explicit self-warning against edits of this shape: `# NOTE: Do NOT add negation patterns here. # They would override fork protection in .git/info/exclude. # Config files (metadata.json, config.yaml) are tracked by git by default # since no pattern above ignores them.` [VERIFIED: `.beads/.gitignore`, read in full this session — quoted verbatim above]. This file is explicitly generated/maintained by `bd init`/`bd` tooling and risks being overwritten on a future `bd` upgrade.
 **How to avoid:** Add the 3 ROADMAP-named patterns (`.beads.backup-pre-recovery/`, `.beads/interactions.jsonl`, `*.bak`) plus the D-01 `.serena/` and `.gsd/dispatch-isolation-sentinel.json` entries to the **root** `.gitignore`, not `.beads/.gitignore`.
 **Warning signs:** If a future `bd` version regenerates `.beads/.gitignore` and any of these patterns silently disappear, the root `.gitignore` copy is unaffected.
 
 ### Pitfall 5: Assuming the first push needs `--force`
+
 **What goes wrong:** ROADMAP's own phase description states "force-push required — commit hashes changed," which is true of the *local* rewrite but not necessarily of the *push mechanics* here.
 **Why it happens:** Conflating "history was rewritten" (true, hashes changed) with "the remote already has history to overwrite" (false — per D-05, `gh repo create` is run with no `--add-readme`/`--gitignore`/`--license`, so the new remote has zero commits; `git push -u origin main` against a genuinely empty remote needs no `--force` at all — `gh repo create --help`'s own description confirms `--add-readme` is what would create a conflicting initial commit, and D-05 explicitly avoids that flag) [VERIFIED: `gh repo create --help`, run in this environment, 2026-08-16].
 **How to avoid:** Attempt a plain `git push -u origin main --tags` first. If GitHub unexpectedly already has a commit (race condition, or a flag was passed that shouldn't have been), the push will be rejected and only then is `--force`/`--force-with-lease` appropriate — and per CLAUDE.md's standing git-safety rules, that still requires explicit user confirmation before running. Either way, treat the push itself (force or not) as the one-way-door moment requiring confirmation, since ROADMAP frames it that way regardless of the underlying git mechanics.
@@ -211,7 +222,7 @@ git filter-repo --force \
 ```
 
 ### Empirically-confirmed refusal without --force (this repo, this session)
-```
+```text
 $ git filter-repo --path .beads/config.yaml --invert-paths
 Aborting: Refusing to destructively overwrite repo history since
 this does not look like a fresh clone.
@@ -312,6 +323,7 @@ ls .beads/config.yaml .beads/metadata.json .claude/.headroom_wrap_marker.json .g
 This phase has no application code and no test framework — "tests" are the ROADMAP success criteria themselves, run as literal shell commands. `workflow.nyquist_validation: true` in `.planning/config.json` [VERIFIED: `.planning/config.json` read this session] still applies; the "test framework" here is git itself.
 
 ### Test Framework
+
 | Property | Value |
 |----------|-------|
 | Framework | None (shell-command assertions against git/gh state) |
@@ -320,6 +332,7 @@ This phase has no application code and no test framework — "tests" are the ROA
 | Full suite command | The 4-command sequence in Code Examples' "Fresh-clone remote verification" block |
 
 ### Phase Requirements → Test Map
+
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
 | PUB-05 | 4 files untracked, .gitignore extended | smoke | `git ls-files \| grep -E '\.beads/config\.yaml\|\.beads/metadata\.json$\|headroom_wrap_marker\|\.gsd-capabilities\.json'` (expect empty) + `git check-ignore -v .beads.backup-pre-recovery/ .beads/interactions.jsonl foo.bak` (expect all matched) | n/a — direct git commands |
@@ -333,6 +346,7 @@ This phase has no application code and no test framework — "tests" are the ROA
 - **Phase gate:** the fresh-clone check (Success Criterion 5) is the phase gate — must run once, after push, before declaring the phase done
 
 ### Wave 0 Gaps
+
 None — existing git/gh tooling covers all phase requirements; no test infrastructure to build.
 
 ## Security Domain

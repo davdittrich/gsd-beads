@@ -212,10 +212,10 @@ args per CONTEXT.md), same `allowed-tools` list.
 "STOP -- DO NOT READ THIS FILE" banner instruction, the `## Step 0 -- Banner` block, and the
 `## Step 1 -- Config Gate` reading `.planning/config.json`'s `beads.enabled`, with the identical
 disabled-message shape):
-```
+```text
 GSD > BEADS STATUS
 ```
-```
+```text
 Beads status is disabled (beads.enabled).
 Nothing was closed; the loop proceeds normally.
 ```
@@ -292,6 +292,7 @@ scope before reusing it for `bd` calls specifically).
 ## Shared Patterns
 
 ### `bd` invocation discipline (applies to every new function above)
+
 **Source:** `sync.py:run_bd()` (lines 48-51) + `bd_available()` (lines 54-64)
 **Apply to:** `migrate_todos()`, on-demand status function, `resolve_milestone_epic()` — every
 new `bd` call, with zero exceptions.
@@ -303,6 +304,7 @@ Never assemble a `bd` command as a shell string; always a typed argv list (N4/T-
 in `beads-status/SKILL.md` Anti-Pattern 3 and RESEARCH.md's Known Threat Patterns table).
 
 ### Fail-open (B6) on `bd` absence/failure
+
 **Source:** `create_issues()`'s opening gate (lines 536-547) + `append_state_blocker()` (lines
 67-82)
 **Apply to:** `migrate_todos()`'s whole-run gate; the on-demand status branch's dispatch.
@@ -310,12 +312,14 @@ Every new subcommand must print `NOTICE` and, when a project root resolves, appe
 bullet to `STATE.md`'s `### Blockers/Concerns` — never crash, never partially run.
 
 ### Path confinement (T-01-02)
+
 **Source:** `find_project_root()` + `confined()` (lines 85-108)
 **Apply to:** the new `.planning/config.json` read in `resolve_epic()`; the `pending_dir` glob in
 `migrate_todos()` (`confined(project_root, ".planning", "todos", "pending")` before globbing).
 Never join an artifact-derived path fragment without routing it through `confined()`.
 
 ### Table rendering / cell escaping
+
 **Source:** `_escape_table_cell()` (lines 628-633), `_render_beads_md_table()` (lines 863-896),
 `_render_issue_table()` (lines 642-657)
 **Apply to:** the on-demand status view — reuse all three verbatim; the only new rendering logic
@@ -323,6 +327,7 @@ needed is the two orphan-list `parts.append(...)` blocks (see `_render_beads_rec
 Unscoped pattern above).
 
 ### Argparse subcommand registration
+
 **Source:** `main()` (lines 1207-1261) — each subcommand is `sub.add_parser("name", help=...)`
 plus positional `.add_argument(...)` calls, dispatched via a flat `if args.command == "..."` chain.
 **Apply to:** register `migrate-todos` (no positional args — `pending_dir` is derived internally

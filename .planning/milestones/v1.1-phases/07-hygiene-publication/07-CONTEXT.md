@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 Make gsd-beads public on GitHub with a history that contains nothing machine-local. Two requirements: PUB-05 (git hygiene — untrack + rewrite history for 4 named files, extend `.gitignore`) and PUB-10 (create the public repo, push rewritten history). README, release archive, and final validation gate are Phase 8 — not this phase's scope.
@@ -11,6 +12,7 @@ Make gsd-beads public on GitHub with a history that contains nothing machine-loc
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### Untracked artifacts not named in ROADMAP's list
@@ -32,6 +34,7 @@ Make gsd-beads public on GitHub with a history that contains nothing machine-loc
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -49,6 +52,7 @@ No other external specs — requirements fully captured in decisions above.
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Current repo state (verified live, 2026-08-16)
@@ -67,6 +71,7 @@ No other external specs — requirements fully captured in decisions above.
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No particular UI/behavior references — this is a git-hygiene and repo-creation phase, not a feature build. Standard `git filter-repo` + `gh repo create` approaches apply as specified in ROADMAP's success criteria.
@@ -74,6 +79,7 @@ No particular UI/behavior references — this is a git-hygiene and repo-creation
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 None — discussion stayed within phase scope. (README content, release archive allowlist, and final `claude plugin validate` gate are already correctly scoped to Phase 8 per ROADMAP and were not raised as in-scope-for-7 by the user.)

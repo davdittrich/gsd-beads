@@ -61,6 +61,7 @@ No controller/component/service/model/middleware files in this phase — RESEARC
 ## Shared Patterns
 
 ### Event-driven hook config shape
+
 **Source:** `.claude/settings.json` (this repo) == `hooks/hooks.json` target shape (Claude Code plugins-reference schema)
 **Apply to:** Both files in this phase — they are the same pattern instance, one being retired, one being introduced.
 ```json
@@ -68,10 +69,12 @@ No controller/component/service/model/middleware files in this phase — RESEARC
 ```
 
 ### Fail-open contract — do not re-implement
+
 **Source:** `code.claude.com/docs/en/hooks` (verbatim, fetched this session, RESEARCH.md Pitfall 4)
 **Apply to:** `hooks/hooks.json`'s `bd prime --hook-json` command only — no wrapper/guard needed; Claude Code's own `SessionStart` exit-code handling already produces "one visible notice, session proceeds" when `bd` is absent.
 
 ### Manual capability-install bridge (PUB-03) — no file pattern, CLI-only
+
 **Source:** `bin/lib/capability-command-router.cjs:262-296` (gsd-core, read this session) + this project's own Phase 1 precedent (`.planning/milestones/v1.0-phases/01-substrate/01-03-PLAN.md:174`)
 **Not a file this phase creates** — this phase documents (in the plan/README, not new source) the existing command:
 ```bash

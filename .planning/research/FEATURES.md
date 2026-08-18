@@ -47,7 +47,7 @@ Features that seem good but create problems.
 
 ## Feature Dependencies
 
-```
+```text
 pr-workflow.ship_gate (tri-state check predicate)
     └──requires──> pr-workflow.pr_status_artifact (generated PR.md, regenerated every step)
                        └──requires──> `gh` CLI present + authenticated (command-exists gate precedent from beads' `bd`-absence handling)

@@ -27,4 +27,3 @@ Single reviewer this run (`review.default_reviewers` = `["antigravity"]`; no `--
 ### Divergent Views
 
 N/A — single reviewer.
-

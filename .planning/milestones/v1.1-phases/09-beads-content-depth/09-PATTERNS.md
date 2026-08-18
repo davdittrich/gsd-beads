@@ -46,7 +46,7 @@ description: Use when working in a repository that uses bd or Beads for durable 
 **Existing structure to extend, not replace** (whole file, 80 lines): keep "First Step" (`bd prime` / `bd where`), "Core CLI Workflow" (5 numbered steps: find/inspect/claim/create/close), "What Belongs In Beads", "Rules" sections as-is. Add a new section listing the `resources/` and `commands/` files added by this phase, e.g. a "Deeper Topics" section with one bullet per new resource/command file and a one-line description — this is the progressive-disclosure index upstream's own `SKILL.md` doesn't need to duplicate (upstream relies on slash-command discovery + `resources/` directory listing).
 
 **Anti-pattern to avoid** (from upstream `resources/CLI_REFERENCE.md`, verbatim):
-```
+```text
 This skill does not bundle a copied CLI command reference. The command
 surface is generated from the installed `bd` binary and would drift if
 duplicated here.
@@ -79,7 +79,7 @@ Apply the same discipline to every new `commands/*.md` and `resources/*.md`: des
 **D-06 constraint:** do not restate bare `bd` CLI basics (`bd ready`, `bd show`, `bd update --claim`) already in SKILL.md — PRIME.md is gsd-integration-only.
 
 **Verified override mechanism** (`bd prime --help`, bd v1.2.2):
-```
+```text
 Workflow customization:
 - Place a .beads/PRIME.md file in the local clone or resolved workspace to override the default output entirely.
 - Use --export to dump the default content for customization.
@@ -111,8 +111,9 @@ bd worktree create .worktrees/{name} --branch feature/{name}
 ```
 
 ## Architecture
+
 [diagram + prose]
-```
+```text
 Table-driven "when to use" sections + fenced `bash` command examples + a short architecture note is the recurring shape across all 5 files. Copy this shape; content is gsd-core-neutral (worktree/dependency/async-gate mechanics don't change per-project) so upstream text can largely be adapted/trimmed, not rewritten from scratch.
 
 **Troubleshooting structure specifically** (from `resources/TROUBLESHOOTING.md` lines 1-30):
@@ -130,7 +131,7 @@ Table-driven "when to use" sections + fenced `bash` command examples + a short a
 ```bash
 [repro command]
 ```
-```
+```text
 Symptom/cause/fix subsections per issue, TOC at top — reuse verbatim structure.
 
 ---
@@ -267,18 +268,22 @@ Only the `version` field changes (`1.1.0` -> `1.1.1`); everything else byte-iden
 ## Shared Patterns
 
 ### "Don't duplicate the CLI reference" discipline
+
 **Source:** upstream `resources/CLI_REFERENCE.md` (full file, verbatim above)
 **Apply to:** every new `commands/*.md` and `resources/*.md` file — describe usage/framing, point to `bd help --all` / `bd <command> --help` for flag tables, never transcribe `--help` output into a frozen table that will drift on the next `bd` release.
 
 ### Typed-argv / no-shell-string discipline
+
 **Source:** `.gsd/capabilities/beads/scripts/sync.py` module docstring + `run_bd()` (lines 1-9, 77-81)
 **Apply to:** D-02's self-heal, only if it ends up invoking `bd` at all (it doesn't need to — pure filesystem copy). If it does shell out for any reason, use `subprocess.run([...])`, never a shell string.
 
 ### Path confinement
+
 **Source:** `.gsd/capabilities/beads/scripts/sync.py` `find_project_root()`/`confined()` (lines 116-139, quoted above)
 **Apply to:** D-02's self-heal destination path resolution (`.beads/PRIME.md`), hardcoded relative to a resolved project root — never derived from hook arguments, env vars, or file content (ASVS V5/V12, threat T-01-02).
 
 ### Frontmatter shape for skill/command docs
+
 **Source:** `.agents/skills/beads/SKILL.md` lines 1-4 (skill-level) and upstream `commands/dep.md`/`commands/stats.md` lines 1-4 (command-level: `description` + optional `argument-hint`)
 **Apply to:** all new/modified `.md` files under `.agents/skills/beads/` — keep frontmatter minimal (1-2 keys), never add unused keys.
 

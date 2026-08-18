@@ -8,6 +8,7 @@ CLI/JSON output captured this session; two claims are flagged MEDIUM where the s
 and a design choice is being recommended, not a fact reported)
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -73,6 +74,7 @@ and a design choice is being recommended, not a fact reported)
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 | ID | Description | Research Support |
@@ -178,7 +180,7 @@ files" field on an issue. The only content-substring filters are `--desc-contain
 `--notes-contains`, and `--external-contains`; the only structured tag mechanism is `--label`/
 `--label-any`/`--label-pattern`/`--label-regex`.
 
-```
+```text
 --desc-contains string         Filter by description substring (case-insensitive)
 --notes-contains string        Filter by notes substring (case-insensitive)
 -l, --label strings            Filter by labels (AND: must have ALL). Can combine with --label-any
@@ -222,7 +224,7 @@ calls layered with Python-side text matching in the beads-recall script.
 > `reviews_path`."
 [VERIFIED: `gsd-core/workflows/plan-phase.md:95`]
 
-```
+```text
 <files_to_read>
 - {state_path} (Project State)
 - {roadmap_path} (Roadmap)
@@ -244,7 +246,7 @@ planner subagent through this mechanism, regardless of D-04's guarantee that it 
 **What actually is confirmed working** at `plan:pre` is the contribution-injection slot two
 sections below the `<files_to_read>` block, in the same prompt template:
 
-```
+```text
 731: {For each active entry in `PLAN_PRE_HOOKS_JSON` where `kind == "contribution"` and
      `into == "planner"` (in array order): inject the entry's `fragment.inline` verbatim here.
      This delivers all planner-targeted contributions — including tdd's `<tdd_mode_active>`
@@ -268,7 +270,7 @@ distinction matters).
 
 Unlike `plan:pre`, `execute-phase.md`'s handling of `execute:wave:pre` is a single terse line:
 
-```
+```text
 641:   2.75. **Execute:wave:pre capability dispatch:**
 644:   WAVE_PRE_HOOKS_JSON=$(gsd_run loop render-hooks execute:wave:pre --raw)
 647:   If a contribution's `activeHooks` entry provides an alternate wave dispatch, follow it
@@ -356,7 +358,7 @@ Phase 1 already proved works end-to-end.
 
 ### System Architecture Diagram
 
-```
+```text
 plan:pre                                          execute:wave:pre (per wave, before Agent() spawns)
   │                                                  │
   ▼                                                  ▼
@@ -398,7 +400,7 @@ own task-scoping surfaces it
 
 ### Recommended Project Structure (additions to Phase 1's tree)
 
-```
+```text
 .gsd/capabilities/beads/
 ├── capability.json              # +2 steps[] entries: plan:pre -> beads-recall,
 │                                 #   execute:wave:pre -> beads-status (read-only branch)
@@ -475,6 +477,7 @@ prompt actually receives the text), not query-level.
 ## Common Pitfalls
 
 ### Pitfall 1: Trusting `contributions[]` at `execute:wave:pre` to reach the executor's prompt automatically
+
 **What goes wrong:** A capability.json entry `{"point": "execute:wave:pre", "into":
 "orchestrator", "fragment": {...}}` is added, `render-hooks execute:wave:pre --raw` correctly
 returns it in `activeHooks`, and the implementer assumes B8 is now satisfied — but nothing in
@@ -488,6 +491,7 @@ false expectation that every point behaves the same way.
 contains no issue ids when inspected directly.
 
 ### Pitfall 2: Capability-consent hash invalidation after adding Phase 2's new files
+
 **What goes wrong:** Phase 2 adds a new `beads-recall/SKILL.md`, extends `capability.json`'s
 `steps[]` array, and extends `sync.py` — every one of these edits changes the bundle's content
 hash. Phase 1's own VERIFICATION.md documents this exact failure hitting this project already:
@@ -505,6 +509,7 @@ the last steps of the phase, after all file edits land, mirroring Phase 1's own 
 `capability.json` on disk correctly declares them.
 
 ### Pitfall 3: `bd list` default limit of 50 silently truncating BEADS-RECALL.md's scan
+
 **What goes wrong:** A project with more than 50 open issues across all phases gets a
 BEADS-RECALL.md that silently omits some open, in-scope issues — no error, just fewer rows than
 reality.
@@ -516,6 +521,7 @@ regen) must pass `-n 0` explicitly.
 known to have more open issues.
 
 ### Pitfall 4: Assuming `into` values are validated against a fixed per-point role enum
+
 **What goes wrong:** Choosing an `into` value based on what "sounds right" (e.g. `"orchestrator"`
 vs `"executor"`) and expecting the loader to reject an invalid choice with a clear error if wrong.
 **Why it happens:** The manifest reference doc says "Must be a role published by that loop
@@ -722,6 +728,7 @@ precondition Phase 1's own `TestEndToEndTracer` needed).
 ## Sources
 
 ### Primary (HIGH confidence — read directly from a shallow clone of `open-gsd/gsd-core` @
+
 v1.10.0, this session, same version as the installed runtime overlay)
 - `src/loop-resolver.cts` — full read of `resolveLoopHooks`/`renderLoopHooks`, fragment
   materialization vs. rendering distinction

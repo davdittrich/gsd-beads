@@ -36,7 +36,7 @@ overrides_applied: 0
 
 Independently re-ran plugin-directory-mode validation. Output:
 
-```
+```text
 Validating plugin manifest: /home/dd/Gemini/gsd-beads/.claude-plugin/plugin.json
 Validating plugin: /home/dd/Gemini/gsd-beads/CLAUDE.md
 ⚠ Found 1 warning:

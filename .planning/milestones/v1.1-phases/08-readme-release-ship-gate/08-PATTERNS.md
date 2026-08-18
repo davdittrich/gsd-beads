@@ -125,6 +125,7 @@ jobs:
 ## Shared Patterns
 
 ### Verified-command discipline (D-02, D-09)
+
 **Source:** `.planning/phases/07-hygiene-publication/07-02-SUMMARY.md` lines 118-146 (Task 2: "Exact commands run, in order" + captured Output block)
 **Apply to:** README.md's install/uninstall commands (must be the literal commands actually executed, not paraphrased — D-02) and the phase's SUMMARY.md verification transcript (D-09 explicitly reuses this exact pattern: fenced command block, then fenced real-output block, no synthetic/simulated output).
 ```markdown
@@ -144,10 +145,12 @@ https://github.com/davdittrich/gsd-beads
 Note: D-02 for the README itself additionally forbids showing output blocks in README.md (keeps doc from drifting) — the transcript-with-output pattern applies to SUMMARY.md only, not to README.md's command examples.
 
 ### Fresh-clone-is-the-only-evidence discipline (D-10)
+
 **Source:** `.planning/phases/07-hygiene-publication/07-02-SUMMARY.md` lines 148-149 (Task 3 header) and the tech-stack pattern recorded at line 25: *"Fresh clone into a throwaway /tmp path is the only trustworthy verification of what a push actually put on the remote — local state is not evidence of remote state."*
 **Apply to:** The ship gate's `claude plugin validate . --strict` re-run (D-10) and SC5 verification — must run from a fresh `git clone` + `git checkout v1.1.0` in a scratch dir (RESEARCH.md's own Code Examples block already gives the exact commands), never from the working tree, mirroring Phase 7's identical discipline for its own remote-state proof.
 
 ### Config JSON/YAML minimalism
+
 **Source:** `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, `hooks/hooks.json` — all flat, no nesting beyond what's functionally required, no comments (JSON), 2-space indent.
 **Apply to:** `.github/workflows/release.yml` — single job, no reusable-workflow/matrix abstraction, matches RESEARCH.md's explicit anti-pattern guidance against unrequested abstraction.
 

@@ -20,6 +20,7 @@ awaiting: user response
 ## Tests
 
 ### 1. README comprehension by a stranger (D-09)
+
 expected: A stranger can evaluate, install, and uninstall each plugin from its README alone (structural checks — section headings present, in order — already passed on both repos; this is the human judgment call on the rendered result).
 result: [pending]
 

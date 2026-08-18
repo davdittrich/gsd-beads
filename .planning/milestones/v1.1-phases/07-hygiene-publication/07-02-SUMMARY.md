@@ -118,13 +118,13 @@ All values matched the checkpoint's recorded state; no drift detected. Proceeded
 ## Task 2: Repo Creation and Push
 
 **Exact commands run, in order:**
-```
+```text
 gh repo create davdittrich/gsd-beads --public --source=.
 git push -u origin main --tags
 ```
 
 **Output:**
-```
+```text
 $ gh repo create davdittrich/gsd-beads --public --source=.
 https://github.com/davdittrich/gsd-beads
 
@@ -147,7 +147,7 @@ No `--force`, no `--force-with-lease`, no `--mirror` used anywhere (P-08, P-09, 
 
 ## Task 3: Fresh-Clone Verification Transcript
 
-```
+```text
 $ rm -rf /tmp/gsd-beads-verify
 $ git clone -q https://github.com/davdittrich/gsd-beads.git /tmp/gsd-beads-verify
 (clone succeeded)
@@ -214,9 +214,11 @@ $ git -C /home/dd/Gemini/gsd-beads-backup-pre-filter-repo rev-list --count --all
 **Impact on plan:** No scope creep, no change to actions taken. Only the numeric expectation in an automated check was corrected against ground truth, matching Plan 01's established precedent.
 
 ## Issues Encountered
+
 None. Push accepted on first attempt; no `--force-with-lease` recovery path (P-09) was needed.
 
 ## User Setup Required
+
 None beyond the checkpoint decision already recorded (Task 1, resolved before this subagent ran).
 
 ## Next Phase Readiness

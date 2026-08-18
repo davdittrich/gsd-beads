@@ -30,7 +30,7 @@ test script. Pattern extraction below is scoped to those three categories.
 **Analog:** `.planning/phases/07-git-history-hygiene-public-release-prep/07-02-PLAN.md` (lines ~31-42, 135-137, 245)
 
 Phase 7 precedent, run **in-place** against `gsd-beads` itself (already a git repo):
-```
+```text
 gh repo create davdittrich/gsd-beads --public --source=.
 ```
 No `--add-readme`, `--gitignore`, or `--license` flags (D-05 of Phase 7 — avoids a conflicting
@@ -61,7 +61,7 @@ both pass against the pushed repo.
 **Analog:** `/home/dd/projects/gsd-beads/README.md` (full file, 116 lines)
 
 Exact section order to replicate per D-09, taken verbatim from the analog's headings:
-```
+```text
 # <plugin-name>
 
 <one-line description>
@@ -122,7 +122,7 @@ prose):
 Byte-identical copy, no edits — `plugin.json` in both subdirectories already declares
 `"license": "MIT"`, and the copyright holder (`Dennis A. V. Dittrich`) is the same person/repo
 owner across all three repos:
-```
+```text
 MIT License
 
 Copyright (c) 2026 Dennis A. V. Dittrich
@@ -208,10 +208,11 @@ installers at a source that may not exist yet or may fail validation.
 ## Shared Patterns
 
 ### Repo-split extraction sequence (applies to both new repos identically)
+
 **Source:** 12-RESEARCH.md "Recommended Extraction Sequence" (verbatim 8-step sequence, confirmed
 against `gh repo create --help` and this repo's Phase 7 precedent)
 **Apply to:** both `ponytail-everywhere` and `sota-numerics` plan tasks
-```
+```text
 1. mkdir -p /tmp/<plugin>-extract && cp -r <repo>/<plugin>/. /tmp/<plugin>-extract/
 2. Fix REPO_ROOT bug in /tmp/<plugin>-extract/tests/test-session-start.sh
 3. cd /tmp/<plugin>-extract && git init -b main
@@ -225,6 +226,7 @@ Only after step 8 passes for a given plugin: `git rm -r <plugin>/` from `gsd-bea
 `marketplace.json` for that plugin's entry.
 
 ### Anti-pattern: nested/embedded git repo
+
 **Source:** 12-RESEARCH.md Standard Stack "Alternatives Considered" table
 **Apply to:** both extractions
 Never run `git init` in place inside `gsd-beads/<plugin>/` while its files are still tracked by

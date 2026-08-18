@@ -5,6 +5,7 @@
 **Confidence:** HIGH (every claim below was read from a live file or live command output this session; no web search was needed — the "upstream" comparison target and the override mechanism both exist locally on this machine)
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -30,10 +31,12 @@
 - Exact hook-script mechanics for the self-healing copy-if-missing check (D-02) — e.g. a shell one-liner appended to `hooks/hooks.json`'s existing SessionStart command, or a small script file it calls.
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 None — discussion stayed within phase scope.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 | ID | Description | Research Support |
@@ -84,7 +87,7 @@ No new runtime dependency. This phase adds markdown content, one small hook-scri
 
 ### System Architecture Diagram
 
-```
+```text
 Installer's project tree (after `/plugin install beads@gsd-beads`)
 │
 ├── .agents/skills/beads/                    (shipped, static — this phase's PUB-11/PUB-12 output)
@@ -116,7 +119,7 @@ Installer's project tree (after `/plugin install beads@gsd-beads`)
 
 ### Recommended Project Structure (D-03)
 
-```
+```text
 .agents/skills/beads/
 ├── SKILL.md              # short entry point (current: 80 lines, single file)
 ├── PRIME.md              # NEW — .beads/PRIME.md's shipped source (D-01)
@@ -145,7 +148,7 @@ Installer's project tree (after `/plugin install beads@gsd-beads`)
 **What:** `bd prime` auto-detects MCP vs CLI mode and prints workflow context; if `.beads/PRIME.md` exists in "the local clone or resolved workspace," its content is printed **instead of** `bd`'s built-in default — entirely, not merged.
 **When to use:** Any project wanting to replace bd's generic CLI-mode reference (~1-2k tokens) with project-specific guidance.
 **Verified flags** (source: `bd prime --help`, this session):
-```
+```text
       --export          Output default content (ignores PRIME.md override)
       --full            Force full CLI output (ignore MCP detection)
       --hook-json       Wrap output in the SessionStart hook JSON envelope (Claude Code, Gemini CLI, Codex)
@@ -222,24 +225,28 @@ def confined(root, *parts):
 ## Common Pitfalls
 
 ### Pitfall 1: Over-scoping PUB-11 to "all upstream commands"
+
 **What goes wrong:** A planner reading D-04's "No curation/cutting" literally against the *current* upstream skill (29 command files) produces a much larger deliverable than PUB-11 actually requires, wasting effort on gsd-core-irrelevant beads meta-features (`template`, `decision`, `sync`, `formula`, `epic`, `list`, `show`, `close`, `create`, `init`, `quickstart`, `rename-prefix`, `restore`, `version`, `workflow`, `audit`, `export`).
 **Why it happens:** CONTEXT.md's canonical_refs cites "13 files" for `commands/`, which was accurate against an older upstream snapshot but is stale against the currently-installed v1.2.2 marketplace copy (29 files). The requirement text itself (ROADMAP.md Phase 9 SC1, REQUIREMENTS.md PUB-11) is the actual scope anchor and lists a specific, smaller set.
 **How to avoid:** Treat the literal PUB-11/ROADMAP topic list — dependencies (`bd dep`), labels, comments, search, `compact`, `import`, `stats`, `blocked`, worktrees, async gates, resumability, `--stealth`/`BEADS_DIR`, troubleshooting — as the command/resource inventory to build, cross-checked against the *matching* upstream files (which do exist for every one of these topics: `commands/dep.md`, `commands/label.md`, `commands/comments.md`, `commands/search.md`, `commands/compact.md`, `commands/import.md`, `commands/stats.md`, `commands/blocked.md`, `resources/WORKTREES.md`, `resources/ASYNC_GATES.md`, `resources/RESUMABILITY.md`, `resources/TROUBLESHOOTING.md`).
 **Warning signs:** A plan task listing 20+ new files, or referencing upstream commands not named in PUB-11's text.
 
 ### Pitfall 2: `.beads/PRIME.md` is not currently gitignored — self-healing generates an untracked file
+
 **What goes wrong:** D-02 wires a copy-if-missing check into the SessionStart hook. Once it runs in this repo, `.beads/PRIME.md` appears as a new file. `git check-ignore -v .beads/PRIME.md` (run this session) exits 1 — **no pattern in `.beads/.gitignore` currently matches it** — so it will show as untracked in `git status`, which conflicts with this project's git-hygiene discipline (PUB-05's audit explicitly untracked `.beads/config.yaml`/`.beads/metadata.json` for the same reason: machine/session-generated `.beads/` content should not silently accumulate as dirty tree state).
 **Why it happens:** CONTEXT.md's D-01/D-02 decide *where the source lives* and *when the copy happens*, but do not decide whether the runtime-generated destination (`.beads/PRIME.md`) should be git-tracked (committed once, satisfying ROADMAP SC2's "`.beads/PRIME.md` exists in the repo" literally) or gitignored (treated as a pure runtime artifact, consistent with Phase 7's "`.beads/` never ships" premise and PUB-05's precedent of untracking generated `.beads/` files).
 **How to avoid:** Surface this explicitly to the user before the planner locks a task list — it's a real design fork, not a Claude's-discretion item under the current CONTEXT.md. Two coherent options: (a) add `.beads/PRIME.md` to `.beads/.gitignore` and treat "exists in the repo" as "exists in the working tree after the hook runs once" (matches the self-healing framing literally); (b) commit `.beads/PRIME.md` once as a checked-in convenience copy in *this* repo only (dogfooding), while every downstream installer still relies purely on the self-heal hook since their `.beads/` starts empty from `bd init`. Either is defensible; CONTEXT.md doesn't pick one.
 **Warning signs:** `git status` showing `.beads/PRIME.md` as untracked after any task in this phase runs the hook for verification.
 
 ### Pitfall 3: Misattributing the rehearsal-tag-deletion precedent to the wrong phase
+
 **What goes wrong:** CONTEXT.md's D-07 says the delete-then-recut pattern "matches Phase 7's precedent of deleting the throwaway `v0.0.0-rc1` rehearsal tag/release after use." Verified this session: `v0.0.0-rc1` was created and torn down in **Phase 8 Plan 01** (`08-01-PLAN.md`/`08-01-SUMMARY.md`; `gh release delete v0.0.0-rc1 --yes --cleanup-tag`), not in any Phase 7 file. Phase 7's actual irreversible action was a `git filter-repo` history rewrite (mirror-backup-then-rehearse pattern, `07-01-SUMMARY.md`), which is the correct contrast target for "this is lower-risk than Phase 7's history rewrite" — but the *tag-deletion* precedent itself is Phase 8's, not Phase 7's.
 **Why it happens:** Both phases established similar-looking "rehearse then delete the throwaway artifact" disciplines; CONTEXT.md conflated the specific `v0.0.0-rc1` precedent with the phase number of the general discipline.
 **How to avoid:** Cite `08-01-PLAN.md`/`08-01-SUMMARY.md` (not Phase 7) as the process precedent for the `v1.1.1` release-recut task; Phase 7 remains the correct citation only for the *general* "rehearse destructive/one-way operations on a throwaway artifact first" philosophy.
 **Warning signs:** None functional — this only matters if a plan or SUMMARY.md cites "Phase 7" as the source of the release-delete transcript pattern; a reviewer checking that citation against `07-*` files will find nothing.
 
 ### Pitfall 4: Assuming `--stealth`/`BEADS_DIR` git-free mode has dedicated upstream documentation to copy from
+
 **What goes wrong:** PUB-11 names "`--stealth`/`BEADS_DIR` git-free mode" as a topic to cover, implying a substantial upstream section exists. Verified this session: upstream mentions `BEADS_DIR` exactly once (`resources/WORKTREES.md` line 52, in the worktree-external-workspace context, not as a dedicated git-free-mode guide) and `--stealth` exactly once in `SKILL.md`'s Prerequisites line (`"Git repository (optional — use BEADS_DIR + --stealth for git-free operation)"`). The fuller documentation is in `bd init --help`'s own `--stealth` description (verified: *"configures per-repository git settings for invisible beads usage: `.git/info/exclude` to prevent beads files from being committed... To set up a specific AI tool, run: `bd setup <claude|cursor|aider|...> --stealth`"*) and `bd prime --help`'s `--stealth` flag (*"Stealth mode (no git operations, flush only)"*).
 **Why it happens:** The topic exists and is real, but its authoritative source is the live `bd --help` output (two different `--stealth` flags on two different subcommands: `bd init --stealth` and `bd prime --stealth` are not the same flag), not a single upstream skill file to transcribe.
 **How to avoid:** Write this topic from `bd init --help` + `bd prime --help` + the two one-line upstream mentions, not from a nonexistent upstream "STEALTH.md."
@@ -320,7 +327,7 @@ unzip -Z1 /tmp/gsd-beads-1.1.1.zip | grep -E 'PRIME\.md|resources/|commands/'
 [Pattern verified: `08-01-SUMMARY.md` lines 137-206, `08-02-SUMMARY.md` lines 157-224 — actual transcripts from the two most recent real release cycles on this repo]
 
 ### `bd prime --help` override + flags (verified against installed bd v1.2.2)
-```
+```text
 Workflow customization:
 - Place a .beads/PRIME.md file in the local clone or resolved workspace to override the default output entirely.
 - Use --export to dump the default content for customization.
@@ -380,6 +387,7 @@ Flags:
 ## Validation Architecture
 
 ### Test Framework
+
 | Property | Value |
 |----------|-------|
 | Framework | No dedicated content-test framework; this project's established pattern is grep-based `<verify>` blocks inside PLAN.md tasks (see `08-03-SUMMARY.md`, `08-02-SUMMARY.md`) plus e2e transcript verification (fresh clone + `claude plugin validate` + real `bd prime` run). A pytest suite exists at `.gsd/capabilities/beads/tests/test_sync.py` for `sync.py`'s Python logic only — applicable if D-02's self-heal is implemented as a Python script. |
@@ -388,6 +396,7 @@ Flags:
 | Full suite command | fresh-clone `claude plugin validate . --strict` + `gh release download` + `unzip -Z1` listing check (Phase 8 pattern) |
 
 ### Phase Requirements → Test Map
+
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
 | PUB-11 | SKILL.md/resources/commands cover all named topics | content-grep | `grep -rlqi "worktree\|async.gate\|resumab\|stealth\|BEADS_DIR" .agents/skills/beads/` per topic | ❌ Wave 0 — no coverage-check script exists yet |
@@ -454,4 +463,3 @@ Flags:
 
 **Research date:** 2026-08-16
 **Valid until:** 14 days — `bd` releases frequently (currently 1.2.2, upstream skill pinned at 0.60.0) and the upstream marketplace skill could update independently of this research
-

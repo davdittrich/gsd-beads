@@ -133,7 +133,7 @@ None — no bugs or blocking issues were found that required a code fix. The one
 
 ### Task 1 — plugin.json version bump, local validate, push
 
-```
+```text
 $ [edit .claude-plugin/plugin.json: "version": "0.1.0" -> "1.1.0"]
 $ claude plugin validate . --strict
 Validating marketplace manifest: /home/dd/Gemini/gsd-beads/.claude-plugin/marketplace.json
@@ -156,7 +156,7 @@ $ grep -m1 '"version"' .claude-plugin/plugin.json
 
 ### Task 2 — real tag push, run, download, allowlist-exact verification
 
-```
+```text
 $ git tag v1.1.0 && git push origin v1.1.0
  * [new tag]         v1.1.0 -> v1.1.0
 
@@ -207,7 +207,7 @@ $ gh run view 31956555025 --json createdAt,updatedAt
 
 ### Task 3 — Gate A (fresh clone validate at tag)
 
-```
+```text
 $ git clone --quiet https://github.com/davdittrich/gsd-beads.git /tmp/.../gate-a-clone
 $ cd /tmp/.../gate-a-clone && git checkout --quiet v1.1.0
 $ pwd
@@ -225,7 +225,7 @@ Validating marketplace manifest: /tmp/.../gate-a-clone/.claude-plugin/marketplac
 
 ### Task 3 — Gate B (SC4 round trip, pre-state capture)
 
-```
+```text
 $ claude plugin marketplace list | grep -A1 gsd-beads
   gsd-beads
     Source: Directory (/home/dd/Gemini/gsd-beads)
@@ -247,7 +247,7 @@ $ claude plugin list | grep -A2 'beads@gsd-beads'
 
 ### Task 3 — Gate B (round trip execution)
 
-```
+```text
 $ claude plugin marketplace remove gsd-beads
 ✔ Successfully removed marketplace: gsd-beads
 # side effect: both beads@gsd-beads installs (local+user) removed with it
@@ -277,7 +277,7 @@ $ claude plugin list | grep -A3 'beads@gsd-beads'
 
 ### Task 3 — Gate B (restore)
 
-```
+```text
 $ claude plugin marketplace remove gsd-beads
 ✔ Successfully removed marketplace: gsd-beads
 

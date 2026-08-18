@@ -346,7 +346,7 @@ python3 .gsd/capabilities/beads/scripts/sync.py regenerate-beads-md <phase direc
 
 This is the identical read-only call Step 2a already uses, but with no
 `<beads_status>` block printed and no plan-id argument...
-```
+```text
 For `markdown-linting-report/SKILL.md`, the single lifecycle body:
 ```bash
 python3 .gsd/capabilities/markdown-linting/scripts/lint.py verify-post <phase directory>
@@ -395,26 +395,32 @@ Adapt for `test_tool_absent_fail_open` (RESEARCH.md's Phase Requirements → Tes
 ## Shared Patterns
 
 ### B6 fail-open tool detection
+
 **Source:** `.gsd/capabilities/beads/scripts/sync.py` lines 85-95 (`bd_available`)
 **Apply to:** `scripts/lint.py`'s `resolve_rumdl_invocation()` — same one-function-single-point-of-truth shape, adapted to the two-tier PATH→`uvx` chain (D-04).
 
 ### Path confinement (T-01-02)
+
 **Source:** `.gsd/capabilities/beads/scripts/sync.py` lines 116-139 (`find_project_root`, `confined`)
 **Apply to:** every path `lint.py` reads (config TOML, glob targets) or writes (`LINT-REPORT.md`) — reuse verbatim, do not reimplement.
 
 ### No-shell-string subprocess discipline (T-01-01)
+
 **Source:** `.gsd/capabilities/beads/scripts/sync.py` lines 1-9 (module docstring) + `run_bd` (line 79-82: `subprocess.run(argv, capture_output=True, text=True, timeout=timeout)`)
 **Apply to:** every `rumdl`/`uvx` invocation in `lint.py` — argv list, never a shell string, bounded timeout.
 
 ### Regenerated-every-run artifact, full overwrite, never merged (B11)
+
 **Source:** `.gsd/capabilities/beads/scripts/sync.py` lines 1192-1253 (`regenerate_beads_md`), path convention `phase_dir / f"{padded_phase}-BEADS.md"` (line ~1250)
 **Apply to:** `LINT-REPORT.md`'s write path and full-overwrite discipline. **Deviation required (Pitfall 5):** on tool-absent, still overwrite (with a non-satisfying sentinel), unlike `beads`' leave-untouched precedent.
 
 ### `steps[]` vs `contributions[]` — only `steps[]` writes real files
+
 **Source:** `.gsd/capabilities/beads/capability.json` + `.gsd/capabilities/sota-numerics/capability.json` (both read in full; every `contributions[]` entry in both declares `"produces": []`)
 **Apply to:** `capability.json`'s `LINT-REPORT.md`-producing entry must be in `steps[]`.
 
 ### Advisory (`blocking: false`) gate shape
+
 **Source:** `.gsd/capabilities/beads/capability.json` lines 148-171 (structure/field names — both of beads' gates are `blocking: true`, so flip the value) cross-checked against `.gsd/capabilities/sota-numerics/capability.json` lines 40-58 (confirms `blocking`/`onError`/optional `description` fields are legal on any gate regardless of predicate kind).
 **Apply to:** `markdown-linting`'s single `ship:pre` gate.
 

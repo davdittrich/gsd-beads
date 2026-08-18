@@ -111,7 +111,7 @@ fi
 exec bd prime --hook-json
 ```
 Structural pattern to reuse: `set -u`, `PLUGIN_ROOT` resolved via `${CLAUDE_PLUGIN_ROOT:-...}` fallback, final line is the sole stdout producer. This new script has no self-heal step and no external CLI delegate (`bd prime`) — instead it must call `gsd-tools config-get` per RESEARCH.md's Don't-Hand-Roll table:
-```
+```text
 gsd-tools config-get ponytail.enabled --default true
 gsd-tools config-get ponytail.level   --default full
 ```
@@ -184,7 +184,7 @@ Note: `beads.enabled`'s `onError: "skip"` / fail-open posture (present on every 
 **Analog:** `/home/dd/projects/gsd-beads/.gsd/capabilities/beads/fragments/recall-pointer.md`
 
 Full file (5 lines):
-```
+```text
 An open-issue recall for this phase — `BEADS-RECALL.md` — was just generated in this phase's own
 directory (`.planning/phases/<this-phase>/<NN>-BEADS-RECALL.md`, where `<NN>` is the phase's
 two-digit ordinal prefix). It names every currently open bd task that scope-matched this phase,
@@ -230,18 +230,22 @@ Append one entry to `plugins[]` (do not touch `name`/`description`/`owner` at to
 ## Shared Patterns
 
 ### Fail-open / advisory posture
+
 **Source:** `.gsd/capabilities/beads/capability.json` — every `steps[]`/`contributions[]`/`gates[]` entry carries `"onError": "skip"`.
 **Apply to:** `capability.json`'s `contributions[]` entry, and `session-start.sh`'s config-read logic (missing/malformed config value → default silently, never error the session — RESEARCH.md Don't-Hand-Roll table, CONTEXT.md Established Patterns).
 
 ### Config-key namespacing
+
 **Source:** `beads.enabled`, `beads.sync_mode`, `beads.ship_gate`, `beads.epic_per` — all namespaced `<capability-id>.*` in `.gsd/capabilities/beads/capability.json` lines 27-55.
 **Apply to:** `ponytail.enabled`, `ponytail.level` — must be checked against every shipped manifest before use per CONTEXT.md ("collisions rejected by gsd-core's capability loader"). `grep -r '"ponytail\.' .gsd/` before finalizing (only this phase's own new file will match, confirmed no prior `ponytail.*` key exists in the repo as of this read).
 
 ### `${CLAUDE_PLUGIN_ROOT}` path resolution
+
 **Source:** `hooks/hooks.json` line 7, `hooks/session-start.sh` line 5 — hooks always reference scripts via `"${CLAUDE_PLUGIN_ROOT}/hooks/<script>.sh"` in the JSON command string, and the script itself resolves its own root via `${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}` for standalone-invocation fallback.
 **Apply to:** `ponytail-everywhere/hooks/hooks.json` and `ponytail-everywhere/hooks/session-start.sh` — identical fallback line.
 
 ### Config CLI seam
+
 **Source:** RESEARCH.md Don't-Hand-Roll table — `gsd-tools config-get <key.path> --default <value>` is the canonical seam for reading `.planning/config.json` from a shell hook (confirmed working: `config-get ponytail.level --default full` → `"full"` this session per RESEARCH.md).
 **Apply to:** `ponytail-everywhere/hooks/session-start.sh` — never hand-parse `.planning/config.json` with `jq`/`grep`.
 

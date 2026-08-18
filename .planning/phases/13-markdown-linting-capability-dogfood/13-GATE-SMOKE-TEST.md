@@ -11,7 +11,7 @@ The installed `$HOME/.claude/gsd-core/workflows/ship.md` was directly read this 
 task's own `<read_first>` requirement) and re-grepped after the read, since the patch is
 machine-local and unmerged upstream (open-gsd/gsd-core#3559, filed by the `beads` capability):
 
-```
+```text
 $ grep -c 'gsd-beads-patch:ship-pre-generic-dispatch v1' "$HOME/.claude/gsd-core/workflows/ship.md"
 2
 ```
@@ -26,7 +26,7 @@ confirmation (same lines) is independently re-verified here, not just cited.
 The predicate JSON used below was extracted directly from the shipped capability manifest, not
 hand-typed:
 
-```
+```text
 $ jq -c '.gates[0].check.predicate' .gsd/capabilities/markdown-linting/capability.json
 {"kind":"artifact-frontmatter-equals","artifact":"LINT-REPORT.md","field":"violation_count","equals":0}
 ```
@@ -42,7 +42,7 @@ was left unmodified (confirmed via `git status --short` before and after: no dif
 
 ### Satisfied case (`violation_count: 0`)
 
-```
+```text
 $ gsd_run check predicate \
     --predicate '{"kind":"artifact-frontmatter-equals","artifact":"LINT-REPORT.md","field":"violation_count","equals":0}' \
     --phase-dir <scratch-dir-with-13-LINT-REPORT.md-violation_count:0> \
@@ -59,7 +59,7 @@ $ gsd_run check predicate \
 
 ### Unsatisfied case (`violation_count: 7`)
 
-```
+```text
 $ gsd_run check predicate \
     --predicate '{"kind":"artifact-frontmatter-equals","artifact":"LINT-REPORT.md","field":"violation_count","equals":0}' \
     --phase-dir <same scratch dir, violation_count now 7> \

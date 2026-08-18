@@ -5,6 +5,7 @@
 **Confidence:** HIGH — the two riskiest unknowns (does the generic `ship:pre` dispatch actually fire for a non-`security`/`broken-windows` `capId`, and what does rumdl actually detect on this repo's own tree) were both verified this session by live execution, not by reading docs.
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -26,6 +27,7 @@ None raised beyond the roadmap's own v2 backlog (MDL-05, blocking gate — alrea
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 | ID | Description | Research Support |
@@ -113,7 +115,7 @@ Other install methods exist (`cargo install rumdl`, `pip install rumdl`, `brew i
 
 ### System Architecture Diagram
 
-```
+```text
  gsd lifecycle event                  markdown-linting capability                    ship.md (patched)
 ┌──────────────────┐                 ┌─────────────────────────────┐               ┌────────────────────────┐
 │                   │                 │                             │               │                        │
@@ -150,7 +152,7 @@ Other install methods exist (`cargo install rumdl`, `pip install rumdl`, `brew i
 
 ### Recommended Project Structure
 
-```
+```text
 .gsd/capabilities/markdown-linting/
 ├── capability.json              # id, config keys, steps[] (verify:post), gates[] (ship:pre), contributions[] (README-hint fragment, optional)
 ├── config/

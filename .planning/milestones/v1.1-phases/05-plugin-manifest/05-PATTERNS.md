@@ -90,7 +90,7 @@ Confirms D-01 (`name: "beads"`) and D-03 (`version: "0.1.0"`) are consistent wit
 
 **Source:** Canonical MIT template (RESEARCH.md Code Examples, flagged LOW confidence / A1 — reproduced from training knowledge, not tool-fetched verbatim this session due to WebFetch's reproduction-length policy).
 
-```
+```text
 MIT License
 
 Copyright (c) 2026 Dennis A. V. Dittrich
@@ -119,6 +119,7 @@ SOFTWARE.
 ## Shared Patterns
 
 ### JSON formatting convention (repo-wide)
+
 **Source:** `.planning/config.json`, `.gsd-capabilities.json` (both read in full this session)
 **Apply to:** `plugin.json`, `marketplace.json`
 - 2-space indentation
@@ -127,11 +128,13 @@ SOFTWARE.
 - Nested objects for grouped fields (e.g. `author`, `owner`)
 
 ### Identity consistency (name/version)
+
 **Source:** `.gsd/capabilities/beads/capability.json` (`id: "beads"`, `version: "0.1.0"`)
 **Apply to:** `plugin.json` (`name`, `version`), `marketplace.json` (`plugins[0].name`)
 Keep all three literal values byte-identical to `capability.json`'s existing `id`/`version` — do not drift.
 
 ### Validation-as-test (no analog needed, no framework)
+
 **Source:** RESEARCH.md Validation Architecture section
 **Apply to:** both manifest files
 `claude plugin validate . --strict` run twice per D-09 (marketplace.json present/absent) is the sole verification surface — no unit test file to write, no test framework to configure.

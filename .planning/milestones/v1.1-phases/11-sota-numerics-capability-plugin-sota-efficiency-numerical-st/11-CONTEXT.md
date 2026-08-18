@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 A third gsd-core capability plugin, `sota-numerics`, in this repo's marketplace alongside
@@ -18,6 +19,7 @@ phase's decisions), not retrofitted later.
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### Gate trigger scope
@@ -106,6 +108,7 @@ phase's decisions), not retrofitted later.
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -156,6 +159,7 @@ No other external specs.
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -192,6 +196,7 @@ No other external specs.
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No UI/behavior references — this is a capability-plugin authoring phase, same as Phase 10/10.1.
@@ -203,6 +208,7 @@ Justification / Spec gate) — those sections are the closest thing this phase h
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 - **`beads.enabled` default flip to `true`** — user raised mid-discussion (2026-08-17) that

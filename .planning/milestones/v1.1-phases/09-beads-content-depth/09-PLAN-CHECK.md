@@ -93,7 +93,7 @@ All three LOW-severity findings from 09-REVIEWS.md are embedded in executable pl
 **Incorporation:**
 
 - **Action (Task 1, section d, line 101):**
-  ```
+  ```text
   The six, in steps[] order: plan:pre (beads-recall, produces BEADS-RECALL.md…),
   plan:post (beads-sync), execute:wave:pre (beads-status), execute:wave:post (beads-status),
   verify:post (beads-status), ship:pre (beads-status).
@@ -126,14 +126,14 @@ All three LOW-severity findings from 09-REVIEWS.md are embedded in executable pl
 **Incorporation:**
 
 - **Must-haves truth (09-03, line 30):**
-  ```
+  ```text
   Every adapted command document carries its upstream MIT attribution line,
   the same assertion plan 09-02 makes on resources/*.md (review finding)
   ```
   Explicitly mirrors Plan 02's requirement.
 
 - **Task 1 action (09-03, line 106):**
-  ```
+  ```text
   so copyright hygiene is uniform across both trees rather than resources-only
   (addresses review concern: attribution asserted on resources but not commands).
   ```

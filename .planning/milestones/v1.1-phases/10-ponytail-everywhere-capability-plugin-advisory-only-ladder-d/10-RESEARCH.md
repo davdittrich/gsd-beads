@@ -5,6 +5,7 @@
 **Confidence:** HIGH (mechanism verified by reading gsd-core's own runtime source this session, not inferred from docs)
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -173,7 +174,7 @@ triggered.
 
 ### System Architecture Diagram
 
-```
+```text
 ┌─────────────────────────────── Claude Code top-level session ───────────────────────────────┐
 │                                                                                                │
 │  SessionStart event (fires once: startup/resume/clear/compact)                                │
@@ -228,7 +229,7 @@ triggered.
 
 ### Recommended Project Structure
 
-```
+```text
 .claude-plugin/
 └── marketplace.json                     # add one entry to plugins[]
 

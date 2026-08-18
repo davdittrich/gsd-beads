@@ -5,6 +5,7 @@
 **Confidence:** HIGH (all core mechanisms confirmed via `--help` output, official docs fetched live, and `gh api`/`git ls-files` against this repo)
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -33,6 +34,7 @@ None — discussion stayed within phase scope.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 | ID | Description | Research Support |
@@ -105,7 +107,7 @@ No npm/PyPI/crates packages are installed by this phase — the only external re
 
 ### System Architecture Diagram
 
-```
+```text
 Developer                GitHub                        Installer's machine
     |                       |                                    |
     |--git push tag v1.1.0->|                                    |
@@ -140,7 +142,7 @@ Two distinct install mechanisms exist and must not be conflated in the plan: **(
 
 ### Recommended Project Structure
 
-```
+```text
 .github/
 └── workflows/
     └── release.yml       # D-06: tag-triggered build + gh release create

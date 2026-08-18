@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 Beads state can block a ship — a phase with unfinished or diverged issues does not pass unless
@@ -14,6 +15,7 @@ edges, close-wave, BEADS-RECALL.md, BEADS.md regeneration).
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### blocking_open definition (B9)
@@ -65,6 +67,7 @@ edges, close-wave, BEADS-RECALL.md, BEADS.md regeneration).
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -98,6 +101,7 @@ edges, close-wave, BEADS-RECALL.md, BEADS.md regeneration).
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -134,6 +138,7 @@ edges, close-wave, BEADS-RECALL.md, BEADS.md regeneration).
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No specific UI/UX references — this phase extends an existing markdown artifact (`BEADS.md`) and
@@ -143,11 +148,13 @@ what a ship-blocking console message already looks like.
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 None raised during this discussion — stayed within B9/B10 scope throughout.
 
 ### Reviewed Todos (not folded)
+
 None — no pending todos matched this phase's scope.
 
 </deferred>

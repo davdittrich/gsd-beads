@@ -6,7 +6,7 @@
 
 The check is hardcoded in the `claude` binary (compiled, `/opt/claude-code/bin/claude`, v2.1.233). Extracted string table around the warning (`grep -a -bo` + raw byte read at offset 162488833):
 
-```
+```text
 claude.md
 claude.local.md
 Remove it from the plugin root.

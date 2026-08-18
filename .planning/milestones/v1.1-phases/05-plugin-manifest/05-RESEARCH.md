@@ -5,6 +5,7 @@
 **Confidence:** HIGH — every schema claim below was fetched directly from `code.claude.com/docs/en/plugins-reference` and `code.claude.com/docs/en/plugin-marketplaces` this session and is quoted verbatim; the one open item (author-object shape) is explicitly flagged, not silently assumed.
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -35,10 +36,12 @@
 - Whether `LICENSE` uses the canonical MIT template verbatim or a lightly reformatted equivalent (content, not wording, is what's decided above).
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 None — discussion stayed within phase scope. No scope-creep suggestions came up.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 | ID | Description | Research Support |
@@ -111,7 +114,7 @@ None. This phase installs zero npm/pip/cargo packages — both manifests are han
 
 ### System Architecture Diagram
 
-```
+```text
                     ┌─────────────────────────────────────────┐
                     │   gsd-beads repo root (= plugin root     │
                     │   = marketplace root, same directory)    │
@@ -182,7 +185,7 @@ None. This phase installs zero npm/pip/cargo packages — both manifests are han
 
 No new directories. Only new files at the repo root:
 
-```
+```text
 gsd-beads/
 ├── .claude-plugin/
 │   ├── plugin.json          # NEW — plugin identity + skills pointer
@@ -260,18 +263,21 @@ Verbatim doc quote on path resolution: "Paths resolve relative to the marketplac
 ## Common Pitfalls
 
 ### Pitfall 1: `claude plugin validate` silently skips frontmatter checks whenever `marketplace.json` is present in the same directory
+
 **What goes wrong:** Running `claude plugin validate . --strict` once, in the repo's normal state (both `plugin.json` and `marketplace.json` present under `.claude-plugin/`), exits 0 even if `.agents/skills/beads/SKILL.md`'s YAML frontmatter is malformed — giving false confidence that the skill is correctly wired.
 **Why it happens:** Per the official troubleshooting table [VERIFIED: code.claude.com/docs/en/plugin-marketplaces, "Marketplace validation errors" section], `YAML frontmatter failed to parse` and the `hooks/hooks.json` JSON-syntax check are both documented as "**Reported only when validating a plugin directory**." A directory becomes a "marketplace directory" (a different validation code path) the instant `.claude-plugin/marketplace.json` exists inside it — and this repo's plugin and marketplace manifests share one `.claude-plugin/` directory by design (self-hosted marketplace, D-07). The verbatim quote confirming the marketplace-mode behavior: "When pointed at a marketplace directory, the validator checks `marketplace.json` for schema errors, duplicate plugin names, and source path traversal. For each entry whose `source` is a local path, it also validates that plugin's own `plugin.json`" — note: validates `plugin.json`, not the skill files it points to.
 **How to avoid:** D-09's mandated double-run is mechanically necessary, not just belt-and-suspenders: (1) `mv .claude-plugin/marketplace.json /tmp/` (or equivalent), run `claude plugin validate . --strict`, confirm it exits 0 — this is the only run that actually parses `.agents/skills/beads/SKILL.md`'s frontmatter; (2) restore `marketplace.json`, run `claude plugin validate . --strict` again, confirm it exits 0 — this run validates `marketplace.json`'s own schema and cross-checks `plugin.json`.
 **Warning signs:** Only ever running `claude plugin validate . --strict` once, in the repo's checked-in state, and treating a clean exit as proof the skill frontmatter is valid.
 
 ### Pitfall 2: Relative-path plugin `source` breaks the moment the marketplace is added via a raw URL instead of a git/local path
+
 **What goes wrong:** D-07 keeps `source: "./"` for this phase (correct, per PROJECT.md's staged plan), but if anyone later tests `/plugin marketplace add https://raw.githubusercontent.com/.../marketplace.json` (a direct URL to the file) instead of `/plugin marketplace add ./` or a git URL, the relative-path plugin source will fail to install with a "path not found" error.
 **Why it happens:** Verbatim: "URL-based marketplaces only download the `marketplace.json` file itself. They don't download plugin files from the server. Relative paths in the marketplace entry reference files on the remote server that were not downloaded." [VERIFIED: code.claude.com/docs/en/plugin-marketplaces, Troubleshooting section]
 **How to avoid:** Phase 5's own success criterion 2 tests via `/plugin marketplace add ./` (local path) from a scratch project — this is the correct test surface for this phase and does not hit the URL-based-marketplace failure mode. Flag for Phase 8: once `source` is re-pointed at a release archive URL (`archive` source type, not a bare relative path), this particular pitfall becomes moot — `archive` sources don't have this restriction.
 **Warning signs:** A scratch-project test that adds the marketplace via a `raw.githubusercontent.com` URL rather than a git clone URL or local path.
 
 ### Pitfall 3: `claude plugin init` scaffolds in the wrong location for this repo's layout
+
 **What goes wrong:** Running `claude plugin init beads` (or `claude plugin new`) to "get started faster" creates a **new** plugin skeleton at `~/.claude/skills/beads/`, not at this repo's root — the opposite of what this phase needs (turn the existing repo root into the plugin).
 **Why it happens:** Per `claude plugin --help` output captured this session: `init|new [options] <name>` — "Scaffold a new plugin at `~/.claude/skills/<name>/` (auto-loads next session as `<name>@skills-dir`)." [VERIFIED: local `claude plugin --help` output]
 **How to avoid:** Hand-author `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` directly at the repo root per the schemas above; do not invoke `claude plugin init`/`new` for this phase.
@@ -333,7 +339,7 @@ echo "exit: $?"   # must be 0
 ```
 
 ### MIT LICENSE (canonical template, copyright line per D-04)
-```
+```text
 MIT License
 
 Copyright (c) 2026 Dennis A. V. Dittrich
@@ -396,6 +402,7 @@ SOFTWARE.
 ## Validation Architecture
 
 ### Test Framework
+
 | Property | Value |
 |----------|-------|
 | Framework | None (no application code produced this phase) — verification is via the `claude plugin validate` CLI itself, which acts as the schema/parser oracle |
@@ -404,6 +411,7 @@ SOFTWARE.
 | Full suite command | The D-09 two-run sequence in Code Examples → "Validation double-run" |
 
 ### Phase Requirements → Test Map
+
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
 | PUB-01 | `plugin.json` declares identity, points `skills` correctly, passes strict validation including frontmatter | manual-only (CLI, no test framework) — justification: no application code, no test runner applicable; the CLI's own validator IS the test | `mv .claude-plugin/marketplace.json /tmp/ && claude plugin validate . --strict; mv /tmp/marketplace.json .claude-plugin/` | N/A — command exists today (`claude` CLI verified installed) |
@@ -416,6 +424,7 @@ SOFTWARE.
 - **Phase gate:** Full D-09 double-run green, plus a real `/plugin marketplace add ./` + `/plugin install` round trip from a scratch directory, before `/gsd:verify-work`
 
 ### Wave 0 Gaps
+
 None — existing `claude` CLI installation covers all phase requirements' verification surface. No test framework install needed (there is no test framework for this phase's artifact type).
 
 ## Security Domain

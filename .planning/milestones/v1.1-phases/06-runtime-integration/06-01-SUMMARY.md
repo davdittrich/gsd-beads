@@ -193,7 +193,7 @@ Install output:
 
 ### 2. `bd`-absent session's failure notice (verbatim from the debug log)
 
-```
+```text
 2026-08-16T12:56:28.145Z [DEBUG] Hook SessionStart:startup (SessionStart) error:
 /bin/sh: line 1: bd: command not found
 ```

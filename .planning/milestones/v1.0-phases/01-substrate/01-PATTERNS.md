@@ -196,11 +196,13 @@ sole source of truth.
 ## Shared Patterns
 
 ### Config-gate-first (`.planning/config.json` read via Read tool, not Bash)
+
 **Source:** `skills/gsd-mempalace-capture/SKILL.md` lines 23-41
 **Apply to:** both `beads-sync` and `beads-status` SKILL.md files — Step 1 in each must be this
 gate before any other action.
 
 ### `onError: "skip"` + disabled/unavailable message convention
+
 **Source:** `capabilities/mempalace/capability.json` (every `steps[]` entry) +
 `skills/gsd-mempalace-capture/SKILL.md` lines 31-38 (disabled-message block)
 **Apply to:** `capability.json`'s `steps[]` entries (mechanical `onError: "skip"`) AND both
@@ -209,6 +211,7 @@ visible-notice requirement's structural template, though the *content* — `bd`-
 config-disabled — is new to beads, not copied verbatim).
 
 ### Idempotent-dedup-before-create
+
 **Source:** `skills/gsd-mempalace-capture/SKILL.md` lines 53-58, 90
 **Apply to:** `beads-sync`'s Step 3 and `sync.py`'s `create-issues` subcommand — resolve identity
 first (dedup / `<beads-id>` lookup), only create on confirmed absence.

@@ -41,7 +41,7 @@ One discrepancy found: the shipped file is not byte-identical to the file it cla
 **File:** `hooks/hooks.json:15`
 **Issue:** Commit `1338c3b`'s message states "byte-identical content (canonical-JSON diff verified against the pre-phase baseline commit)," and `06-RESEARCH.md:195` records `[VERIFIED: .claude/settings.json (read this session, full file, 15 lines) — the block above is byte-identical to the file's current content.]`. Direct byte-count comparison shows this is false:
 
-```
+```text
 $ git show 1338c3b^:.claude/settings.json | wc -c
 217
 $ wc -c hooks/hooks.json

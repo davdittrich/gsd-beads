@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 The shipped plugin's beads guidance matches upstream depth and is tailored to gsd-core, not generic defaults. Two requirements: PUB-11 (expand `.agents/skills/beads/SKILL.md` toward upstream parity) and PUB-12 (ship a gsd-tailored `.beads/PRIME.md` override), followed by a `v1.1.1` patch release replacing the already-public but short `v1.1.0` archive.
@@ -11,6 +12,7 @@ The shipped plugin's beads guidance matches upstream depth and is tailored to gs
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### PRIME.md shipping mechanism
@@ -40,6 +42,7 @@ The shipped plugin's beads guidance matches upstream depth and is tailored to gs
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -64,6 +67,7 @@ No other external specs — requirements fully captured in decisions above.
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -81,6 +85,7 @@ No other external specs — requirements fully captured in decisions above.
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No particular UI/behavior references — this is a documentation/skill-content and packaging phase. Upstream `~/.claude/skills/beads/` is the concrete content model to follow (D-03/D-04), not an abstract standard.
@@ -88,6 +93,7 @@ No particular UI/behavior references — this is a documentation/skill-content a
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 None — discussion stayed within phase scope.

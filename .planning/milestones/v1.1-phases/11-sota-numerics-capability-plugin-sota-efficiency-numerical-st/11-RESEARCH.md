@@ -5,6 +5,7 @@
 **Confidence:** HIGH on the mechanical/dispatch questions (read installed gsd-core source directly), MEDIUM on exact frontmatter field naming (Claude's Discretion per CONTEXT.md), LOW/ASSUMED on nothing load-bearing — every mechanism claim below traces to a specific file+line read this session.
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -40,6 +41,7 @@
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 No REQUIREMENTS.md entries exist for this phase (Requirements: TBD, same as Phase 10/10.1 — new scope outside the v1.1 milestone's tracked requirement set). No `phase_req_ids` to map.
@@ -76,7 +78,7 @@ Not applicable in the conventional sense — this phase authors gsd-core capabil
 
 | Mechanism | Version | Purpose | Why Standard |
 |-----------|---------|---------|--------------|
-| gsd-core capability schema (`capability.json`) | gsd `>=1.10.0` (installed version, confirmed) | Declares config, steps, contributions, gates | Same schema `beads`/`ponytail` already validate against | 
+| gsd-core capability schema (`capability.json`) | gsd `>=1.10.0` (installed version, confirmed) | Declares config, steps, contributions, gates | Same schema `beads`/`ponytail` already validate against |
 | `command-exit-zero` predicate kind | gsd-core 1.10.0, `gate-predicate-evaluator.cjs` | Runs a bounded shell command; block iff non-zero exit | Only predicate kind expressive enough for count/date/citation logic without a core patch |
 | `capability-auto-install.sh` (Phase 10.1) | vendored, byte-identical per plugin | SessionStart auto-grant at user scope | Already proven working for `beads`/`ponytail`; zero changes needed for a third `CAP_ID` |
 
@@ -88,7 +90,7 @@ Not applicable in the conventional sense — this phase authors gsd-core capabil
 
 ### System Architecture Diagram
 
-```
+```text
 /gsd-plan-phase N
   │
   ├─ step 5.6  plan:pre render-hooks  ──► planner prompt
@@ -131,7 +133,7 @@ Not applicable in the conventional sense — this phase authors gsd-core capabil
 
 ### Recommended Project Structure
 
-```
+```text
 sota-numerics/                          # top-level plugin dir, sibling to ponytail-everywhere/
 ├── .claude-plugin/
 │   └── plugin.json                     # name/version/author/license, mirrors ponytail-everywhere's

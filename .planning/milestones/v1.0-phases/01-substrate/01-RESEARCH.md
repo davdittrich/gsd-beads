@@ -5,6 +5,7 @@
 **Confidence:** HIGH (all load-bearing claims verified against a live `open-gsd/gsd-core` v1.10.0 checkout and a live `bd` v1.2.1 binary — see Sources)
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -58,6 +59,7 @@
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 | ID | Description | Research Support |
@@ -108,7 +110,7 @@ task block is an XML-style element inside `<tasks>`:
 The literal template a real planner fills in (`gsd-core/templates/phase-prompt.md`) confirms the
 same shape with no `id`/`number` attribute on `<task>` — only `type` and optional `gate`:
 
-```
+```text
 63	<task type="auto">
 64	  <name>Task 1: [Action-oriented name]</name>
 65	  <files>path/to/file.ext, another/file.ext</files>
@@ -191,7 +193,7 @@ positioned explicitly **after** worktree merge, post-merge tests, and tracking u
 > registered at `execute:wave:post`."
 [VERIFIED: gsd-core/gsd-core/workflows/execute-phase.md:1007]
 
-```
+```text
 WAVE_POST_HOOKS_JSON=$(gsd_run loop render-hooks execute:wave:post --raw)
 ```
 [VERIFIED: gsd-core/gsd-core/workflows/execute-phase.md:1010]
@@ -277,7 +279,7 @@ id regardless of first-party/third-party origin.
 PROJECT.md and the PRD both name the two shipped predicate kinds as `command-exists` and
 `artifact-frontmatter-equals`. The real, frozen dispatch table is:
 
-```
+```text
 208	const KIND_TABLE: Record<string, (p: Record<string, unknown>, ctx: PredicateContext, deps: PredicateDeps) => PredicateResult> = {
 209	  'command-exit-zero': evaluateCommandExitZero,
 210	  'artifact-frontmatter-equals': evaluateArtifactFrontmatterEquals,
@@ -321,7 +323,7 @@ before use; ship project-scoped first." The real gate applies to the opposite sc
 [VERIFIED: gsd-core/src/capability-loader.cts:685-693, quoting "GLOBAL scope is under the user's
 own home and is trusted as before (no consent record required)"]
 
-```
+```text
 726	      if (root.scope === 'project') {
 727	        let consented = false;
 ...
@@ -395,7 +397,7 @@ Python 3 standard library only. No `package-legitimacy check` run was needed.
 
 ### System Architecture Diagram
 
-```
+```text
 PLAN.md written by gsd-planner
         │
         │ (plan:post loop point fires after planning completes)
@@ -432,7 +434,7 @@ Skill(skill="gsd-beads-status") or beads-sync close-wave subcommand
 
 ### Recommended Project Structure
 
-```
+```text
 .gsd/capabilities/beads/
 ├── capability.json              # role: feature, verified schema (see Code Examples)
 ├── skills/
@@ -450,7 +452,7 @@ capability. It causes the orchestrating LLM agent to load and follow `SKILL.md` 
 issues its own tool calls (Bash, Read, Write).
 **When to use:** Every Phase 1 step (`plan:post`, `execute:wave:pre`, `execute:wave:post`).
 **Example:**
-```
+```text
 - `ref.skill` present → dispatch via the Skill tool with skill id `gsd-<ref.skill>`.
 ```
 [VERIFIED: gsd-core/gsd-core/references/loop-hook-dispatch.md:36]
@@ -461,11 +463,11 @@ issues its own tool calls (Bash, Read, Write).
 (`--id`) and a plain `bd show <id>` existence check.
 **When to use:** Every `create-issues` run.
 **Example:**
-```
+```text
 --id string   Explicit issue ID (e.g., 'bd-42' for partitioning)
 ```
 [VERIFIED: `bd create --help` output, this session]
-```
+```text
 Usage:
   bd show [id...] [--id=<id>...] [--current] [flags]
 ```
@@ -502,6 +504,7 @@ issue) and orchestration (when to translate), never tracker logic.
 ## Common Pitfalls
 
 ### Pitfall 1: Treating `execute:wave:post` as task-level
+
 **What goes wrong:** A `beads-sync` implementation that expects one task/one issue per dispatch
 silently drops every task after the first plan/task in any wave with more than one completed
 task.
@@ -514,6 +517,7 @@ inviting the same assumption downstream.
 issue closed.
 
 ### Pitfall 2: Assuming a markdown heading exists to anchor `beads-id:`
+
 **What goes wrong:** A regex like `^### Task \d+:` used to locate insertion points matches
 nothing in any real PLAN.md, silently producing zero writes.
 **Why it happens:** CONTEXT.md's D-03 was authored before this research verified the real schema.
@@ -524,6 +528,7 @@ nothing in any real PLAN.md, silently producing zero writes.
 been created in `bd`.
 
 ### Pitfall 3: Gate predicate name typo (`command-exists` vs `command-exit-zero`)
+
 **What goes wrong:** Not relevant to Phase 1 directly (no gates), but any Phase 3 planning that
 copies PROJECT.md's `command-exists` name verbatim into a manifest will fail
 `validateCapability()` — `command-exists` is not a recognized `kind`.
@@ -532,6 +537,7 @@ copies PROJECT.md's `command-exists` name verbatim into a manifest will fail
 **Warning signs:** Capability load warning: "Unknown predicate kind."
 
 ### Pitfall 4: Forgetting the consent gate blocks a project-scoped install
+
 **What goes wrong:** A Phase 1 plan that assumes dropping `capability.json` into
 `.gsd/capabilities/beads/` is sufficient for the loop to pick it up. It is not — for a
 skill-declaring, project-scoped capability, `gsd capability install ... --scope project` (with

@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 The planner and executor see live beads issue state as part of their normal operation, and the
@@ -14,6 +15,7 @@ REQ-B11. Read-only visibility only — no bd write calls beyond what Phase 1 alr
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### BEADS-RECALL.md scope-matching (B7)
@@ -104,6 +106,7 @@ REQ-B11. Read-only visibility only — no bd write calls beyond what Phase 1 alr
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -135,6 +138,7 @@ REQ-B11. Read-only visibility only — no bd write calls beyond what Phase 1 alr
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -168,6 +172,7 @@ REQ-B11. Read-only visibility only — no bd write calls beyond what Phase 1 alr
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No specific UI/UX references — this phase produces markdown artifacts and a prompt fragment, not
@@ -177,6 +182,7 @@ matching, frontmatter fields, skill boundaries), already captured above.
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 - **Claim behavior** — marking a bd issue `in_progress` when a wave starts, beyond the
@@ -185,6 +191,7 @@ matching, frontmatter fields, skill boundaries), already captured above.
   issue ownership across parallel waves.
 
 ### Reviewed Todos (not folded)
+
 None — `todo.match-phase` returned zero matches for this phase.
 
 </deferred>

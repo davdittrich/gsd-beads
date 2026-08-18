@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 Claude Code recognizes this repo as a valid, discoverable, MIT-licensed plugin: `.claude-plugin/plugin.json` declares identity and points at the existing skill without duplicating it, `.claude-plugin/marketplace.json` makes a local `/plugin marketplace add ./` + `/plugin install` round trip work, `LICENSE` exists at repo root. No new capability behavior — this phase is packaging metadata only.
@@ -11,6 +12,7 @@ Claude Code recognizes this repo as a valid, discoverable, MIT-licensed plugin: 
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### Plugin identity (plugin.json)
@@ -50,6 +52,7 @@ Claude Code recognizes this repo as a valid, discoverable, MIT-licensed plugin: 
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -68,6 +71,7 @@ No ADRs/PRDs exist for this phase beyond the above; no user-referenced docs came
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -83,6 +87,7 @@ No ADRs/PRDs exist for this phase beyond the above; no user-referenced docs came
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No particular UI/format references given beyond the decisions above — standard Claude Code plugin manifest conventions apply, informed by research into the actual schema.
@@ -90,6 +95,7 @@ No particular UI/format references given beyond the decisions above — standard
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 None — discussion stayed within phase scope. No scope-creep suggestions came up.

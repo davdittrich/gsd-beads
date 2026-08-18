@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 Publish `ponytail-everywhere` and `sota-numerics` — currently only dogfooded as subdirectories
@@ -16,6 +17,7 @@ just making the two existing plugins reachable by a stranger the way `beads-life
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### Repo topology (major revision mid-discussion — supersedes the phase's original framing)
@@ -92,6 +94,7 @@ just making the two existing plugins reachable by a stranger the way `beads-life
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -140,6 +143,7 @@ No other external specs — this is an internal distribution/publishing phase.
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -168,6 +172,7 @@ No other external specs — this is an internal distribution/publishing phase.
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No UI/behavior references — this is a repo-topology and publishing phase. The concrete
@@ -178,6 +183,7 @@ archive.
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 None — discussion stayed within phase scope. The mid-discussion repo-topology revision (D-01)

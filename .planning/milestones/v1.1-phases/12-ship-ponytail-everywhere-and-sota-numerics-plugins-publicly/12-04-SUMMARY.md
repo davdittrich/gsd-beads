@@ -168,20 +168,20 @@ Per the plan's `<human-check>`: open `https://github.com/davdittrich/ponytail-ev
 ```
 
 **Install/uninstall round trip (`ponytail-everywhere@gsd-beads`):**
-```
+```text
 Installing plugin "ponytail-everywhere@gsd-beads"...✔ Successfully installed plugin: ponytail-everywhere@gsd-beads (scope: user)
 ✔ Successfully uninstalled plugin: ponytail-everywhere (scope: user)
 ```
 (Note: an earlier `install` call in this same task first reported "already installed" — a pre-existing `ponytail-everywhere@gsd-beads` install from before this plan, per 12-03-SUMMARY.md. That stale install was uninstalled, then a fresh install/uninstall cycle was run against the now-pushed github-source marketplace entry, which is the sequence captured above and is what proves D-10's final form.)
 
 **Install/uninstall round trip (`sota-numerics@gsd-beads`):**
-```
+```text
 Installing plugin "sota-numerics@gsd-beads"...✔ Successfully installed plugin: sota-numerics@gsd-beads (scope: user)
 ✔ Successfully uninstalled plugin: sota-numerics (scope: user)
 ```
 
 **`beads-lifecycle@gsd-beads` after both round trips:**
-```
+```text
 ❯ beads-lifecycle@gsd-beads
     Version: 1.2.0
     Scope: user
@@ -189,7 +189,7 @@ Installing plugin "sota-numerics@gsd-beads"...✔ Successfully installed plugin:
 ```
 
 **Tag/release state:**
-```
+```text
 git tag --list 'v*'  -> v1.0, v1.1.1, v1.2.0 (unchanged)
 gh release list --limit 5 -> v1.2.0, v1.1.1 (no new release)
 ```

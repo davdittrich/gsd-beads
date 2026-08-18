@@ -12,19 +12,23 @@ plans_reviewed: [06-01-PLAN.md]
 Single reviewer this run (antigravity/agy — the only reviewer configured in `.planning/config.json`; gemini and opencode lanes were attempted but skipped per explicit user instruction). No cross-reviewer consensus to synthesize.
 
 ### Agreed Strengths
+
 N/A — single reviewer.
 
 ### Agreed Concerns
+
 N/A — single reviewer.
 
 ### Divergent Views
+
 N/A — single reviewer.
 
 ## Antigravity Review
 
 # Review of Phase 6 Plan: Runtime Integration (`06-01-PLAN.md`)
 
-### 1. Summary
+## 1. Summary
+
 The plan cleanly and surgically addresses **PUB-03** and **PUB-06** for Phase 6. It migrates the existing `SessionStart` hook from [`.claude/settings.json:1-15`](file:///home/dd/Gemini/gsd-beads/.claude/settings.json#L1-L15) into a newly packaged [`hooks/hooks.json`](file:///home/dd/Gemini/gsd-beads/hooks/hooks.json), completely deletes `.claude/settings.json` to prevent double-firing in the developer environment, and proves fail-open semantics when `bd` is missing from `PATH`. Additionally, it rigorously evaluates the capability bridge (PUB-03), opting for a verified, manual project-scoped installation step rather than an unsafe automated hook that would bypass gsd-core's CB-3 consent gate or break due to [`.planning/REQUIREMENTS.md:21-24`](file:///home/dd/Gemini/gsd-beads/.planning/REQUIREMENTS.md#L21-L24) allowlist omissions. All verification steps use deterministic commands, strict diff checking against base commits, and counted log assertions.
 
 ---

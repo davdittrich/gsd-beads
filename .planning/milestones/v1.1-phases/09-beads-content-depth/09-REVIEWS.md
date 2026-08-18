@@ -12,6 +12,7 @@ plans_reviewed: [09-01-PLAN.md, 09-02-PLAN.md, 09-03-PLAN.md, 09-04-PLAN.md]
 Single reviewer (antigravity/Gemini) ran with full repo access and cited concrete `file:line` evidence throughout. Overall verdict: plans are sound, LOW risk, ready to execute with three LOW-severity fixes recommended before or during wave 1.
 
 ### Agreed Strengths
+
 (single-reviewer run — no cross-reviewer agreement to report)
 - Source of truth for PRIME.md correctly placed in the already-allowlisted `.agents/skills/beads/` tree; `.beads/PRIME.md` gitignored as a derived runtime copy — preserves the Phase 7/8 `.beads/` packaging exclusion invariant with zero `release.yml` changes.
 - Self-healing hook wrapper (`hooks/session-start.sh`) runs copy-if-missing before `bd prime --hook-json` in the same execution chain, guaranteeing `bd prime` never reads a stale/absent override.
@@ -19,6 +20,7 @@ Single reviewer (antigravity/Gemini) ran with full repo access and cited concret
 - Plan 04 replicates Phase 8's full release verification matrix (strict plugin validate, tag teardown/recut, provenance check, fresh-clone install, marketplace round trip).
 
 ### Agreed Concerns
+
 (single-reviewer run — no cross-reviewer agreement to report)
 
 **[LOW] `CLAUDE_PLUGIN_ROOT` fallback missing in `hooks/session-start.sh`** (09-01-PLAN.md Tasks 1–2)
@@ -35,6 +37,7 @@ SOURCE="$PLUGIN_ROOT/.agents/skills/beads/PRIME.md"
 Plan 02's automated verification greps for MIT attribution on adapted `resources/*.md`; Plan 03 has no equivalent check for `commands/*.md`. Recommend adding the same attribution assertion to Plan 03's verification for consistency.
 
 ### Divergent Views
+
 N/A — single reviewer.
 
 ---

@@ -40,7 +40,7 @@ load/validate time (`capability-validator.cjs:2380-2389`, `validateAgainstContra
 contribution naming a role outside its point's `agentRoles` is a hard validation error, not a
 runtime surprise.
 
-```
+```text
 ┌────────────────────────────────────────────────────────────────────────────────┐
 │ step     │ points                                    │ agentRoles              │
 ├──────────┼───────────────────────────────────────────┼─────────────────────────┤
@@ -76,7 +76,7 @@ contribution the new capabilities add must use `"into": "orchestrator"`.** `exec
 
 ## Recommended Project Structure (per new capability, dogfooded copy)
 
-```
+```text
 .gsd/capabilities/<id>/
 ├── capability.json              # contributions[], gates[], config, steps[]
 ├── fragments/
@@ -292,7 +292,7 @@ predicate kind, same "no predicate queries an external tool directly" root cause
 
 ### Direct command-exit-zero flow (pr-workflow)
 
-```
+```text
 gh pr checks (or gh api)
     ↓ (exit code + stdout/stderr, run inside the predicate's own sh -c, bounded by "timeout")
 gate-predicate-evaluator.evaluateCommandExitZero
@@ -302,7 +302,7 @@ ship.md's generic ship:pre gate dispatch (blocking:false → advisory, surfaced 
 
 ### Generated-artifact flow (markdown-linting, mirrors beads)
 
-```
+```text
 markdownlint-cli2 --config ... .planning/**/*.md   (run inside verify:post's steps[] skill)
     ↓ (violation list + count)
 .planning/LINT-REPORT.md  (YAML frontmatter: violation_count, generated_at)
@@ -314,7 +314,7 @@ ship.md's generic ship:pre gate dispatch (blocking:true → hard-stops ship, per
 
 ### Fragment-only flow (get-available-resources)
 
-```
+```text
 (existing) get-available-resources skill/script  →  .claude_resources.json
     ↓ (referenced by prose, not by a gate)
 fragments/planner-resources.md, fragments/executor-resources.md

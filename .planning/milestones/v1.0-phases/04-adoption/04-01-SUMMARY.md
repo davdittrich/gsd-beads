@@ -73,7 +73,7 @@ count from a "bd create failed" count.
 
 ## Verification
 
-```
+```text
 python3 -m pytest .gsd/capabilities/beads/tests/test_sync.py -q
 # 74 passed in 3.24s (full suite, including this plan's 8 new tests)
 ```

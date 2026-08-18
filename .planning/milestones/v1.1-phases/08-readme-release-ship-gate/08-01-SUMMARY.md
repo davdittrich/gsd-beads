@@ -133,7 +133,7 @@ Each task was committed atomically:
 
 ### Task 1 — rehearsal tag push, run, download, teardown
 
-```
+```text
 $ git tag v0.0.0-rc1 && git push origin v0.0.0-rc1
 To https://github.com/davdittrich/gsd-beads.git
  * [new tag]         v0.0.0-rc1 -> v0.0.0-rc1
@@ -190,7 +190,7 @@ $ gh release list
 
 Full transcript at plan-execution time: `/tmp/gsd-beads-cmd-transcript.txt` (ephemeral, per plan's declared output path — not a repo artifact). Key excerpt:
 
-```
+```text
 $ claude plugin marketplace list | grep -A1 gsd-beads
   gsd-beads
     Source: Directory (/home/dd/Gemini/gsd-beads)
@@ -226,7 +226,7 @@ All `bd` commands exited 0. Run in scratch workspace, never against this repo's 
 
 ### Task 3 — README.md automated `<verify>`
 
-```
+```text
 $ grep -n '^## ' README.md | cut -d: -f2- | tr '\n' '|' | grep -qiE 'What it does.*Requirements.*Install.*Uninstall.*Caveats.*License'
 PASS
 $ grep -q 'claude plugin uninstall beads -y' README.md

@@ -80,7 +80,7 @@ that this read path never calls `bd close`/`update`/`comment`.
 
 ## Verification
 
-```
+```text
 python3 -m pytest .gsd/capabilities/beads/tests/test_sync.py -q
 # 79 passed in 3.30s (full suite, including this plan's 5 new tests)
 ```

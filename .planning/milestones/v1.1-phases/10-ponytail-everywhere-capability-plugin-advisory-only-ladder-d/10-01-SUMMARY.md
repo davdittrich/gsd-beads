@@ -110,7 +110,7 @@ output from the repo root (identical whether the `ponytail-everywhere` marketpla
 present or removed; the CLI's `--strict` output for this project only reports at marketplace-file
 granularity, it does not enumerate plugin names in stdout):
 
-```
+```text
 Validating marketplace manifest: /home/dd/projects/gsd-beads/.claude-plugin/marketplace.json
 
 ✔ Validation passed
@@ -129,7 +129,7 @@ text alone, contrary to what the plan anticipated as the primary evidence path.
 
 ## Verbatim `full`-level banner (no role argument — Plan 02's fragments must match this text)
 
-```
+```text
 PONYTAIL LADDER — advisory, not a gate (level: full)
 Prefer the laziest solution that actually works — deletion over addition, boring over clever.
 1. Does this need to exist at all? YAGNI

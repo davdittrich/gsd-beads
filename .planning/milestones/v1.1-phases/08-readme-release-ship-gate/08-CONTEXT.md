@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 A stranger can evaluate, install, and remove `gsd-beads` from the README alone. Three requirements: PUB-04 (versioned release archive built from an explicit allowlist, attached to a GitHub Release), PUB-07 (README covering purpose, requirements, install, uninstall, caveats, license, gsd-core link — every command transcribed from one actually executed), PUB-09 (final `claude plugin validate . --strict` clean at the released tag, plus a real `/plugin marketplace add` → `/plugin install` → `/plugin uninstall` round trip).
@@ -11,6 +12,7 @@ A stranger can evaluate, install, and remove `gsd-beads` from the README alone. 
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### README audience & structure
@@ -40,6 +42,7 @@ A stranger can evaluate, install, and remove `gsd-beads` from the README alone. 
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -65,6 +68,7 @@ No other external specs — requirements fully captured in decisions above.
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -82,6 +86,7 @@ No other external specs — requirements fully captured in decisions above.
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No particular UI/behavior references — this is a documentation, packaging, and validation-gate phase. Standard README conventions and GitHub Actions release patterns apply as specified in the decisions above.
@@ -89,6 +94,7 @@ No particular UI/behavior references — this is a documentation, packaging, and
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 - **Expand `.agents/skills/beads/SKILL.md` toward upstream parity** — the shipped skill (80 lines, single file: `bd prime`/`ready`/`show`/`update --claim`/`create`/`close` only) is materially thinner than the official upstream `beads` skill by Steve Yegge (`~/.claude/skills/beads/`, v0.60.0, MIT — 110-line SKILL.md plus a `resources/` progressive-disclosure directory and a `commands/` per-subcommand reference directory). Missing entirely: `bd dep` (dependencies), labels, comments, search, `compact`, `import`, `stats`, `blocked`, worktrees, async gates, resumability, `--stealth`/`BEADS_DIR` git-free mode, `dolt push` detail, and a troubleshooting guide. Checked `.planning/PROJECT.md` and Phase 5's plan — no recorded decision to keep the shipped skill deliberately minimal; this looks like an unaddressed gap, not an intentional scope cut. Out of scope for Phase 8 (README/release/ship-gate, not skill content) — candidate for its own follow-up phase or a Phase 5/6 revisit.

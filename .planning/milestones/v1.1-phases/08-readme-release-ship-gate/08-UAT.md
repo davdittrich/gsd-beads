@@ -13,6 +13,7 @@ updated: 2026-08-16T00:00:00Z
 ## Tests
 
 ### 1. README comprehension by a cold stranger
+
 expected: A stranger with no prior gsd-core/beads knowledge can read README.md end to end and come away able to evaluate, install, and remove gsd-beads.
 result: pass
 reason: "Original issue (missing beads-vs-built-in-tracking value prop, no gsd lifecycle integration example) fixed by gap-closure plan 08-03-PLAN.md — independently re-verified: README.md now has a '### Why not just use gsd-core's built-in tracking?' section and an Example workflow showing /gsd-plan-phase -> /gsd-execute-phase -> /gsd-verify-work driving bd state."

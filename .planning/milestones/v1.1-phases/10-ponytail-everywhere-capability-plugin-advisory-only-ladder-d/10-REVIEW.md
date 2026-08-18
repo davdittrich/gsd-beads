@@ -78,7 +78,7 @@ Reproduced empirically in this sandbox: with a git repo whose toplevel is
 `.../gsd test space2` and a real `gsd-core/bin/gsd-tools.cjs` inside it, `gsd_tools config-get
 ponytail.enabled --default true` fails with:
 
-```
+```text
 node:internal/modules/cjs/loader:1573
 Error: Cannot find module '.../gsd'
     ...

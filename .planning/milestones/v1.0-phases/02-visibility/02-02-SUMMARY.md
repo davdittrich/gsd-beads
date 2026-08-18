@@ -185,7 +185,7 @@ Ran against a real `bd` v1.2.1 database in a scratch directory (`bd init --prefi
 1. Synced a real 2-plan wave (`01-01-PLAN.md`, `01-02-PLAN.md`) sharing one epic via `create-issues` — real issue ids assigned (`live-tp0.1`, `live-tp0.2`)
 2. `regenerate-beads-md` produced a real `01-BEADS.md` with correct D-05..D-08 frontmatter (`open: 1`, `closed: 1`, `blocking_open: 0`, `diverged: 0`, real `generated_from`/`generated_at`) and the 5-column table
 3. `wave-status-block` printed:
-   ```
+   ```text
    <beads_status>
    live-tp0.1: 01-01.1 Task 1: Do live-a thing (closed)
    live-tp0.2: 01-02.1 Task 1: Do live-b thing (open)

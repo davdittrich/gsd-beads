@@ -18,6 +18,7 @@ awaiting: closed
 ## Tests
 
 ### 1. Interactive TTY session — single-fire backstop
+
 expected: Start one real interactive Claude Code session (not `claude -p`) inside this repository. The beads SessionStart context (bd prime output) appears exactly once — no double-fire, no missing fire.
 result: PASS — user started a fresh `claude --debug hooks --debug-file` session; debug log confirms `Hook SessionStart (bd prime --hook-json) provided additionalContext (4856 chars)` exactly once (`grep -c` == 1), with full bd-prime markdown content present. No visible terminal banner is expected — SessionStart additionalContext is injected silently into model context, not printed to the user; the user initially misread the absence of a printed banner as a non-fire. Debug log is authoritative and confirms correct single-fire behavior.
 

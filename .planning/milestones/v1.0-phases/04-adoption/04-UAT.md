@@ -13,10 +13,12 @@ updated: 2026-08-16T01:15:00Z
 ## Tests
 
 ### 1. Well-formed todo migrates to bd (B12)
+
 expected: Live-traced — bd create argv correctly mapped (priority=2 for minor, area-uat label, folded description), file deleted only after confirmed success.
 result: pass
 
 ### 2. Malformed todo left untouched and reported separately (B12)
+
 expected: |
   Same live-trace run: a second synthetic todo missing the `severity` frontmatter key was placed
   alongside the well-formed one. Migration output: `could not be interpreted: uat-test-malformed.md:
@@ -26,6 +28,7 @@ expected: |
 result: pass
 
 ### 3. On-demand beads-status prints mapping + both orphan sections (B13)
+
 expected: |
   Live-traced: `sync.py status .planning/phases/04-adoption` (no lifecycle-point marker, direct
   invocation) printed the full 6-column issue/task mapping table (6 rows, all Phase 4 tasks,
@@ -36,6 +39,7 @@ expected: |
 result: pass
 
 ### 4. epic_per=milestone shares one epic across phases (B14)
+
 expected: |
   Not live-traced this session (would require creating a second real phase-scoped epic against
   live project data to test cross-phase sharing — deferred as unnecessarily invasive for a UAT
@@ -49,6 +53,7 @@ expected: |
 result: pass
 
 ### 5. Default epic_per (absent or "phase") behavior is unchanged (B14 regression)
+
 expected: |
   `TestMilestoneEpic::test_default_unchanged` confirms the same outcome as the pre-existing
   `TestPhaseScopedEpic::test_second_plan_in_phase_reuses_first_plans_epic_when_neither_preset_one`

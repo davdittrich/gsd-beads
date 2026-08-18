@@ -86,7 +86,7 @@ path is unchanged.
 
 ## Verification
 
-```
+```text
 python3 -m pytest .gsd/capabilities/beads/tests/test_sync.py -k TestMilestoneEpic -x
 # 9 passed
 

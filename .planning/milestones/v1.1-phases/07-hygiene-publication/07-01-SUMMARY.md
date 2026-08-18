@@ -127,9 +127,11 @@ status: complete
 **Impact on plan:** No scope creep, no change to the actual actions taken (gitignore content and filter-repo invocation ran exactly as specified). Only the numeric expectation in an automated check was corrected against ground truth.
 
 ## Issues Encountered
+
 None beyond the documented deviation above.
 
 ## User Setup Required
+
 None - no external service configuration required.
 
 ## Verification Record (for Plan 02's checkpoint)

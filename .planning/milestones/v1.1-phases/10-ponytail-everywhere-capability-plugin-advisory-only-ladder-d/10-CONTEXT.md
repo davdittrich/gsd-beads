@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 A new gsd-core capability plugin, `ponytail-everywhere`, that pushes `/ponytail`'s
@@ -15,6 +16,7 @@ existing `beads-lifecycle` plugin.
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### Mechanism (carried forward from /gsd-explore)
@@ -63,6 +65,7 @@ existing `beads-lifecycle` plugin.
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -95,6 +98,7 @@ No other external specs.
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -119,6 +123,7 @@ No other external specs.
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No particular UI/behavior references — this is a capability-plugin authoring phase. The
@@ -128,6 +133,7 @@ abstract standard.
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 None — discussion stayed within phase scope. (Phase 11's `sota-numerics` capability is a

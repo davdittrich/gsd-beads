@@ -96,14 +96,14 @@ status: complete
 ## Before/After State Captures
 
 **`claude plugin marketplace list` (before, relevant entries only):**
-```
+```text
 ❯ gsd-beads
     Source: Directory (/home/dd/projects/gsd-beads)
 ```
 (13 other pre-existing marketplaces present and unrelated to this plan, all unchanged throughout.)
 
 **`claude plugin list` (before, relevant entries only):**
-```
+```text
 ❯ beads-lifecycle@gsd-beads
     Version: 1.2.0 / Scope: user / Status: enabled
 ❯ ponytail-everywhere@gsd-beads
@@ -112,7 +112,7 @@ status: complete
 Note: `ponytail-everywhere@gsd-beads` (installed earlier from the old `./ponytail-everywhere` Directory-relative source, pre-dating this plan) was present at the start and was never touched by this task — the round trip installed/uninstalled a *different* plugin identity, `ponytail-everywhere@gsd-beads-verify`, from the distinct scratch marketplace.
 
 **Install output:**
-```
+```text
 Installing plugin "ponytail-everywhere@gsd-beads-verify"...
 ✔ Successfully installed plugin: ponytail-everywhere@gsd-beads-verify (scope: user)
 
@@ -122,7 +122,7 @@ Installing plugin "sota-numerics@gsd-beads-verify"...
 Both then confirmed in `claude plugin list` as `Version: 0.1.0 / Scope: user / Status: enabled`, sourced from `gsd-beads-verify`.
 
 **Uninstall output:**
-```
+```text
 ✔ Successfully uninstalled plugin: ponytail-everywhere (scope: user)
 ✔ Successfully uninstalled plugin: sota-numerics (scope: user)
 ```

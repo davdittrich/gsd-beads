@@ -8,6 +8,7 @@ skill/config-schema extension. No web framework, no new runtime dependency.
 against training-data assumptions about beads' schema)
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -66,6 +67,7 @@ None raised during discuss-phase — stayed within B12/B13/B14 scope throughout.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 | ID | Description | Research Support |
@@ -137,7 +139,7 @@ Verified three independent ways against the real installed `bd` 1.2.2 binary (`b
 1. `bd create --help` flag description: `` -p, --priority string   Priority (0-4 or P0-P4, 0=highest) (default "2")`` `[VERIFIED: bd create --help]`
 2. `bd priority --help` (the dedicated shorthand subcommand) prints the full semantic scale
    verbatim:
-   ```
+   ```text
    Priority levels:
      0 - Critical (security, data loss, broken builds)
      1 - High (major features, important bugs)
@@ -179,7 +181,7 @@ Verified live: `bd create <title> --labels "area-auth"` (or `-l`) creates the la
 pre-registration step** — an unknown label string is silently created on first use. Confirmed via
 `bd label list-all` after creating two issues with three distinct label strings:
 
-```
+```text
 🏷 All labels (3 unique):
   area-auth     (1 issues)
   area-general  (1 issues)
@@ -292,7 +294,7 @@ invokes `create-issues`.
 
 ### System Architecture Diagram
 
-```
+```text
                     ┌─────────────────────────────┐
  User types          │  Skill tool ("/gsd-migrate-  │
  /gsd-migrate-todos ─▶│   todos" / "/gsd-beads-      │
@@ -361,7 +363,7 @@ No new files or directories beyond what the existing capability already has — 
 either a new function in the existing `sync.py`, a new `argparse` subcommand in its existing
 `main()`, or a new/extended `SKILL.md`:
 
-```
+```text
 .gsd/capabilities/beads/
 ├── capability.json              # + "beads.epic_per" config key; + 2 new skill ids in skills[]
 ├── scripts/
@@ -613,10 +615,8 @@ State Inventory trigger in the verification protocol does not apply. For complet
 | Secrets/env vars | None | None |
 | Build artifacts | None | None |
 
-## Common Pitfalls
-
-*(see above — merged into the single "Common Pitfalls" section per template; duplicate heading
-omitted)*
+**Common Pitfalls** *(see above — merged into the single "Common Pitfalls" section per template;
+duplicate heading omitted)*
 
 ## Assumptions Log
 

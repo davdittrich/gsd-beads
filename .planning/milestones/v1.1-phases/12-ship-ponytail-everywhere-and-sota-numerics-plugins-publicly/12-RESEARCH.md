@@ -52,6 +52,7 @@ from `gsd-beads` and edit `marketplace.json` last.
 ## User Constraints
 
 <user_constraints>
+
 ## User Constraints (from CONTEXT.md)
 
 ### Locked Decisions
@@ -86,11 +87,13 @@ from `gsd-beads` and edit `marketplace.json` last.
 - Order of operations across the two plugins (parallel vs sequential) — no dependency between them.
 
 ### Deferred Ideas (OUT OF SCOPE)
+
 None — discussion stayed within phase scope. D-01's mid-discussion repo-topology revision is a
 correction to the phase's own scope, not new work deferred elsewhere.
 </user_constraints>
 
 <phase_requirements>
+
 ## Phase Requirements
 
 No formal requirement IDs exist for this project; traceability is via CONTEXT.md decisions
@@ -109,6 +112,7 @@ must schedule:
 ## Standard Stack
 
 ### Core
+
 | Tool | Version (verified this session) | Purpose | Why Standard |
 |------|-----------|---------|--------------|
 | `gh` CLI | 2.97.0 | Create + push new GitHub repos, verify visibility/remote | Official GitHub CLI, already used identically in Phase 7 |
@@ -120,6 +124,7 @@ two already-written plugin trees. `npm view`/`pip index` verification does not a
 installs).
 
 ### Alternatives Considered
+
 | Instead of | Could Use | Tradeoff |
 |------------|-----------|----------|
 | `github`-type marketplace source | `git-subdir` type (pointing `gsd-beads` itself with a `path`) | Would let the two plugins keep living as subdirectories of `gsd-beads` with no separate repos — directly contradicts locked D-01, not applicable |
@@ -136,7 +141,7 @@ already-verified plugin code (Phase 10/11 shipped) into new repos and edits one 
 
 ### System Architecture Diagram
 
-```
+```text
 gsd-beads (git repo, unchanged root)
   .claude-plugin/marketplace.json  ── hosts 3 entries ──┐
        │                                                 │
@@ -166,7 +171,7 @@ gsd-beads (git repo, unchanged root)
 ```
 
 ### Recommended Extraction Sequence (per plugin, repeat for the other)
-```
+```text
 1. mkdir -p /tmp/<plugin>-extract && cp -r <repo>/<plugin>/. /tmp/<plugin>-extract/
 2. Fix REPO_ROOT bug in /tmp/<plugin>-extract/tests/test-session-start.sh (see Pitfall 1)
 3. cd /tmp/<plugin>-extract && git init -b main
@@ -223,9 +228,10 @@ explicitly-untouched concern per D-04.
 ## Common Pitfalls
 
 ### Pitfall 1: `REPO_ROOT` off-by-one in `tests/test-session-start.sh` after extraction
+
 **What goes wrong:** Both `ponytail-everywhere/tests/test-session-start.sh` (line 7) and
 `sota-numerics/tests/test-session-start.sh` (line 8) compute:
-```
+```text
 REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 ```
 verified by direct `Read` this session. Today `dirname "$0"` resolves to
@@ -258,6 +264,7 @@ from `tests/`, correct both today (as a subdirectory) and after extraction (as a
 Verified by `Read` this session; no fix needed for this file.
 
 ### Pitfall 2: `claude plugin validate --strict` semantics — the flag promotes warnings, not a separate check mode
+
 **What goes wrong:** Assuming `--strict` runs additional checks beyond what plain `claude plugin
 validate .` runs.
 **Why it happens:** The flag's actual behavior (confirmed via official `plugins-reference` docs,
@@ -275,6 +282,7 @@ value) would only surface under `--strict`, not plain `validate` — always test
 with `--strict`, never skip it because plain `validate` passed.
 
 ### Pitfall 3: `gh repo create --source` requires an *already-initialized* git repo
+
 **What goes wrong:** Running `gh repo create davdittrich/ponytail-everywhere --public
 --source=ponytail-everywhere --push` directly from `gsd-beads`' root, expecting `gh` to `git init`
 the subdirectory itself.
@@ -288,6 +296,7 @@ commit` (this is D-03's "fresh init" step, not an extra one), only then run `gh 
 (no `.git` found) rather than silently doing the wrong thing — fails loud, easy to catch.
 
 ### Pitfall 4: Marketplace `source` object shape — string vs object, and field name collision
+
 **What goes wrong:** Writing `"source": "github:owner/repo"` (a string) or `"source": {"repo":
 "owner/repo"}` (missing the nested `"source": "github"` discriminator field).
 **Why it happens:** The relative-path form uses a bare string (`"./ponytail-everywhere"`); the
@@ -517,6 +526,7 @@ present and authenticated on this machine.
 ## Validation Architecture
 
 ### Test Framework
+
 | Property | Value |
 |----------|-------|
 | Framework | Stdlib-only bash smoke test (`tests/test-session-start.sh`, both plugins) + stdlib `unittest` (`sota-numerics/tests/test_check_alternatives.py`) — no third-party test framework, matches this repo's N5 constraint |
@@ -525,6 +535,7 @@ present and authenticated on this machine.
 | Full suite command | Same as quick run — the entire test surface for each plugin is these 1-2 files |
 
 ### Phase Requirements → Test Map
+
 | Req ID | Behavior | Test Type | Automated Command | File Exists? |
 |--------|----------|-----------|-------------------|-------------|
 | D-01/D-03 (extraction correctness) | Extracted repo's `session-start.sh` still resolves paths correctly post-move | smoke | `bash tests/test-session-start.sh` (run inside `$EXTRACT_DIR` before `gh repo create`) | ✅ exists, needs Pitfall 1 fix applied first |
@@ -543,6 +554,7 @@ present and authenticated on this machine.
   insurance).
 
 ### Wave 0 Gaps
+
 None — existing test infrastructure (bash smoke test + Python unittest, both already present in
 each plugin subdirectory) covers all phase requirements once the extraction sequence includes the
 Pitfall 1 fix and runs the existing tests locally before each push.
@@ -596,6 +608,7 @@ checkpoint applies (see Package Legitimacy Audit above).
   `git ls-files`, `git status` — `Bash`, this session
 
 ### Tertiary (LOW confidence per the classify-confidence seam — provider `websearch`/`webfetch`
+
 report LOW regardless of content authority since no `context7`/`ref`/docs-MCP provider is
 configured in `.planning/config.json` (all search-provider flags `false`); the underlying content
 is nonetheless first-party official documentation, quoted verbatim, not community/blog material)

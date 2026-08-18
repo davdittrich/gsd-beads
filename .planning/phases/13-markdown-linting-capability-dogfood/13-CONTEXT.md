@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 This repo's own lifecycle measures and reports `.planning/` (+ selected root docs) markdown
@@ -18,6 +19,7 @@ precisely specified there — this discussion clarifies HOW to implement them, n
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### Existing-violation cleanup (MDL-01 prerequisite)
@@ -64,6 +66,7 @@ precisely specified there — this discussion clarifies HOW to implement them, n
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -97,6 +100,7 @@ precisely specified there — this discussion clarifies HOW to implement them, n
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -121,6 +125,7 @@ precisely specified there — this discussion clarifies HOW to implement them, n
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 - rumdl invocation always passes an explicit `--config <path>` — never relies on auto-discovery
@@ -131,12 +136,14 @@ precisely specified there — this discussion clarifies HOW to implement them, n
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 None raised beyond the roadmap's own v2 backlog (MDL-05, blocking gate — already tracked in
 REQUIREMENTS.md).
 
 ### Reviewed Todos (not folded)
+
 None — no pending todos matched this phase's scope.
 
 </deferred>

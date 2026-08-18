@@ -4,6 +4,7 @@
 **Status:** Ready for planning
 
 <domain>
+
 ## Phase Boundary
 
 Existing hand-tracked todos move into beads, and the plan-task ↔ issue mapping is inspectable
@@ -14,6 +15,7 @@ Depends only on Phase 1 (substrate) — independent of Phase 2 (visibility) and 
 </domain>
 
 <decisions>
+
 ## Implementation Decisions
 
 ### Todo → issue field mapping (B12)
@@ -88,6 +90,7 @@ Depends only on Phase 1 (substrate) — independent of Phase 2 (visibility) and 
 </decisions>
 
 <canonical_refs>
+
 ## Canonical References
 
 **Downstream agents MUST read these before planning or implementing.**
@@ -119,6 +122,7 @@ Depends only on Phase 1 (substrate) — independent of Phase 2 (visibility) and 
 </canonical_refs>
 
 <code_context>
+
 ## Existing Code Insights
 
 ### Reusable Assets
@@ -147,6 +151,7 @@ Depends only on Phase 1 (substrate) — independent of Phase 2 (visibility) and 
 </code_context>
 
 <specifics>
+
 ## Specific Ideas
 
 No specific UI/UX references — this phase adds two new slash-command surfaces (migration,
@@ -156,11 +161,13 @@ already established in `BEADS-RECALL.md`/`BEADS.md`.
 </specifics>
 
 <deferred>
+
 ## Deferred Ideas
 
 None raised during this discussion — stayed within B12/B13/B14 scope throughout.
 
 ### Reviewed Todos (not folded)
+
 None — `.planning/todos/pending/` is currently empty; no todos existed to match against this
 phase's scope.
 
