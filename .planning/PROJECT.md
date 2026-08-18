@@ -106,6 +106,14 @@ ROADMAP.md's checkboxes are stale (a known upstream gsd-core plan-scan misclassi
 STATE.md) — not formally closed via `/gsd-complete-milestone`. User explicitly chose to proceed to
 v1.2 rather than block on that formality (2026-08-18).
 
+**Phase 14 (pr-workflow capability, dogfood) complete (2026-08-18):** PRW-01..04 validated in
+this repo (`.gsd/capabilities/pr-workflow/`) — 27/27 unit tests, live four-state gate smoke test,
+code review (4 findings fixed post-review), phase verification passed 6/6. Dogfooding surfaced a
+gsd-core capability-consent defect (bytecode-cache artifacts silently invalidate consent);
+interim in-scope mitigation applied, root cause filed upstream as
+[open-gsd/gsd-core#3631](https://github.com/open-gsd/gsd-core/issues/3631). Next: Phase 15
+(public extraction of markdown-linting + pr-workflow).
+
 ## Context
 
 gsd-core currently has zero issue-tracker integration (`grep -rli "beads\|bd create\|bd ready"`
@@ -208,7 +216,7 @@ Phase 4 SUMMARY.md files missing `requirements-completed` frontmatter, and Phase
 reconciled Nyquist `VALIDATION.md` coverage — neither blocks shipped functionality).
 
 ---
-*Last updated: 2026-08-18 — Milestone v1.2 (New Capability Plugins) started: PUB-11/PUB-12 moved
+*Last updated: 2026-08-18 — Phase 14 (pr-workflow dogfood) complete. Milestone v1.2 (New Capability Plugins) started: PUB-11/PUB-12 moved
 to Validated (Phase 9 shipped, `v1.1.1` released); Current Milestone section repointed at v1.2's
 three new capability plugins (`pr-workflow`, `markdown-linting`, `get-available-resources`).*
 
