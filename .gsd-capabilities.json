@@ -11,16 +11,6 @@
         ".gsd/capabilities/beads"
       ],
       "sharedEdits": []
-    },
-    "pr-workflow": {
-      "id": "pr-workflow",
-      "version": "0.1.0",
-      "source": "./.gsd/capabilities/pr-workflow",
-      "integrity": "",
-      "files": [
-        ".gsd/capabilities/pr-workflow"
-      ],
-      "sharedEdits": []
     }
   }
 }
