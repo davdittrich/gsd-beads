@@ -26,6 +26,22 @@
         "url": "https://github.com/davdittrich/sota-numerics.git"
       },
       "description": "SOTA-research/numerical-stability advisory steering across gsd's plan/execute/verify/ship lifecycle, plus a blocking plan:post gate that mechanically enforces a compliant Alternatives Considered section on every plan in a phase"
+    },
+    {
+      "name": "markdown-linting",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/davdittrich/markdown-linting.git"
+      },
+      "description": "Wraps rumdl over .planning/, README.md, and CLAUDE.md; verify:post writes a gate-readable violation-count report, ship:pre gates advisorily on it."
+    },
+    {
+      "name": "pr-workflow",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/davdittrich/pr-workflow.git"
+      },
+      "description": "Wraps gh CLI to read PR/check status for the current branch; execute:wave:post writes a gate-readable PR.md report, ship:pre gates advisorily on it."
     }
   ]
 }
