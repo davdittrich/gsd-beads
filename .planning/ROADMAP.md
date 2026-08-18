@@ -184,7 +184,7 @@ entry"). Traceability follows Phase 12's extraction playbook decisions D-01..D-1
      `release.yml` / doc reference is repaired in the same commit, CI is green, and a
      `beads-lifecycle` install from the same marketplace still works.
 
-**Plans**: 4/5 plans executed
+**Plans**: 5/5 plans executed
 
 Plans:
 
@@ -192,7 +192,7 @@ Plans:
 - [x] 15-02-PLAN.md — Wrap, stage, publish, and fresh-clone-verify `davdittrich/pr-workflow`
 - [x] 15-03-PLAN.md — Append both `url`-type marketplace entries, prove the round trip twice, push
 - [x] 15-04-PLAN.md — Re-prove auto-install, re-consent, and both `ship:pre` gates from the installed copies
-- [ ] 15-05-PLAN.md — Audit and decide the dogfood-bundle disposition, execute it, push, prove CI green
+- [x] 15-05-PLAN.md — Audit and decide the dogfood-bundle disposition, execute it, push, prove CI green
 
 ## Progress
 
@@ -200,7 +200,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 13. markdown-linting capability (dogfood) | 4/4 | Complete    | 2026-08-18 |
 | 14. pr-workflow capability (dogfood) | 3/3 | Complete    | 2026-08-18 |
-| 15. Ship both plugins publicly | 4/5 | In Progress|  |
+| 15. Ship both plugins publicly | 5/5 | In Progress|  |
 
 ## Cross-Cutting Constraints (v1.2)
 
