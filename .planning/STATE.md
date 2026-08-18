@@ -33,7 +33,7 @@ Phase: 13 — markdown-linting capability (dogfood)
 Plan: —
 Status: Roadmap created, phase not yet planned
 Progress: [··········] 0% (0/3 phases)
-Last activity: 2026-08-18 — v1.2 roadmap created
+Last activity: 2026-08-18 - Completed quick task 260818-h2h: Fix gsd-beads-1iq: scope beads-lifecycle marketplace source to exclude sota-numerics/ponytail dev copies
 
 ## Performance Metrics
 
@@ -98,8 +98,13 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 12]: `marketplace.json` entries must use `url`-type sources with explicit `https://` git
   URLs (commit `f706179`) — GitHub shorthand clones over SSH and breaks on SSH-keyless machines.
 
-- [Phase 12]: Dogfood subdirectories were removed from `gsd-beads` in the same commit that repaired
-  the orphaned `ci.yml` / `release.yml` references.
+- [Phase 12]: The claim previously recorded here — that dogfood subdirectories were removed from
+  `gsd-beads` in the same commit that repaired the orphaned `ci.yml` / `release.yml` references —
+  was found false during quick-task 260818-h2h: `git log --follow` showed no deletion commit ever
+  existed for `.gsd/capabilities/{ponytail,sota-numerics}`, only their Phase 10/11 authoring
+  commits (`932cf34`, `246dfbc`). Whatever Phase 12 removed, it was not these two paths. They were
+  actually removed in quick-task 260818-h2h, by `git rm -r`, in the same commit that scoped the
+  `beads-lifecycle` plugin source to `plugins/beads-lifecycle/`.
 
 ### Pending Todos
 
@@ -130,9 +135,10 @@ None yet.
 
 ### Quick Tasks Completed
 
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 260815-mm8 | Fix gsd-beads-uh1 and gsd-beads-bgb | 2026-08-15 | cb0741e | [260815-mm8](./quick/260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per/) |
+| # | Description | Date | Commit | Status | Directory |
+|---|-------------|------|--------|--------|-----------|
+| 260815-mm8 | Fix gsd-beads-uh1 and gsd-beads-bgb | 2026-08-15 | cb0741e | | [260815-mm8](./quick/260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per/) |
+| 260818-h2h | Fix gsd-beads-1iq: scope beads-lifecycle marketplace source to exclude sota-numerics/ponytail dev copies | 2026-08-18 | 4d83504 | Verified | [260818-h2h](./quick/260818-h2h-fix-gsd-beads-1iq-scope-beads-lifecycle-/) |
 
 ## Deferred Items
 
