@@ -32,7 +32,7 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
 
 ### MARKDOWN-LINTING
 
-- [x] **MDL-01**: A curated `rumdl` config (MD001/MD003/MD009/MD012/MD022/MD024/MD040-equivalent
+- [ ] **MDL-01**: A curated `rumdl` config (MD001/MD003/MD009/MD012/MD022/MD024/MD040-equivalent
       rules only — structural rules; line-length/inline-HTML/first-line-heading explicitly
       disabled, they fight `.planning/`'s frontmatter-led, agent-generated, `<details>`-using
       content) is invoked with an always-explicit `--config` path (rumdl's config auto-discovery
@@ -42,12 +42,12 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
       this exact ruleset (45% miss rate measured in this repo, e.g. MD001: 14 vs 1) as a known,
       accepted behavior difference — not silently glossed over
 
-- [x] **MDL-02**: A `verify:post` fragment reports the violation count, `onError: skip`
-- [x] **MDL-03**: A `ship:pre` gate reads the violation count via `artifact-frontmatter-equals`,
+- [ ] **MDL-02**: A `verify:post` fragment reports the violation count, `onError: skip`
+- [ ] **MDL-03**: A `ship:pre` gate reads the violation count via `artifact-frontmatter-equals`,
       default **advisory** (no comparable tool defaults to hard-blocking on install; teams opt
       into required-status-check enforcement after tuning)
 
-- [x] **MDL-04**: `rumdl` absent degrades to a no-op with one visible notice (B6 pattern,
+- [ ] **MDL-04**: `rumdl` absent degrades to a no-op with one visible notice (B6 pattern,
       `shutil.which("rumdl")`) — single static binary (`uvx`/`pip`/`cargo`/`brew`-installable),
       introduces no Node/npm dependency class, unlike the markdownlint-cli2 alternative
 
@@ -93,10 +93,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MDL-01 | Phase 13 | Complete |
-| MDL-02 | Phase 13 | Complete |
-| MDL-03 | Phase 13 | Complete |
-| MDL-04 | Phase 13 | Complete |
+| MDL-01 | Phase 13 | Gaps Found |
+| MDL-02 | Phase 13 | Gaps Found |
+| MDL-03 | Phase 13 | Gaps Found |
+| MDL-04 | Phase 13 | Gaps Found |
 | PRW-01 | Phase 14 | Pending |
 | PRW-02 | Phase 14 | Pending |
 | PRW-03 | Phase 14 | Pending |
