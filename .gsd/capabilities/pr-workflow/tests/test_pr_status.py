@@ -76,6 +76,19 @@ class TestDeriveGateOk(unittest.TestCase):
         self.assertFalse(pr_status.derive_gate_ok("unavailable"))
 
 
+class TestCurrentBranch(unittest.TestCase):
+    """WR-02: `current_branch()` must not silently mask a `git` failure as
+    an empty branch string -- it raises `GhCommandError` on non-zero exit."""
+
+    def test_raises_on_nonzero_exit(self):
+        with mock.patch(
+            "subprocess.run",
+            return_value=_completed("", 1, stderr="fatal: not a git repository"),
+        ):
+            with self.assertRaises(pr_status.GhCommandError):
+                pr_status.current_branch()
+
+
 class TestVerifyPost(unittest.TestCase):
     """verify_post() end-to-end against a mocked subprocess.run -- one
     fake_run dispatcher per test, branching on the argv prefix so each test

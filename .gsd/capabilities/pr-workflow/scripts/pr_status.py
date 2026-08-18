@@ -37,6 +37,16 @@ NOTICE_GH_ERROR = "gh command failed unexpectedly -- PR status unavailable this 
 NOTICE_NO_OPEN_PR = "no open PR exists for this branch -- ship proceeding, nothing created"
 
 
+class GhCommandError(RuntimeError):
+    """A `gh`/`git` call exited non-zero for a reason that is not itself an
+    `OSError`/`TimeoutExpired`/`json.JSONDecodeError` -- e.g. `gh pr list`
+    rate-limited or a transient 5xx surfaced as a clean non-zero exit, or
+    `git branch --show-current` failing in a corrupted/misbehaving repo.
+    Deliberately distinct from the plain `RuntimeError` `check_buckets()`
+    raises for a genuine `gh pr checks` tool failure (WR-01): that case must
+    stay uncaught, so it must not share this fail-open-eligible type."""
+
+
 def find_project_root(start):
     """Walk up from `start` to the nearest ancestor containing `.planning/`.
 
@@ -82,6 +92,8 @@ def current_branch():
     result = subprocess.run(
         ["git", "branch", "--show-current"], capture_output=True, text=True, timeout=10,
     )
+    if result.returncode != 0:
+        raise GhCommandError(f"git branch --show-current failed: {result.stderr}")
     return result.stdout.strip()
 
 
