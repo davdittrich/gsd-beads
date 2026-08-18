@@ -5,36 +5,16 @@ milestone_name: New Capability Plugins
 current_phase: 14
 current_phase_name: pr-workflow capability (dogfood)
 status: executing
-stopped_at: Phase 14 context gathered
-last_updated: "2026-08-18T16:07:41.426Z"
+stopped_at: Completed 14-01-PLAN.md
+last_updated: "2026-08-18T16:37:14.172Z"
 last_activity: 2026-08-18
 last_activity_desc: Phase 13 complete, transitioned to Phase 14
 progress:
   total_phases: 3
   completed_phases: 1
   total_plans: 7
-  completed_plans: 4
-  percent: 33
----
-
-Total Phases: 2
----
-gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: New Capability Plugins
-current_phase: 14
-current_phase_name: pr-workflow capability (dogfood)
-status: executing
-stopped_at: Phase 14 context gathered
-last_updated: "2026-08-18T15:25:16.511Z"
-last_activity: 2026-08-18
-last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
-progress:
-  total_phases: 3
-  completed_phases: 1
-  total_plans: 7
-  completed_plans: 4
-  percent: 33
+  completed_plans: 5
+  percent: 71
 ---
 
 # Project State
@@ -45,22 +25,22 @@ See: .planning/PROJECT.md (updated 2026-08-18)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 13 — markdown-linting-capability-dogfood
+**Current focus:** Phase 14 — pr-workflow-capability-dogfood
 
 ## Current Position
 
 Phase: 14 — pr-workflow capability (dogfood)
-Plan: Not started
-Status: Ready to execute
-Progress: [██████████] 100% (0/3 phases)
-Last activity: 2026-08-18 — Phase 13 complete, transitioned to Phase 14
+Plan: 01 complete (1/3 plans)
+Status: Executing
+Progress: [███████░░░] 71% (5/7 plans, v1.2)
+Last activity: 2026-08-18 — Plan 14-01 complete (pr-workflow tracer slice + four-state gate smoke test)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed (v1.2): 0
-- Average duration: -
+- Total plans completed (v1.2): 5
+- Average duration: ~16min (Phase 13 P01-P04 + Phase 14 P01)
 - Total execution time: -
 
 **Recent Trend:**
@@ -93,6 +73,7 @@ Last activity: 2026-08-18 — Phase 13 complete, transitioned to Phase 14
 | Phase 13 P02 | 15min | 2 tasks | 4 files |
 | Phase 13 P03 | ~12min | 3 tasks | 118 files |
 | Phase 13 P04 | 10min | 2 tasks | 2 files |
+| Phase 14 P01 | ~25min | 2 tasks | 12 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -132,6 +113,9 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 13]: isolated pre-existing unrelated dirty working-tree state (CLAUDE.md beads-block strip, state pruning, API-SURFACE staleness note, 13-PATTERNS.md) into its own prep commit before the wide auto-fix pass, so Task 1's mechanical-fix diff stayed spot-checkable
 - [Phase 13]: markdown-linting README's rumdl-vs-markdownlint-cli2 divergence table is measured post-fix (rumdl 0 vs cli2 309, all MD022/MD024) -- a materially different, non-comparable shape from the pre-fix 471-vs-708 figure in RESEARCH.md/REQUIREMENTS.md
 - [Phase 13]: closed CR-01/CR-02 lint.py gaps (rumdl_argv-None guard on count, CalledProcessError fail-open widening) verbatim per 13-REVIEW.md; two plan acceptance-criteria grep counts were miscounted by the plan author (pre-existing occurrences not accounted for) -- documented in 13-04-SUMMARY.md rather than silently 'corrected'
+- [Phase 14]: pr_status rollup extends D-01's precedence to gh's actual bucket vocabulary (skipping->passing, cancel->failing alongside fail), flagged per RESEARCH Pitfall 6 rather than silently reinterpreting D-01
+- [Phase 14]: un-ignored .gsd/capabilities/pr-workflow/ in .gitignore, same one-line pattern Phase 13 established for markdown-linting
+- [Phase 14]: the -t . unittest-discover verify-command defect (dotted-module-name incompatible with the hidden .gsd/ dir) was inherited from Phase 13's plan-doc shape and fixed at the plan-doc level for 14-01/14-02/14-03-PLAN.md (commit f31e6f4), mirroring Phase 13's own fix -- no code change, verification behavior unaffected
 
 ### Pending Todos
 
@@ -167,11 +151,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T14:53:25.598Z
-Stopped at: Phase 14 context gathered
-Resume file: .planning/phases/14-pr-workflow-capability-dogfood/14-CONTEXT.md
+Last session: 2026-08-18T16:37:14.164Z
+Stopped at: Completed 14-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 
-- Plan Phase 13 with `/gsd:plan-phase 13`. The plan **must** include, as an explicit task before
-  any gate work: verify the generic `ship:pre` dispatch marker in the installed `ship.md`.
+- Execute `14-02-PLAN.md` next (PRW-04: two distinct `gh`-absent/`gh`-unauthenticated fail-open
+  notices, `ship-post-notice` subcommand + `ship:post` step), then `14-03-PLAN.md` (PRW-03, live
+  degrade-cycle evidence appendix). Both build on `14-01`'s proven tracer slice and gate.

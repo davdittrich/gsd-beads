@@ -13,12 +13,12 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
 
 ### PR-WORKFLOW
 
-- [ ] **PRW-01**: A `PR.md` artifact is generated at `execute:wave:post` reporting PR status
+- [x] **PRW-01**: A `PR.md` artifact is generated at `execute:wave:post` reporting PR status
       (`none`/`passing`/`pending`/`failing`), regenerated every step — mirrors `BEADS.md`'s
       "regenerated every step, never hand-edited" discipline (B11), required because gsd-core's
       gate predicates cannot query `gh` directly
 
-- [ ] **PRW-02**: A `ship:pre` gate reads `PR.md`'s frontmatter via `artifact-frontmatter-equals`,
+- [x] **PRW-02**: A `ship:pre` gate reads `PR.md`'s frontmatter via `artifact-frontmatter-equals`,
       tri-state (blocks on both `pending` and `failing`, matching GitHub's own required-check
       semantics), `onError: skip`, default **advisory** (warn, don't block) until proven against
       a real PR cycle in this repo
@@ -97,8 +97,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MDL-02 | Phase 13 | Complete |
 | MDL-03 | Phase 13 | Complete |
 | MDL-04 | Phase 13 | Complete |
-| PRW-01 | Phase 14 | Pending |
-| PRW-02 | Phase 14 | Pending |
+| PRW-01 | Phase 14 | Complete |
+| PRW-02 | Phase 14 | Complete |
 | PRW-03 | Phase 14 | Pending |
 | PRW-04 | Phase 14 | Pending |
 

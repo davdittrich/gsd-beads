@@ -132,11 +132,11 @@ when this phase's higher-risk gate is introduced)
      execute → ship cycle completes with exactly one visible notice per case and no stale `PR.md`
      presented as current. (PRW-04)
 
-**Plans**: 3 plans
+**Plans**: 1/3 plans executed
 
 Plans:
 
-- [ ] 14-01-PLAN.md — Tracer: build the pr-workflow capability end-to-end (capability.json,
+- [x] 14-01-PLAN.md — Tracer: build the pr-workflow capability end-to-end (capability.json,
 
 **Cross-cutting constraints:**
 
@@ -191,7 +191,7 @@ entry"). Traceability follows Phase 12's extraction playbook decisions D-01..D-1
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 13. markdown-linting capability (dogfood) | 4/4 | Complete    | 2026-08-18 |
-| 14. pr-workflow capability (dogfood) | 0/3 | Planned | - |
+| 14. pr-workflow capability (dogfood) | 1/3 | In Progress | - |
 | 15. Ship both plugins publicly | 0/? | Not started | - |
 
 ## Cross-Cutting Constraints (v1.2)
@@ -230,10 +230,12 @@ carries a title only.
 Phase 15 extraction) finishes first, not architecturally gated on them.
 
 **Requirements**: TBD — discuss-phase must resolve two competing proposals surfaced 2026-08-18:
+
 1. **Minimal fix**: extend the task parser (currently only extracts `name`/`beads_id`/`files`
    from each `<task>` block) to also capture `<objective>`/`<action>`/`<behavior>`/
    `<acceptance_criteria>`, write a one-shot `--description` at `bd create` time. `PLAN.md`
    stays the executor's read path, unchanged.
+
 2. **Full inversion** (matches `planning-with-beads`'s own model, the project's original
    inspiration — ticket is the sole self-sufficient source of WHAT/HOW, a pointer doc carries
    IDs only): after sync, strip the detailed content out of `PLAN.md`, leaving title +
