@@ -842,6 +842,69 @@ def rewrite_plan(text, epic_id, epic_created, task_updates):
     return text
 
 
+# 16-03 Task 2 (D-01): the elements strip_task_bodies removes from a
+# stripped auto/tracer task block -- the same per-task content-field
+# regexes plan 16-01 added (D-06), reused here rather than duplicated.
+_STRIP_ELEMENT_RES = (
+    READ_FIRST_RE,
+    PRECONDITION_RE,
+    BEHAVIOR_RE,
+    ACTION_RE,
+    VERIFY_RE,
+    ACCEPTANCE_CRITERIA_RE,
+    DONE_RE,
+)
+# The fixed-shape pointer comment a stripped block gains, naming the beads
+# id and the retrieval command. Only the prefix (not the whole line, since
+# the id varies per task) is checked for idempotency: a second
+# strip_task_bodies pass over an already-stripped block recognizes this
+# prefix and does not stack a second pointer.
+TASK_POINTER_PREFIX = "<!-- beads: content synced to bd -- see `bd show "
+
+
+def strip_task_bodies(text, stripped_ids):
+    """D-01: turn each `auto`/`tracer` task block whose `<beads-id>` is in
+    stripped_ids into a pointer -- its opening tag, `<name>`, `<beads-id>`
+    and `<files>` survive byte-identical; every content element
+    (`read_first` through `done`) is removed and replaced by one
+    fixed-shape pointer comment naming the beads id. Every other task type
+    -- every `checkpoint:*` variant, and a block with no `type` attribute at
+    all -- is left byte-identical (D-03): an unrecognized type also fails
+    toward keeping content, never toward deleting it.
+
+    Only a task whose id is in stripped_ids is touched, so a re-sync over
+    an already-synced plan (whose ids are NOT in this run's stripped_ids)
+    strips nothing (D-07 forward-only). Replacements are spliced in
+    reverse match order over the original `text`'s offsets -- the same
+    technique rewrite_plan already uses -- so no earlier offset is
+    invalidated mid-pass (T-16-12).
+    """
+    matches = list(TASK_RE.finditer(text))
+    for m in reversed(matches):
+        block = m.group(0)
+        type_m = TASK_TYPE_RE.search(block)
+        task_type = type_m.group(1).strip() if type_m else None
+        if task_type not in ("auto", "tracer"):
+            continue
+        id_m = BEADS_ID_RE.search(block)
+        issue_id = id_m.group(1).strip() if id_m else None
+        if not issue_id or issue_id not in stripped_ids:
+            continue
+        new_block = block
+        for element_re in _STRIP_ELEMENT_RES:
+            new_block = element_re.sub("", new_block)
+        # Collapse the blank lines those removals leave -- idempotency
+        # depends on a second pass over already-stripped text not
+        # accumulating more blank lines than the first pass produced.
+        new_block = re.sub(r"[ \t]*\n(?:[ \t]*\n)+", "\n", new_block)
+        if TASK_POINTER_PREFIX not in new_block:
+            pointer = f"  {TASK_POINTER_PREFIX}{issue_id}` -->\n"
+            close_idx = new_block.index("</task>")
+            new_block = new_block[:close_idx] + pointer + new_block[close_idx:]
+        text = text[: m.start()] + new_block + text[m.end() :]
+    return text
+
+
 def _resolve_completed_task_ids(phase_dir):
     """Return the union of every <beads-id> across every plan in phase_dir
     whose SUMMARY.md exists (B9/D-04): the completed-task-id side of the
@@ -1084,6 +1147,20 @@ def create_issues(plan_arg):
 
     if task_updates or epic_created:
         new_text = rewrite_plan(text, epic_id, epic_created, task_updates)
+        # D-01/D-05: strip content only for tasks whose issue was created in
+        # THIS run (task_updates), and only when the read-path patch is
+        # verifiably present -- verify the patch before trusting the strip,
+        # never assume it (ROADMAP Cross-Cutting Constraint).
+        newly_created_ids = {issue_id for _, issue_id in task_updates}
+        if newly_created_ids:
+            if check_execute_plan_patch() == 0:
+                new_text = strip_task_bodies(new_text, newly_created_ids)
+            else:
+                print(
+                    "beads-sync: execute-plan.md bd-task-read patch not detected -- "
+                    "leaving task content in PLAN.md (D-05: verify the patch before "
+                    "trusting the strip)"
+                )
         plan_path.write_text(new_text, encoding="utf-8")
 
     orphan_result = run_bd(["bd", "list", "--parent", epic_id, "--all", "--json"])

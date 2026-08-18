@@ -444,6 +444,281 @@ class TestCreateIssues(unittest.TestCase):
         self.assertNotIn("--acceptance", task_creates[0])
 
 
+def _strip_test_plan_text():
+    """A plan carrying one of every shape strip_task_bodies must decide
+    between (16-03 Task 2): a strippable `auto` task, a strippable `tracer`
+    task, an `auto` task NOT in the stripped set (simulates a pre-existing,
+    already-synced task), a `checkpoint:decision` and a `checkpoint:
+    human-verify` task, and a task with no `type` attribute at all -- the
+    last three all carry ids that ARE passed to strip_task_bodies, so the
+    D-03 exclusion is exercised even when the id would otherwise qualify.
+    Plan-level sections (objective, context, threat_model, verification,
+    success_criteria) are present so D-02 byte-identity can be asserted
+    against real section shapes, not just frontmatter.
+    """
+    return """---
+phase: 01-substrate
+plan: 01
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - src/example.py
+autonomous: true
+requirements: [B1]
+---
+
+<objective>
+Fixture combining strippable and non-strippable task shapes -- used only by
+TestStripTaskBodies.
+</objective>
+
+<context>
+@.planning/PROJECT.md
+</context>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Strippable auto task</name>
+  <beads-id>fixture-1</beads-id>
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <precondition>`bd` is on PATH.</precondition>
+  <behavior>
+    - does the thing
+  </behavior>
+  <action>Implement the thing.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <acceptance_criteria>
+    - src/example.py exists
+  </acceptance_criteria>
+  <done>The thing is implemented.</done>
+</task>
+
+<task type="auto">
+  <name>Task 2: Pre-existing auto task, not in this run's stripped set</name>
+  <beads-id>fixture-2</beads-id>
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <action>Implement the other thing.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <done>The other thing is implemented.</done>
+</task>
+
+<task type="tracer">
+  <name>Task 3: Strippable tracer task</name>
+  <beads-id>fixture-3</beads-id>
+  <files>src/example.py</files>
+  <action>Wire the thin slice end to end.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <done>The slice works end to end.</done>
+</task>
+
+<task type="checkpoint:decision" gate="blocking">
+  <name>Task 4: Approve the approach</name>
+  <beads-id>fixture-4</beads-id>
+  <decision>Pick an approach.</decision>
+  <context>
+    Some context here.
+  </context>
+  <options>
+    <option id="a">
+      <name>Option A</name>
+    </option>
+  </options>
+  <selection-prompt>Which option?</selection-prompt>
+</task>
+
+<task type="checkpoint:human-verify">
+  <name>Task 5: Confirm the thing works</name>
+  <beads-id>fixture-5</beads-id>
+  <what-built>Nothing yet.</what-built>
+  <how-to-verify>
+    1. Do this.
+  </how-to-verify>
+  <resume-signal>Type "verified".</resume-signal>
+</task>
+
+<task>
+  <name>Task 6: No type attribute at all</name>
+  <beads-id>fixture-6</beads-id>
+  <files>src/example.py</files>
+  <action>Untyped task body -- must never be treated as auto.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <done>Done.</done>
+</task>
+
+</tasks>
+
+<verification>
+- python3 -m py_compile src/example.py
+</verification>
+
+<success_criteria>
+- src/example.py exists
+</success_criteria>
+"""
+
+
+_STRIP_TEST_STRIPPED_IDS = {
+    "fixture-1",
+    "fixture-3",
+    "fixture-4",
+    "fixture-5",
+    "fixture-6",
+}
+
+
+def _task_block(text, index):
+    """Return the index'th (0-based) <task ...>...</task> block in text."""
+    return list(sync.TASK_RE.finditer(text))[index].group(0)
+
+
+class TestStripTaskBodies(unittest.TestCase):
+    """16-03 Task 2 (D-01): strip_task_bodies turns a completed auto/tracer
+    task block into a pointer, leaves every checkpoint:* block and every
+    not-in-this-run task byte-identical (D-03/D-07), and is idempotent."""
+
+    def test_strippable_auto_task_loses_content_elements(self):
+        text = _strip_test_plan_text()
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        block = _task_block(stripped, 0)
+        for tag in (
+            "read_first",
+            "precondition",
+            "behavior",
+            "action",
+            "verify",
+            "acceptance_criteria",
+            "done",
+        ):
+            self.assertNotIn(f"<{tag}>", block, f"<{tag}> should have been stripped")
+
+    def test_strippable_auto_task_keeps_identity_and_routing_elements(self):
+        text = _strip_test_plan_text()
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        stripped_block = _task_block(stripped, 0)
+        # The opening tag, name, beads-id and files lines are byte-identical
+        # to the original -- only the elements after <files> changed.
+        expected_prefix = (
+            '<task type="auto">\n'
+            "  <name>Task 1: Strippable auto task</name>\n"
+            "  <beads-id>fixture-1</beads-id>\n"
+            "  <files>src/example.py</files>\n"
+        )
+        self.assertTrue(stripped_block.startswith(expected_prefix))
+
+    def test_pre_existing_task_not_in_stripped_set_is_byte_identical(self):
+        text = _strip_test_plan_text()
+        original_block = _task_block(text, 1)
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        stripped_block = _task_block(stripped, 1)
+        self.assertEqual(original_block, stripped_block)
+
+    def test_strippable_tracer_task_is_stripped_like_auto(self):
+        text = _strip_test_plan_text()
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        block = _task_block(stripped, 2)
+        self.assertIn('<task type="tracer">', block)
+        self.assertNotIn("<action>", block)
+        self.assertNotIn("<verify>", block)
+        self.assertNotIn("<done>", block)
+        self.assertIn("<beads-id>fixture-3</beads-id>", block)
+
+    def test_checkpoint_decision_task_is_byte_identical(self):
+        text = _strip_test_plan_text()
+        original_block = _task_block(text, 3)
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        stripped_block = _task_block(stripped, 3)
+        self.assertEqual(original_block, stripped_block)
+
+    def test_checkpoint_human_verify_task_is_byte_identical(self):
+        text = _strip_test_plan_text()
+        original_block = _task_block(text, 4)
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        stripped_block = _task_block(stripped, 4)
+        self.assertEqual(original_block, stripped_block)
+
+    def test_no_type_attribute_task_is_byte_identical(self):
+        text = _strip_test_plan_text()
+        original_block = _task_block(text, 5)
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        stripped_block = _task_block(stripped, 5)
+        self.assertEqual(original_block, stripped_block)
+
+    def test_stripped_block_gains_exactly_one_pointer_comment(self):
+        text = _strip_test_plan_text()
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        block = _task_block(stripped, 0)
+        self.assertEqual(block.count(sync.TASK_POINTER_PREFIX), 1)
+        self.assertIn("`bd show fixture-1`", block)
+
+    def test_idempotent_second_pass_is_byte_identical_to_first(self):
+        text = _strip_test_plan_text()
+        once = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        twice = sync.strip_task_bodies(once, _STRIP_TEST_STRIPPED_IDS)
+        self.assertEqual(once, twice)
+
+    def test_plan_level_sections_are_byte_identical(self):
+        text = _strip_test_plan_text()
+        stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
+        for pattern in (
+            sync.FRONTMATTER_RE,
+            sync.OBJECTIVE_RE,
+        ):
+            self.assertEqual(
+                pattern.search(text).group(0), pattern.search(stripped).group(0)
+            )
+        context_re = re.compile(r"<context>.*?</context>", re.DOTALL)
+        verification_re = re.compile(r"<verification>.*?</verification>", re.DOTALL)
+        success_re = re.compile(r"<success_criteria>.*?</success_criteria>", re.DOTALL)
+        for pattern in (context_re, verification_re, success_re):
+            self.assertEqual(
+                pattern.search(text).group(0), pattern.search(stripped).group(0)
+            )
+
+
+class TestCreateIssuesStripGate(unittest.TestCase):
+    """16-03 Task 2: create_issues' strip step is gated on
+    check_execute_plan_patch() -- present strips newly-created auto/tracer
+    tasks, absent leaves the plan's content intact."""
+
+    @mock.patch("sync.check_execute_plan_patch")
+    @mock.patch("subprocess.run")
+    def test_patch_present_strips_newly_created_tasks(self, mock_run, mock_check):
+        mock_run.side_effect = _make_bd_side_effect()
+        mock_check.return_value = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            exit_code = sync.create_issues(str(plan_copy))
+            written = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        mock_check.assert_called()
+        self.assertIn(sync.TASK_POINTER_PREFIX, written)
+        self.assertNotIn("<action>", written)
+        self.assertIn("<beads-id>", written)
+
+    @mock.patch("sync.check_execute_plan_patch")
+    @mock.patch("subprocess.run")
+    def test_patch_absent_leaves_content_intact(self, mock_run, mock_check):
+        mock_run.side_effect = _make_bd_side_effect()
+        mock_check.return_value = 1
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            exit_code = sync.create_issues(str(plan_copy))
+            written = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        mock_check.assert_called()
+        self.assertNotIn(sync.TASK_POINTER_PREFIX, written)
+        self.assertIn("<action>Implement the thing.</action>", written)
+        self.assertIn("<beads-id>", written)
+
+
 class TestPhaseScopedEpic(unittest.TestCase):
     """gsd-beads-uh1: two plans in one phase, neither pre-set with
     beads_epic, sync to exactly one shared epic -- resolve_epic falls back
