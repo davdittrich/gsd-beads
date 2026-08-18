@@ -4,16 +4,16 @@ milestone: v1.2
 milestone_name: New Capability Plugins
 current_phase: 13
 current_phase_name: markdown-linting-capability-dogfood
-status: verifying
-stopped_at: Completed 13-03-PLAN.md
-last_updated: "2026-08-18T12:45:22.875Z"
+status: executing
+stopped_at: Completed 13-04-PLAN.md
+last_updated: "2026-08-18T14:15:57.994Z"
 last_activity: 2026-08-18
 last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  total_plans: 4
+  completed_plans: 4
   percent: 33
 ---
 
@@ -30,8 +30,8 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 13 (markdown-linting-capability-dogfood) — EXECUTING
-Plan: 3 of 3
-Status: Phase complete — ready for verification
+Plan: 2 of 4
+Status: Ready to execute
 Progress: [██████████] 100% (0/3 phases)
 Last activity: 2026-08-18 — Phase 13 execution started
 
@@ -72,6 +72,7 @@ Last activity: 2026-08-18 — Phase 13 execution started
 | Phase 13 P01 | 20min | 3 tasks | 8 files |
 | Phase 13 P02 | 15min | 2 tasks | 4 files |
 | Phase 13 P03 | ~12min | 3 tasks | 118 files |
+| Phase 13 P04 | 10min | 2 tasks | 2 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -114,6 +115,7 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 13]: dirty.md/clean.md fixtures pin MDL-01/02/04 test coverage against real rumdl subprocess calls, never the live .planning/ tree; real-subprocess tests skip cleanly (unittest.skipUnless) on a machine with no rumdl/uvx
 - [Phase 13]: isolated pre-existing unrelated dirty working-tree state (CLAUDE.md beads-block strip, state pruning, API-SURFACE staleness note, 13-PATTERNS.md) into its own prep commit before the wide auto-fix pass, so Task 1's mechanical-fix diff stayed spot-checkable
 - [Phase 13]: markdown-linting README's rumdl-vs-markdownlint-cli2 divergence table is measured post-fix (rumdl 0 vs cli2 309, all MD022/MD024) -- a materially different, non-comparable shape from the pre-fix 471-vs-708 figure in RESEARCH.md/REQUIREMENTS.md
+- [Phase 13]: closed CR-01/CR-02 lint.py gaps (rumdl_argv-None guard on count, CalledProcessError fail-open widening) verbatim per 13-REVIEW.md; two plan acceptance-criteria grep counts were miscounted by the plan author (pre-existing occurrences not accounted for) -- documented in 13-04-SUMMARY.md rather than silently 'corrected'
 
 ### Pending Todos
 
@@ -149,8 +151,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T12:45:22.869Z
-Stopped at: Completed 13-03-PLAN.md
+Last session: 2026-08-18T14:15:57.988Z
+Stopped at: Completed 13-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

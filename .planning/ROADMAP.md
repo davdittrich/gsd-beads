@@ -81,7 +81,7 @@ gate precedent)
      **one** visible "rumdl absent" notice, no hang, no non-zero exit, and no stale
      `LINT-REPORT.md` presented as current. (MDL-04)
 
-**Plans**: 3/4 plans executed (04 added by gap closure after 13-VERIFICATION.md found 5/7)
+**Plans**: 4/4 plans executed (04 added by gap closure after 13-VERIFICATION.md found 5/7)
 
 Plans:
 
@@ -94,7 +94,7 @@ Plans:
 - [x] 13-03-PLAN.md — Bring the lint scope to 0 violations, write the capability README with
       freshly measured divergence numbers, confirm advisory/absent ship behavior
 
-- [ ] 13-04-PLAN.md — Gap closure: guard the `count` CLI against both tools absent (CR-01) and
+- [x] 13-04-PLAN.md — Gap closure: guard the `count` CLI against both tools absent (CR-01) and
       fail open on an unexpected rumdl exit code so no stale report survives a crash (CR-02),
       each pinned by a regression test
 
@@ -174,7 +174,7 @@ entry"). Traceability follows Phase 12's extraction playbook decisions D-01..D-1
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 13. markdown-linting capability (dogfood) | 3/3 | In Progress|  |
+| 13. markdown-linting capability (dogfood) | 4/4 | In Progress|  |
 | 14. pr-workflow capability (dogfood) | 0/? | Not started | - |
 | 15. Ship both plugins publicly | 0/? | Not started | - |
 
