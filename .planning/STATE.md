@@ -5,8 +5,8 @@ milestone_name: New Capability Plugins
 current_phase: 16
 current_phase_name: beads-issue-content-parity
 status: executing
-stopped_at: Completed 16-01-PLAN.md
-last_updated: "2026-08-18T23:44:38.513Z"
+stopped_at: Completed 16-02-PLAN.md
+last_updated: "2026-08-18T23:50:36.282Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 16 execution started
 progress:
@@ -30,7 +30,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 16 (beads-issue-content-parity) — EXECUTING
-Plan: 2 of 4
+Plan: 3 of 4
 Status: Ready to execute
 Progress: [██████████] 100% (7/7 plans, v1.2)
 Last activity: 2026-08-19 — Phase 16 execution started
@@ -77,6 +77,7 @@ Last activity: 2026-08-19 — Phase 16 execution started
 | Phase 14 P02 | ~20min | 2 tasks | 4 files |
 | Phase 14 P03 | ~25min | 2 tasks | 3 files |
 | Phase 16 P01 | 14min | 2 tasks | 2 files |
+| Phase 16 P02 | 5min | 3 tasks | 3 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -122,6 +123,8 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 14]: Phase 14 complete -- all four requirements (PRW-01..04) and all five ROADMAP Success Criteria closed with live-cycle evidence in 14-GATE-SMOKE-TEST.md, not unit assertions alone
 - [Phase ?]: [Phase 16, plan 01]: Edited plugins/beads-lifecycle/.gsd/capabilities/beads/ (the git-tracked plugin source) instead of the plan-specified .gsd/capabilities/beads/, which is a gitignored runtime-install mirror silently re-synced from the tracked source
 - [Phase ?]: [Phase 16, plan 01]: get_milestone_bullet fails open (returns empty string on a miss) unlike its get_phase_header model, since resolve_milestone_epic must stay fail-open per B6/D-08
+- [Phase ?]: [Phase 16, plan 02]: reconcile_stale_closed composes existing _resolve_completed_task_ids + filter_open_ids as a phase-wide idempotent close backstop for D-08, dispatched at verify:post before regenerate-beads-md
+- [Phase ?]: [Phase 16, plan 02]: closed the four stale Phase 14 issues (gsd-beads-bu0.3-.6) live via the new reconcile-stale-closed subcommand, proving the backstop on real data
 
 ### Pending Todos
 
@@ -157,8 +160,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T23:44:38.506Z
-Stopped at: Completed 16-01-PLAN.md
+Last session: 2026-08-18T23:50:36.275Z
+Stopped at: Completed 16-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
