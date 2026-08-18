@@ -94,20 +94,36 @@ into a spawned `Agent()` prompt). B8's literal
 acceptance criterion is checked by grepping the real `prompt=` text an `Agent()` call receives for
 these issue ids, not by inferring it from behavior.
 
-## Step 2b -- verify:post: Regenerate BEADS.md only
+## Step 2b -- verify:post: Reconcile stale closes, then regenerate BEADS.md
 
-Run one Bash call passing only the phase directory -- there is no wave/plan-id list at this
-lifecycle point:
+Run two Bash calls, **in this order**, both passing only the phase directory -- there is no
+wave/plan-id list at this lifecycle point:
 
 ```bash
+python3 .gsd/capabilities/beads/scripts/sync.py reconcile-stale-closed <phase directory>
 python3 .gsd/capabilities/beads/scripts/sync.py regenerate-beads-md <phase directory>
 ```
 
-This is the identical read-only call Step 2a already uses, but with no `<beads_status>` block
-printed and no plan-id argument, since there is no executor prompt to compose here and no single
-wave's issues to name. It regenerates `BEADS.md` -- recomputing `blocking_open`/`diverged` (D-03)
--- so the projection going into `ship:pre`'s gates is fresh. Then stop; do not call `close-wave`
-from this branch.
+**Ordering matters and is not incidental**: `reconcile-stale-closed` must run first. It is the
+phase-wide backstop for D-08 -- it closes every issue whose owning plan's `SUMMARY.md` exists but
+whose bd issue is still open, across every plan in the phase, not just the plan ids one wave's
+`close-wave` dispatch happened to carry. Running `regenerate-beads-md` before it would compute
+`blocking_open`/`diverged` from the pre-reconciliation state and hand `ship:pre`'s gates a
+projection that is one step stale -- exactly the class of gap this step exists to close.
+
+This pass is phase-wide and idempotent: `filter_open_ids` re-queries bd's live status immediately
+before closing, so it is safe to run on every `verify:post` dispatch regardless of how many times
+it has already run over this phase -- a repeat run closes nothing. It exists specifically because
+the per-wave `execute:wave:post` dispatch (Step 2 below) is empirically skippable: Phase 14's waves
+2 and 3 left four issues (`gsd-beads-bu0.3`-`.6`) open despite both plans' `SUMMARY.md` files being
+committed, because nothing after `execute:wave:post` ever re-checked wave-close state.
+
+`regenerate-beads-md` then runs second, over the now-reconciled state, printing no
+`<beads_status>` block and taking no plan-id argument, since there is no executor prompt to compose
+here and no single wave's issues to name -- it regenerates `BEADS.md`, recomputing
+`blocking_open`/`diverged` (D-03) from post-reconciliation data, so the projection going into
+`ship:pre`'s gates is fresh. Report both commands' stdout. Then stop; do not call the wave-scoped
+`close-wave` from this branch (see Anti-Pattern 6).
 
 ## Step 2c -- ship:pre: record an override if one occurred
 
@@ -217,7 +233,17 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
    call, and DO NOT call `sync.py close-wave` from the `execute:wave:pre` branch -- closing at
    `execute:wave:pre` would close issues before this wave's executors have even started.
 6. DO NOT collapse the `verify:post` branch into either of the two `execute:wave` branches --
-   `verify:post` fires once per **phase** (not once per wave) and never dispatches `close-wave`.
+   `verify:post` fires once per **phase** (not once per wave). It still never dispatches the
+   wave-scoped `close-wave` subcommand (it has no wave/plan-id context to pass), and now always
+   dispatches the phase-wide `reconcile-stale-closed` subcommand, which takes no plan-id list at
+   all -- the two subcommands are not interchangeable, and a future editor must not collapse them
+   into one call.
+6a. DO NOT treat `reconcile-stale-closed` as a replacement for the `execute:wave:post` `close-wave`
+    dispatch, or vice versa. `close-wave` stays the fast path that closes a wave's issues as soon
+    as that wave lands; `reconcile-stale-closed` is the phase-wide backstop for when that dispatch
+    was missed (D-08). Removing either one loses something real: dropping `close-wave` means every
+    issue sits open until the next `verify:post`; dropping `reconcile-stale-closed` reintroduces the
+    exact gap that left Phase 14's `gsd-beads-bu0.3`-`.6` open for eleven phases.
 7. DO NOT embed the `<beads_status>` block's content inside a manifest-level fragment file and
    expect it to reach the executor automatically -- `execute:wave:pre` has no template slot that
    forwards fragment text into a spawned `Agent()` call's `prompt=`. Pasting the block into that
