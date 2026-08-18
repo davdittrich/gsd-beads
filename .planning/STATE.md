@@ -2,92 +2,56 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: New Capability Plugins
-status: planning
-last_updated: "2026-08-17T23:09:02.582Z"
+current_phase: 13
+current_phase_name: markdown-linting-capability-dogfood
+status: Roadmap created — ready to plan Phase 13
+stopped_at: v1.2 roadmap created
+last_updated: "2026-08-18"
 last_activity: 2026-08-18
+last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
   percent: 0
 ---
 
-Total Phases: 3
----
-gsd_state_version: 1.0
-milestone: v1.1
-milestone_name: Publish & Document
-current_phase: 08
-current_phase_name: readme-release-ship-gate
-status: Phase complete — ready for verification
-stopped_at: Phase 8 context gathered
-last_updated: "2026-08-16T15:30:06.762Z"
-last_activity: 2026-08-16
-last_activity_desc: v1.1 roadmap created (Phases 5-8, 10/10 requirements mapped)
-progress:[██████████] 96%
-  total_phases: 4
-  completed_phases: 3
-  total_plans: 6
-  completed_plans: 4
-  percent: 67
----
-
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-15)
+See: .planning/PROJECT.md (updated 2026-08-18)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 12 — ship-ponytail-everywhere-and-sota-numerics-plugins-publicly
+**Current focus:** Phase 13 — markdown-linting capability (dogfood)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 13 — markdown-linting capability (dogfood)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-08-18 — Milestone v1.2 started
+Status: Roadmap created, phase not yet planned
+Progress: [··········] 0% (0/3 phases)
+Last activity: 2026-08-18 — v1.2 roadmap created
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 6
-- Average duration: - min
-- Total execution time: 0 hours
-
-**By Phase:**
-
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 10 | 2 | - | - |
-| 10.1 | 2 | - | - |
-| 11.1 | 2 | - | - |
+- Total plans completed (v1.2): 0
+- Average duration: -
+- Total execution time: -
 
 **Recent Trend:**
 
 - Last 5 plans: -
 - Trend: -
 
-*Updated after each plan completion*
-**Per-Plan Metrics:**
+**Per-Plan Metrics (v1.0/v1.1, retained for velocity baseline):**
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
-| Phase 01 P01 | 8min | 2 tasks | 7 files |
-| Phase 01 P02 | 12min | 3 tasks | 4 files |
-| Phase 02 P01 | 13min | 3 tasks | 5 files |
-| Phase 02 P02 | 15min | 3 tasks | 5 files |
-| Phase 03 P01 | 8min | 2 tasks | 4 files |
-| Phase 03 P02 | 7min | 2 tasks | 4 files |
-| Phase 03 P03 | 20min | 2 tasks | 4 files |
-| Phase 04-adoption P01 | 20min | 2 tasks | 6 files |
-| Phase 04-adoption P02 | ~12min | 2 tasks | 3 files |
-| Phase 04-adoption P03 | ~15min | 2 tasks | 3 files |
-| Phase 05 P01 | ~11min | 3 tasks | 3 files |
-| Phase 06 P01 | 25min | 3 tasks | 4 files |
 | Phase 09 P01 | 25min | 2 tasks | 4 files |
 | Phase 09 P02 | 30min | 3 tasks | 7 files |
 | Phase 09 P03 | 34min | 3 tasks | 9 files |
@@ -106,31 +70,30 @@ Last activity: 2026-08-18 — Milestone v1.2 started
 | Phase 12 P03 | ~20min | 2 tasks | 1 files |
 | Phase 12 P04 | 12min | 2 tasks | 36 files |
 
+Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
+
 ## Accumulated Context
 
 ### Decisions
 
-Full decision log lives in PROJECT.md's Key Decisions table (v1.0 milestone archived to
-`.planning/milestones/v1.0-ROADMAP.md` for phase-level detail). Cleared here at milestone close.
+Full decision log lives in PROJECT.md's Key Decisions table. Carried forward into v1.2 because
+Phase 15 repeats the Phase 12 extraction playbook directly:
 
-- [Phase 10]: ponytail-everywhere plugin: gsd-tools resolves via CLAUDE_CONFIG_DIR branch (repo-local absent, PATH absent); claude plugin validate . --strict accepted ./ponytail-everywhere source on first try; test harness proves scratch-dir config isolation with zero repo mutation
-- [Phase 10]: Plan 02 relocated the verifier contribution from verify:pre to execute:wave:post — gsd-core's Loop Host Contract restricts verify:pre/post's contribution.into to [orchestrator] only, 'verifier' is only valid within the execute step's points
-- [Phase 10]: Plan 02 — project-scope capability consent binds to realpath(projectRoot) (#1459) — a --cwd symlink mirror needs its own GSD_HOME-scoped consent record to test the ponytail.enabled toggle, not just matching bundle content
-- [Phase 10]: Code review found a real, reproduced critical bug (CR-01) — ponytail-everywhere/hooks/gsd-tools.sh built its node invocation as an unquoted string, breaking on any repo/HOME path containing a space and silently fail-opening to enabled:true; fixed via --fix (array-based invocation) with a genuine regression test
-- [Phase ?]: Tracer feedback gate (Task 1) accepted as-is by user at checkpoint; Task 2 plugin-root parity case compares two independent first-install runs (separate GSD_HOME sidecars) for byte-identity rather than first-vs-second.
-- [Phase ?]: Real marketplace install performed directly to close RESEARCH Assumption A2 (subdirectory-plugin cache layout confirmed); macOS shasum fallback (A3) accepted as documented gap, no macOS hardware available.
-- [Phase ?]: [Phase 11]: sota-numerics plan:post gate uses onError: halt (deliberate divergence from every other gate in this repo) and resolves its script path via $(git rev-parse --show-toplevel), not ${CLAUDE_PLUGIN_ROOT} -- the gate subprocess's environment is unverified
-- [Phase ?]: [Phase 11]: check-alternatives.py's validate_plan reports only the first offending alternative entry per plan (fail-fast), not every entry -- the gate is a structural backstop, the checker's pre-commit revision loop is the primary enforcement point
-- [Phase ?]: [Phase 11]: sota-numerics D-12 four-point advisory spread wired -- planner/executor/verifier/orchestrator each get a distinct fragment gated solely on sota-numerics.enabled, no configValues (D-11); ship:pre contribution's into must be orchestrator per the loop-host contract's ship-step agentRoles
-- [Phase ?]: [Phase 11]: D-08 resolved mechanical (Task 1 checkpoint, coordinator decision) -- check-alternatives.py's deterministic placeholder/TODO-TBD rejection stands in for gsd-plan-checker's LLM-mediated citation-plausibility spot-check; no gsd-core patch, no checker fragment, deferred pending a D-04 dogfood false-negative signal
-- [Phase ?]: [Phase 11]: sota-numerics NOTES.md re-verified the plan-phase.md 13a-13e step ordering live (not from RESEARCH memory) -- unchanged: plan:post gate still fires after commit and STATE.md 'Ready to execute', checker revision loop remains the primary enforcement point
-- [Phase ?]: [Phase 11.1]: beads.enabled shipped default flipped false->true (capability.json 0.2.0); all four beads skills' Step 1 gate inverted to opt-out polarity so a silent project runs beads by default while explicit beads.enabled:false still fully disables it.
-- [Phase ?]: [Phase 11.1]: global-scope installed capability copy (~/.gsd/capabilities/beads/) is a materialized snapshot, not a live read of the source bundle -- must be refreshed via hooks/capability-auto-install.sh (or a fresh SessionStart) after any source bundle edit, same gotcha PROJECT.md already documents for project-scope consent.
-- [Phase ?]: [Phase 11.1]: doc sweep (README, PRIME.md twins, PRD) brought in line with beads.enabled default true; CHANGELOG.md created at repo root keyed to capability.json 0.2.0, stating explicit beads.enabled values in .planning/config.json are unaffected
-- [Phase ?]: [Phase 12]: davdittrich/ponytail-everywhere shipped as standalone public repo (fresh git init, commit 36245fe), proving the stage-outside-tree + fix-relocation-paths + gh-repo-create-push + fresh-clone-verify tracer sequence for Plan 02 to repeat against sota-numerics
-- [Phase ?]: [Phase 12]: davdittrich/sota-numerics shipped as standalone public repo (fresh git init, commit 31608f2), proving the 12-01 tracer sequence generalizes to a plugin with a blocking plan:post gate and a Python unittest suite (19 tests); test_check_alternatives.py's PROJECT_ROOT walk-up required a tests/.planning/.gitkeep placeholder in the staging tree, file itself left byte-identical
-- [Phase ?]: [Phase 12]: marketplace.json repointed to davdittrich/ponytail-everywhere and davdittrich/sota-numerics via github source objects (D-02); D-10 round trip proven against scratch gsd-beads-verify marketplace before commit cb4d49d, live gsd-beads marketplace and beads-lifecycle install undisturbed
-- [Phase ?]: [Phase 12]: ponytail-everywhere and sota-numerics subdirectories removed from gsd-beads (D-04); ci.yml/release.yml repaired in same commit (52b53d2); 95 accumulated commits pushed to origin/main (fast-forward, origin was stale since phase 09); both plugins proven install/uninstall via real davdittrich/gsd-beads marketplace, beads-lifecycle unaffected, CI green, v1.2.0 tag untouched
+- [Phase 3]: `ship:pre` gate dispatch in the installed `ship.md` is a **machine-local patch**
+  (upstream open-gsd/gsd-core#3559 filed, merge status unconfirmed). Any new gate must verify the
+  patch marker is present and prove itself live via `gsd_run check predicate` before being trusted.
+- [Phase 6/10]: gsd-core capability consent is a content hash over the whole bundle — any
+  post-consent edit silently deactivates the capability with no error. Re-consent after every edit.
+- [Phase 10.1]: `hooks/capability-auto-install.sh` hashes the bundle against a per-id sidecar and
+  re-grants on drift; vendored into each plugin's `session-start.sh`.
+- [Phase 11]: `sota-numerics`' `plan:post` gate uses `onError: halt` (deliberate divergence) and
+  resolves its script path via `git rev-parse --show-toplevel`, not `${CLAUDE_PLUGIN_ROOT}`.
+- [Phase 12]: `davdittrich/ponytail-everywhere` and `davdittrich/sota-numerics` shipped via the
+  stage-outside-tree → fix-relocation-paths → `gh repo create` + push → fresh-clone-verify sequence.
+- [Phase 12]: `marketplace.json` entries must use `url`-type sources with explicit `https://` git
+  URLs (commit `f706179`) — GitHub shorthand clones over SSH and breaks on SSH-keyless machines.
+- [Phase 12]: Dogfood subdirectories were removed from `gsd-beads` in the same commit that repaired
+  the orphaned `ci.yml` / `release.yml` references.
 
 ### Pending Todos
 
@@ -138,51 +101,48 @@ None yet.
 
 ### Blockers/Concerns
 
-- [Resolved by roadmap] The packaging gap (no README, LICENSE, or git remote) is now owned by
-  Phases 5-8. Memory `gsd-beads-ships-as-github-plugin` no longer describes an unowned gap.
+- **[Phase 13, hard prerequisite]** The generic `ship:pre` gate-dispatch patch is machine-local and
+  unconfirmed upstream. Phase 13's plan must include an explicit task verifying the marker in
+  `$HOME/.claude/gsd-core/workflows/ship.md` before relying on the `markdown-linting` gate. If the
+  marker is absent, the gate silently never fires and both Phase 13 and Phase 14 success criteria
+  would be false-but-unnoticed.
 
-- [Phase 7, one-way door] The window to strip machine-local state from git history closes at the
-  first public push. `.beads/config.yaml`, `.beads/metadata.json`,
-  `.claude/.headroom_wrap_marker.json`, `.gsd-capabilities.json` are tracked today.
+- **[Phase 15, pre-extraction check]** Re-check gsd-core#3559's merge status before public
+  extraction. If unmerged, each plugin's README must document the required local `ship.md` patch as
+  a prerequisite, exactly as PROJECT.md already does — otherwise a stranger installs a plugin whose
+  gate cannot fire.
 
-- [Resolved 2026-08-16, Phase 6] The capability-loader bridge (PUB-03) decision is closed: satisfied
-  by the documented manual `capability install --scope project --yes` step, not an automatic
-  postinstall bridge. Verified from a clean scratch project against `.gsd/capabilities/beads/` in
-  this repo — see PROJECT.md Key Decisions and `06-01-SUMMARY.md`.
+- **[Phase 13, MEDIUM confidence]** The curated `rumdl` ruleset is validated only in theory. Phase
+  13 must run it against the live `.planning/` tree and hand-review the output; if the corpus has
+  violations the ruleset misses, iterate on the ruleset before the gate ships.
 
-- [Phase 7/8, allowlist gap] PUB-04's ship allowlist (`.claude-plugin/`, `hooks/`,
-  `.agents/skills/`, `README.md`, `LICENSE`) omits `.gsd/capabilities/beads/`. The PUB-03 bridge
-  command's spec argument only resolves against a full git clone of this repository, not the
-  Phase 8 release archive — Phase 8's README must direct users to clone the repo for this step
-  unless Phase 8 amends the allowlist to include the capability bundle. Phase 6 does not decide
-  this; it hands the gap forward.
+- **[Phases 13-14, advisory-by-design]** Both new gates default advisory. A green ship is therefore
+  *not* evidence the gate works — only the live `gsd_run check predicate` smoke test is.
 
-- [Phase 5/8, false-green risk] `claude plugin validate` skips skill-frontmatter checks when
-  `marketplace.json` is present, and only `--strict` promotes field warnings to errors.
-
-- [Resolved 2026-08-16] Phase 05 Plan 01 Task 1's two HALT blockers (author.name/D-02, root-CLAUDE.md/D-10) were both resolved by user decision; 05-01 completed all 3 tasks, requirements PUB-01/PUB-02/PUB-08 marked complete. See 05-01-SUMMARY.md.
+- **[v1.1 formality]** Phase 12's work is done and pushed but the milestone was never formally
+  closed via `/gsd-complete-milestone` (user decision, 2026-08-18). Not a v1.2 blocker.
 
 ### Quick Tasks Completed
 
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
-| 260815-mm8 | Fix gsd-beads-uh1 (create_issues epic-per-plan) and gsd-beads-bgb (orphan sweep closes sibling issue) | 2026-08-15 | cb0741e | [260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per](./quick/260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per/) |
+| 260815-mm8 | Fix gsd-beads-uh1 and gsd-beads-bgb | 2026-08-15 | cb0741e | [260815-mm8](./quick/260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per/) |
 
 ## Deferred Items
 
-Items acknowledged and carried forward from previous milestone close:
-
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| Capability | `get-available-resources` (RES-01) | Deferred to v2 — no "compute-heavy phase" signal exists in gsd-core to consume the advisory yet | v1.2 requirements, 2026-08-18 |
+| Gate maturity | `pr-workflow.ship_gate` → blocking (PRW-05) | Deferred to v2 — needs one real PR cycle first | v1.2 requirements, 2026-08-18 |
+| Gate maturity | `markdown-linting.ship_gate` → blocking (MDL-05) | Deferred to v2 — needs a clean full-milestone run first | v1.2 requirements, 2026-08-18 |
 
 ## Session Continuity
 
-Last session: 2026-08-17T16:42:46.542Z
-Stopped at: Completed 12-04-PLAN.md
+Last session: 2026-08-18
+Stopped at: v1.2 roadmap created (Phases 13-15)
 Resume file: None
 
 ## Operator Next Steps
 
-- Phase 06 complete — TTY backstop confirmed by user (06-UAT.md), SECURITY.md verified
-  (threats_open: 0). Plan Phase 07 (Hygiene & Publication) with /gsd-plan-phase 7
+- Plan Phase 13 with `/gsd:plan-phase 13`. The plan **must** include, as an explicit task before
+  any gate work: verify the generic `ship:pre` dispatch marker in the installed `ship.md`.

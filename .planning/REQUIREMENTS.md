@@ -87,19 +87,26 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MDL-01 | TBD | Pending |
-| MDL-02 | TBD | Pending |
-| MDL-03 | TBD | Pending |
-| MDL-04 | TBD | Pending |
-| PRW-01 | TBD | Pending |
-| PRW-02 | TBD | Pending |
-| PRW-03 | TBD | Pending |
-| PRW-04 | TBD | Pending |
+| MDL-01 | Phase 13 | Pending |
+| MDL-02 | Phase 13 | Pending |
+| MDL-03 | Phase 13 | Pending |
+| MDL-04 | Phase 13 | Pending |
+| PRW-01 | Phase 14 | Pending |
+| PRW-02 | Phase 14 | Pending |
+| PRW-03 | Phase 14 | Pending |
+| PRW-04 | Phase 14 | Pending |
 
 **Coverage:**
+
 - v1 requirements: 8 total
-- Mapped to phases: 0 (roadmap not yet created)
-- Unmapped: 8 ⚠️ (pending `gsd-roadmapper`)
+- Mapped to phases: 8 ✓
+- Unmapped: 0
+
+Phase 15 (public extraction of both plugins) carries no requirement IDs of its own — it delivers
+PROJECT.md's stated v1.2 milestone goal ("extracted to its own public GitHub repo and marketplace
+entry"), following Phase 12's extraction playbook (D-01..D-10). This mirrors the Phase 10/11 →
+Phase 12 precedent, where dogfood-build and public-extraction were separate, requirement-free
+phases.
 
 ---
 *Requirements defined: 2026-08-18*
