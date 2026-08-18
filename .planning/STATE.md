@@ -5,8 +5,8 @@ milestone_name: New Capability Plugins
 current_phase: 14
 current_phase_name: pr-workflow capability (dogfood)
 status: planning
-stopped_at: Completed 13-04-PLAN.md
-last_updated: "2026-08-18T14:29:47.071Z"
+stopped_at: Phase 14 context gathered
+last_updated: "2026-08-18T14:53:25.605Z"
 last_activity: 2026-08-18
 last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
@@ -147,9 +147,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T14:15:57.988Z
-Stopped at: Completed 13-04-PLAN.md
-Resume file: None
+Last session: 2026-08-18T14:53:25.598Z
+Stopped at: Phase 14 context gathered
+Resume file: .planning/phases/14-pr-workflow-capability-dogfood/14-CONTEXT.md
 
 ## Operator Next Steps
 
