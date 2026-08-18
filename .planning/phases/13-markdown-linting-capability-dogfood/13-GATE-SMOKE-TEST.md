@@ -87,3 +87,96 @@ the integer `expected: 0` -- strict inequality is what makes a non-numeric senti
 This discharges the Phase 13 hard-prerequisite blocker recorded in `.planning/STATE.md`'s
 Blockers/Concerns section (see that file's diff in this plan's commit history for the removed
 bullet).
+
+## Step 3 -- Live advisory-gate run against the real report (MDL-03 success criterion 4, plan 03 Task 3)
+
+Unlike Step 2's scratch-directory two-case test, this run injects a nonzero `violation_count`
+into the **real** `.planning/phases/13-markdown-linting-capability-dogfood/13-LINT-REPORT.md`
+(backed up first) and evaluates the shipped gate against it, to observe the live advisory
+behavior `ship.md`'s generic dispatch loop actually produces for a `blocking: false` gate.
+
+Real report's `violation_count` temporarily set to `12` (was `0`):
+
+```text
+$ gsd_run check predicate \
+    --predicate '{"kind":"artifact-frontmatter-equals","artifact":"LINT-REPORT.md","field":"violation_count","equals":0}' \
+    --phase-dir .planning/phases/13-markdown-linting-capability-dogfood --phase-number 13 --raw
+{
+  "block": true,
+  "message": "Frontmatter field \"violation_count\" in LINT-REPORT.md is 12, expected 0",
+  "details": {
+    "kind": "artifact-frontmatter-equals",
+    "match": false,
+    "actual": "12",
+    "expected": 0
+  }
+}
+```
+
+`markdown-linting`'s shipped gate is `"blocking": false`. Per `ship.md`'s patched step 8(c),
+Step 2 ("block evaluation"): `hook.blocking == false` never halts; if `GATE_RESULT.block` is
+`true` the dispatch prints an advisory line and continues. Applying that literal template
+(`⚠ {hook.capId} advisory: {GATE_RESULT.message}`) to this run's own `GATE_RESULT.message`
+produces the exact transcript line a live `/gsd-ship` run would print:
+
+```text
+⚠ markdown-linting advisory: Frontmatter field "violation_count" in LINT-REPORT.md is 12, expected 0
+```
+
+**Result:** the ship proceeds — `blocking: false` means step 8(c) never sets the halt condition
+regardless of `GATE_RESULT.block`, so this advisory is printed and the preflight sequence
+continues to the next hook / to `push_branch`, exactly as MDL-03 success criterion 4 requires.
+
+The real report was restored immediately after this test via `lint.py verify-post` (a fresh live
+`rumdl` run), so the committed `13-LINT-REPORT.md` never carries the injected `12` value.
+
+## Step 4 -- rumdl-absent cycle (MDL-04 success criterion 5, plan 03 Task 3)
+
+Neither `rumdl` nor `uvx` was uninstalled. Absence was simulated for one process invocation only,
+by resolving both binaries' real location (`/usr/bin`, both) and constructing a scratch `PATH`
+containing a symlink to `python3` only — `python3` itself lives in the same directory as both
+tools, so the whole directory could not simply be dropped from `PATH` without also breaking the
+Python interpreter `lint.py` needs to run.
+
+```text
+$ PATH=<scratch-dir-containing-only-a-python3-symlink> python3 \
+    .gsd/capabilities/markdown-linting/scripts/lint.py verify-post \
+    .planning/phases/13-markdown-linting-capability-dogfood
+rumdl unavailable (checked PATH and uvx) -- lint skipped, LINT-REPORT.md marked unavailable
+$ echo $?
+0
+```
+
+The notice (`lint.py`'s module-level `NOTICE` constant) appeared exactly once in the captured
+stdout, the process exited `0`, and nothing hung. The resulting `13-LINT-REPORT.md` carried:
+
+```text
+violation_count: unavailable
+unavailable_reason: rumdl and uvx both absent from PATH
+generated_from: "none (rumdl and uvx both absent from PATH)"
+```
+
+Evaluating the shipped predicate against that sentinel confirms the gate reads it as
+unsatisfied, not as a clean pass:
+
+```text
+$ gsd_run check predicate \
+    --predicate '{"kind":"artifact-frontmatter-equals","artifact":"LINT-REPORT.md","field":"violation_count","equals":0}' \
+    --phase-dir .planning/phases/13-markdown-linting-capability-dogfood --phase-number 13 --raw
+{
+  "block": true,
+  "message": "Frontmatter field \"violation_count\" in LINT-REPORT.md is unavailable, expected 0",
+  "details": {
+    "kind": "artifact-frontmatter-equals",
+    "match": false,
+    "actual": "unavailable",
+    "expected": 0
+  }
+}
+```
+
+`block: true` with `actual: "unavailable"` — because `markdown-linting`'s gate is `blocking:
+false`, `ship.md`'s dispatch would print this as an advisory ("could not verify") rather than a
+hard halt, exactly like Step 3's nonzero-count case, never as a false-clean pass. The real
+`13-LINT-REPORT.md` was regenerated immediately afterward with `rumdl` back on the normal `PATH`,
+ending this test at a real `violation_count: 0`.
