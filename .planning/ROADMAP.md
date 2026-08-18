@@ -218,5 +218,36 @@ entry"). Traceability follows Phase 12's extraction playbook decisions D-01..D-1
   `--config` path — auto-discovery was measured to silently ignore config. See REQUIREMENTS.md's
   Out of Scope table for the benchmark that decided this.
 
----
-*Roadmap created: 2026-08-18 — milestone v1.2, 8/8 v1 requirements mapped*
+### Phase 16: beads issue content parity
+
+**Goal:** A `bd show <issue-id>` on any beads-synced task is self-sufficient — readable without
+also having `PLAN.md` open — closing the gap where `sync.py`'s `resolve_issue()` /
+`resolve_or_create_epic()` call `bd create` with no `--description`, so every synced issue today
+carries a title only.
+
+**Depends on:** Nothing blocking — beads capability (Phases 1-4) and this milestone's Phase
+13/14 dogfood precedent already exist; queued after v1.2's pending work (Phase 14 execution,
+Phase 15 extraction) finishes first, not architecturally gated on them.
+
+**Requirements**: TBD — discuss-phase must resolve two competing proposals surfaced 2026-08-18:
+1. **Minimal fix**: extend the task parser (currently only extracts `name`/`beads_id`/`files`
+   from each `<task>` block) to also capture `<objective>`/`<action>`/`<behavior>`/
+   `<acceptance_criteria>`, write a one-shot `--description` at `bd create` time. `PLAN.md`
+   stays the executor's read path, unchanged.
+2. **Full inversion** (matches `planning-with-beads`'s own model, the project's original
+   inspiration — ticket is the sole self-sufficient source of WHAT/HOW, a pointer doc carries
+   IDs only): after sync, strip the detailed content out of `PLAN.md`, leaving title +
+   `beads-id` pointer; `gsd-executor` reads task content from `bd show` instead of `PLAN.md`'s
+   `<task>` blocks. Larger blast radius — touches the executor contract, not just `sync.py`.
+
+Both a direct assessment and an independent `agy`/Gemini Pro review (2026-08-18) agree
+title-only is an unforced gap, not a load-bearing consequence of `beads.sync_mode:
+authoritative` — a one-shot `PLAN.md -> bd` write at creation carries none of the two-way merge
+risk that mode was built to avoid. They diverge on how far to go (option 1 vs 2 above); resolve
+via discuss-phase.
+
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 16 to break down)
