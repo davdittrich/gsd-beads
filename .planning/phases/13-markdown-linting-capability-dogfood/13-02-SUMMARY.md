@@ -190,3 +190,8 @@ None - no external service configuration required.
 ---
 *Phase: 13-markdown-linting-capability-dogfood*
 *Completed: 2026-08-18*
+
+## Self-Check: PASSED
+
+All 4 claimed files found on disk; all 3 claimed task commits (`66003f0`, `7b94129`, `6cc075e`)
+plus the SUMMARY commit (`36ea91d`) found in git history.

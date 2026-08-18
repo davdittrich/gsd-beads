@@ -47,7 +47,7 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
       default **advisory** (no comparable tool defaults to hard-blocking on install; teams opt
       into required-status-check enforcement after tuning)
 
-- [ ] **MDL-04**: `rumdl` absent degrades to a no-op with one visible notice (B6 pattern,
+- [x] **MDL-04**: `rumdl` absent degrades to a no-op with one visible notice (B6 pattern,
       `shutil.which("rumdl")`) — single static binary (`uvx`/`pip`/`cargo`/`brew`-installable),
       introduces no Node/npm dependency class, unlike the markdownlint-cli2 alternative
 
@@ -96,7 +96,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | MDL-01 | Phase 13 | Pending |
 | MDL-02 | Phase 13 | Complete |
 | MDL-03 | Phase 13 | Complete |
-| MDL-04 | Phase 13 | Pending |
+| MDL-04 | Phase 13 | Complete |
 | PRW-01 | Phase 14 | Pending |
 | PRW-02 | Phase 14 | Pending |
 | PRW-03 | Phase 14 | Pending |

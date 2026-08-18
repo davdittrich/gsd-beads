@@ -5,8 +5,8 @@ milestone_name: New Capability Plugins
 current_phase: 13
 current_phase_name: markdown-linting-capability-dogfood
 status: executing
-stopped_at: Completed 13-01-PLAN.md
-last_updated: "2026-08-18T12:21:22.482Z"
+stopped_at: Completed 13-02-PLAN.md
+last_updated: "2026-08-18T12:30:03.070Z"
 last_activity: 2026-08-18
 last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
@@ -30,7 +30,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 13 (markdown-linting-capability-dogfood) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 Progress: [███░░░░░░░] 33% (0/3 phases)
 Last activity: 2026-08-18 — Phase 13 execution started
@@ -70,6 +70,7 @@ Last activity: 2026-08-18 — Phase 13 execution started
 | Phase 12 P03 | ~20min | 2 tasks | 1 files |
 | Phase 12 P04 | 12min | 2 tasks | 36 files |
 | Phase 13 P01 | 20min | 3 tasks | 8 files |
+| Phase 13 P02 | 15min | 2 tasks | 4 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -108,6 +109,8 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
   `beads-lifecycle` plugin source to `plugins/beads-lifecycle/`.
 
 - [Phase 13]: Narrowed .gitignore's blanket .gsd/ ignore (from quick-task 260818-h2h) to un-ignore .gsd/capabilities/markdown-linting/ specifically -- the bare pattern silently blocked this milestone's documented in-repo dogfood pattern for brand-new capabilities with no extracted plugin source yet
+- [Phase 13]: markdown-linting's verify_post fail-open path deliberately diverges from sync.py's regenerate_beads_md -- always overwrites LINT-REPORT.md with a non-numeric violation_count: unavailable sentinel instead of leaving a stale artifact untouched
+- [Phase 13]: dirty.md/clean.md fixtures pin MDL-01/02/04 test coverage against real rumdl subprocess calls, never the live .planning/ tree; real-subprocess tests skip cleanly (unittest.skipUnless) on a machine with no rumdl/uvx
 
 ### Pending Todos
 
@@ -147,8 +150,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T12:21:22.476Z
-Stopped at: Completed 13-01-PLAN.md
+Last session: 2026-08-18T12:30:03.064Z
+Stopped at: Completed 13-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
