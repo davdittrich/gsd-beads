@@ -87,8 +87,10 @@ Plans:
 
 - [ ] 13-01-PLAN.md — Build the markdown-linting capability end-to-end (config, capability.json,
       lint.py, skill) and prove the generic ship:pre gate evaluates live
+
 - [ ] 13-02-PLAN.md — Fail-open on rumdl absence without a stale report, plus the test suite and
       fixtures
+
 - [ ] 13-03-PLAN.md — Bring the lint scope to 0 violations, write the capability README with
       freshly measured divergence numbers, confirm advisory/absent ship behavior
 
