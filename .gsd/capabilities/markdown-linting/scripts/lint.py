@@ -60,7 +60,9 @@ def confined(root, *parts):
 def resolve_rumdl_invocation():
     """D-04's two-tier chain: PATH first, then uvx, else None. Tool-absent
     fail-open handling (never raising here) is plan 02 scope -- a None
-    return may propagate as a raise in this task's callers."""
+    return is guarded explicitly by all three callers (`fix()`, `main()`'s
+    `count` branch, and `verify_post()`'s own None check), each raising or
+    handling it on their own terms rather than this function raising."""
     if shutil.which("rumdl"):
         return ["rumdl"]
     if shutil.which("uvx"):
@@ -71,7 +73,11 @@ def resolve_rumdl_invocation():
 def count_violations(config_path, targets, rumdl_argv):
     """Run `rumdl check --config <config_path> --output-format json
     <targets>` and return the exact integer length of the emitted JSON
-    array -- no text-summary parsing, no rounding (MDL-02 precision)."""
+    array -- no text-summary parsing, no rounding (MDL-02 precision). A
+    returncode outside the completed-run pair (0 clean, 1 violations
+    found) is treated as a crash: `2` (config/runtime error) raises
+    RuntimeError, and any other value raises subprocess.CalledProcessError
+    rather than being parsed as JSON."""
     argv = rumdl_argv + [
         "check",
         "--config", str(config_path),
@@ -80,6 +86,10 @@ def count_violations(config_path, targets, rumdl_argv):
     result = subprocess.run(argv, capture_output=True, text=True, timeout=60)
     if result.returncode == 2:
         raise RuntimeError(f"rumdl config/runtime error: {result.stderr}")
+    if result.returncode not in (0, 1):
+        raise subprocess.CalledProcessError(
+            result.returncode, argv, result.stdout, result.stderr
+        )
     return len(json.loads(result.stdout))
 
 
@@ -113,10 +123,12 @@ def verify_post(phase_dir_arg):
     `{phase_dir}/{padded_phase}-LINT-REPORT.md`, never merging a prior
     hand edit.
 
-    MDL-04 fail-open path (rumdl+uvx absent, or a live rumdl call raising
-    TimeoutExpired/OSError): print NOTICE exactly once and still fully
-    overwrite the report, with a non-numeric `violation_count: unavailable`
-    sentinel that cannot satisfy the ship:pre gate's `equals: 0` predicate.
+    MDL-04 fail-open path (rumdl+uvx absent, a live rumdl call raising
+    TimeoutExpired/OSError, or rumdl exiting with an unexpected crash code
+    reported as CalledProcessError): print NOTICE exactly once and still
+    fully overwrite the report, with a non-numeric
+    `violation_count: unavailable` sentinel that cannot satisfy the
+    ship:pre gate's `equals: 0` predicate.
 
     This is a **deliberate divergence** from
     beads/scripts/sync.py::regenerate_beads_md, which returns without
@@ -163,7 +175,7 @@ def verify_post(phase_dir_arg):
 
     try:
         violation_count = count_violations(config_path, targets, rumdl_argv)
-    except (subprocess.TimeoutExpired, OSError) as exc:
+    except (subprocess.TimeoutExpired, OSError, subprocess.CalledProcessError) as exc:
         print(NOTICE)
         _write_report(
             out_path, phase_dir, generated_at, config_path,
@@ -238,6 +250,8 @@ def main(argv=None):
         config_path = confined(project_root, *CONFIG_REL_PARTS)
         targets = [confined(project_root, t) for t in (args.paths or LINT_TARGETS)]
         rumdl_argv = resolve_rumdl_invocation()
+        if rumdl_argv is None:
+            raise RuntimeError("neither rumdl nor uvx is available on PATH")
         print(count_violations(config_path, targets, rumdl_argv))
         return 0
     if args.command == "fix":
