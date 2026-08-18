@@ -39,3 +39,4 @@ __pycache__/
 !.gsd/capabilities/
 .gsd/capabilities/*
 !.gsd/capabilities/markdown-linting/
+!.gsd/capabilities/pr-workflow/
