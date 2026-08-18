@@ -85,6 +85,11 @@ BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # (GSD-CORE-PATCH.md) -- check_shipmd_patch does a plain substring check
 # against this, never a regex, since the marker is a fixed literal string.
 SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->"
+# 16-03 Task 1 (D-05): the literal marker bracketing the local
+# execute-plan.md bd-task-read patch (GSD-CORE-PATCH.md) --
+# check_execute_plan_patch does a plain substring check against this, never
+# a regex, same discipline as SHIP_MD_PATCH_MARKER immediately above.
+EXECUTE_PLAN_PATCH_MARKER = "<!-- gsd-beads-patch:execute-plan-bd-task-read v1 -->"
 # B13/D-08: on-demand `status` with no phase_dir argument resolves the
 # current/last-active phase from STATE.md's frontmatter -- single-token
 # style matching BEADS_EPIC_RE.
@@ -1791,6 +1796,57 @@ def check_shipmd_patch(ship_md_path_override=None):
     return 1
 
 
+def check_execute_plan_patch(execute_plan_path_override=None):
+    """D-05 gap-closure diagnostic (16-03 Task 1): report whether the
+    machine-local `execute-plan.md` bd-task-read patch (GSD-CORE-PATCH.md)
+    is present -- clone of check_shipmd_patch's structure immediately above,
+    targeting gsd-core's `execute-plan.md` instead of `ship.md`. Read-only:
+    never edits the target.
+
+    Independence requirement: this detector must be dispatched from a
+    lifecycle point gsd-core reaches natively, never from inside the patch
+    it checks -- a detector reachable only through its own patch can confirm
+    an intact patch but can never detect a lost one, the exact flaw
+    GSD-CORE-PATCH.md's CR-01 note records for the ship.md patch. Plan
+    16-04 wires the dispatch at `plan:pre`; this docstring is what tells a
+    future editor why it must stay there.
+
+    WR-03: only the Claude runtime home (`CLAUDE_CONFIG_DIR`, default
+    `~/.claude`) is probed -- other runtime homes (`CODEX_HOME`,
+    `CURSOR_CONFIG_DIR`, etc.) are not replicated here, since the patch
+    itself is scoped to the Claude runtime only. Every message below names
+    the exact path checked so a report never reads as "no patch exists
+    anywhere" when only one of several possible install locations was
+    probed.
+    """
+    if execute_plan_path_override:
+        execute_plan_path = Path(execute_plan_path_override)
+    else:
+        execute_plan_path = (
+            Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+            / "gsd-core"
+            / "workflows"
+            / "execute-plan.md"
+        )
+    if not execute_plan_path.exists():
+        print(
+            f"execute-plan.md not found at {execute_plan_path} -- cannot verify the local "
+            "bd-task-read patch (only this runtime home was probed; other runtime homes such "
+            "as CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
+        )
+        return 1
+    text = execute_plan_path.read_text(encoding="utf-8")
+    if EXECUTE_PLAN_PATCH_MARKER in text:
+        print(f"execute-plan.md bd-task-read patch: present (v1) at {execute_plan_path}")
+        return 0
+    print(
+        f"⚠ execute-plan.md's bd-task-read patch (beads) is missing at {execute_plan_path} -- "
+        "gsd-executor will not read task content from bd. "
+        "Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
+    )
+    return 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="sync.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1835,6 +1891,11 @@ def main(argv=None):
         help="Report whether the local ship.md ship:pre dispatch patch (GSD-CORE-PATCH.md) is present",
     )
     check_shipmd_patch_p.add_argument("--ship-md-path", default=None)
+    check_execute_plan_patch_p = sub.add_parser(
+        "check-execute-plan-patch",
+        help="Report whether the local execute-plan.md bd-task-read patch (GSD-CORE-PATCH.md) is present",
+    )
+    check_execute_plan_patch_p.add_argument("--execute-plan-path", default=None)
     sub.add_parser(
         "migrate-todos",
         help="One-shot migration of .planning/todos/pending/ entries into bd issues (B12)",
@@ -1862,6 +1923,8 @@ def main(argv=None):
         return ship_override(args.phase_dir)
     if args.command == "check-shipmd-patch":
         return check_shipmd_patch(args.ship_md_path)
+    if args.command == "check-execute-plan-patch":
+        return check_execute_plan_patch(args.execute_plan_path)
     if args.command == "migrate-todos":
         project_root = find_project_root(Path.cwd())
         pending_dir = confined(project_root, ".planning", "todos", "pending")

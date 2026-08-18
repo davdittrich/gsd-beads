@@ -2529,6 +2529,74 @@ class TestCheckShipmdPatch(unittest.TestCase):
         self.assertIn(str(missing_path), captured.getvalue())
 
 
+class TestCheckExecutePlanPatch(unittest.TestCase):
+    """16-03 Task 1: check_execute_plan_patch mirrors check_shipmd_patch's
+    three-case behavior and read-only discipline for the machine-local
+    execute-plan.md bd-task-read patch."""
+
+    def test_reports_present_when_marker_found(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            execute_plan_md = Path(tmp) / "execute-plan.md"
+            execute_plan_md.write_text(
+                f"...preamble...\n{sync.EXECUTE_PLAN_PATCH_MARKER}\n...body...\n",
+                encoding="utf-8",
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_execute_plan_patch(str(execute_plan_md))
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("present", captured.getvalue())
+
+    def test_reports_missing_with_reapply_pointer_when_marker_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            execute_plan_md = Path(tmp) / "execute-plan.md"
+            execute_plan_md.write_text("no patch marker in this file\n", encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_execute_plan_patch(str(execute_plan_md))
+
+        self.assertEqual(exit_code, 1)
+        out = captured.getvalue()
+        self.assertIn("GSD-CORE-PATCH.md", out)
+        self.assertIn("gsd-executor", out)
+
+    def test_reports_missing_with_reapply_pointer_when_file_absent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = Path(tmp) / "does-not-exist" / "execute-plan.md"
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_execute_plan_patch(str(missing_path))
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn(str(missing_path), captured.getvalue())
+
+    def test_never_writes_to_target_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            execute_plan_md = Path(tmp) / "execute-plan.md"
+            original = f"...preamble...\n{sync.EXECUTE_PLAN_PATCH_MARKER}\n...body...\n"
+            execute_plan_md.write_text(original, encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_execute_plan_patch(str(execute_plan_md))
+            self.assertEqual(execute_plan_md.read_text(encoding="utf-8"), original)
+
+    def test_cli_routes_through_main_and_returns_function_exit_code(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            execute_plan_md = Path(tmp) / "execute-plan.md"
+            execute_plan_md.write_text(
+                f"{sync.EXECUTE_PLAN_PATCH_MARKER}\n", encoding="utf-8"
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.main(
+                    ["check-execute-plan-patch", "--execute-plan-path", str(execute_plan_md)]
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("present", captured.getvalue())
+
+
 def _write_todo_pending_workspace(tmp_path, with_state=True):
     """Lay out a minimal .planning/todos/pending/ tree under tmp_path
     (B12) -- migrate_todos' find_project_root climb reaches tmp_path/
