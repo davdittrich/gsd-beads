@@ -265,6 +265,34 @@ class TestFailOpen(unittest.TestCase):
             self.assertIn("pr_status: unavailable", text)
             self.assertIn("pr_gate_ok: false", text)
 
+    def test_gh_pr_list_nonzero_exit_fail_open(self):
+        # WR-01: find_open_pr()'s GhCommandError on any gh pr list non-zero
+        # exit (not just a TimeoutExpired) must also fail open, unlike
+        # check_buckets()'s deliberately-uncaught plain RuntimeError.
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_phase_dir(Path(tmp))
+            captured = io.StringIO()
+
+            def fake_run(argv, **kwargs):
+                if argv[:3] == ["gh", "auth", "status"]:
+                    return _completed("", 0)
+                if argv[:3] == ["git", "branch", "--show-current"]:
+                    return _completed("main\n", 0)
+                if argv[:3] == ["gh", "pr", "list"]:
+                    return _completed("", 1, stderr="HTTP 403: rate limited")
+                raise AssertionError(f"unexpected call: {argv}")
+
+            with mock.patch("shutil.which", return_value="/usr/bin/gh"):
+                with mock.patch("subprocess.run", side_effect=fake_run):
+                    with mock.patch("sys.stdout", captured):
+                        exit_code = pr_status.verify_post(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(captured.getvalue().count(pr_status.NOTICE_GH_ERROR), 1)
+            text = (phase_dir / "14-PR.md").read_text(encoding="utf-8")
+            self.assertIn("pr_status: unavailable", text)
+            self.assertIn("pr_gate_ok: false", text)
+
     def test_checks_zero_checks_stderr_is_passing(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _write_phase_dir(Path(tmp))

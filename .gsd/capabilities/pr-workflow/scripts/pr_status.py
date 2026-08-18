@@ -100,13 +100,19 @@ def current_branch():
 def find_open_pr(branch):
     """D-02: `gh pr list --head <branch> --state open` (server-side state
     filter) resolves cleanly to `[]` for "no open PR" -- unlike `gh pr view`,
-    which succeeds for closed/merged PRs too (RESEARCH Pitfall 2)."""
+    which succeeds for closed/merged PRs too (RESEARCH Pitfall 2).
+
+    WR-01: any non-zero exit (rate-limit, transient 5xx, or a genuine tool
+    failure) raises `GhCommandError` rather than plain `RuntimeError`, so
+    callers can fold it into the same fail-open path as a `gh` timeout --
+    from the caller's perspective a `gh pr list` failure is exactly as
+    "gh blew up after the availability guard passed" as a timeout is."""
     result = subprocess.run(
         ["gh", "pr", "list", "--head", branch, "--state", "open", "--json", "number,url"],
         capture_output=True, text=True, timeout=30,
     )
     if result.returncode != 0:
-        raise RuntimeError(f"gh pr list failed: {result.stderr}")
+        raise GhCommandError(f"gh pr list failed: {result.stderr}")
     return json.loads(result.stdout)
 
 
@@ -182,9 +188,10 @@ def verify_post(phase_dir_arg):
 
     PRW-04 fail-open paths -- all print exactly one notice and still fully
     overwrite the report with `pr_status: unavailable`, `pr_gate_ok: false`:
-    `gh` absent or unauthenticated (`gh_available()` guard), or a live `gh`
-    call raising `subprocess.TimeoutExpired`/`OSError`/`json.JSONDecodeError`
-    after that guard already passed. An unmeasured status can never satisfy
+    `gh` absent or unauthenticated (`gh_available()` guard), or a live `gh`/
+    `git` call raising `subprocess.TimeoutExpired`/`OSError`/
+    `json.JSONDecodeError`/`GhCommandError` after that guard already passed.
+    An unmeasured status can never satisfy
     the ship:pre gate (T-14-01) -- this is a **deliberate divergence** from
     beads/scripts/sync.py::regenerate_beads_md (which leaves a prior report
     untouched when `bd` is unavailable), mirroring markdown-linting's
@@ -238,7 +245,7 @@ def verify_post(phase_dir_arg):
         pr_status = rollup_pr_status(buckets)
         pr_gate_ok = derive_gate_ok(pr_status)
         generated_from += f"; gh pr checks {pr_number} --json bucket"
-    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError) as exc:
+    except (subprocess.TimeoutExpired, OSError, json.JSONDecodeError, GhCommandError) as exc:
         print(NOTICE_GH_ERROR)
         _write_report(
             out_path, phase_dir, generated_at,
