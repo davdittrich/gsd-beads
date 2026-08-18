@@ -5,8 +5,8 @@ milestone_name: New Capability Plugins
 current_phase: 13
 current_phase_name: markdown-linting-capability-dogfood
 status: Roadmap created — ready to plan Phase 13
-stopped_at: v1.2 roadmap created
-last_updated: "2026-08-18"
+stopped_at: Phase 13 context gathered
+last_updated: "2026-08-18T09:08:37.682Z"
 last_activity: 2026-08-18
 last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
@@ -82,16 +82,22 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 3]: `ship:pre` gate dispatch in the installed `ship.md` is a **machine-local patch**
   (upstream open-gsd/gsd-core#3559 filed, merge status unconfirmed). Any new gate must verify the
   patch marker is present and prove itself live via `gsd_run check predicate` before being trusted.
+
 - [Phase 6/10]: gsd-core capability consent is a content hash over the whole bundle — any
   post-consent edit silently deactivates the capability with no error. Re-consent after every edit.
+
 - [Phase 10.1]: `hooks/capability-auto-install.sh` hashes the bundle against a per-id sidecar and
   re-grants on drift; vendored into each plugin's `session-start.sh`.
+
 - [Phase 11]: `sota-numerics`' `plan:post` gate uses `onError: halt` (deliberate divergence) and
   resolves its script path via `git rev-parse --show-toplevel`, not `${CLAUDE_PLUGIN_ROOT}`.
+
 - [Phase 12]: `davdittrich/ponytail-everywhere` and `davdittrich/sota-numerics` shipped via the
   stage-outside-tree → fix-relocation-paths → `gh repo create` + push → fresh-clone-verify sequence.
+
 - [Phase 12]: `marketplace.json` entries must use `url`-type sources with explicit `https://` git
   URLs (commit `f706179`) — GitHub shorthand clones over SSH and breaks on SSH-keyless machines.
+
 - [Phase 12]: Dogfood subdirectories were removed from `gsd-beads` in the same commit that repaired
   the orphaned `ci.yml` / `release.yml` references.
 
@@ -138,9 +144,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18
-Stopped at: v1.2 roadmap created (Phases 13-15)
-Resume file: None
+Last session: 2026-08-18T09:08:37.676Z
+Stopped at: Phase 13 context gathered
+Resume file: .planning/phases/13-markdown-linting-capability-dogfood/13-CONTEXT.md
 
 ## Operator Next Steps
 
