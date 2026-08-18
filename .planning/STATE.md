@@ -4,9 +4,9 @@ milestone: v1.2
 milestone_name: New Capability Plugins
 current_phase: 13
 current_phase_name: markdown-linting-capability-dogfood
-status: Roadmap created — ready to plan Phase 13
+status: executing
 stopped_at: Phase 13 context gathered
-last_updated: "2026-08-18T09:55:14.669Z"
+last_updated: "2026-08-18T12:00:23.944Z"
 last_activity: 2026-08-18
 last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
@@ -25,15 +25,15 @@ See: .planning/PROJECT.md (updated 2026-08-18)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 13 — markdown-linting capability (dogfood)
+**Current focus:** Phase 13 — markdown-linting-capability-dogfood
 
 ## Current Position
 
-Phase: 13 — markdown-linting capability (dogfood)
-Plan: —
-Status: Roadmap created, phase not yet planned
+Phase: 13 (markdown-linting-capability-dogfood) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 13
 Progress: [··········] 0% (0/3 phases)
-Last activity: 2026-08-18 - Completed quick task 260818-h2h: Fix gsd-beads-1iq: scope beads-lifecycle marketplace source to exclude sota-numerics/ponytail dev copies
+Last activity: 2026-08-18 — Phase 13 execution started
 
 ## Performance Metrics
 
@@ -111,12 +111,6 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 None yet.
 
 ### Blockers/Concerns
-
-- **[Phase 13, hard prerequisite]** The generic `ship:pre` gate-dispatch patch is machine-local and
-  unconfirmed upstream. Phase 13's plan must include an explicit task verifying the marker in
-  `$HOME/.claude/gsd-core/workflows/ship.md` before relying on the `markdown-linting` gate. If the
-  marker is absent, the gate silently never fires and both Phase 13 and Phase 14 success criteria
-  would be false-but-unnoticed.
 
 - **[Phase 15, pre-extraction check]** Re-check gsd-core#3559's merge status before public
   extraction. If unmerged, each plugin's README must document the required local `ship.md` patch as
