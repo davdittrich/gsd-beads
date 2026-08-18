@@ -101,17 +101,17 @@ coverage:
         status: pass
     human_judgment: false
   - id: D6
-    description: "Task 3, part C: real-marketplace round trip (install/uninstall markdown-linting@gsd-beads and pr-workflow@gsd-beads from the pushed, real gsd-beads marketplace) NOT completed — blocked"
+    description: "Task 3, part C: real-marketplace round trip (install/uninstall markdown-linting@gsd-beads and pr-workflow@gsd-beads from the pushed, real gsd-beads marketplace) — completed in session 3 after orchestrator fast-forwarded the primary checkout"
     verification:
       - kind: other
-        ref: "claude plugin marketplace update gsd-beads -> 'Successfully updated marketplace: gsd-beads'; claude plugin install markdown-linting@gsd-beads -y -> FAILED: 'Plugin \"markdown-linting\" not found in marketplace \"gsd-beads\"'"
-        status: fail
-    human_judgment: true
-    rationale: "gsd-beads is a Directory-source marketplace pointing at the PRIMARY checkout /home/dd/projects/gsd-beads, not at origin/main and not at this worktree. That checkout's `git rev-parse HEAD` is still a922c1278cd2f627aa58996445ae40d82c75f289 (the pre-Task-1 state) with an unrelated dirty working tree, confirmed read-only before attempting the install. `claude plugin marketplace update gsd-beads` re-reads that local path's files as-is; it does not fetch from origin and cannot see the two new entries until the primary checkout is fast-forwarded to 676e835. Per this task's explicit instructions, stopped here and reported the finding rather than working around it (did not repoint the marketplace at this worktree, did not fast-forward the primary checkout from this isolated worktree). Followup: orchestrator fast-forwards /home/dd/projects/gsd-beads to 676e835, then a continuation re-runs `claude plugin marketplace update gsd-beads` followed by the install/confirm/uninstall/confirm sequence for both plugins."
+        ref: "session 3: primary checkout fast-forwarded to 2e0395b (merge of worktree branch, pushed); claude plugin marketplace update gsd-beads -> success; markdown-linting@gsd-beads and pr-workflow@gsd-beads both install, appear in `claude plugin list`, uninstall cleanly, and are absent afterward; beads-lifecycle@gsd-beads unaffected"
+        status: pass
+    human_judgment: false
+    rationale: "Session 2 correctly identified and reported the blocker (Directory-source marketplace reads the primary checkout, not origin) rather than working around it. Session 3 (orchestrator) performed the required fast-forward via the standard worktree-merge path and re-ran the exact round trip Task 3 specifies; it passed in full."
 
-duration: ~12min (session 1) + ~6min (session 2, this continuation)
+duration: ~12min (session 1) + ~6min (session 2) + orchestrator follow-through (session 3)
 completed: 2026-08-18
-status: blocked
+status: complete
 ---
 
 # Phase 15 Plan 03: Repoint Marketplace at markdown-linting and pr-workflow Summary
@@ -360,19 +360,59 @@ $ rm -rf /tmp/gsd-beads-mkt-verify
 
 None. `gh auth status` already confirms an authenticated HTTPS session with `repo` and `workflow` scopes. No operator decision remains outstanding — the push-scope decision was made and executed this session.
 
+## Session 3 (orchestrator follow-through): primary-checkout fast-forward and real-marketplace round trip
+
+The orchestrator merged the worktree branch (superset commit `2a5f83a` on top of `676e835`) into the primary checkout at `/home/dd/projects/gsd-beads` via the standard worktree-cleanup merge (commit `2e0395b`, a merge commit — the primary checkout's own unrelated dirty files, e.g. `.planning/STATE-ARCHIVE.md`, `.planning/config.json`, were untouched by this fast-forward since they are working-tree modifications, not commits). Pushed the merge commit: `git push origin HEAD:main` -> `676e835..2e0395b HEAD -> main`, verified via `git ls-remote origin main` -> `2e0395b249b273c9d665d38005192f40e4ad666d`.
+
+Then ran the blocked round trip to completion, from the now-current primary checkout:
+
+```
+$ claude plugin marketplace update gsd-beads
+✔ Successfully updated marketplace: gsd-beads
+
+$ claude plugin install markdown-linting@gsd-beads -y
+✔ Successfully installed plugin: markdown-linting@gsd-beads (scope: user)
+$ claude plugin list | grep markdown-linting
+❯ markdown-linting@gsd-beads
+$ claude plugin uninstall markdown-linting -y
+✔ Successfully uninstalled plugin: markdown-linting (scope: user)
+$ claude plugin list | grep -c markdown-linting
+0
+
+$ claude plugin install pr-workflow@gsd-beads -y
+✔ Successfully installed plugin: pr-workflow@gsd-beads (scope: user)
+$ claude plugin list | grep pr-workflow
+❯ pr-workflow@gsd-beads
+$ claude plugin uninstall pr-workflow -y
+✔ Successfully uninstalled plugin: pr-workflow (scope: user)
+$ claude plugin list | grep -c pr-workflow
+0
+
+$ claude plugin list | grep beads-lifecycle
+❯ beads-lifecycle@gsd-beads
+
+$ git tag --list
+v1.0
+v1.1.1
+v1.2.0
+$ gh release list --repo davdittrich/gsd-beads --limit 5
+v1.2.0	Latest	v1.2.0	2026-08-16T21:57:40Z
+v1.1.1		v1.1.1	2026-08-16T21:07:36Z
+```
+
+Both plugins installed from and uninstalled through the real, pushed `davdittrich/gsd-beads` marketplace over HTTPS, resolved via their `url`-type sources, and both are left uninstalled. `beads-lifecycle@gsd-beads` unaffected throughout. No new tag, no new release (D-02 confirmed a second time, post-push).
+
+D6 (real-marketplace round trip) is now **pass**, not blocked. D-10 and ROADMAP SC-2 are fully discharged.
+
 ## Next Phase Readiness
 
-- **NOT ready.** Plan 04 (gate re-proof) depends on Task 3's real-marketplace round trip per this plan's own `<objective>` ("the precondition Plan 04's gate re-proof depends on"). That round trip is blocked, not done.
-- **Required orchestrator followup, in order:**
-  1. Fast-forward `/home/dd/projects/gsd-beads` (the primary checkout, NOT this worktree) to `676e8355b08125854593eacd16fc55f7115bddad` — that commit is already on `origin/main`, verified via `git ls-remote origin main` above.
-  2. Re-run: `claude plugin marketplace update gsd-beads`, then `claude plugin install markdown-linting@gsd-beads -y` / confirm / `uninstall` / confirm, then the identical sequence for `pr-workflow@gsd-beads`, leaving both uninstalled, then confirm `beads-lifecycle@gsd-beads` still works.
-  3. Only then is this plan (15-03) complete and Plan 04 unblocked.
+- **Ready.** All of Task 3's acceptance criteria are now met: push verified, no-tag/no-release verified, and the real-marketplace round trip completed for both plugins with `beads-lifecycle@gsd-beads` intact. Plan 04's gate re-proof is unblocked.
 
 ## Known Stubs
 
 None.
 
-## Self-Check: PASSED (Tasks 1-2 and the push half of Task 3; round-trip half of Task 3 explicitly incomplete, not a self-check failure — see Next Phase Readiness)
+## Self-Check: PASSED
 
 - `.claude-plugin/marketplace.json` — FOUND on this branch after the fast-forward, contains 5 plugin entries.
 - Commit `676e835` — FOUND: `git log --oneline -1` on this branch shows `676e835 docs(15-03): record plan summary...` as HEAD before this continuation's own commit.
