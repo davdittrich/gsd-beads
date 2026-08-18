@@ -5,8 +5,8 @@ milestone_name: New Capability Plugins
 current_phase: 15
 current_phase_name: Ship markdown-linting and pr-workflow plugins publicly
 status: planning
-stopped_at: Completed 14-03-PLAN.md
-last_updated: "2026-08-18T18:00:29.921Z"
+stopped_at: Phase 15 context gathered
+last_updated: "2026-08-18T18:27:59.897Z"
 last_activity: 2026-08-18
 last_activity_desc: Phase 14 complete (all 3 plans executed, live degrade-cycle evidence recorded)
 progress:
@@ -154,9 +154,9 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T17:07:35.544Z
-Stopped at: Completed 14-03-PLAN.md
-Resume file: None
+Last session: 2026-08-18T18:27:59.890Z
+Stopped at: Phase 15 context gathered
+Resume file: .planning/phases/15-ship-markdown-linting-and-pr-workflow-plugins-publicly/15-CONTEXT.md
 
 ## Operator Next Steps
 
