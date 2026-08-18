@@ -27,6 +27,20 @@ TASK_RE = re.compile(r"<task\b[^>]*>.*?</task>", re.DOTALL)
 NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
 BEADS_ID_RE = re.compile(r"<beads-id>(.*?)</beads-id>", re.DOTALL)
 FILES_RE = re.compile(r"<files>(.*?)</files>", re.DOTALL)
+# 16-01 Task 1 (D-06): per-task content-field regexes, same
+# `<tag>(.*?)</tag>` DOTALL shape as the trio above -- these feed
+# _task_description()'s `bd create -d` rendering.
+READ_FIRST_RE = re.compile(r"<read_first>(.*?)</read_first>", re.DOTALL)
+PRECONDITION_RE = re.compile(r"<precondition>(.*?)</precondition>", re.DOTALL)
+BEHAVIOR_RE = re.compile(r"<behavior>(.*?)</behavior>", re.DOTALL)
+ACTION_RE = re.compile(r"<action>(.*?)</action>", re.DOTALL)
+VERIFY_RE = re.compile(r"<verify>(.*?)</verify>", re.DOTALL)
+ACCEPTANCE_CRITERIA_RE = re.compile(r"<acceptance_criteria>(.*?)</acceptance_criteria>", re.DOTALL)
+DONE_RE = re.compile(r"<done>(.*?)</done>", re.DOTALL)
+# TASK_TYPE_RE is the only regex here that reads an XML *attribute* rather
+# than a tag body -- run it against a TASK_RE match's whole block
+# (m.group(0)), same way NAME_RE.search(block) etc. already run (D-03).
+TASK_TYPE_RE = re.compile(r'<task\b[^>]*\btype="([^"]*)"')
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
@@ -154,6 +168,14 @@ def parse_plan(path):
         name_m = NAME_RE.search(block)
         id_m = BEADS_ID_RE.search(block)
         files_m = FILES_RE.search(block)
+        type_m = TASK_TYPE_RE.search(block)
+        read_first_m = READ_FIRST_RE.search(block)
+        precondition_m = PRECONDITION_RE.search(block)
+        behavior_m = BEHAVIOR_RE.search(block)
+        action_m = ACTION_RE.search(block)
+        verify_m = VERIFY_RE.search(block)
+        acceptance_criteria_m = ACCEPTANCE_CRITERIA_RE.search(block)
+        done_m = DONE_RE.search(block)
         files = (
             [f.strip() for f in files_m.group(1).split(",") if f.strip()]
             if files_m
@@ -165,6 +187,16 @@ def parse_plan(path):
                 "name_end": m.start() + (name_m.end() if name_m else 0),
                 "beads_id": id_m.group(1).strip() if id_m else None,
                 "files": files,
+                "type": type_m.group(1).strip() if type_m else "",
+                "read_first": read_first_m.group(1).strip() if read_first_m else "",
+                "precondition": precondition_m.group(1).strip() if precondition_m else None,
+                "behavior": behavior_m.group(1).strip() if behavior_m else "",
+                "action": action_m.group(1).strip() if action_m else "",
+                "verify": verify_m.group(1).strip() if verify_m else "",
+                "acceptance_criteria": (
+                    acceptance_criteria_m.group(1).strip() if acceptance_criteria_m else ""
+                ),
+                "done": done_m.group(1).strip() if done_m else "",
             }
         )
     return text, frontmatter, tasks
@@ -283,6 +315,48 @@ def _todo_description(todo):
     if todo["files"]:
         desc += "\n## Files\n" + "\n".join(f"- {f}" for f in todo["files"]) + "\n"
     return desc
+
+
+def _task_description(task):
+    """Fold a task's read_first/precondition/behavior/action/verify/done and
+    files content into one `-d` prose string (D-02/D-06), cloning
+    `_todo_description`'s exact shape: markdown `##` section headers, each
+    appended only when its source field is non-empty. Section order mirrors
+    execution order: Read First, Precondition, Behavior, Action, Verify,
+    Done, Files (Files last, exactly like `_todo_description`'s trailing
+    files section -- `files` has no structured bd field, same reason
+    `_todo_description` folds it in rather than using a flag).
+
+    `acceptance_criteria` is deliberately NOT rendered here -- it travels as
+    bd's own structured `--acceptance` field instead. `bd show --json`
+    returns `description` and `acceptance_criteria` as two distinct
+    top-level keys (16-RESEARCH.md Priority 2, live-verified). A future
+    editor should not "helpfully" fold it back into this string.
+
+    `<behavior>` is included even though CONTEXT.md's D-02 field list does
+    not name it (16-01-PLAN.md Discretion call): `workflow.tdd_mode` is true
+    for this project, so most future tasks carry a `<behavior>` block --
+    leaving it in PLAN.md while everything else moves to bd would split one
+    task's instructions across two sources and defeat the self-sufficiency
+    goal.
+    """
+    sections = []
+    if task["read_first"]:
+        items = [f.strip() for f in task["read_first"].split(",") if f.strip()]
+        sections.append("## Read First\n" + "\n".join(f"- {f}" for f in items))
+    if task["precondition"]:
+        sections.append(f"## Precondition\n{task['precondition']}")
+    if task["behavior"]:
+        sections.append(f"## Behavior\n{task['behavior']}")
+    if task["action"]:
+        sections.append(f"## Action\n{task['action']}")
+    if task["verify"]:
+        sections.append(f"## Verify\n{task['verify']}")
+    if task["done"]:
+        sections.append(f"## Done\n{task['done']}")
+    if task["files"]:
+        sections.append("## Files\n" + "\n".join(f"- {f}" for f in task["files"]))
+    return "\n\n".join(sections) + ("\n" if sections else "")
 
 
 def migrate_todos(pending_dir_arg):
@@ -626,9 +700,11 @@ def resolve_issue(task, epic_id, ordinal_prefix, task_index):
             return task["beads_id"], False, True
         return task["beads_id"], False, False
     title = f"{ordinal_prefix}.{task_index} {task['name']}"
-    result = run_bd(
-        ["bd", "create", title, "--type", "task", "--parent", epic_id, "--silent"]
-    )
+    argv = ["bd", "create", title, "-d", _task_description(task)]
+    if task["acceptance_criteria"]:
+        argv += ["--acceptance", task["acceptance_criteria"]]
+    argv += ["--type", "task", "--parent", epic_id, "--silent"]
+    result = run_bd(argv)
     if result.returncode != 0:
         raise RuntimeError(f"bd create (task) failed: {result.stderr.strip()}")
     return result.stdout.strip(), True, False

@@ -211,6 +211,64 @@ class TestEndToEndTracer(unittest.TestCase):
             self.assertEqual(len(children), 1)
             self.assertEqual(children[0]["id"], issue_id)
 
+    @unittest.skipUnless(_bd_on_path(), "bd binary not found on PATH")
+    def test_created_task_issue_round_trips_description_and_acceptance(self):
+        """D-06 tracer's end-to-end proof: after create_issues, a real
+        `bd show <id> --json` returns non-empty description AND
+        acceptance_criteria -- not a mocked argv assertion."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planning_dir = tmp_path / ".planning"
+            phase_dir = planning_dir / "phases" / "01-substrate"
+            phase_dir.mkdir(parents=True)
+            (planning_dir / "STATE.md").write_text(
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            (planning_dir / "ROADMAP.md").write_text(
+                "### Phase 1: Substrate\nGoal.\n", encoding="utf-8"
+            )
+            plan_copy = phase_dir / "01-01-PLAN.md"
+            plan_copy.write_text(
+                (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            init = subprocess.run(
+                ["bd", "init", "--prefix", "content"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(init.returncode, 0, init.stderr)
+
+            result = subprocess.run(
+                [sys.executable, str(Path(sync.__file__)), "create-issues", str(plan_copy)],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+
+            new_text = plan_copy.read_text(encoding="utf-8")
+            issue_id = sync.BEADS_ID_RE.search(new_text).group(1).strip()
+
+            shown = subprocess.run(
+                ["bd", "show", issue_id, "--json"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(shown.returncode, 0, shown.stderr)
+            payload = json.loads(shown.stdout)
+            if isinstance(payload, list):
+                payload = payload[0]
+            self.assertTrue(payload.get("description", "").strip(), payload)
+            self.assertTrue(payload.get("acceptance_criteria", "").strip(), payload)
+
 
 class TestLiveDependencies(unittest.TestCase):
     """B2 proven against a real bd database: bd ready excludes a blocked
@@ -342,6 +400,48 @@ class TestCreateIssues(unittest.TestCase):
         parents = {argv[argv.index("--parent") + 1] for argv in task_creates}
         self.assertEqual(len(parents), 1)
 
+    @mock.patch("subprocess.run")
+    def test_task_create_argv_carries_description_and_acceptance(self, mock_run):
+        """D-06: a task-create argv carries a non-empty -d and, since the
+        fixture's task has <acceptance_criteria>, a non-empty --acceptance."""
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        task_creates = self._create_argvs(mock_run.call_args_list, "task")
+        self.assertEqual(len(task_creates), 1)
+        argv = task_creates[0]
+        self.assertIn("-d", argv)
+        description = argv[argv.index("-d") + 1]
+        self.assertTrue(description.strip())
+        self.assertIn("--acceptance", argv)
+        acceptance = argv[argv.index("--acceptance") + 1]
+        self.assertTrue(acceptance.strip())
+        # D-06: acceptance criteria travel via bd's own structured field,
+        # never folded into the -d description blob.
+        self.assertNotIn(acceptance.strip(), description)
+
+    @mock.patch("subprocess.run")
+    def test_task_create_argv_omits_acceptance_when_task_has_none(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        no_acceptance_text = plan_text.replace(
+            "  <acceptance_criteria>\n    - src/example.py exists\n  </acceptance_criteria>\n",
+            "",
+        )
+        self.assertNotIn("acceptance_criteria", no_acceptance_text)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), no_acceptance_text)
+            exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        task_creates = self._create_argvs(mock_run.call_args_list, "task")
+        self.assertEqual(len(task_creates), 1)
+        self.assertNotIn("--acceptance", task_creates[0])
+
 
 class TestPhaseScopedEpic(unittest.TestCase):
     """gsd-beads-uh1: two plans in one phase, neither pre-set with
@@ -375,6 +475,75 @@ class TestPhaseScopedEpic(unittest.TestCase):
         epic_a = sync.BEADS_EPIC_RE.search(text_a).group(1)
         epic_b = sync.BEADS_EPIC_RE.search(text_b).group(1)
         self.assertEqual(epic_a, epic_b)
+
+
+def _minimal_task(**overrides):
+    """A hand-built task dict carrying only the fields `_task_description`
+    reads, all empty/None by default -- callers override the fields under
+    test. Mirrors parse_plan()'s real defaults (empty string for absent tag
+    bodies, None for absent <precondition>)."""
+    task = {
+        "read_first": "",
+        "precondition": None,
+        "behavior": "",
+        "action": "",
+        "verify": "",
+        "acceptance_criteria": "",
+        "done": "",
+        "files": [],
+    }
+    task.update(overrides)
+    return task
+
+
+class TestTaskDescription(unittest.TestCase):
+    """D-06/D-02: _task_description(task) renders a task's non-empty fields
+    as ## sections, omits empty ones, and never leaks acceptance criteria
+    into the rendered description -- exercised directly on hand-built task
+    dicts, no subprocess involved."""
+
+    def test_minimal_task_emits_only_action_verify_done(self):
+        task = _minimal_task(
+            action="Implement the thing.",
+            verify="python3 -m py_compile src/example.py",
+            done="The thing is implemented.",
+        )
+        description = sync._task_description(task)
+        self.assertIn("## Action", description)
+        self.assertIn("## Verify", description)
+        self.assertIn("## Done", description)
+        self.assertNotIn("## Read First", description)
+        self.assertNotIn("## Precondition", description)
+        self.assertNotIn("## Behavior", description)
+        self.assertNotIn("## Files", description)
+
+    def test_full_task_emits_every_non_empty_section(self):
+        task = _minimal_task(
+            read_first="src/a.py, src/b.py",
+            precondition="`bd` is on PATH.",
+            behavior="- does the thing",
+            action="Implement the thing.",
+            verify="python3 -m py_compile src/example.py",
+            done="The thing is implemented.",
+            files=["src/example.py"],
+        )
+        description = sync._task_description(task)
+        self.assertIn("## Read First", description)
+        self.assertIn("## Precondition", description)
+        self.assertIn("## Behavior", description)
+        self.assertIn("## Action", description)
+        self.assertIn("## Verify", description)
+        self.assertIn("## Done", description)
+        self.assertIn("## Files", description)
+
+    def test_acceptance_criteria_never_rendered_in_description(self):
+        task = _minimal_task(
+            action="Implement the thing.",
+            acceptance_criteria="- src/example.py exists\n- tests pass",
+        )
+        description = sync._task_description(task)
+        self.assertNotIn("- src/example.py exists", description)
+        self.assertNotIn("acceptance", description.lower())
 
 
 class TestDependencyMapping(unittest.TestCase):
