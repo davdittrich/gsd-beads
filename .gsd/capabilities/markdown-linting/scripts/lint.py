@@ -24,6 +24,10 @@ LINT_TARGETS = (".planning", "README.md", "CLAUDE.md")
 
 CONFIG_REL_PARTS = (".gsd", "capabilities", "markdown-linting", "config", ".rumdl.toml")
 
+# MDL-04/B6, mirrors sync.py's NOTICE constant shape -- one line naming the
+# tool and both fallback tiers checked.
+NOTICE = "rumdl unavailable (checked PATH and uvx) -- lint skipped, LINT-REPORT.md marked unavailable"
+
 
 def find_project_root(start):
     """Walk up from `start` to the nearest ancestor containing `.planning/`.
@@ -79,35 +83,21 @@ def count_violations(config_path, targets, rumdl_argv):
     return len(json.loads(result.stdout))
 
 
-def verify_post(phase_dir_arg):
-    """B11-style regenerate-every-run: always fully overwrite
-    `{phase_dir}/{padded_phase}-LINT-REPORT.md`, never merging a prior
-    hand edit."""
-    phase_dir = Path(phase_dir_arg).resolve()
-    project_root = find_project_root(phase_dir)
-    padded_phase = phase_dir.name.split("-", 1)[0]
-
-    config_path = confined(project_root, *CONFIG_REL_PARTS)
-    targets = [confined(project_root, t) for t in LINT_TARGETS]
-    rumdl_argv = resolve_rumdl_invocation()
-
-    violation_count = count_violations(config_path, targets, rumdl_argv)
-    argv = rumdl_argv + [
-        "check",
-        "--config", str(config_path),
-        "--output-format", "json",
-    ] + [str(t) for t in targets]
-
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-    frontmatter = (
-        "---\n"
-        f"phase: {phase_dir.name}\n"
-        f"violation_count: {violation_count}\n"
-        f"config: {config_path}\n"
-        f'generated_from: "{" ".join(argv)}"\n'
-        f"generated_at: {generated_at}\n"
-        "---\n\n"
-    )
+def _write_report(out_path, phase_dir, generated_at, config_path, generated_from, violation_count, unavailable_reason=None):
+    """Shared frontmatter+body writer for both the happy path and the
+    sentinel path -- one place that fully overwrites the report, so the two
+    paths cannot drift into different file shapes."""
+    lines = [
+        "---",
+        f"phase: {phase_dir.name}",
+        f"violation_count: {violation_count}",
+    ]
+    if unavailable_reason is not None:
+        lines.append(f"unavailable_reason: {unavailable_reason}")
+    lines.append(f"config: {config_path}")
+    lines.append(f'generated_from: "{generated_from}"')
+    lines.append(f"generated_at: {generated_at}")
+    lines.append("---\n")
     # D-03: count-only, no per-rule/per-file breakdown table. The banner
     # below has no literal precedent in BEADS.md (B11 is a principle name,
     # not file content) -- authored fresh here; see 13-RESEARCH.md Pitfall 3.
@@ -115,10 +105,79 @@ def verify_post(phase_dir_arg):
         f"# LINT-REPORT.md: {phase_dir.name}\n\n"
         "> Regenerated every step. Do not hand-edit.\n"
     )
+    out_path.write_text("\n".join(lines) + "\n" + body, encoding="utf-8")
 
+
+def verify_post(phase_dir_arg):
+    """B11-style regenerate-every-run: always fully overwrite
+    `{phase_dir}/{padded_phase}-LINT-REPORT.md`, never merging a prior
+    hand edit.
+
+    MDL-04 fail-open path (rumdl+uvx absent, or a live rumdl call raising
+    TimeoutExpired/OSError): print NOTICE exactly once and still fully
+    overwrite the report, with a non-numeric `violation_count: unavailable`
+    sentinel that cannot satisfy the ship:pre gate's `equals: 0` predicate.
+
+    This is a **deliberate divergence** from
+    beads/scripts/sync.py::regenerate_beads_md, which returns without
+    touching BEADS.md when `bd` is unavailable: `bd`'s prior issue data
+    stays meaningfully accurate until the next sync, but a lint count where
+    the linter never ran is a claim about the tree that was never measured
+    -- MDL-04 success criterion 5 forbids presenting it as current. A
+    future editor must not "fix" this back to match beads's leave-it-alone
+    behavior. No STATE.md blocker append here either (sync.py's fail-open
+    paths do): the sentinel in the report plus the ship-transcript advisory
+    already carry the signal, and a per-run append would accumulate noise
+    on any machine without rumdl.
+
+    A rumdl returncode of 2 (config/runtime error) is NOT part of this
+    fail-open path -- count_violations raises RuntimeError for it, which
+    propagates uncaught, since a broken ruleset must never be silently
+    laundered into a fail-open zero.
+    """
+    phase_dir = Path(phase_dir_arg).resolve()
+    project_root = find_project_root(phase_dir)
+    padded_phase = phase_dir.name.split("-", 1)[0]
+
+    config_path = confined(project_root, *CONFIG_REL_PARTS)
+    targets = [confined(project_root, t) for t in LINT_TARGETS]
+    rumdl_argv = resolve_rumdl_invocation()
     out_path = phase_dir / f"{padded_phase}-LINT-REPORT.md"
-    out_path.write_text(frontmatter + body, encoding="utf-8")
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
+    if rumdl_argv is None:
+        print(NOTICE)
+        _write_report(
+            out_path, phase_dir, generated_at, config_path,
+            generated_from="none (rumdl and uvx both absent from PATH)",
+            violation_count="unavailable",
+            unavailable_reason="rumdl and uvx both absent from PATH",
+        )
+        return 0
+
+    argv = rumdl_argv + [
+        "check",
+        "--config", str(config_path),
+        "--output-format", "json",
+    ] + [str(t) for t in targets]
+
+    try:
+        violation_count = count_violations(config_path, targets, rumdl_argv)
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        print(NOTICE)
+        _write_report(
+            out_path, phase_dir, generated_at, config_path,
+            generated_from=" ".join(argv),
+            violation_count="unavailable",
+            unavailable_reason=f"{type(exc).__name__}: {exc}",
+        )
+        return 0
+
+    _write_report(
+        out_path, phase_dir, generated_at, config_path,
+        generated_from=" ".join(argv),
+        violation_count=violation_count,
+    )
     print(f"LINT-REPORT.md regenerated: {violation_count} violation(s)")
     return 0
 
