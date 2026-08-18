@@ -32,7 +32,7 @@ third candidate surfaced during scoping) is explicitly deferred — see Out of S
 
 ### MARKDOWN-LINTING
 
-- [ ] **MDL-01**: A curated `rumdl` config (MD001/MD003/MD009/MD012/MD022/MD024/MD040-equivalent
+- [x] **MDL-01**: A curated `rumdl` config (MD001/MD003/MD009/MD012/MD022/MD024/MD040-equivalent
       rules only — structural rules; line-length/inline-HTML/first-line-heading explicitly
       disabled, they fight `.planning/`'s frontmatter-led, agent-generated, `<details>`-using
       content) is invoked with an always-explicit `--config` path (rumdl's config auto-discovery
@@ -93,7 +93,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| MDL-01 | Phase 13 | Pending |
+| MDL-01 | Phase 13 | Complete |
 | MDL-02 | Phase 13 | Complete |
 | MDL-03 | Phase 13 | Complete |
 | MDL-04 | Phase 13 | Complete |

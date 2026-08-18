@@ -4,17 +4,17 @@ milestone: v1.2
 milestone_name: New Capability Plugins
 current_phase: 13
 current_phase_name: markdown-linting-capability-dogfood
-status: executing
-stopped_at: Completed 13-02-PLAN.md
-last_updated: "2026-08-18T12:30:03.070Z"
+status: verifying
+stopped_at: Completed 13-03-PLAN.md
+last_updated: "2026-08-18T12:45:22.875Z"
 last_activity: 2026-08-18
 last_activity_desc: v1.2 roadmap created (Phases 13-15, 8/8 requirements mapped)
 progress:
   total_phases: 3
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 1
-  percent: 0
+  completed_plans: 3
+  percent: 33
 ---
 
 # Project State
@@ -31,8 +31,8 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 Phase: 13 (markdown-linting-capability-dogfood) — EXECUTING
 Plan: 3 of 3
-Status: Ready to execute
-Progress: [███░░░░░░░] 33% (0/3 phases)
+Status: Phase complete — ready for verification
+Progress: [██████████] 100% (0/3 phases)
 Last activity: 2026-08-18 — Phase 13 execution started
 
 ## Performance Metrics
@@ -71,6 +71,7 @@ Last activity: 2026-08-18 — Phase 13 execution started
 | Phase 12 P04 | 12min | 2 tasks | 36 files |
 | Phase 13 P01 | 20min | 3 tasks | 8 files |
 | Phase 13 P02 | 15min | 2 tasks | 4 files |
+| Phase 13 P03 | ~12min | 3 tasks | 118 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -111,6 +112,8 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 13]: Narrowed .gitignore's blanket .gsd/ ignore (from quick-task 260818-h2h) to un-ignore .gsd/capabilities/markdown-linting/ specifically -- the bare pattern silently blocked this milestone's documented in-repo dogfood pattern for brand-new capabilities with no extracted plugin source yet
 - [Phase 13]: markdown-linting's verify_post fail-open path deliberately diverges from sync.py's regenerate_beads_md -- always overwrites LINT-REPORT.md with a non-numeric violation_count: unavailable sentinel instead of leaving a stale artifact untouched
 - [Phase 13]: dirty.md/clean.md fixtures pin MDL-01/02/04 test coverage against real rumdl subprocess calls, never the live .planning/ tree; real-subprocess tests skip cleanly (unittest.skipUnless) on a machine with no rumdl/uvx
+- [Phase 13]: isolated pre-existing unrelated dirty working-tree state (CLAUDE.md beads-block strip, state pruning, API-SURFACE staleness note, 13-PATTERNS.md) into its own prep commit before the wide auto-fix pass, so Task 1's mechanical-fix diff stayed spot-checkable
+- [Phase 13]: markdown-linting README's rumdl-vs-markdownlint-cli2 divergence table is measured post-fix (rumdl 0 vs cli2 309, all MD022/MD024) -- a materially different, non-comparable shape from the pre-fix 471-vs-708 figure in RESEARCH.md/REQUIREMENTS.md
 
 ### Pending Todos
 
@@ -122,10 +125,6 @@ None yet.
   extraction. If unmerged, each plugin's README must document the required local `ship.md` patch as
   a prerequisite, exactly as PROJECT.md already does — otherwise a stranger installs a plugin whose
   gate cannot fire.
-
-- **[Phase 13, MEDIUM confidence]** The curated `rumdl` ruleset is validated only in theory. Phase
-  13 must run it against the live `.planning/` tree and hand-review the output; if the corpus has
-  violations the ruleset misses, iterate on the ruleset before the gate ships.
 
 - **[Phases 13-14, advisory-by-design]** Both new gates default advisory. A green ship is therefore
   *not* evidence the gate works — only the live `gsd_run check predicate` smoke test is.
@@ -150,8 +149,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T12:30:03.064Z
-Stopped at: Completed 13-02-PLAN.md
+Last session: 2026-08-18T12:45:22.869Z
+Stopped at: Completed 13-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
