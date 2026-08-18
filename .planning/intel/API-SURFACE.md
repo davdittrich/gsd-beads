@@ -2,6 +2,8 @@
 
 > Generated from `.planning/intel/api-map.json`. Do not edit by hand.
 
+> **Warning:** api-map.json is stale (>24 hours old). Data below may be out of date.
+
 ## `CLI sync.py create-issues`
 
 - **method:** CLI
