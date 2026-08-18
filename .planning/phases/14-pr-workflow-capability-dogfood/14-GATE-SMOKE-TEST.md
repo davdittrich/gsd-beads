@@ -327,3 +327,96 @@ assertions alone:
 - The committed `14-PR.md` is run (a)'s output (re-run identically to restore the baseline after
   (b)/(c), then once more by this task's own `<verify>` command), with
   `generated_at: 2026-08-18T17:00:35Z` falling inside this task's own execution window.
+
+## Advisory, Not Blocking
+
+**Recorded:** 2026-08-18 (plan 14-03, Task 2). Demonstrates ROADMAP Success Criterion 3 in two
+layers -- the manifest's declared intent, and an observed unsatisfied predicate that the ship
+still proceeds past.
+
+### Layer 1 -- the manifest
+
+```text
+$ jq -c '.gates[0].blocking, .gates[0].onError' .gsd/capabilities/pr-workflow/capability.json
+false
+"skip"
+$ jq -e '.gates[0].blocking == false and .gates[0].onError == "skip"' .gsd/capabilities/pr-workflow/capability.json
+$ echo $?
+0
+```
+
+The installed `$HOME/.claude/gsd-core/workflows/ship.md`'s generic `ship:pre` dispatch loop (Step
+1 above already confirmed the patch marker present) states the two-step gate contract explicitly
+in Step 8(c):
+
+> This halt is **not** bypassed by `onError` — `onError` governs step 1 only, never the gate's
+> block decision. `hook.blocking == false` never halts; if `GATE_RESULT.block` is `true` print an
+> advisory line `⚠ {hook.capId} advisory: {GATE_RESULT.message}` and continue. `hook.blocking ==
+> true` AND `GATE_RESULT.block == false` continues silently.
+
+`pr-workflow`'s gate declares `blocking: false`, so per this passage a `GATE_RESULT.block: true`
+result can never halt shipping -- it can only ever print the advisory line and let the preflight
+sequence continue.
+
+### Layer 2 -- the observed, unsatisfied predicate
+
+A synthetic `14-PR.md` was placed in a scratch phase directory (outside `.planning/`), carrying
+`pr_status: failing` / `pr_gate_ok: false`:
+
+```text
+$ cat <scratch-dir>/14-PR.md
+---
+phase: synthetic-phase-failing
+pr_status: failing
+pr_gate_ok: false
+pr_number: 999
+open_pr_count: 1
+generated_from: "synthetic fixture for Advisory-Not-Blocking demonstration"
+generated_at: 2026-08-18T17:00:00Z
+---
+
+# PR.md: synthetic-phase-failing (synthetic fixture, not a real run)
+```
+
+The same `gsd_run check predicate` invocation form used in plan 14-01's Step 2 (and reused above
+in Step 2's `failing` case) was run against it:
+
+```text
+$ node "$HOME/.claude/gsd-core/bin/gsd-tools.cjs" check predicate \
+    --predicate '{"kind":"artifact-frontmatter-equals","artifact":"PR.md","field":"pr_gate_ok","equals":true}' \
+    --phase-dir <scratch-dir> --phase-number 14 --raw
+{
+  "block": true,
+  "message": "Frontmatter field \"pr_gate_ok\" in PR.md is false, expected true",
+  "details": {
+    "kind": "artifact-frontmatter-equals",
+    "match": false,
+    "actual": "false",
+    "expected": true
+  }
+}
+```
+
+The predicate response's `block` value is `true`, while the gate's own declared `blocking` value
+(Layer 1) is `false`. **The two together are what "advisory" means here**: the predicate is
+genuinely unsatisfied -- this is not a gate that always reports satisfied -- and the ship
+proceeds anyway, printing the `⚠ pr-workflow advisory: {message}` line named in Step 8(c) rather
+than halting. A satisfied predicate (`block: false`) would not have proven this claim, because a
+gate that never fails cannot demonstrate that failing is non-fatal -- it would be indistinguishable
+from a gate that silently blocks nothing because it is never asked to evaluate a failing case.
+`git status --short .gsd/capabilities/pr-workflow/capability.json` shows the manifest unchanged by
+this task -- the advisory behavior is read out of the shipped values, never edited to fit the
+claim.
+
+## Result
+
+Every one of ROADMAP Phase 14's five Success Criteria is backed by recorded evidence in this
+document or its sibling plans, not by manifest inspection alone:
+
+| # | Success Criterion | Requirement | Evidence |
+|---|--------------------|-------------|----------|
+| 1 | `execute:wave:post` writes `PR.md` with a `pr_status` matching live `gh pr checks`; a re-run rewrites rather than appends | PRW-01 | Plan 14-01 Task 1 (live `verify-post` run against this repo's real `main` branch, rerun-overwrite unit tests); this plan's Live Cycle Evidence run (a) |
+| 2 | Synthetic-`PR.md` smoke test shows the gate tri-state: satisfied for `none`/`passing`, unsatisfied for `pending`/`failing` | PRW-02 | This document's Step 2 (four-case predicate smoke test) |
+| 3 | The gate is advisory: a `failing` status still ships, with a visible warning naming the status | PRW-02 | This document's `## Advisory, Not Blocking` section (this plan's Task 2) |
+| 4 | Shipping with no open PR prints exactly one warn-only notice; `gh pr list` is identical before/after, nothing created | PRW-03 | This document's `## Live Cycle Evidence` run (d) (this plan's Task 1); unit-level backing in plan 14-02 |
+| 5 | `gh` absent, and `gh` present-but-unauthenticated, each degrade to exactly one visible notice with no stale `PR.md` and no hang | PRW-04 | This document's `## Live Cycle Evidence` runs (b) and (c) (this plan's Task 1); unit-level backing in plan 14-02 |
