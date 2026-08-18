@@ -4,17 +4,17 @@ milestone: v1.2
 milestone_name: New Capability Plugins
 current_phase: 14
 current_phase_name: pr-workflow capability (dogfood)
-status: executing
-stopped_at: Completed 14-02-PLAN.md
-last_updated: "2026-08-18T16:52:29.214Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 14-03-PLAN.md
+last_updated: "2026-08-18T17:07:35.551Z"
 last_activity: 2026-08-18
-last_activity_desc: Phase 13 complete, transitioned to Phase 14
+last_activity_desc: Phase 14 complete (all 3 plans executed, live degrade-cycle evidence recorded)
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 7
-  completed_plans: 6
-  percent: 33
+  completed_plans: 7
+  percent: 67
 ---
 
 # Project State
@@ -30,17 +30,17 @@ duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 14 — pr-workflow capability (dogfood)
-Plan: 02 complete (2/3 plans)
-Status: Executing
-Progress: [█████████░] 86% (6/7 plans, v1.2)
-Last activity: 2026-08-18 — Plan 14-02 complete (PRW-03/PRW-04 fail-open notices + ship:post no-open-PR notice)
+Plan: 03 complete (3/3 plans)
+Status: Phase complete — ready for verification
+Progress: [██████████] 100% (7/7 plans, v1.2)
+Last activity: 2026-08-18 — Plan 14-03 complete (live degrade-cycle evidence, capability re-consent, advisory-gate proof; all 5 ROADMAP SCs mapped to evidence)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed (v1.2): 6
-- Average duration: ~16min (Phase 13 P01-P04 + Phase 14 P01-P02)
+- Total plans completed (v1.2): 7
+- Average duration: ~17min (Phase 13 P01-P04 + Phase 14 P01-P03)
 - Total execution time: -
 
 **Recent Trend:**
@@ -75,6 +75,7 @@ Last activity: 2026-08-18 — Plan 14-02 complete (PRW-03/PRW-04 fail-open notic
 | Phase 13 P04 | 10min | 2 tasks | 2 files |
 | Phase 14 P01 | ~25min | 2 tasks | 12 files |
 | Phase 14 P02 | ~20min | 2 tasks | 4 files |
+| Phase 14 P03 | ~25min | 2 tasks | 3 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -119,6 +120,8 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase 14]: the -t . unittest-discover verify-command defect (dotted-module-name incompatible with the hidden .gsd/ dir) was inherited from Phase 13's plan-doc shape and fixed at the plan-doc level for 14-01/14-02/14-03-PLAN.md (commit f31e6f4), mirroring Phase 13's own fix -- no code change, verification behavior unaffected
 - [Phase 14]: verify_post's live gh calls wrapped in a single try/except catching only TimeoutExpired/OSError/JSONDecodeError, leaving check_buckets' RuntimeError (unrelated gh pr checks stderr) uncaught on purpose
 - [Phase 14]: ship_post_notice() never reads PR.md -- PRW-03's no-open-PR answer is always a live gh pr list re-probe, never a possibly-stale generated artifact
+- [Phase 14]: re-consented pr-workflow capability (capability install --scope project --yes) before trusting any live dispatch this session -- 14-01/14-02 both edited files inside the bundle after the original consent, silently deactivating it until re-installed
+- [Phase 14]: Phase 14 complete -- all four requirements (PRW-01..04) and all five ROADMAP Success Criteria closed with live-cycle evidence in 14-GATE-SMOKE-TEST.md, not unit assertions alone
 
 ### Pending Todos
 
@@ -154,16 +157,23 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-18T16:52:29.208Z
-Stopped at: Completed 14-02-PLAN.md
+Last session: 2026-08-18T17:07:35.544Z
+Stopped at: Completed 14-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
 
-- Execute `14-03-PLAN.md` next (live degrade-cycle evidence appendix closing out PRW-03/PRW-04's
-  live-verification scope). Builds on `14-01`'s proven tracer slice/gate and `14-02`'s fail-open
-  notices + `ship:post` no-open-PR notice, both already unit-tested and live-verified once each.
-- Re-run `capability install --scope project` (or global, matching the prior install) for
-  `pr-workflow` before trusting a real lifecycle dispatch -- `14-02` edited files inside the
-  bundle, invalidating the consent hash recorded after `14-01` (per-phase recurring gotcha, see
-  Decisions above).
+- Phase 14 is complete: all 3 plans executed, all four requirements (PRW-01..04) satisfied, and
+  all five ROADMAP Success Criteria mapped to recorded evidence in
+  `.planning/phases/14-pr-workflow-capability-dogfood/14-GATE-SMOKE-TEST.md`'s closing Result
+  table. Run `/gsd-verify-work` for Phase 14 next.
+
+- After verification, Phase 15 (ship both `markdown-linting` and `pr-workflow` as public,
+  marketplace-installable plugins) can be planned — both capabilities' gates are live-proven to
+  fire correctly and advisorily on this machine, the baseline Phase 15's extraction work needs to
+  preserve.
+
+- Any further edit inside `.gsd/capabilities/pr-workflow/` (including Phase 15's extraction work,
+  if it touches the bundle in place before publishing) will again invalidate the project-scope
+  consent hash and require `capability install --scope project --yes` before the next live
+  dispatch is trusted (per-phase recurring gotcha, see Decisions above).

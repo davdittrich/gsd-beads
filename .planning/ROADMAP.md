@@ -132,7 +132,7 @@ when this phase's higher-risk gate is introduced)
      execute → ship cycle completes with exactly one visible notice per case and no stale `PR.md`
      presented as current. (PRW-04)
 
-**Plans**: 2/3 plans executed
+**Plans**: 3/3 plans executed
 
 Plans:
 
@@ -147,7 +147,7 @@ Plans:
 - [x] 14-02-PLAN.md — Degrade cleanly: two distinct fail-open notices for `gh` absent vs
       unauthenticated, and the `ship:post` warn-only no-open-PR notice that creates nothing
 
-- [ ] 14-03-PLAN.md — Live evidence: re-consent the bundle, record both `gh`-degraded cycles and
+- [x] 14-03-PLAN.md — Live evidence: re-consent the bundle, record both `gh`-degraded cycles and
       the no-open-PR cycle, and demonstrate the gate is advisory rather than blocking
 
 ### Phase 15: Ship markdown-linting and pr-workflow plugins publicly
@@ -191,7 +191,7 @@ entry"). Traceability follows Phase 12's extraction playbook decisions D-01..D-1
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 13. markdown-linting capability (dogfood) | 4/4 | Complete    | 2026-08-18 |
-| 14. pr-workflow capability (dogfood) | 2/3 | In Progress|  |
+| 14. pr-workflow capability (dogfood) | 3/3 | In Progress|  |
 | 15. Ship both plugins publicly | 0/? | Not started | - |
 
 ## Cross-Cutting Constraints (v1.2)
