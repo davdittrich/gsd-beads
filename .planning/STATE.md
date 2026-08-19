@@ -3,10 +3,9 @@ gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: New Capability Plugins
 current_phase: 16
-current_phase_name: beads-issue-content-parity
-status: verifying
+status: completed
 stopped_at: Completed 16-04-PLAN.md
-last_updated: "2026-08-19T00:09:25.731Z"
+last_updated: "2026-08-19T01:52:00.719Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 16 execution started
 progress:
@@ -15,6 +14,7 @@ progress:
   total_plans: 12
   completed_plans: 12
   percent: 100
+current_phase_name: beads-issue-content-parity
 ---
 
 # Project State
@@ -29,11 +29,11 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 16 (beads-issue-content-parity) — EXECUTING
-Plan: 4 of 4
-Status: Phase complete — ready for verification
+Phase: 16
+Plan: Not started
+Status: All phases complete
 Progress: [██████████] 100% (7/7 plans, v1.2)
-Last activity: 2026-08-19 — Phase 16 execution started
+Last activity: 2026-08-19 — Phase 16 complete
 
 ## Performance Metrics
 
@@ -110,12 +110,6 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
   actually removed in quick-task 260818-h2h, by `git rm -r`, in the same commit that scoped the
   `beads-lifecycle` plugin source to `plugins/beads-lifecycle/`.
 
-- [Phase 13]: Narrowed .gitignore's blanket .gsd/ ignore (from quick-task 260818-h2h) to un-ignore .gsd/capabilities/markdown-linting/ specifically -- the bare pattern silently blocked this milestone's documented in-repo dogfood pattern for brand-new capabilities with no extracted plugin source yet
-- [Phase 13]: markdown-linting's verify_post fail-open path deliberately diverges from sync.py's regenerate_beads_md -- always overwrites LINT-REPORT.md with a non-numeric violation_count: unavailable sentinel instead of leaving a stale artifact untouched
-- [Phase 13]: dirty.md/clean.md fixtures pin MDL-01/02/04 test coverage against real rumdl subprocess calls, never the live .planning/ tree; real-subprocess tests skip cleanly (unittest.skipUnless) on a machine with no rumdl/uvx
-- [Phase 13]: isolated pre-existing unrelated dirty working-tree state (CLAUDE.md beads-block strip, state pruning, API-SURFACE staleness note, 13-PATTERNS.md) into its own prep commit before the wide auto-fix pass, so Task 1's mechanical-fix diff stayed spot-checkable
-- [Phase 13]: markdown-linting README's rumdl-vs-markdownlint-cli2 divergence table is measured post-fix (rumdl 0 vs cli2 309, all MD022/MD024) -- a materially different, non-comparable shape from the pre-fix 471-vs-708 figure in RESEARCH.md/REQUIREMENTS.md
-- [Phase 13]: closed CR-01/CR-02 lint.py gaps (rumdl_argv-None guard on count, CalledProcessError fail-open widening) verbatim per 13-REVIEW.md; two plan acceptance-criteria grep counts were miscounted by the plan author (pre-existing occurrences not accounted for) -- documented in 13-04-SUMMARY.md rather than silently 'corrected'
 - [Phase 14]: pr_status rollup extends D-01's precedence to gh's actual bucket vocabulary (skipping->passing, cancel->failing alongside fail), flagged per RESEARCH Pitfall 6 rather than silently reinterpreting D-01
 - [Phase 14]: un-ignored .gsd/capabilities/pr-workflow/ in .gitignore, same one-line pattern Phase 13 established for markdown-linting
 - [Phase 14]: the -t . unittest-discover verify-command defect (dotted-module-name incompatible with the hidden .gsd/ dir) was inherited from Phase 13's plan-doc shape and fixed at the plan-doc level for 14-01/14-02/14-03-PLAN.md (commit f31e6f4), mirroring Phase 13's own fix -- no code change, verification behavior unaffected

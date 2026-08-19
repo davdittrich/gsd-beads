@@ -61,3 +61,31 @@ Pruned entries from STATE.md. Recoverable but no longer loaded into agent contex
 
 | 07 | 2 | - | - |
 | 08 | 3 | - | - |
+
+## Pruned 2026-08-18 (phases 1-11, kept recent 3)
+
+### Decisions
+
+- [Phase 3]: `ship:pre` gate dispatch in the installed `ship.md` is a **machine-local patch**
+- [Phase 6/10]: gsd-core capability consent is a content hash over the whole bundle — any
+- [Phase 10.1]: `hooks/capability-auto-install.sh` hashes the bundle against a per-id sidecar and
+- [Phase 11]: `sota-numerics`' `plan:post` gate uses `onError: halt` (deliberate divergence) and
+
+## Pruned 2026-08-18 (phases 1-12, kept recent 3)
+
+### Decisions
+
+- [Phase 12]: `davdittrich/ponytail-everywhere` and `davdittrich/sota-numerics` shipped via the
+- [Phase 12]: `marketplace.json` entries must use `url`-type sources with explicit `https://` git
+- [Phase 12]: The claim previously recorded here — that dogfood subdirectories were removed from
+
+## Pruned 2026-08-19 (phases 1-13, kept recent 3)
+
+### Decisions
+
+- [Phase 13]: Narrowed .gitignore's blanket .gsd/ ignore (from quick-task 260818-h2h) to un-ignore .gsd/capabilities/markdown-linting/ specifically -- the bare pattern silently blocked this milestone's documented in-repo dogfood pattern for brand-new capabilities with no extracted plugin source yet
+- [Phase 13]: markdown-linting's verify_post fail-open path deliberately diverges from sync.py's regenerate_beads_md -- always overwrites LINT-REPORT.md with a non-numeric violation_count: unavailable sentinel instead of leaving a stale artifact untouched
+- [Phase 13]: dirty.md/clean.md fixtures pin MDL-01/02/04 test coverage against real rumdl subprocess calls, never the live .planning/ tree; real-subprocess tests skip cleanly (unittest.skipUnless) on a machine with no rumdl/uvx
+- [Phase 13]: isolated pre-existing unrelated dirty working-tree state (CLAUDE.md beads-block strip, state pruning, API-SURFACE staleness note, 13-PATTERNS.md) into its own prep commit before the wide auto-fix pass, so Task 1's mechanical-fix diff stayed spot-checkable
+- [Phase 13]: markdown-linting README's rumdl-vs-markdownlint-cli2 divergence table is measured post-fix (rumdl 0 vs cli2 309, all MD022/MD024) -- a materially different, non-comparable shape from the pre-fix 471-vs-708 figure in RESEARCH.md/REQUIREMENTS.md
+- [Phase 13]: closed CR-01/CR-02 lint.py gaps (rumdl_argv-None guard on count, CalledProcessError fail-open widening) verbatim per 13-REVIEW.md; two plan acceptance-criteria grep counts were miscounted by the plan author (pre-existing occurrences not accounted for) -- documented in 13-04-SUMMARY.md rather than silently 'corrected'

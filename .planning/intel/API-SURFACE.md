@@ -64,7 +64,7 @@
 
 - **method:** CLI
 - **path:** sync.py migrate-todos
-- **params:**
+- **params:** 
 - **file:** .gsd/capabilities/beads/scripts/sync.py
 - **description:** One-shot migration of every parseable .planning/todos/pending/*.md file into a mapped bd issue, deleting the source file on success.
 

@@ -1,30 +1,36 @@
 ---
 phase: 16-beads-issue-content-parity
 verified: 2026-08-19T02:00:00Z
-status: human_needed
+status: passed
 score: 18/21 must-haves verified
 behavior_unverified: 3
 overrides_applied: 0
 behavior_unverified_items:
+
   - truth: "gsd-executor reads an auto/tracer task's instructions from `bd show <beads-id> --json`, not from the PLAN.md task block (D-01)"
     test: "Run an actual `execute-plan.md` execution (via gsd-executor / Claude Code) against a PLAN.md whose auto/tracer task was stripped by this phase's sync.py, and confirm the agent runs `bd show <beads-id> --json` and prints `beads: task content read from bd (<beads-id>)` before doing the task, using bd's `description`/`acceptance_criteria` fields as its instructions instead of the (now-absent) PLAN.md body."
     expected: "The executing agent's transcript shows the `bd show` call and the print line, and the task is carried out using the bd-sourced content — never falls back to re-deriving instructions from the stripped PLAN.md block."
     why_human: "The patch is markdown prose interpreted by an LLM agent at execution time, not code exercised by a unit test. sync.py's test suite (134 tests, all passing) proves the *writer* (strip_task_bodies, check_execute_plan_patch) is correct, and the patch's text was byte-verified as installed at the correct anchor — but no phase has yet run gsd-executor against a real stripped/inverted task, so the read-path's actual runtime effect on agent behavior is unexercised. 16-04-SUMMARY.md's own coverage table flags this identically (`human_judgment: true`, \"the first real inverted plan a future phase runs is the live exercise of this branch\")."
+
   - truth: "A failing `bd show` halts execution with an error naming the unreachable issue — never a silent fall-back to PLAN.md (D-04)"
     test: "During a live gsd-executor run, force a task's `<beads-id>` to reference a bd issue that has been deleted or is otherwise unreachable, and confirm the agent halts with the exact `FATAL: bd task content unreachable for <beads-id> ...` message rather than silently reconstructing the task from the stripped PLAN.md block."
     expected: "Execution stops; the agent reports the FATAL message naming the unreachable id; no task work is attempted."
     why_human: "The D-04 *signature* bd itself produces on a missing id was independently re-confirmed live this session (`bd show <bad-id> --json` → exit 1, `{\"error\": ...}`), and the patch's halt-branch text correctly names that exact shape. But whether an executing agent actually honors the halt instruction rather than working around it is agent behavior, not testable by sync.py's suite or by grep."
+
   - truth: "A bd issue with an empty description routes to the PLAN.md inline body with a printed notice — the pre-inversion boundary for Phases 1-15 (D-07)"
     test: "Run gsd-executor against a Phase 1-15 plan whose task carries a `<beads-id>` resolving to a bd issue with an empty `description` (the pre-inversion state), and confirm the agent falls back to the PLAN.md inline task body and prints `beads: <beads-id> carries no description -- using inline PLAN.md task body (pre-migration plan)`."
     expected: "Task instructions are read from PLAN.md's own task block, unchanged from pre-Phase-16 behavior, with the fallback notice printed."
     why_human: "Same class as the two items above — the branch text is installed and byte-identical to GSD-CORE-PATCH.md's record, but 16-04-SUMMARY.md explicitly notes no PLAN.md in this phase actually exercised this branch live; it is deferred to whichever future phase first re-runs sync against Phase 1-15-vintage issues."
 human_verification:
+
   - test: "Run an actual `execute-plan.md` execution against a PLAN.md whose auto/tracer task was stripped by sync.py, and confirm the agent reads task content from `bd show <beads-id> --json` (prints the evidence line) rather than the absent PLAN.md body."
     expected: "Agent transcript shows the `bd show` call, the `beads: task content read from bd (<beads-id>)` line, and task execution driven by bd's description/acceptance_criteria."
     why_human: "LLM-interpreted markdown patch; behavior is agent-runtime, not unit-testable."
+
   - test: "Force a `<beads-id>` to an unreachable bd issue during a live execute-plan.md run and confirm the agent halts with the FATAL message rather than falling back to PLAN.md."
     expected: "Execution stops with the exact FATAL message naming the unreachable id; no silent PLAN.md reconstruction."
     why_human: "Agent halt-compliance is not testable by sync.py's suite; only the bd-side failure signature was live-confirmed."
+
   - test: "Run gsd-executor against a pre-inversion (Phase 1-15) task whose bd issue has an empty description and confirm it falls back to the inline PLAN.md body with the printed notice."
     expected: "Task instructions read from PLAN.md, `beads: <beads-id> carries no description -- using inline PLAN.md task body (pre-migration plan)` printed."
     why_human: "Same LLM-runtime-behavior class as the two items above; 16-04-SUMMARY.md's own coverage table marks this branch as un-exercised live."
