@@ -1,7 +1,7 @@
 {
   "id": "beads",
   "role": "feature",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "title": "Beads issue tracking",
   "description": "Beads is the task substrate: gsd plan tasks exist as beads issues, their status lives in beads.",
   "tier": "full",

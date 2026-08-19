@@ -79,14 +79,24 @@ this entire beads-recall `plan:pre` dispatch already runs under.
 
 This is the call site that actually *detects* patch loss for both patches (unlike `beads-status`'s
 Step 2d, which only *confirms* the `ship.md` patch is still intact, and has no counterpart at all
-for the `execute-plan.md` patch): `plan:pre` is dispatched by gsd-core's own native generic
-step-dispatch loop, the same mechanism `ship:post` already has and `ship:pre` lacked before
-`GSD-CORE-PATCH.md`'s first patch existed -- so both checks keep firing even when the patch they
-check has been silently stripped by a `gsd-core` update or capability reinstall, the exact
+for the `execute-plan.md` patch).
+
+**Corrected 0.3.0 (gh-2).** The original independence argument here was that `plan:pre` "is
+dispatched by gsd-core's own native generic step-dispatch loop". It is not. `plan-phase.md` §5.6
+states its generic step contract but only ever fires it from Branch 5, which requires
+`AUTO_CHAIN == true`, and Branch 2 returns to step 6 outright when the phase shows no frontend
+indicators. A manually invoked `/gsd:plan-phase` therefore reached neither -- so the detector
+shared the failure mode of the thing it protects, and had been silently not running.
+
+Independence is now real, by a different route: `plan:pre` is dispatched by
+`hooks/lifecycle-dispatch.sh`, a `PostToolUse` hook keyed on the
+`gsd_run loop render-hooks plan:pre --raw` call gsd-core makes regardless of branch. That hook
+runs both checks itself, so they fire whether this skill is invoked or not, and keep firing when
+the patch they check has been stripped by a `gsd-core` update or capability reinstall -- the exact
 scenario in which `beads-status`'s `ship:pre`-gated Step 2d cannot run at all for the `ship.md`
 patch (its own call site depends on the patch it verifies), and the exact scenario the
 `execute-plan.md` patch has no `ship:pre`-gated confirmation step at all (by design -- see
-`GSD-CORE-PATCH.md` Patch 2, and Anti-Pattern 5 below).
+`GSD-CORE-PATCH.md`'s "Scope" section and Patch 2, and Anti-Pattern 5 below).
 
 ## Step 4 -- Report
 

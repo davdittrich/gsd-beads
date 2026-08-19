@@ -9,6 +9,37 @@ upstream tracking plus an explicit revert condition, the patch-loss-detection in
 argument, the insertion anchor stated in prose, and the marker pair with verbatim content for
 reapplication.
 
+## Scope: why there are only two patches, not six
+
+`capability.json` declares six `kind: "step"` hooks and gsd-core 1.10.0 has no generic
+`kind == "step"` dispatch at five of those points (gh-2). That is the same defect Patch 1 below
+was written for, at four more call sites — `plan-phase.md`'s §13e (`plan:post`, gate-only) and
+§5.6 (`plan:pre`, behind an auto-chain + frontend-detection branch), and `execute-phase.md`'s
+2.75 (`execute:wave:pre`, contribution-only), 5.75 (`execute:wave:post`, gate-only) and its
+`verify:post` step loop (hardcoded to `ref.skill == "secure-phase"`).
+
+**Those four are deliberately NOT patched.** They are dispatched instead by
+`hooks/lifecycle-dispatch.sh`, a `PostToolUse` hook matching the
+`gsd_run loop render-hooks <point> --raw` call gsd-core makes at each of them, which runs
+`sync.py lifecycle-dispatch <point>` directly. Three reasons that mechanism was chosen over four
+more patches:
+
+1. **Dispatch stops depending on prose.** A marker-bracketed patch is a paragraph a model has to
+   read and obey inside a workflow file. The hook is a script the harness runs.
+2. **It cannot be silently dropped.** Its trigger is a call gsd-core must keep making for its own
+   hook system to work at all, so there is nothing for a gsd-core update to strip — which is what
+   the patch-loss machinery below exists to detect, imperfectly.
+3. **The detector's own independence argument was false.** Both patches below name
+   `beads-recall`'s Step 3.5 at `plan:pre` as the loss detector *because `plan:pre` is natively
+   dispatched*. It is not, for a manual `/gsd:plan-phase` — so the detector shared the failure
+   mode of the thing it protects. Step 3.5 now runs from the hook, which restores the
+   independence the argument assumed.
+
+`ship:pre` still needs Patch 1 and is deliberately excluded from the hook's point list: it
+already dispatches through that patch, and adding it would double-record a `ship_override`.
+`execute-plan.md`'s Patch 2 is a per-task read path, not a hook dispatch point, so the hook
+mechanism does not apply to it at all. Both revert conditions below stand unchanged.
+
 ## Patch 1: `ship.md` — `ship:pre` generic gate/step dispatch
 
 **Target file:** `$HOME/.claude/gsd-core/workflows/ship.md` — machine-local, shared across

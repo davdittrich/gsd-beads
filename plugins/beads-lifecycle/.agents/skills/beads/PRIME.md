@@ -20,16 +20,27 @@ This project runs gsd-core's plan/execute/verify/ship lifecycle on top of `bd`. 
 
 ## Sync points
 
-Six `capability.json` lifecycle steps dispatch bd integration automatically — none of them can fail a phase (`onError: skip` on every one):
+Six `capability.json` lifecycle steps dispatch bd integration automatically — none of them can fail a phase (`onError: skip` on every one). The **Dispatched by** column matters: gsd-core reaches only `ship:pre` on its own (and only through this capability's `ship.md` patch), so the other five run from the plugin's `PostToolUse` hook instead — see **Dispatch mechanism** below.
 
-| Point | Skill | Effect |
-|---|---|---|
-| `plan:pre` | `beads-recall` | Scans open bd issues, writes `BEADS-RECALL.md` naming any that may touch the phase about to be planned; consumed by the planner. |
-| `plan:post` | `beads-sync` | Parses the just-written `PLAN.md`, creates/resolves the phase epic and one issue per task, rewrites the plan with `beads_epic`/`<beads-id>`. |
-| `execute:wave:pre` | `beads-status` | Regenerates `BEADS.md` from a live `bd` query and composes the wave's `<beads_status>` block for the orchestrator to paste into each executor's prompt. |
-| `execute:wave:post` | `beads-status` | Batch-closes every completed task's bd issue across every plan that finished in the wave. |
-| `verify:post` | `beads-status` | Regenerates `BEADS.md` read-only — no wave/plan context, no close dispatch. |
-| `ship:pre` | `beads-status` | Records a `ship_override` if the ship gate was bypassed with open/diverged issues, and confirms the local `ship.md` patch is intact. |
+| Point | Skill | Dispatched by | Effect |
+|---|---|---|---|
+| `plan:pre` | `beads-recall` | PostToolUse hook | Scans open bd issues, writes `BEADS-RECALL.md` naming any that may touch the phase about to be planned; consumed by the planner. Also runs both gsd-core patch-loss checks. |
+| `plan:post` | `beads-sync` | PostToolUse hook | Parses every `PLAN.md` in the phase, creates/resolves the phase epic and one issue per task, rewrites each plan with `beads_epic`/`<beads-id>`. |
+| `execute:wave:pre` | `beads-status` | PostToolUse hook | Regenerates `BEADS.md` from a live `bd` query and composes a `<beads_status>` block for the orchestrator to paste into each executor's prompt. Phase-wide, not wave-scoped — the hook's trigger carries no wave plan-id list. |
+| `execute:wave:post` | `beads-status` | PostToolUse hook | Closes every task-complete bd issue across every plan in the phase (`reconcile-stale-closed`, idempotent). |
+| `verify:post` | `beads-status` | PostToolUse hook | Regenerates `BEADS.md` read-only — no wave/plan context, no close dispatch. |
+| `ship:pre` | `beads-status` | gsd-core (patched `ship.md`) | Records a `ship_override` if the ship gate was bypassed with open/diverged issues, and confirms the local `ship.md` patch is intact. |
+
+## Dispatch mechanism
+
+gsd-core 1.10.0 has no generic `kind: "step"` dispatch loop at five of these six points: `plan:post` and `execute:wave:post` dispatch `kind == "gate"` entries only, `execute:wave:pre` checks solely for a *contribution*, `verify:post` hardcodes `ref.skill == "secure-phase"`, and `plan:pre`'s generic contract sits behind an auto-chain + frontend-detection branch. Because every hook is `onError: skip`, a declared-but-undispatched step is silent (gh-2).
+
+What gsd-core does still do at all five is run `gsd_run loop render-hooks <point> --raw`. `hooks/lifecycle-dispatch.sh` is a `PostToolUse` hook that matches that Bash call and runs `sync.py lifecycle-dispatch <point>` itself, returning output through `hookSpecificOutput.additionalContext`. The trigger is a call gsd-core must keep making for its own hook system to function, so a gsd-core update cannot silently strip it.
+
+Two consequences worth knowing:
+
+- **Claude Code only.** `PostToolUse` is a Claude Code hook. On another runtime these five points stay undispatched; run the `sync.py` verbs by hand, or use `python3 .gsd/capabilities/beads/scripts/sync.py lifecycle-dispatch <point>`.
+- **`beads.enabled` is re-read by `sync.py`**, not by the capability registry — the hook bypasses the registry that evaluates each step's `when` condition.
 
 ## Ship gate
 

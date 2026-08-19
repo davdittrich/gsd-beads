@@ -71,6 +71,9 @@ gsd-core's own lifecycle commands drive `bd` state directly:
 4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
    refuse to ship while `blocking_open` or `diverged` is non-zero.
 
+Steps 1–3 run from a `PostToolUse` hook the plugin installs; step 4 runs from gsd-core itself.
+That split is not cosmetic — see [How the lifecycle steps get dispatched](#how-the-lifecycle-steps-get-dispatched).
+
 The bare `bd` CLI still works as a manual escape hatch for inspecting or driving the same
 issues by hand between lifecycle steps:
 
@@ -81,6 +84,38 @@ bd close <id> --reason="Completed"
 ```
 
 See `AGENTS.md` in this repo for the full command reference.
+
+### How the lifecycle steps get dispatched
+
+`capability.json` declares six `kind: "step"` hooks, one per lifecycle point. gsd-core reaches
+exactly one of them on its own — `ship:pre`, and only because this capability patches a generic
+dispatch loop into the installed `ship.md`. At the other five, gsd-core 1.10.0 resolves the hook
+JSON and then discards every `kind: "step"` entry: `plan:post` and `execute:wave:post` dispatch
+`kind == "gate"` entries only, `execute:wave:pre` checks solely for a *contribution*,
+`verify:post` hardcodes `ref.skill == "secure-phase"`, and `plan:pre`'s generic step contract
+sits behind an auto-chain + frontend-detection branch that a manual `/gsd:plan-phase` never
+enters. Every hook is `onError: skip`, so before v0.3.0 that miss was silent: a phase could plan
+and execute end-to-end with zero `bd` issues and nothing reporting it
+([#2](https://github.com/davdittrich/gsd-beads/issues/2)).
+
+What gsd-core does still do at each of those five points is run
+`gsd_run loop render-hooks <point> --raw`. The plugin ships a `PostToolUse` hook
+(`hooks/lifecycle-dispatch.sh`) that matches exactly that Bash call and runs the point's
+operation itself, returning any output through `hookSpecificOutput.additionalContext`. The
+trigger is a call gsd-core must keep making for its own hook system to work at all, so unlike a
+patched workflow file this cannot be silently dropped by a gsd-core update.
+
+The equivalent manual invocation, for a runtime with no `PostToolUse` support or for driving a
+point by hand:
+
+```bash
+python3 .gsd/capabilities/beads/scripts/sync.py lifecycle-dispatch plan:post
+```
+
+Valid points are `plan:pre`, `plan:post`, `execute:wave:pre`, `execute:wave:post` and
+`verify:post`. The verb always exits `0` — it honors the same `onError: skip` contract the hooks
+declare — and re-reads `beads.enabled` itself, because entering from a harness hook bypasses the
+capability registry that would normally evaluate each step's `when` condition.
 
 ## Configuration
 
@@ -169,6 +204,14 @@ claude plugin uninstall beads-lifecycle@gsd-beads -y
   call fails, and every gsd lifecycle step that reads live `bd` state degrades to a no-op
   with a visible notice instead of crashing — beads support is fail-open by design, not a
   hard dependency.
+- **Five of the six lifecycle points are dispatched by a Claude Code `PostToolUse` hook, not by
+  gsd-core.** gsd-core has no generic `kind: "step"` dispatch at those points (see [How the
+  lifecycle steps get dispatched](#how-the-lifecycle-steps-get-dispatched)). On a runtime with no
+  `PostToolUse` support, those five points stay undispatched and only `ship:pre` runs — drive the
+  rest with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre` `<beads_status>` block is
+  phase-wide rather than wave-scoped for the same reason: the hook's trigger carries no wave
+  plan-id list. That is a superset of the wave's issues, so no ticket pointer is lost, just less
+  narrowly scoped.
 - **This repository's own beads backend is Dolt-only.** There is no `.beads/issues.jsonl`
   passive export file in this repo at all — not merely a stale one. Dolt is the sole store;
   `bd dolt push`/`pull` is the sync path.
