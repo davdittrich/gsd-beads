@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.2
-milestone_name: New Capability Plugins
-status: Awaiting next milestone
-stopped_at: Completed 16-04-PLAN.md
-last_updated: "2026-08-19T07:43:48.474Z"
+milestone: v1.3
+milestone_name: Config/Code Truth
+status: planning
+last_updated: "2026-08-19T20:51:32.964Z"
 last_activity: 2026-08-19
-last_activity_desc: "Quick task 260819-k4p: gh-2 lifecycle hook dispatch fix, shipped as 0.3.0/1.3.0"
 progress:
-  total_phases: 4
-  completed_phases: 4
-  total_plans: 16
-  completed_plans: 16
-  percent: 100
-current_phase: null
-current_phase_name: null
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: Milestone v1.2 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-19 — Completed quick task 260819-e7a: Revise README.md with a full gsd-beads configuration reference section
+Status: Defining requirements
+Last activity: 2026-08-19 — Milestone v1.3 started
 
 ## Performance Metrics
 

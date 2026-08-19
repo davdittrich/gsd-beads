@@ -114,11 +114,32 @@ from the marketplace-installed copy. Every `bd create` now writes a real descrip
 acceptance criteria instead of a title-only stub, and `gsd-executor` reads `auto`/`tracer` task
 instructions from `bd show`, not `PLAN.md`.
 
-## Next Milestone Goals
+## Current Milestone: v1.3 Config/Code Truth
 
-Not yet defined — run `/gsd-new-milestone` (questioning → research → requirements → roadmap).
-`get-available-resources` (dropped from v1.2, see Out of Scope) is a candidate if the need
-resurfaces.
+**Goal:** Every config key this capability declares is one the code actually reads, and the
+patch-checker duplication the gh-2 post-release review flagged is gone.
+
+**Target features:**
+- `beads.sync_mode` stops being a declared-but-dead config surface — either the enum becomes
+  real or the declaration and its README description narrow to what the code does
+  (`gsd-beads-v43`, P1). Direction is deliberately undecided here: the planner must produce an
+  Alternatives Considered table and clear the plan-checker before anything is written.
+- `check_shipmd_patch` and `check_execute_plan_patch` collapse into one table-driven reader
+  (`gsd-beads-t7a`, P3) — ~39 body lines each, differing only in filename, marker constant and
+  four message strings.
+
+**No new features.** Both items are pre-existing divergences surfaced by the four-lens review of
+the gh-2 fix, not new capability.
+
+**Why this milestone is explicitly gated:** the gh-2 fix shipped on the quick path (no
+plan-check, no verifier) on 2026-08-19 as v1.3.0, and a post-release review found a data-loss
+bug in the fix itself — a hook matcher firing on any command that merely *mentioned* its trigger
+string, reaching `strip_task_bodies` and deleting `PLAN.md` task prose. That needed a second tag
+(v1.3.1) and the v1.3.0 release was withdrawn. Plan-check and verification are both on for this
+milestone, and no tag is cut until CI is green on the exact commit being tagged.
+
+**Deferred, still open:** `get-available-resources` (dropped from v1.2, see Out of Scope) remains
+a candidate for a later milestone if the need resurfaces.
 
 <details>
 <summary>v1.2 New Capability Plugins — SHIPPED 2026-08-19</summary>
