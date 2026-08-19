@@ -12,7 +12,8 @@ commits:
   - 62162d4
   - 55855cd
   - 0c65d69
-released: v1.3.0
+  - 049da5b
+released: v1.3.1
 ---
 
 # Summary: make the four dead lifecycle hooks dispatch
@@ -68,6 +69,43 @@ all, so there is nothing left to strip.
   `No issues found.` (the reported symptom, verbatim) to an epic plus one issue per `<task>`, with
   `beads_epic` and both `<beads-id>` elements written back into `PLAN.md`. A second identical hook
   run left the count at 3 — idempotent.
+
+## Post-release review (v1.3.0 → v1.3.1)
+
+A four-lens adversarial review found a defect in the fix worse than the bug it fixed.
+
+**Blocking — data loss.** v1.3.0 matched `render-hooks <point>` anywhere in a Bash command. `rg
+"render-hooks plan:post --raw" .`, an unquoted `grep`, and an `echo` of the line all fired it.
+One fire created bd issues *and* ran `strip_task_bodies`, deleting `<behavior>`/`<action>`/
+`<acceptance_criteria>` from every unsynced task in the phase's `PLAN.md`. The shipped comment
+asserting a spurious run "changes nothing" was never verified and was wrong — the exact
+unearned-confidence pattern the review lens exists to catch. A quoted grep escaped only because
+the closing quote tripped a `(?!\S)` lookahead: luck, not design.
+
+Fixed in two independent layers, either sufficient alone: the matcher now requires a recognised
+shim in shell command position plus `loop … --raw`, and `lifecycle_dispatch` passes
+`allow_strip=False` so hook-driven dispatch never performs the authoritative strip at all.
+Seven innocent command shapes and five real ones are pinned by regression tests.
+
+**Performance.** `matcher: "Bash"` means the hook ran after every Bash call in every session,
+starting a Python interpreter each time. A locale-pinned builtin pre-filter now rejects the
+common case before any spawn: 13.00 → 0.91 ms small payload, 64.3 → 22.9 ms at 4 MB. `LC_ALL=C`
+is load-bearing — PostToolUse payloads carry the tool's full output and UTF-8 pattern matching
+alone cost ~34 ms on 4 MB.
+
+**Cleanups applied.** One shared `read_beads_config` behind both accessors; two JSON parses
+merged into one; the dead `--phase-dir` flag and `phase_dir_override` parameter removed (nothing
+but a test used them); a redundant bash `case` re-validating its own hardcoded tuple deleted; an
+explicit 120 s hook timeout; comment bloat trimmed. Net −76 lines across the touched files while
+adding two regression suites.
+
+**Rejected.** Rewriting the hook wholesale in Python — the bash pre-filter is precisely what
+makes bash worth keeping, and a `.py` hook loses the silent fail-open when `python3` is absent.
+
+**Surfaced, not fixed (pre-existing, ticketed).** `beads.sync_mode` is declared in
+`capability.json` and read by no code — `mirror`/`off` do nothing (`gsd-beads-v43`).
+`check_shipmd_patch` and `check_execute_plan_patch` are structural clones, ~50 lines recoverable
+(`gsd-beads-t7a`).
 
 ## Deliberate limits
 
