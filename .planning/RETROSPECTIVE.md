@@ -40,6 +40,42 @@
 
 ---
 
+## Milestone: v1.2 — New Capability Plugins
+
+**Shipped:** 2026-08-19
+**Phases:** 4 (13-16) | **Plans:** 16 | **Sessions:** spans 2026-08-18 → 2026-08-19, 107 commits
+
+### What Was Built
+- `markdown-linting` capability: `rumdl`-backed `.planning/` quality gate, advisory `ship:pre`, 488/489 pre-existing violations fixed mechanically (Phase 13)
+- `pr-workflow` capability: `gh`-backed PR check-status gate, advisory `ship:pre`, fails open across every `gh`-degraded state (Phase 14)
+- Both capabilities extracted to independent public repos and marketplace entries, dogfood copies removed from this repo, CI green (Phase 15)
+- Beads issue content parity: every `bd create` for a task/epic now carries a real description/acceptance criteria; `gsd-executor` reads `auto`/`tracer` task instructions from `bd show`, hard-halting on an unreachable bd; a phase-wide `reconcile-stale-closed` backstop closes issues left open by per-wave dispatch (Phase 16)
+
+### What Worked
+- Live-recorded proof over narrated confidence, again: Phase 13/14/15 all reproduced their gate behavior via a real `gsd_run check predicate` smoke test against synthetic or installed-copy artifacts rather than trusting "the manifest declares `gates[]`" — carried forward from v1.0's established pattern.
+- Mid-milestone scope reallocation: when Phase 16 (beads issue content parity) was discovered as a real, higher-priority gap, `get-available-resources` was cleanly dropped rather than force-fit — a scope change made explicit in ROADMAP.md/PROJECT.md rather than silently absorbed.
+- UAT-verifying live mechanism instead of accepting "patch text installed" as sufficient: Phase 16's UAT built a throwaway bd fixture and simulated a real bd-unreachable failure rather than treating byte-verified patch text as proof of runtime behavior.
+
+### What Was Inefficient
+- Phase 16 was folded into the v1.2 milestone via a `### Phase 16` ROADMAP.md section that was never added to the milestone's own header/bullet list (`### v1.2 New Capability Plugins (Phases 13-15)`) or moved ahead of the `## Cross-Cutting Constraints (v1.2)` section — whose heading incidentally contains the literal token `v1.2` and was misread by `extractCurrentMilestone`'s stop-boundary scan as the next milestone marker, silently truncating Phase 16 out of every milestone-scoped query (`init.manager`, `/gsd-complete-milestone`'s readiness check) until caught at milestone-close time. Cost: one extra investigation-and-fix cycle immediately before archival that phase-registration discipline would have avoided entirely.
+- A diagnosed-but-unresolved debug session (`readme-beads-value-prop`, root cause confirmed, fix already shipped in an earlier commit) sat in `status: diagnosed` instead of `status: resolved` and blocked the pre-close artifact audit — the underlying README fix had landed correctly, but the session bookkeeping wasn't closed out when it did.
+- v1.1's milestone completion never wrote a retrospective section (this file jumps from v1.0 straight to v1.2) — a gap in this project's own closeout discipline, not something this milestone can retroactively fix without fabricating data.
+
+### Patterns Established
+- **Register new mid-milestone phases in the milestone header, not just as a standalone `### Phase N` section** — every milestone-scoped tool (readiness checks, archival) reads the header/bullet-list range, not just the presence of a phase heading anywhere in the file.
+- **Close diagnosed debug sessions when their fix ships**, even if the fix landed via a separately-authored commit rather than the debug session's own `next_action` — the artifact audit gate treats `diagnosed` as still-open regardless of whether the underlying problem is actually fixed.
+
+### Key Lessons
+1. A milestone-scoped ROADMAP.md parser that stops at the next heading matching a version-like token is a real footgun for any other heading that incidentally contains that token (e.g. `## Cross-Cutting Constraints (v1.2)`) — phase detail sections belong before summary/constraints sections, not after, purely to stay inside the parser's section boundary.
+2. "Fix shipped" and "tracking artifact closed" are two different facts — a debug session, UAT gap, or similar tracking record needs its own explicit closure step even when the underlying code fix happens to land through unrelated work.
+3. UAT for an internal-mechanism change (not a user-facing feature) can still be meaningfully live-verified without a full end-to-end harness run — testing the actual branch-trigger conditions (a real `bd show` success/failure, a real empty-description issue) against genuine `bd` state is stronger evidence than a synthetic mock, even short of a full `gsd-executor` session.
+
+### Cost Observations
+- Sessions: spans at least 2 UTC days (2026-08-18 start, 2026-08-19 ship), 107 commits across the milestone range
+- Notable: milestone close itself required two structural fixes (ROADMAP.md phase-registration, a stale debug-session closure) before archival could proceed — both were pre-existing gaps surfaced by the close workflow's own gates working as intended, not new defects introduced by closing
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -47,13 +83,17 @@
 | Milestone | Sessions | Phases | Key Change |
 |-----------|----------|--------|------------|
 | v1.0 | 1 | 4 | First milestone — established the overlay-capability pattern, fail-open discipline, and tracer-first planning for this project |
+| v1.1 | — | 8 (5-12) | Not recorded — this milestone's retrospective section was never written at close time |
+| v1.2 | 2+ days | 4 (13-16) | First milestone to ship independent public plugins extracted from in-repo dogfood, and the first mid-milestone scope reallocation (get-available-resources dropped for a higher-priority discovered gap) |
 
 ### Cumulative Quality
 
 | Milestone | Tests | Coverage | Zero-Dep Additions |
 |-----------|-------|----------|---------------------|
 | v1.0 | 88 | Not measured (no coverage tool configured) | 0 (N5: `bd` binary + Python stdlib only, no new dependency added) |
+| v1.2 | 4/4 phases verification `passed` | Not measured (no coverage tool configured) | 0 (`markdown-linting`/`pr-workflow` wrap external CLIs already required, no new project dependency) |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Fail-open correctly hid a real, fixable problem (bd schema skew) for most of the milestone — the design worked exactly as intended, but "no error" isn't the same as "everything is fine"; worth a periodic real-environment check, not just trusting the skip path. (v1.0)
+2. Tracking artifacts (debug sessions, UAT gaps, milestone headers) need their own explicit closure step — a shipped fix or a phase's existence in the file doesn't automatically close the record that references it. (v1.2)
