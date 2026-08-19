@@ -4,7 +4,7 @@
 
 - ✅ **v1.0 milestone** — Phases 1-4 (shipped 2026-08-16) — `.planning/milestones/v1.0-ROADMAP.md`
 - ✅ **v1.1 Publish & Document** — Phases 5-12 (shipped 2026-08-18) — `.planning/milestones/v1.1-phases/`
-- 🚧 **v1.2 New Capability Plugins** — Phases 13-15 (current)
+- 🚧 **v1.2 New Capability Plugins** — Phases 13-16 (current)
 
 ## Phases
 
@@ -34,11 +34,12 @@
 
 </details>
 
-### v1.2 New Capability Plugins (Phases 13-15)
+### v1.2 New Capability Plugins (Phases 13-16)
 
 - [x] **Phase 13: markdown-linting capability (dogfood)** - `.planning/` markdown quality is measured, reported, and gated advisory — on the already-proven `artifact-frontmatter-equals` mechanism (completed 2026-08-18)
 - [x] **Phase 14: pr-workflow capability (dogfood)** - PR check status is projected into a generated artifact and gated advisory at `ship:pre`, degrading cleanly without `gh` (completed 2026-08-18)
 - [x] **Phase 15: Ship markdown-linting and pr-workflow plugins publicly** - Both capabilities become public, marketplace-installable plugins with their gates still firing after extraction (completed 2026-08-18)
+- [x] **Phase 16: beads issue content parity** - `bd show <issue-id>` is self-sufficient — task content is written to bd at creation and `gsd-executor` reads it from there instead of `PLAN.md` (completed 2026-08-19)
 
 ## Phase Details
 
