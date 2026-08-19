@@ -722,9 +722,15 @@ def lifecycle_dispatch(point, phase_dir_override=None):
     else:
         phase_dir = _resolve_default_phase_dir(project_root)
     if phase_dir is None or not phase_dir.is_dir():
+        # stderr, not stdout: a repository between milestones has no
+        # `.planning/phases/` at all, so this fires on every render-hooks call
+        # in it. `hooks/lifecycle-dispatch.sh` promotes stdout to Claude's
+        # context and leaves stderr in the debug log, so a benign skip stays
+        # diagnosable without becoming per-call noise in the transcript.
         print(
             f"lifecycle-dispatch {point}: no phase directory resolved from STATE.md's "
-            "current_phase -- skipped"
+            "current_phase -- skipped",
+            file=sys.stderr,
         )
         return 0
 
@@ -742,7 +748,11 @@ def lifecycle_dispatch(point, phase_dir_override=None):
         elif point == "plan:post":
             plans = discover_plan_files(phase_dir)
             if not plans:
-                print(f"lifecycle-dispatch plan:post: no PLAN.md in {phase_dir.name} -- skipped")
+                # stderr for the same reason as the unresolved-phase skip above.
+                print(
+                    f"lifecycle-dispatch plan:post: no PLAN.md in {phase_dir.name} -- skipped",
+                    file=sys.stderr,
+                )
                 return 0
             for plan_id in sorted(plans):
                 create_issues(str(plans[plan_id]))
