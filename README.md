@@ -89,8 +89,10 @@ See `AGENTS.md` in this repo for the full command reference.
 
 `capability.json` declares six `kind: "step"` hooks, one per lifecycle point. gsd-core reaches
 exactly one of them on its own — `ship:pre`, and only because this capability patches a generic
-dispatch loop into the installed `ship.md`. At the other five, gsd-core 1.10.0 resolves the hook
-JSON and then discards every `kind: "step"` entry: `plan:post` and `execute:wave:post` dispatch
+**step** dispatch loop into the installed `ship.md`. (The `ship:pre` **gate** half of that patch
+was retired at v1.3.2: gsd-core 1.11.0 dispatches every capability's declared `ship:pre` gate
+natively, via issue `#3559` / PR `#3608`.) At the other five points, gsd-core — 1.11.0
+included — resolves the hook JSON and then discards every `kind: "step"` entry: `plan:post` and `execute:wave:post` dispatch
 `kind == "gate"` entries only, `execute:wave:pre` checks solely for a *contribution*,
 `verify:post` hardcodes `ref.skill == "secure-phase"`, and `plan:pre`'s generic step contract
 sits behind an auto-chain + frontend-detection branch that a manual `/gsd:plan-phase` never

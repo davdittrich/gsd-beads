@@ -170,12 +170,17 @@ mapping is reconciled or written by this call.
 
 The two hardcoded `capId` checks (`security`/`broken-windows`) that made the installed
 `/gsd-ship` workflow's `ship:pre` dispatch gap true during Plan 02's planning are now joined by a
-generic `ship:pre` gate+step dispatch loop, patched locally into the installed
+generic `ship:pre` **step** dispatch loop, patched locally into the installed
 `$HOME/.claude/gsd-core/workflows/ship.md` (marked with the `gsd-beads-patch:
-ship-pre-generic-dispatch v1` comment, reapply source in `GSD-CORE-PATCH.md`, confirmed present by
-Step 2d above on every `ship:pre` dispatch). The underlying gap is also filed upstream as
-open-gsd/gsd-core#3554 -- once that lands natively, this local patch (and this Step 2d /
-`GSD-CORE-PATCH.md`) should be deleted, not kept as permanent duplication.
+ship-pre-generic-dispatch v2` comment, reapply source in `GSD-CORE-PATCH.md`, confirmed present by
+Step 2d above on every `ship:pre` dispatch).
+
+The **gate** half of that gap is already fixed upstream: open-gsd/gsd-core#3559, closed COMPLETED
+via PR #3608, shipped in gsd-core v1.11.0, which dispatches every capability's declared `ship:pre`
+gate natively. (An earlier revision of this file cited #3554 — that issue was closed NOT_PLANNED
+without review and never tracked anything.) The **step** half has no upstream track and no native
+equivalent, which is why v2 of the patch still exists; once that lands natively, this local patch
+(and this Step 2d / `GSD-CORE-PATCH.md`) should be deleted, not kept as permanent duplication.
 
 **CR-01 (03-03 code review):** Step 2d's own call site is reachable only through the dispatch loop
 the patch installs -- if a `gsd-core` update or capability reinstall silently strips the patch,

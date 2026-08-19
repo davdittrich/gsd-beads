@@ -96,7 +96,18 @@ BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # 03-03 Task 2: the literal marker bracketing the local ship.md patch
 # (GSD-CORE-PATCH.md) -- check_shipmd_patch does a plain substring check
 # against this, never a regex, since the marker is a fixed literal string.
-SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->"
+#
+# v2 (gsd-core 1.11.0): the patch shrank to step dispatch only. gsd-core
+# 1.11.0 landed PR #3608 for issue #3559, adding a native "Every other
+# capId" arm to ship.md's preflight step 6 -- so the v1 patch's generic GATE
+# dispatch is now upstream and was NOT reapplied. Generic STEP dispatch at
+# ship:pre still has no native equivalent (every `kind == "step"` mention in
+# 1.11.0's ship.md belongs to ship:post), so that half remains.
+#
+# The version bump is deliberate: a machine still carrying v1 has a
+# now-redundant gate loop running alongside the native one, and this checker
+# reporting "missing" is the signal to reapply the trimmed v2.
+SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->"
 # 16-03 Task 1 (D-05): the literal marker bracketing the local
 # execute-plan.md bd-task-read patch (GSD-CORE-PATCH.md) --
 # check_execute_plan_patch does a plain substring check against this, never
@@ -2089,11 +2100,12 @@ def check_shipmd_patch(ship_md_path_override=None):
         )
         return 1
     if SHIP_MD_PATCH_MARKER in text:
-        print(f"ship.md ship:pre patch: present (v1) at {ship_md_path}")
+        print(f"ship.md ship:pre step-dispatch patch: present (v2) at {ship_md_path}")
         return 0
     print(
-        f"⚠ ship.md's ship:pre generic gate/step dispatch patch (beads) is missing at "
-        f"{ship_md_path} -- the two ship:pre gates and the ship_override step will not fire. "
+        f"⚠ ship.md's ship:pre generic STEP dispatch patch (beads, v2) is missing at "
+        f"{ship_md_path} -- the ship_override step will not fire. The two ship:pre GATES are "
+        "unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR #3608). "
         "Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
     )
     return 1

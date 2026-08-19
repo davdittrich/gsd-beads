@@ -69,7 +69,7 @@ Deferred, tracked, not in this roadmap.
 |---------|--------|
 | New config keys of any kind | v1.3 removes a declaration/behavior gap; adding surface would widen the very thing being closed |
 | Reworking the `lifecycle-dispatch` hook matcher | Shipped and regression-pinned in 0.3.1; no open defect |
-| Upstreaming generic `kind: "step"` dispatch to gsd-core | `open-gsd/gsd-core#3554` tracks it; not shippable from this repo |
+| Upstreaming generic `kind: "step"` dispatch to gsd-core | No upstream issue tracks it. `#3559`/PR `#3608` fixed only `ship:pre` **gate** dispatch (shipped v1.11.0); `#3554` was closed NOT_PLANNED without review. Not shippable from this repo |
 | Retroactive bd backfill for pre-0.3.0 phases | Needs a per-project decision about `strip_task_bodies`; not a config-truth concern |
 
 ## Traceability

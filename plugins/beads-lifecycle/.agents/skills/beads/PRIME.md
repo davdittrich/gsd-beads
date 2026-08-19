@@ -33,7 +33,7 @@ Six `capability.json` lifecycle steps dispatch bd integration automatically — 
 
 ## Dispatch mechanism
 
-gsd-core 1.10.0 has no generic `kind: "step"` dispatch loop at five of these six points: `plan:post` and `execute:wave:post` dispatch `kind == "gate"` entries only, `execute:wave:pre` checks solely for a *contribution*, `verify:post` hardcodes `ref.skill == "secure-phase"`, and `plan:pre`'s generic contract sits behind an auto-chain + frontend-detection branch. Because every hook is `onError: skip`, a declared-but-undispatched step is silent (gh-2).
+gsd-core (through 1.11.0) has no generic `kind: "step"` dispatch loop at five of these six points: `plan:post` and `execute:wave:post` dispatch `kind == "gate"` entries only, `execute:wave:pre` checks solely for a *contribution*, `verify:post` hardcodes `ref.skill == "secure-phase"`, and `plan:pre`'s generic contract sits behind an auto-chain + frontend-detection branch. Because every hook is `onError: skip`, a declared-but-undispatched step is silent (gh-2).
 
 What gsd-core does still do at all five is run `gsd_run loop render-hooks <point> --raw`. `hooks/lifecycle-dispatch.sh` is a `PostToolUse` hook that matches that Bash call and runs `sync.py lifecycle-dispatch <point>` itself, returning output through `hookSpecificOutput.additionalContext`. The trigger is a call gsd-core must keep making for its own hook system to function, so a gsd-core update cannot silently strip it.
 

@@ -11,7 +11,7 @@ reapplication.
 
 ## Scope: why there are only two patches, not six
 
-`capability.json` declares six `kind: "step"` hooks and gsd-core 1.10.0 has no generic
+`capability.json` declares six `kind: "step"` hooks and gsd-core 1.11.0 still has no generic
 `kind == "step"` dispatch at five of those points (gh-2). That is the same defect Patch 1 below
 was written for, at four more call sites — `plan-phase.md`'s §13e (`plan:post`, gate-only) and
 §5.6 (`plan:pre`, behind an auto-chain + frontend-detection branch), and `execute-phase.md`'s
@@ -63,12 +63,29 @@ and 2 false at ship time regardless of how correct Plan 01/02's own code is.
 
 ### Upstream tracking + revert condition
 
-Filed upstream as **open-gsd/gsd-core#3554** (generic `ship:pre` gate/step dispatch, natively).
+**Corrected 2026-08-19.** This section previously cited **open-gsd/gsd-core#3554** as the live
+upstream track. It is not: #3554 was closed **NOT_PLANNED** on 2026-08-15 *"on the form, not the
+merits"* — filed without the repository's issue template. The properly-filed version is
+**open-gsd/gsd-core#3559**, which was closed **COMPLETED** on 2026-08-18 by **PR #3608**
+(`fix(#3559): dispatch every ship:pre capability gate, not two hardcoded capIds`) and shipped in
+**gsd-core v1.11.0**.
 
-**Revert condition:** once open-gsd/gsd-core#3554 ships a native generic `ship:pre` dispatch
-loop, this local patch — the marker-bracketed block below, this file, `sync.py`'s
-`check_shipmd_patch`, `beads-status/SKILL.md`'s Step 2d, and `beads-recall/SKILL.md`'s Step 3.5 —
-becomes unnecessary and should be deleted, not kept as permanent duplication.
+**The revert condition has therefore half-fired, and this patch was trimmed accordingly (v1 → v2).**
+
+| Half of the v1 patch | Status on gsd-core >= 1.11.0 |
+|---|---|
+| step 8 — generic `ship:pre` **gate** dispatch | **Upstream.** `ship.md` preflight step 6 now carries an "Every other `capId`" arm. **Deleted from this patch; not reapplied.** |
+| step 9 — generic `ship:pre` **step** dispatch | **Still required.** PR #3608 added no step dispatch anywhere — verified: every `kind == "step"` occurrence in 1.11.0's `ship.md` belongs to `ship:post`. Reapplied as the whole of v2. |
+
+**Remaining revert condition:** once gsd-core ships a native generic `ship:pre` **step** dispatch
+loop (the same kind `ship:post` already has), this patch — the marker-bracketed block below, this
+section, `sync.py`'s `check_shipmd_patch`, `beads-status/SKILL.md`'s Step 2d, and
+`beads-recall/SKILL.md`'s Step 3.5 — becomes unnecessary and should be deleted, not kept as
+permanent duplication. No upstream issue currently tracks that remaining half.
+
+**Marker version bumped to `v2` deliberately.** A machine still carrying the v1 marker is running
+a redundant gate loop alongside 1.11.0's native one; `check_shipmd_patch` reporting "missing" is
+the signal to reapply the trimmed v2, not a false alarm.
 
 ### Patch-loss detection is independent of the patch itself (CR-01, 03-03 code review)
 
@@ -84,98 +101,44 @@ has been silently dropped.
 
 ### Insertion anchor
 
-The patch is inserted inside `preflight_checks`, immediately after step 7's (broken-windows
-ship gate) final line — the line ending `"...skip this check silently."` — and immediately
-before the step's closing `</step>` tag. The two steps this patch adds are numbered **8** and
-**9**, continuing the existing 1–7 numbered list.
+The patch is inserted inside `preflight_checks`, immediately after step 6's (capability ship
+gates, generic dispatch) final line — the line ending `"...continue to the next preflight
+check."` — and before the step's closing `</step>` tag. The step it adds is numbered **7**,
+continuing gsd-core 1.11.0's existing 1–6 numbered list.
+
+Note the renumber: under gsd-core 1.10.0 this patch added steps **8 and 9** after that version's
+step 7 (broken-windows). 1.11.0 folded security and broken-windows into a single generic step 6,
+and absorbed this patch's old step 8 outright, so only the step-dispatch half remains and it now
+lands as step 7.
 
 ### Patch marker
 
 ```
-<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->
-<!-- /gsd-beads-patch:ship-pre-generic-dispatch v1 -->
+<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->
+<!-- /gsd-beads-patch:ship-pre-generic-dispatch v2 -->
 ```
 
-`sync.py`'s `check_shipmd_patch` (03-03 Task 2) checks for the opening marker string's
-presence in the live `ship.md` to detect whether this patch survived a `gsd-core` update or
-capability reinstall — both of which can silently overwrite `ship.md` and drop the patch with
-no error.
+`sync.py`'s `check_shipmd_patch` checks for the opening marker string's presence in the live
+`ship.md` to detect whether this patch survived a `gsd-core` update or capability reinstall —
+both of which can silently overwrite `ship.md` and drop the patch with no error. The v1.11.0
+upgrade did exactly that, which is how this trim was discovered.
 
 ### Patch Content (verbatim)
 
-The fenced block below is byte-for-byte identical to the text between the two markers in the
-live `$HOME/.claude/gsd-core/workflows/ship.md`. If a future `gsd-core` update or reinstall
-strips the patch, paste this block back in at the anchor above.
+The fenced block below is byte-for-byte identical to the text between the two markers in the live
+`$HOME/.claude/gsd-core/workflows/ship.md`. If a future `gsd-core` update or reinstall strips the
+patch, paste this block back in at the anchor above.
 
 ````markdown
-<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->
-8. **Generic `ship:pre` gate dispatch (capability-driven, beyond security/broken-windows).**
-
-   `SHIP_PRE_HOOKS_JSON` (resolved in step 6) carries every active `ship:pre` gate, not only
-   `security`/`broken-windows`. Inspect `activeHooks` in-context for every entry where `kind ==
-   "gate"` and `capId` is neither `"security"` nor `"broken-windows"` (those two stay exclusively
-   handled by steps 6/7 above — do NOT reprocess them here). For each such entry, in array order:
-
-   **(a) Fail-open pre-check.** When `hook.check.predicate.kind == "artifact-frontmatter-equals"`
-   and `hook.onError == "skip"`, resolve:
-
-   ```bash
-   MATCHED_ARTIFACT=$(ls "${PHASE_DIR}"/*-"${hook.check.predicate.artifact}" 2>/dev/null | head -1)
-   ```
-
-   (the same glob form `SECURITY_FILE` already uses at step 6). If `MATCHED_ARTIFACT` is empty,
-   skip this gate entry entirely and move to the next active hook — do NOT call `gsd_run check
-   predicate` for it. The generic evaluator's `artifact-frontmatter-equals` kind fails CLOSED
-   (`block: true`, `artifactNotFound: true`) on a missing artifact by design — correct for an
-   `onError: "halt"` gate like `security`'s own, but wrong for a capability that declared `onError:
-   "skip"` specifically to mean "not yet computed, never block on it" (PROJECT.md's fail-open
-   constraint). This one-line existence check preserves that promise generically, without naming
-   any specific `capId`. A gate whose predicate kind is not `artifact-frontmatter-equals`, or whose
-   `onError` is `"halt"`, skips this pre-check and goes straight to (b).
-
-   **(b) Evaluate.** For a `check.query` gate:
-
-   ```bash
-   GATE_RESULT=$(gsd_run check ${hook.check.query} "${PHASE_NUMBER}" --raw)
-   CHECK_EXIT=$?
-   ```
-
-   For a `check.predicate` gate:
-
-   ```bash
-   GATE_RESULT=$(gsd_run check predicate --predicate '<hook.check.predicate as JSON>' \
-     --phase-dir "${PHASE_DIR}" --phase-number "${PHASE_NUMBER}" --raw)
-   CHECK_EXIT=$?
-   ```
-
-   **(c) Two-step gate contract**, identical wording to `verify:pre`/`execute:wave:post`/
-   `execute:post`:
-
-   - **Step 1 — command failure:** non-zero `CHECK_EXIT`, empty output, or unparseable JSON routes
-     by `hook.onError`. `onError == "halt"` blocks shipping with a command-error message: `⚠ Gate
-     check command failed ({hook.capId}): command error. Resolve before continuing.` `onError ==
-     "skip"` logs a warning and continues to the next hook — never reading `GATE_RESULT.block`.
-   - **Step 2 — block evaluation** (only reached on command success): `hook.blocking == true` AND
-     `GATE_RESULT.block == true` blocks shipping and presents:
-
-     ```
-     ⚠ Ship gate blocked ({hook.capId}): {GATE_RESULT.message}
-     See {PHASE_DIR}/*-{hook.check.predicate.artifact} for detail (if the predicate is
-     artifact-frontmatter-equals), or set {hook.when} to false in .planning/config.json to
-     override, if this capability supports one and records it. Then re-run /gsd-ship.
-     ```
-
-     This halt is **not** bypassed by `onError` — `onError` governs step 1 only, never the gate's
-     block decision. `hook.blocking == false` never halts; if `GATE_RESULT.block` is `true` print an
-     advisory line `⚠ {hook.capId} advisory: {GATE_RESULT.message}` and continue. `hook.blocking ==
-     true` AND `GATE_RESULT.block == false` continues silently.
-
-   If `activeHooks` has no qualifying `kind == "gate"` entry after excluding `security`/
-   `broken-windows`, skip step 8 silently.
-
-9. **Generic `ship:pre` step dispatch (capability-driven).** This runs here — before
+<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->
+7. **Generic `ship:pre` step dispatch (capability-driven).** This runs here — before
    `push_branch` — specifically so a step that amends the not-yet-pushed HEAD commit (e.g. an
    override-audit trailer) lands before the push.
+
+   `SHIP_PRE_HOOKS_JSON` (resolved in step 6) carries every active `ship:pre` entry, not only
+   gates. Step 6 above enforces the `kind == "gate"` entries and explicitly ignores every other
+   kind; this step handles `kind == "step"`, which gsd-core has no native dispatch for at
+   `ship:pre` (unlike `ship:post`, which does).
 
    For each active `SHIP_PRE_HOOKS_JSON` entry where `kind == "step"`: honor `consumes` exactly as
    `ship_post_capability_dispatch` already does below — resolve `ls "${PHASE_DIR}"/*-<name>
@@ -192,8 +155,8 @@ strips the patch, paste this block back in at the anchor above.
    Each dispatch is best-effort (`onError: "skip"` — the only value the beads-status entry
    declares): a failure is recorded as a warning and preflight continues, never re-raised.
 
-   If `activeHooks` has no `kind == "step"` entry, skip step 9 silently.
-<!-- /gsd-beads-patch:ship-pre-generic-dispatch v1 -->
+   If `activeHooks` has no `kind == "step"` entry, skip this step silently.
+<!-- /gsd-beads-patch:ship-pre-generic-dispatch v2 -->
 ````
 
 ## Patch 2: `execute-plan.md` — bd task-content read path
