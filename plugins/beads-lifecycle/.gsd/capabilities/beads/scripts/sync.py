@@ -102,6 +102,18 @@ SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->"
 # check_execute_plan_patch does a plain substring check against this, never
 # a regex, same discipline as SHIP_MD_PATCH_MARKER immediately above.
 EXECUTE_PLAN_PATCH_MARKER = "<!-- gsd-beads-patch:execute-plan-bd-task-read v1 -->"
+# gh-2: the lifecycle points `lifecycle_dispatch` handles -- every `steps[]`
+# entry in capability.json EXCEPT `ship:pre`, which already dispatches
+# natively through this capability's own ship.md patch. Order is the
+# lifecycle's, not alphabetical, and `hooks/lifecycle-dispatch.sh` carries
+# the same list: any change here must be mirrored there.
+LIFECYCLE_DISPATCH_POINTS = (
+    "plan:pre",
+    "plan:post",
+    "execute:wave:pre",
+    "execute:wave:post",
+    "verify:post",
+)
 # B13/D-08: on-demand `status` with no phase_dir argument resolves the
 # current/last-active phase from STATE.md's frontmatter -- single-token
 # style matching BEADS_EPIC_RE.
@@ -632,6 +644,117 @@ def read_epic_per(project_root):
         return "phase"
     beads_cfg = cfg.get("beads", {}) if isinstance(cfg, dict) else {}
     return beads_cfg.get("epic_per", "phase") if isinstance(beads_cfg, dict) else "phase"
+
+
+def read_beads_enabled(project_root):
+    """gh-2: return the effective `beads.enabled` value read fresh from
+    `.planning/config.json` -- `True` when the file is absent, unreadable,
+    malformed, carries no `beads` object, or carries no `enabled` key
+    (`capability.json`'s shipped default since 0.2.0), and `True` again for
+    a non-boolean value rather than a truthiness guess.
+
+    Modeled on `read_epic_per` immediately above, and needed for the same
+    reason at a different layer: `lifecycle_dispatch` is entered from a
+    harness hook, not from a SKILL.md whose Step 1 config gate has already
+    resolved the key, and not through the capability registry that
+    evaluates each hook's `when: beads.enabled`. Without this read, a
+    project that opted out would still get dispatched.
+    """
+    config_path = confined(project_root, ".planning", "config.json")
+    if not config_path.exists():
+        return True
+    try:
+        cfg = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return True
+    beads_cfg = cfg.get("beads", {}) if isinstance(cfg, dict) else {}
+    if not isinstance(beads_cfg, dict):
+        return True
+    enabled = beads_cfg.get("enabled", True)
+    return enabled if isinstance(enabled, bool) else True
+
+
+def lifecycle_dispatch(point, phase_dir_override=None):
+    """gh-2: run the beads operation a lifecycle point declares, entered
+    from the plugin's `PostToolUse` hook rather than from gsd-core's
+    workflow prose.
+
+    Four of the six `kind: "step"` hooks `capability.json` declares are
+    structurally unreachable in gsd-core 1.10.0: `plan:post` and
+    `execute:wave:post` dispatch `kind == "gate"` entries only,
+    `execute:wave:pre` checks only for a *contribution*, and `verify:post`
+    hardcodes `ref.skill == "secure-phase"`. `plan:pre`'s generic step
+    contract exists but sits behind an `AUTO_CHAIN` + frontend-detection
+    branch, so it too misses a manual `/gsd-plan-phase`. Every one is
+    `onError: "skip"`, so the miss is silent: a phase plans and executes
+    with zero bd issues and nothing reports it.
+
+    What every dead point DOES still do is run `gsd_run loop render-hooks
+    <point> --raw`. `hooks/lifecycle-dispatch.sh` matches that Bash call and
+    routes here, which is why this dispatch survives a gsd-core update:
+    breaking it would require gsd-core to stop resolving its own hooks.
+
+    Each point maps onto an existing verb, all of them derivable from
+    `phase_dir` alone -- deliberate, since the render-hooks call carries no
+    wave plan-id list. `execute:wave:post` therefore uses the phase-wide
+    idempotent `reconcile_stale_closed` backstop (D-08) rather than
+    `close_wave`, and `execute:wave:pre` renders a phase-wide (superset,
+    never lossy) `<beads_status>` block.
+
+    Always returns 0. Every declared hook is `onError: "skip"`, and this is
+    the call site that has to honour that contract: an unknown point, an
+    opted-out project, a directory with no `.planning/`, an unresolvable
+    current phase, and an unexpected failure inside a verb each degrade to
+    at most one notice line. `ship:pre` is deliberately absent -- it already
+    dispatches through this capability's own `ship.md` patch, and adding it
+    here would double-record a `ship_override`.
+    """
+    if point not in LIFECYCLE_DISPATCH_POINTS:
+        return 0
+    try:
+        project_root = find_project_root(Path.cwd())
+    except ValueError:
+        return 0
+    if not read_beads_enabled(project_root):
+        return 0
+    if phase_dir_override is not None:
+        phase_dir = Path(phase_dir_override).resolve()
+    else:
+        phase_dir = _resolve_default_phase_dir(project_root)
+    if phase_dir is None or not phase_dir.is_dir():
+        print(
+            f"lifecycle-dispatch {point}: no phase directory resolved from STATE.md's "
+            "current_phase -- skipped"
+        )
+        return 0
+
+    try:
+        if point == "plan:pre":
+            beads_recall(str(phase_dir))
+            # The patch-loss detector documented in beads-recall/SKILL.md's
+            # Step 3.5. It was wired at plan:pre precisely so it would be
+            # independent of the ship.md patch it checks -- but plan:pre was
+            # itself one of the dead points, so it shared the failure mode of
+            # the thing it protects. Reached from a harness hook it is finally
+            # independent of gsd-core's dispatch prose altogether.
+            check_shipmd_patch()
+            check_execute_plan_patch()
+        elif point == "plan:post":
+            plans = discover_plan_files(phase_dir)
+            if not plans:
+                print(f"lifecycle-dispatch plan:post: no PLAN.md in {phase_dir.name} -- skipped")
+                return 0
+            for plan_id in sorted(plans):
+                create_issues(str(plans[plan_id]))
+        elif point == "execute:wave:pre":
+            render_wave_status_block(str(phase_dir), sorted(discover_plan_files(phase_dir)))
+        elif point == "execute:wave:post":
+            reconcile_stale_closed(str(phase_dir))
+        elif point == "verify:post":
+            regenerate_beads_md(str(phase_dir))
+    except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
+        print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})")
+    return 0
 
 
 def milestone_epic_title(state_path):
@@ -2084,6 +2207,17 @@ def main(argv=None):
         help="Report whether the local execute-plan.md bd-task-read patch (GSD-CORE-PATCH.md) is present",
     )
     check_execute_plan_patch_p.add_argument("--execute-plan-path", default=None)
+    lifecycle_p = sub.add_parser(
+        "lifecycle-dispatch",
+        help="Run the beads operation a lifecycle point declares (gh-2); entered from the "
+        "plugin's PostToolUse hook, never from gsd-core workflow prose",
+    )
+    # Deliberately no `choices=`: argparse would exit 2 with a usage dump on an
+    # unrecognised point, and this verb's whole contract is that it never
+    # returns non-zero (every hook it serves is `onError: "skip"`).
+    # `lifecycle_dispatch` validates the point itself and returns 0.
+    lifecycle_p.add_argument("point")
+    lifecycle_p.add_argument("--phase-dir", default=None)
     sub.add_parser(
         "migrate-todos",
         help="One-shot migration of .planning/todos/pending/ entries into bd issues (B12)",
@@ -2113,6 +2247,8 @@ def main(argv=None):
         return check_shipmd_patch(args.ship_md_path)
     if args.command == "check-execute-plan-patch":
         return check_execute_plan_patch(args.execute_plan_path)
+    if args.command == "lifecycle-dispatch":
+        return lifecycle_dispatch(args.point, args.phase_dir)
     if args.command == "migrate-todos":
         project_root = find_project_root(Path.cwd())
         pending_dir = confined(project_root, ".planning", "todos", "pending")
