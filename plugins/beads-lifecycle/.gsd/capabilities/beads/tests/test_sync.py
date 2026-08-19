@@ -3681,5 +3681,396 @@ class TestMilestoneEpic(unittest.TestCase):
         self.assertEqual(epic_creates[0][2], "Milestone v1.0: milestone")
 
 
+def _lifecycle_workspace(tmp_path, *, current_phase="07", enabled=None, plan_text=None):
+    """gh-2: lay out the minimum tree `lifecycle_dispatch` resolves against --
+    a `.planning/` root (find_project_root), a STATE.md carrying
+    `current_phase` (_resolve_default_phase_dir), and a matching
+    `.planning/phases/NN-*` directory. `enabled` writes a config.json with
+    that `beads.enabled` value; None writes no config.json at all, which is
+    the shipped-default case. Returns the phase directory."""
+    planning_dir = tmp_path / ".planning"
+    phase_dir = planning_dir / "phases" / f"{current_phase}-demo"
+    phase_dir.mkdir(parents=True)
+    (planning_dir / "STATE.md").write_text(
+        f"---\ncurrent_phase: {current_phase}\n---\n\n"
+        "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+        encoding="utf-8",
+    )
+    (planning_dir / "ROADMAP.md").write_text(
+        f"### Phase {int(current_phase)}: Demo\nGoal.\n", encoding="utf-8"
+    )
+    if enabled is not None:
+        (planning_dir / "config.json").write_text(
+            json.dumps({"beads": {"enabled": enabled}}), encoding="utf-8"
+        )
+    if plan_text is not None:
+        (phase_dir / f"{current_phase}-01-PLAN.md").write_text(plan_text, encoding="utf-8")
+    return phase_dir
+
+
+class TestReadBeadsEnabled(unittest.TestCase):
+    """gh-2: lifecycle_dispatch is entered from a harness hook, so it bypasses
+    both the SKILL.md Step 1 config gate and the capability registry that
+    evaluates each hook's `when: beads.enabled`. read_beads_enabled is the
+    replacement gate, and it must resolve to capability.json's shipped
+    default (True) for every shape of missing or unusable config."""
+
+    def _enabled_for(self, payload):
+        with tempfile.TemporaryDirectory() as tmp:
+            planning_dir = Path(tmp) / ".planning"
+            planning_dir.mkdir()
+            if payload is not None:
+                (planning_dir / "config.json").write_text(payload, encoding="utf-8")
+            return sync.read_beads_enabled(Path(tmp))
+
+    def test_absent_config_resolves_to_shipped_default_true(self):
+        self.assertTrue(self._enabled_for(None))
+
+    def test_explicit_false_is_honored(self):
+        self.assertFalse(self._enabled_for(json.dumps({"beads": {"enabled": False}})))
+
+    def test_explicit_true_is_honored(self):
+        self.assertTrue(self._enabled_for(json.dumps({"beads": {"enabled": True}})))
+
+    def test_malformed_json_resolves_to_true(self):
+        self.assertTrue(self._enabled_for("{not json"))
+
+    def test_absent_beads_object_resolves_to_true(self):
+        self.assertTrue(self._enabled_for(json.dumps({"workflow": {"auto_advance": True}})))
+
+    def test_non_boolean_value_resolves_to_true_rather_than_a_truthiness_guess(self):
+        """"false" (the string) is not False. Guessing at truthiness here would
+        silently disable tracking for a typo'd config."""
+        self.assertTrue(self._enabled_for(json.dumps({"beads": {"enabled": "false"}})))
+
+
+class TestLifecycleDispatchRouting(unittest.TestCase):
+    """gh-2: each of the five points gsd-core fails to dispatch routes onto the
+    verb that point declares, with the phase directory resolved from STATE.md.
+    Spies on the verbs (CLAUDE.md audit rule); the contract test for what
+    plan:post actually produces is TestLifecycleDispatchEndToEnd below."""
+
+    @contextlib.contextmanager
+    def _in_workspace(self, **workspace):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp), **workspace)
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                yield phase_dir
+            finally:
+                os.chdir(prev)
+
+    def test_plan_pre_runs_recall_then_both_patch_detectors(self):
+        """The patch-loss detector documented as beads-recall SKILL.md Step 3.5.
+        It was wired at plan:pre to be independent of the ship.md patch it
+        checks -- but plan:pre was itself one of the dead points, so it shared
+        the failure mode of the thing it protects."""
+        with self._in_workspace() as phase_dir:
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
+                 mock.patch.object(sync, "check_shipmd_patch", return_value=0) as ship, \
+                 mock.patch.object(sync, "check_execute_plan_patch", return_value=0) as ep:
+                exit_code = sync.lifecycle_dispatch("plan:pre")
+        self.assertEqual(exit_code, 0)
+        recall.assert_called_once_with(str(phase_dir))
+        ship.assert_called_once()
+        ep.assert_called_once()
+
+    def test_plan_post_syncs_every_plan_in_the_phase(self):
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        with self._in_workspace(plan_text=plan) as phase_dir:
+            with mock.patch.object(sync, "create_issues", return_value=0) as create:
+                exit_code = sync.lifecycle_dispatch("plan:post")
+        self.assertEqual(exit_code, 0)
+        create.assert_called_once_with(str(phase_dir / "07-01-PLAN.md"))
+
+    def test_wave_pre_renders_a_phase_wide_status_block(self):
+        """The render-hooks call carries no wave plan-id list, so the block
+        spans every plan in the phase -- a superset of the wave's, never a
+        subset, so no ticket pointer is lost from an executor brief."""
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        with self._in_workspace(plan_text=plan) as phase_dir:
+            with mock.patch.object(sync, "render_wave_status_block", return_value=0) as render:
+                exit_code = sync.lifecycle_dispatch("execute:wave:pre")
+        self.assertEqual(exit_code, 0)
+        render.assert_called_once_with(str(phase_dir), ["07-01"])
+
+    def test_wave_post_uses_the_phase_wide_reconcile_backstop(self):
+        """Not close_wave: that needs the wave's plan ids, which the
+        render-hooks call does not carry. reconcile_stale_closed is idempotent
+        and phase-wide (D-08)."""
+        with self._in_workspace() as phase_dir:
+            with mock.patch.object(sync, "reconcile_stale_closed", return_value=0) as rec, \
+                 mock.patch.object(sync, "close_wave", return_value=0) as close:
+                exit_code = sync.lifecycle_dispatch("execute:wave:post")
+        self.assertEqual(exit_code, 0)
+        rec.assert_called_once_with(str(phase_dir))
+        close.assert_not_called()
+
+    def test_verify_post_regenerates_beads_md(self):
+        with self._in_workspace() as phase_dir:
+            with mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regen:
+                exit_code = sync.lifecycle_dispatch("verify:post")
+        self.assertEqual(exit_code, 0)
+        regen.assert_called_once_with(str(phase_dir))
+
+    def test_phase_dir_override_wins_over_state_md(self):
+        with self._in_workspace() as phase_dir:
+            other = phase_dir.parent / "09-other"
+            other.mkdir()
+            with mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regen:
+                exit_code = sync.lifecycle_dispatch("verify:post", str(other))
+        self.assertEqual(exit_code, 0)
+        regen.assert_called_once_with(str(other.resolve()))
+
+
+class TestLifecycleDispatchFailOpen(unittest.TestCase):
+    """gh-2: every hook this verb serves declares `onError: "skip"`, and this is
+    the call site that has to honour it. Nothing below may return non-zero or
+    raise, and none of it may dispatch a verb."""
+
+    def _assert_no_dispatch(self, point, tmp):
+        prev = Path.cwd()
+        os.chdir(tmp)
+        try:
+            with mock.patch.object(sync, "beads_recall") as recall, \
+                 mock.patch.object(sync, "create_issues") as create, \
+                 mock.patch.object(sync, "render_wave_status_block") as render, \
+                 mock.patch.object(sync, "reconcile_stale_closed") as rec, \
+                 mock.patch.object(sync, "regenerate_beads_md") as regen:
+                captured, errs = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(errs):
+                    exit_code = sync.lifecycle_dispatch(point)
+        finally:
+            os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        for spy in (recall, create, render, rec, regen):
+            spy.assert_not_called()
+        return captured.getvalue(), errs.getvalue()
+
+    def test_unknown_point_is_a_silent_no_op(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            out, err = self._assert_no_dispatch("nonsense:point", tmp)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "")
+
+    def test_ship_pre_is_not_dispatched_here(self):
+        """ship:pre already dispatches through this capability's own ship.md
+        patch; dispatching it here too would double-record a ship_override."""
+        self.assertNotIn("ship:pre", sync.LIFECYCLE_DISPATCH_POINTS)
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            self._assert_no_dispatch("ship:pre", tmp)
+
+    def test_no_planning_directory_is_a_silent_no_op(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, err = self._assert_no_dispatch("plan:post", tmp)
+        self.assertEqual(out, "")
+        self.assertEqual(err, "")
+
+    def test_beads_disabled_project_dispatches_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp), enabled=False)
+            self._assert_no_dispatch("plan:post", tmp)
+
+    def test_unresolvable_phase_reports_on_stderr_not_stdout(self):
+        """A repository between milestones has no `.planning/phases/` at all, so
+        this fires on every render-hooks call in it. The hook promotes stdout
+        into Claude's context and leaves stderr in the debug log, so this notice
+        must never reach stdout."""
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".planning").mkdir()
+            out, err = self._assert_no_dispatch("verify:post", tmp)
+        self.assertEqual(out, "")
+        self.assertIn("no phase directory resolved", err)
+
+    def test_phase_with_no_plans_reports_on_stderr_not_stdout(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            out, err = self._assert_no_dispatch("plan:post", tmp)
+        self.assertEqual(out, "")
+        self.assertIn("no PLAN.md", err)
+
+    def test_a_raising_verb_degrades_to_one_line_not_a_traceback(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(
+                    sync, "regenerate_beads_md", side_effect=RuntimeError("bd exploded")
+                ):
+                    captured = io.StringIO()
+                    with contextlib.redirect_stdout(captured):
+                        exit_code = sync.lifecycle_dispatch("verify:post")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        self.assertIn("bd exploded", captured.getvalue())
+
+
+class TestLifecycleDispatchEndToEnd(unittest.TestCase):
+    """gh-2 contract test: the reported symptom was `bd list` returning "No
+    issues found." after a full plan run. This asserts the observable cure --
+    dispatching plan:post over a real phase tree issues the bd creates and
+    writes beads_epic/<beads-id> back into every PLAN.md -- rather than
+    asserting that a function was called."""
+
+    @mock.patch("subprocess.run")
+    def test_plan_post_creates_issues_and_rewrites_every_plan(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp), plan_text=plan_text)
+            second = phase_dir / "07-02-PLAN.md"
+            second.write_text(plan_text, encoding="utf-8")
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                captured = io.StringIO()
+                with contextlib.redirect_stdout(captured):
+                    exit_code = sync.lifecycle_dispatch("plan:post")
+            finally:
+                os.chdir(prev)
+            first_text = (phase_dir / "07-01-PLAN.md").read_text(encoding="utf-8")
+            second_text = second.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        # The exact absences the bug report named: no beads_epic, no <beads-id>.
+        self.assertIsNotNone(sync.BEADS_EPIC_RE.search(first_text))
+        self.assertIsNotNone(sync.BEADS_EPIC_RE.search(second_text))
+        self.assertIn("<beads-id>", first_text)
+        self.assertIn("<beads-id>", second_text)
+        task_creates = TestCreateIssues._create_argvs(mock_run.call_args_list, "task")
+        self.assertEqual(len(task_creates), 2)
+
+
+class TestLifecycleDispatchHook(unittest.TestCase):
+    """gh-2: hooks/lifecycle-dispatch.sh is the only thing that makes any of the
+    above reachable, so it is exercised against real PostToolUse payloads rather
+    than trusted."""
+
+    # tests/ -> beads/ -> capabilities/ -> .gsd/ -> beads-lifecycle/
+    PLUGIN_ROOT = Path(__file__).resolve().parents[4]
+    HOOK = PLUGIN_ROOT / "hooks" / "lifecycle-dispatch.sh"
+
+    def _run(self, command, cwd):
+        payload = json.dumps(
+            {
+                "hook_event_name": "PostToolUse",
+                "tool_name": "Bash",
+                "cwd": str(cwd),
+                "tool_input": {"command": command},
+            }
+        )
+        env = dict(os.environ)
+        # Pin resolution at this repo's own plugin tree and away from the real
+        # $HOME/.gsd, so the test never runs an unrelated installed bundle.
+        env["GSD_HOME"] = str(cwd)
+        env["CLAUDE_PLUGIN_ROOT"] = str(self.PLUGIN_ROOT)
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        return subprocess.run(
+            ["bash", str(self.HOOK)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
+        )
+
+    def test_hook_file_exists_and_is_referenced_by_hooks_json(self):
+        self.assertTrue(self.HOOK.is_file(), f"missing hook script at {self.HOOK}")
+        hooks_json = json.loads(
+            (self.HOOK.parent / "hooks.json").read_text(encoding="utf-8")
+        )
+        post = hooks_json["hooks"]["PostToolUse"]
+        self.assertEqual(post[0]["matcher"], "Bash")
+        self.assertIn("lifecycle-dispatch.sh", post[0]["hooks"][0]["command"])
+
+    def test_matching_command_emits_post_tool_use_additional_context(self):
+        """A PostToolUse hook's plain stdout on exit 0 never reaches Claude; only
+        hookSpecificOutput.additionalContext does. execute:wave:pre's
+        <beads_status> block exists solely to reach the orchestrator composing
+        the executor prompts, so this envelope is load-bearing, not cosmetic."""
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            result = self._run(
+                "WAVE_PRE_HOOKS_JSON=$(gsd_run loop render-hooks execute:wave:pre --raw)",
+                Path(tmp),
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["hookSpecificOutput"]["hookEventName"], "PostToolUse")
+        self.assertIn(
+            "execute:wave:pre", payload["hookSpecificOutput"]["additionalContext"]
+        )
+
+    def test_non_matching_command_produces_no_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            result = self._run("npm test", Path(tmp))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_ship_pre_render_hooks_call_is_not_matched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            result = self._run(
+                "SHIP_PRE_HOOKS_JSON=$(gsd_run loop render-hooks ship:pre --raw)", Path(tmp)
+            )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_benign_skip_never_reaches_claude(self):
+        """A repository with no `.planning/phases/` would otherwise annotate
+        every single render-hooks call with a skip notice."""
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".planning").mkdir()
+            result = self._run("gsd_run loop render-hooks verify:post --raw", Path(tmp))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_directory_without_planning_is_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run("gsd_run loop render-hooks plan:post --raw", Path(tmp))
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_malformed_payload_does_not_crash_the_hook(self):
+        env = dict(os.environ)
+        env["CLAUDE_PLUGIN_ROOT"] = str(self.PLUGIN_ROOT)
+        result = subprocess.run(
+            ["bash", str(self.HOOK)],
+            input="not json at all",
+            capture_output=True,
+            text=True,
+            env=env,
+            timeout=60,
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+
+    def test_point_list_matches_sync_py_and_capability_json(self):
+        """The point list lives in three places -- capability.json's steps[],
+        sync.py's LIFECYCLE_DISPATCH_POINTS, and the hook's own allowlist. A
+        point added to one and missed in another is exactly the silent
+        no-dispatch this whole change exists to remove."""
+        hook_text = self.HOOK.read_text(encoding="utf-8")
+        for point in sync.LIFECYCLE_DISPATCH_POINTS:
+            self.assertIn(point, hook_text, f"{point} missing from the hook allowlist")
+        cap = json.loads(
+            (self.PLUGIN_ROOT / ".gsd/capabilities/beads/capability.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        declared = {step["point"] for step in cap["steps"]}
+        self.assertEqual(
+            declared - {"ship:pre"},
+            set(sync.LIFECYCLE_DISPATCH_POINTS),
+            "capability.json declares a step point lifecycle_dispatch does not handle",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
