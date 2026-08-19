@@ -1995,7 +1995,22 @@ def check_execute_plan_patch(execute_plan_path_override=None):
             "as CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
         )
         return 1
-    text = execute_plan_path.read_text(encoding="utf-8")
+    # CR-02/WR-02: create_issues calls this on every run with at least one
+    # newly-created task -- a permission error, a mid-write race, or a
+    # non-UTF-8 byte sequence in this machine-local file must degrade to the
+    # same "cannot verify" outcome as the missing-file case above, never
+    # propagate. An uncaught exception here would abort create_issues before
+    # plan_path.write_text runs, leaving already-created bd issues'
+    # <beads-id> never written back to PLAN.md (risking duplicate issues on
+    # the next sync retry).
+    try:
+        text = execute_plan_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(
+            f"execute-plan.md at {execute_plan_path} could not be read ({exc}) -- cannot "
+            "verify the local bd-task-read patch"
+        )
+        return 1
     if EXECUTE_PLAN_PATCH_MARKER in text:
         print(f"execute-plan.md bd-task-read patch: present (v1) at {execute_plan_path}")
         return 0

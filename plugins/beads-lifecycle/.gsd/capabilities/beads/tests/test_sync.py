@@ -780,6 +780,30 @@ class TestCreateIssuesStripGate(unittest.TestCase):
         self.assertIn("<action>Implement the thing.</action>", written)
         self.assertIn("<beads-id>", written)
 
+    @mock.patch("subprocess.run")
+    def test_unreadable_execute_plan_md_still_writes_back_beads_id(self, mock_run):
+        """CR-02: a real (un-mocked) check_execute_plan_patch() call whose
+        execute-plan.md is unreadable (non-UTF-8 bytes) must not propagate an
+        exception out of create_issues -- the already-created bd issue's
+        <beads-id> must still be written back to PLAN.md (the exact failure
+        mode CR-02 identified: an uncaught read error aborting
+        plan_path.write_text, risking a duplicate bd issue on retry)."""
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            config_dir = Path(tmp) / "claude-config"
+            workflows_dir = config_dir / "gsd-core" / "workflows"
+            workflows_dir.mkdir(parents=True)
+            (workflows_dir / "execute-plan.md").write_bytes(b"\xff\xfe not valid utf-8")
+
+            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config_dir)}):
+                exit_code = sync.create_issues(str(plan_copy))
+            written = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("<beads-id>", written)
+
 
 class TestPhaseScopedEpic(unittest.TestCase):
     """gsd-beads-uh1: two plans in one phase, neither pre-set with
@@ -2994,6 +3018,20 @@ class TestCheckExecutePlanPatch(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn(str(missing_path), captured.getvalue())
+
+    def test_reports_cannot_verify_when_file_is_not_valid_utf8(self):
+        """CR-02/WR-02: a non-UTF-8 byte sequence in execute-plan.md must
+        degrade to the same "cannot verify" exit code as the missing-file
+        case, not raise UnicodeDecodeError out of the function."""
+        with tempfile.TemporaryDirectory() as tmp:
+            execute_plan_md = Path(tmp) / "execute-plan.md"
+            execute_plan_md.write_bytes(b"\xff\xfe not valid utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_execute_plan_patch(str(execute_plan_md))
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("could not be read", captured.getvalue())
 
     def test_never_writes_to_target_file(self):
         with tempfile.TemporaryDirectory() as tmp:
