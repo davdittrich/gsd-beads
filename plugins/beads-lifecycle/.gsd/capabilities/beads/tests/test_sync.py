@@ -2976,6 +2976,20 @@ class TestCheckShipmdPatch(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn(str(missing_path), captured.getvalue())
 
+    def test_reports_cannot_verify_when_file_is_not_valid_utf8(self):
+        """WR-02: a non-UTF-8 byte sequence in ship.md must degrade to the
+        same "cannot verify" exit code as the missing-file case, not raise
+        UnicodeDecodeError out of the function."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ship_md = Path(tmp) / "ship.md"
+            ship_md.write_bytes(b"\xff\xfe not valid utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_shipmd_patch(str(ship_md))
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("could not be read", captured.getvalue())
+
 
 class TestCheckExecutePlanPatch(unittest.TestCase):
     """16-03 Task 1: check_execute_plan_patch mirrors check_shipmd_patch's

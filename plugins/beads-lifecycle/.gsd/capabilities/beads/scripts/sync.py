@@ -1944,7 +1944,20 @@ def check_shipmd_patch(ship_md_path_override=None):
             "or CURSOR_CONFIG_DIR were not checked)"
         )
         return 1
-    text = ship_md_path.read_text(encoding="utf-8")
+    # WR-02: match check_execute_plan_patch's guard -- a permission error,
+    # mid-write race, or non-UTF-8 byte sequence in this machine-local file
+    # must degrade to the same "cannot verify" outcome as the missing-file
+    # case above, not raise (every other filesystem read in this module that
+    # touches artifact-adjacent or externally-editable content is similarly
+    # guarded, e.g. collect_all_task_files, resolve_milestone_epic).
+    try:
+        text = ship_md_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(
+            f"ship.md at {ship_md_path} could not be read ({exc}) -- cannot verify the "
+            "local ship:pre dispatch patch"
+        )
+        return 1
     if SHIP_MD_PATCH_MARKER in text:
         print(f"ship.md ship:pre patch: present (v1) at {ship_md_path}")
         return 0
