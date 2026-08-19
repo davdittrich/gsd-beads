@@ -154,6 +154,18 @@ None - no external service configuration required.
 ## Next Phase Readiness
 Ready for 17-02 (TRUTH-03). `capability.json` is at 0.4.0 and the runtime mirror is proven re-synced, satisfying the precondition every later `sync.py`-touching plan in this phase depends on.
 
+## Self-Check: PASSED
+
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py (phase_regex_token, phase_dir_prefix, widened PLAN_FILE_RE)
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py (class TestDecimalPhase, 16 methods)
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json (version 0.4.0)
+- FOUND: CHANGELOG.md (## 0.4.0 section)
+- FOUND commit c5dac73 (Task 1)
+- FOUND commit 4822040 (Task 2)
+- FOUND commit 0d6b8ba (plan metadata: SUMMARY.md + WINDOWS.md)
+- FOUND commit 8d50cf2 (REQUIREMENTS.md TRUTH-04 traceability)
+- FOUND: .planning/phases/17-config-code-truth/17-01-SUMMARY.md
+
 ---
 *Phase: 17-config-code-truth*
 *Completed: 2026-08-20*
