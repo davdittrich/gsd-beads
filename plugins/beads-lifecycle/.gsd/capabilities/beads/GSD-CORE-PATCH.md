@@ -1,11 +1,20 @@
-# Local patch: `$HOME/.claude/gsd-core/workflows/ship.md`
+# Local gsd-core patches (machine-local, this project)
+
+A register of every local, marker-bracketed patch this machine carries to an installed
+`gsd-core` workflow file. Neither patched file is part of this repository's git history (the
+`beads` capability's own files, listed in `PROJECT.md`'s Constraints as the only in-repo
+artifacts, do not include either). Each section below documents the same six parts: the
+targeted file, why the patch exists and which PROJECT.md constraint override permits it,
+upstream tracking plus an explicit revert condition, the patch-loss-detection independence
+argument, the insertion anchor stated in prose, and the marker pair with verbatim content for
+reapplication.
+
+## Patch 1: `ship.md` — `ship:pre` generic gate/step dispatch
 
 **Target file:** `$HOME/.claude/gsd-core/workflows/ship.md` — machine-local, shared across
-every gsd-core project on this machine (NOT part of this repository's git history; the
-`beads` capability's own files, listed in `PROJECT.md`'s Constraints as the only
-in-repo artifacts, do not include this file).
+every gsd-core project on this machine.
 
-## Why this patch exists
+### Why this patch exists
 
 This project's N2 constraint ("no fork/patch to gsd-core — raise a core change upstream
 first") was **overridden 2026-08-15** (user decision, Phase 3 planning; see
@@ -21,7 +30,7 @@ declared `ship:pre` `gates[]`/`ship_override` primitive are schema-valid but **i
 `/gsd-ship` run never evaluates them, silently making ROADMAP.md's Phase 3 Success Criteria 1
 and 2 false at ship time regardless of how correct Plan 01/02's own code is.
 
-## Upstream tracking + revert condition
+### Upstream tracking + revert condition
 
 Filed upstream as **open-gsd/gsd-core#3554** (generic `ship:pre` gate/step dispatch, natively).
 
@@ -30,7 +39,7 @@ loop, this local patch — the marker-bracketed block below, this file, `sync.py
 `check_shipmd_patch`, `beads-status/SKILL.md`'s Step 2d, and `beads-recall/SKILL.md`'s Step 3.5 —
 becomes unnecessary and should be deleted, not kept as permanent duplication.
 
-## Patch-loss detection is independent of the patch itself (CR-01, 03-03 code review)
+### Patch-loss detection is independent of the patch itself (CR-01, 03-03 code review)
 
 `beads-status/SKILL.md`'s Step 2d runs `check-shipmd-patch` at `ship:pre`, but that call site is
 itself only reachable through the dispatch loop this patch installs — if a `gsd-core` update or
@@ -42,14 +51,14 @@ is `beads-recall/SKILL.md`'s new Step 3.5, which runs the identical `check-shipm
 anything this patch installs. That independence is what makes Step 3.5 fire even when this patch
 has been silently dropped.
 
-## Insertion anchor
+### Insertion anchor
 
 The patch is inserted inside `preflight_checks`, immediately after step 7's (broken-windows
 ship gate) final line — the line ending `"...skip this check silently."` — and immediately
 before the step's closing `</step>` tag. The two steps this patch adds are numbered **8** and
 **9**, continuing the existing 1–7 numbered list.
 
-## Patch marker
+### Patch marker
 
 ```
 <!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->
@@ -61,7 +70,7 @@ presence in the live `ship.md` to detect whether this patch survived a `gsd-core
 capability reinstall — both of which can silently overwrite `ship.md` and drop the patch with
 no error.
 
-## Patch Content (verbatim)
+### Patch Content (verbatim)
 
 The fenced block below is byte-for-byte identical to the text between the two markers in the
 live `$HOME/.claude/gsd-core/workflows/ship.md`. If a future `gsd-core` update or reinstall
@@ -154,4 +163,87 @@ strips the patch, paste this block back in at the anchor above.
 
    If `activeHooks` has no `kind == "step"` entry, skip step 9 silently.
 <!-- /gsd-beads-patch:ship-pre-generic-dispatch v1 -->
+````
+
+## Patch 2: `execute-plan.md` — bd task-content read path
+
+**Target file:** `$HOME/.claude/gsd-core/workflows/execute-plan.md` — machine-local, shared
+across every gsd-core project on this machine (NOT part of this repository's git history).
+
+### Why this patch exists
+
+This project's N2 constraint ("no fork/patch to gsd-core — raise a core change upstream
+first") is overridden here under the same exception already granted and in use for the
+`ship.md` patch above (user decision, Phase 3 planning, 2026-08-15; see `.planning/PROJECT.md`
+Constraints). Phase 16 moves an `auto`/`tracer` task's authoritative content (`<read_first>`,
+`<precondition>`, `<behavior>`, `<action>`, `<verify>`, `<acceptance_criteria>`, `<done>`) out
+of `PLAN.md` and into `bd` (D-01), so that `sync.py`'s `strip_task_bodies` (plan 16-03) can turn
+a synced task block into a name+beads-id+files+pointer once its content is confirmed in bd.
+Without this patch, `gsd-executor` still reads a stripped task block from `PLAN.md` and finds
+nothing there — the content lives only in `bd`, unreachable to an unpatched executor. This
+patch is the read-path half of the inversion: it makes `execute-plan.md`'s per-task read
+resolve to `bd show <beads-id> --json` for a task whose type is `auto` or `tracer`, halting
+hard when bd cannot answer (D-04), and falling back to the inline `PLAN.md` body only for a
+pre-migration issue with an empty description (D-07, the Phases 1-15 boundary).
+
+### Upstream tracking + revert condition
+
+Filed upstream as **open-gsd/gsd-core#PENDING** *(placeholder — filled by plan 16-04 Task 3;
+do not leave unfilled after Task 3 runs)* (native per-task external-tracker content-resolution
+seam in `execute-plan.md`'s `execute` step).
+
+**Revert condition:** once open-gsd/gsd-core#PENDING ships a native seam in `execute-plan.md`'s
+per-task read for resolving task content from an external tracker by id, this local patch
+becomes unnecessary and should be deleted, not kept as permanent duplication. Delete all four
+artifacts together: the marker-bracketed block in `$HOME/.claude/gsd-core/workflows/execute-plan.md`,
+this section, `sync.py`'s `check_execute_plan_patch()` (and its `EXECUTE_PLAN_PATCH_MARKER`
+constant and `check-execute-plan-patch` subcommand), and `beads-recall/SKILL.md`'s Step 3.5 call
+to `check-execute-plan-patch`. Until then the patch runs locally and is re-verified every run.
+
+### Patch-loss detection is independent of the patch itself
+
+`check_execute_plan_patch()` (plan 16-03 Task 1) is dispatched from `beads-recall/SKILL.md`'s
+Step 3.5 at `plan:pre` — a lifecycle point gsd-core's own native generic step-dispatch loop
+reaches regardless of whether this patch survived, the same independence property the `ship.md`
+patch's Step 3.5 detector already relies on above. Plan 16-03's `strip_task_bodies` is
+additionally gated on a live `check_execute_plan_patch() == 0` re-check on every `sync.py
+create-issues` run, so a machine whose patch is gone stops stripping task content into
+unexecutable pointers rather than accumulating plans this patch would be needed to run.
+
+### Insertion anchor
+
+The patch is inserted inside `<step name="execute">`, within item 3 ("Per task:"), as the FIRST
+bullet of that list — immediately before the `**MANDATORY read_first gate:**` bullet and after
+the `3. Per task:` line itself. It runs first because the task's own `read_first` list is one of
+the fields that now lives in bd; a gate that runs before the content is fetched would be gating
+on nothing.
+
+### Patch marker
+
+```
+<!-- gsd-beads-patch:execute-plan-bd-task-read v1 -->
+<!-- /gsd-beads-patch:execute-plan-bd-task-read v1 -->
+```
+
+`sync.py`'s `check_execute_plan_patch` (16-03 Task 1) checks for the opening marker string's
+presence in the live `execute-plan.md` to detect whether this patch survived a `gsd-core`
+update or capability reinstall — both of which can silently overwrite `execute-plan.md` and
+drop the patch with no error.
+
+### Patch Content (verbatim)
+
+The fenced block below is byte-for-byte identical to the text between the two markers in the
+live `$HOME/.claude/gsd-core/workflows/execute-plan.md`. If a future `gsd-core` update or
+reinstall strips the patch, paste this block back in at the anchor above.
+
+````markdown
+<!-- gsd-beads-patch:execute-plan-bd-task-read v1 -->
+   - **MANDATORY bd task-content read (beads capability).** Before anything else for this task: if the task's opening-tag type is exactly `auto` or `tracer` AND the task block carries a `<beads-id>` element, this plan is a pointer and the authoritative task content lives in `bd`. Run `bd show <beads-id> --json` and branch on the result:
+
+     - **Non-zero exit, or a payload carrying an `"error"` key → HALT.** Do not execute the task, do not reconstruct it from the PLAN.md block, do not guess. Report exactly: `FATAL: bd task content unreachable for <beads-id> (task: <name>) — bd show exited <code>. This plan carries a pointer, not instructions; execution cannot proceed.` This is a deliberate hard dependency, not a degradable one: a silent fall-back would require PLAN.md and bd to stay in sync forever, which is the condition this design exists to remove.
+     - **Success with a non-empty `description` → that field and `acceptance_criteria` ARE this task's instructions.** The description's `## Read First`, `## Precondition`, `## Behavior`, `## Action`, `## Verify`, `## Done` and `## Files` sections stand in for the `<read_first>`, `<precondition>`, `<behavior>`, `<action>`, `<verify>`, `<done>` and `<files>` elements, and the `acceptance_criteria` field stands in for `<acceptance_criteria>`, for every gate below — including the MANDATORY read_first gate and the acceptance_criteria HARD GATE. Where a PLAN.md task block also still carries one of those elements, the bd content wins. Print exactly one line before proceeding: `beads: task content read from bd (<beads-id>)`. That line is the only independent runtime evidence this branch actually fired rather than being skipped in favour of habit — record it in the plan's SUMMARY alongside the task, and treat its absence for an inverted task as a deviation, not a formatting detail.
+     - **Success with an empty or absent `description` → pre-migration issue.** The issue was created before task content was written to bd. Use this PLAN.md's inline task body as before and print one line: `beads: <beads-id> carries no description — using inline PLAN.md task body (pre-migration plan)`. This branch exists only for plans authored before the migration; it is a boundary marker, not a general fall-back, and it never applies when `bd show` itself failed.
+
+     A task whose opening-tag type begins with `checkpoint:` NEVER takes this branch — its options, pros/cons, reversibility ratings and resume-signal stay in PLAN.md and are read from there, unchanged, because that structure is interactive and does not compress into a description read at execute time. Plan-level sections — `<objective>`, `<context>`, `<interfaces>`, `<threat_model>`, `<verification>`, `<success_criteria>` — are ALWAYS read from PLAN.md; `load_prompt`'s `cat` is unchanged by this patch.
+<!-- /gsd-beads-patch:execute-plan-bd-task-read v1 -->
 ````
