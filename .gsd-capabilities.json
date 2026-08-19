@@ -1,10 +1,10 @@
 {
   "version": "1",
-  "updatedAt": "2026-08-19T20:17:10.173Z",
+  "updatedAt": "2026-08-19T20:39:15.597Z",
   "entries": {
     "beads": {
       "id": "beads",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "source": "./plugins/beads-lifecycle/.gsd/capabilities/beads",
       "integrity": "",
       "files": [

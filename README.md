@@ -117,6 +117,14 @@ Valid points are `plan:pre`, `plan:post`, `execute:wave:pre`, `execute:wave:post
 declare — and re-reads `beads.enabled` itself, because entering from a harness hook bypasses the
 capability registry that would normally evaluate each step's `when` condition.
 
+The hook matches only a real invocation: a recognised tools shim (`gsd_run`, `gsd-tools`, or
+`node …/gsd-tools.cjs`) in shell command position, followed by `loop render-hooks <point> --raw`.
+A command that merely quotes or greps that string does not dispatch. And a hook-driven
+`plan:post` never strips `<task>` bodies out of `PLAN.md`, whatever the read-path patch says —
+only an explicit `sync.py create-issues <plan>` does that. Both guards exist because the trigger
+is ultimately a substring of a shell command, so a spurious match can never be ruled out
+entirely; creating a `bd` issue by mistake is recoverable, deleting task prose is not.
+
 ## Configuration
 
 Every gsd-beads setting lives in the project's `.planning/config.json` under a single `beads`

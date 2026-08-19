@@ -20,12 +20,10 @@ jobs:
         run: bash tests/test-capability-auto-install.sh
 
       # test_sync.py mocks `bd`'s subprocess calls but not bd_available(), which
-      # probes shutil.which("bd") -- so without a real binary on PATH roughly a
-      # sixth of the suite short-circuits onto the "bd unavailable" fail-open
-      # path and its assertions fail. A stub `bd` would not do: _bd_on_path() is
-      # evaluated at import time and gates the handful of cases that drive a
-      # genuine bd database, so a stub would un-skip exactly the tests it cannot
-      # satisfy.
+      # probes shutil.which("bd") -- without a real binary on PATH roughly a
+      # sixth of the suite short-circuits onto the fail-open path and fails. A
+      # stub will not do: _bd_on_path() is evaluated at import time and gates
+      # the cases that drive a genuine bd database.
       - name: Install bd
         run: |
           set -euo pipefail
@@ -35,10 +33,8 @@ jobs:
           sudo install -m 0755 /tmp/bd /usr/local/bin/bd
           bd version
 
-      # gh-2: this suite existed since Phase 1 and nothing ran it in CI, so a
-      # regression in the sync layer reached a release unchallenged. Stdlib
-      # unittest, not pytest -- N5 keeps this capability's dependencies at `bd`
-      # plus the Python standard library, and CI must not quietly widen that.
+      # Stdlib unittest, not pytest -- N5 keeps this capability's dependencies
+      # at `bd` plus the Python standard library, and CI must not widen that.
       - name: Beads sync tests
         working-directory: plugins/beads-lifecycle/.gsd/capabilities/beads
         run: python3 -m unittest discover -s tests -t tests

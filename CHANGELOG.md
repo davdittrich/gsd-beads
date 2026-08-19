@@ -2,6 +2,42 @@
 
 Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`.
 
+## 0.3.1
+
+### Fixed
+- **Data loss: a command that merely *mentioned* the trigger string ran a full `plan:post` sync.**
+  0.3.0's hook matched `render-hooks <point>` anywhere in a Bash command. `rg "render-hooks
+  plan:post --raw" .`, an unquoted `grep`, and an `echo` of the line all fired it — routine
+  commands while working on this capability. One such fire created bd issues **and ran
+  `strip_task_bodies`, deleting `<behavior>`/`<action>`/`<acceptance_criteria>` from every
+  unsynced task in the current phase's `PLAN.md`**. With `.beads/` gitignored that is
+  unrecoverable. Two independent fixes, either of which would have prevented it:
+  - The matcher now requires a real invocation — a recognised tools shim (`gsd_run`,
+    `gsd-tools`, `node …/gsd-tools.cjs`) **in shell command position**, the `loop` subcommand,
+    and the trailing `--raw`. A quoted or grepped mention can no longer reach command position.
+  - `lifecycle_dispatch` passes `allow_strip=False`, so a hook-driven `plan:post` never performs
+    the authoritative strip at all. Creating a bd issue by mistake is recoverable; deleting the
+    only copy of task prose is not. An explicit `sync.py create-issues <plan>` still strips.
+
+### Performance
+- **The hook no longer starts a Python interpreter on every Bash tool call.** It is wired
+  `matcher: "Bash"`, so it runs after every Bash call in every session in every repo with the
+  plugin loaded. A locale-pinned bash-builtin pre-filter now rejects the common case before any
+  spawn: **13.00 ms → 0.91 ms** per non-matching call. `LC_ALL=C` matters because PostToolUse
+  payloads carry the tool's full output — on a 4 MB payload, UTF-8 pattern matching alone cost
+  ~34 ms. Also merged two JSON parses into one, and set an explicit 120 s hook timeout.
+
+### Changed
+- `read_epic_per` and `read_beads_enabled` now share one `read_beads_config` reader; each
+  shipped default is written down once, beside the key it belongs to.
+- Dropped the `--phase-dir` flag and `phase_dir_override` parameter from `lifecycle-dispatch` —
+  nothing but a test ever used them.
+
+### Known issues (pre-existing, now tracked)
+- **`beads.sync_mode` is declared in `capability.json` and read by no code.** `mirror` and `off`
+  do nothing; only `beads.enabled: false` stops dispatch. 0.3.0's changelog implied the strip was
+  gated on it — it never was. Tracked as `gsd-beads-v43`.
+
 ## 0.3.0
 
 ### Fixed
@@ -41,9 +77,10 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   ticket pointer is lost. For the same reason `execute:wave:post` uses the phase-wide idempotent
   `reconcile-stale-closed` backstop rather than `close-wave`.
 - A project that planned phases before 0.3.0 has no issues for them. Backfill with
-  `sync.py create-issues <plan>` per plan — and note that under `sync_mode: authoritative` this
-  strips `<task>` bodies out of `PLAN.md`, so confirm the content landed in `bd` before
-  committing, particularly if `.beads/` is gitignored.
+  `sync.py create-issues <plan>` per plan — note this strips `<task>` bodies out of `PLAN.md`
+  once the `execute-plan.md` read-path patch is present, so confirm the content landed in `bd`
+  before committing, particularly if `.beads/` is gitignored. (The strip is gated on that patch
+  check, not on `beads.sync_mode` — see 0.3.1's Known issues.) Hook-driven dispatch never strips.
 
 ## 0.2.0
 

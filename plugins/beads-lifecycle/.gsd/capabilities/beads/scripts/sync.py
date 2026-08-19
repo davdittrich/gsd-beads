@@ -627,72 +627,49 @@ def get_phase_header(roadmap_path, phase_num):
     return m.group(1).strip()
 
 
-def read_epic_per(project_root):
-    """B14/D-11: return the `beads.epic_per` value read fresh from
-    `.planning/config.json` -- "phase" when the file is absent, malformed
-    (`json.JSONDecodeError`), or carries no `beads.epic_per` key. This is
-    `sync.py`'s first-ever direct `config.json` read (RESEARCH's Config
-    Schema Mechanism, Pattern 3 option (a)) -- required because D-11 needs
-    the value re-read at each epic-creation call site, not resolved once by
-    the calling SKILL.md's config gate."""
-    config_path = confined(project_root, ".planning", "config.json")
-    if not config_path.exists():
-        return "phase"
+def read_beads_config(project_root, key, default):
+    """Return `beads.<key>` read fresh from `.planning/config.json`, falling
+    back to `default` when the file is absent, unreadable, malformed, carries
+    no `beads` object, carries no such key, or carries a value of the wrong
+    type -- a wrong-typed value returns the default rather than a truthiness
+    guess, so `{"enabled": "false"}` cannot silently disable tracking.
+
+    Read fresh on every call, never cached: D-11 requires the value at each
+    epic-creation call site, and `lifecycle_dispatch` needs it because
+    entering from a harness hook bypasses both the SKILL.md Step 1 config
+    gate and the capability registry that evaluates each hook's `when`.
+    """
     try:
-        cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return "phase"
-    beads_cfg = cfg.get("beads", {}) if isinstance(cfg, dict) else {}
-    return beads_cfg.get("epic_per", "phase") if isinstance(beads_cfg, dict) else "phase"
+        cfg = json.loads(
+            confined(project_root, ".planning", "config.json").read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return default
+    beads_cfg = cfg.get("beads") if isinstance(cfg, dict) else None
+    if not isinstance(beads_cfg, dict):
+        return default
+    value = beads_cfg.get(key, default)
+    return value if isinstance(value, type(default)) else default
+
+
+# The two accessors below exist so each shipped default is written down exactly
+# once, next to the key it belongs to, and matches capability.json's `config`
+# block. Inlining them would scatter the defaults across call sites.
+def read_epic_per(project_root):
+    """B14/D-11: `beads.epic_per`, default `"phase"`."""
+    return read_beads_config(project_root, "epic_per", "phase")
 
 
 def read_beads_enabled(project_root):
-    """gh-2: return the effective `beads.enabled` value read fresh from
-    `.planning/config.json` -- `True` when the file is absent, unreadable,
-    malformed, carries no `beads` object, or carries no `enabled` key
-    (`capability.json`'s shipped default since 0.2.0), and `True` again for
-    a non-boolean value rather than a truthiness guess.
-
-    Modeled on `read_epic_per` immediately above, and needed for the same
-    reason at a different layer: `lifecycle_dispatch` is entered from a
-    harness hook, not from a SKILL.md whose Step 1 config gate has already
-    resolved the key, and not through the capability registry that
-    evaluates each hook's `when: beads.enabled`. Without this read, a
-    project that opted out would still get dispatched.
-    """
-    config_path = confined(project_root, ".planning", "config.json")
-    if not config_path.exists():
-        return True
-    try:
-        cfg = json.loads(config_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return True
-    beads_cfg = cfg.get("beads", {}) if isinstance(cfg, dict) else {}
-    if not isinstance(beads_cfg, dict):
-        return True
-    enabled = beads_cfg.get("enabled", True)
-    return enabled if isinstance(enabled, bool) else True
+    """gh-2: `beads.enabled`, default `True` (capability.json since 0.2.0)."""
+    return read_beads_config(project_root, "enabled", True)
 
 
-def lifecycle_dispatch(point, phase_dir_override=None):
-    """gh-2: run the beads operation a lifecycle point declares, entered
-    from the plugin's `PostToolUse` hook rather than from gsd-core's
-    workflow prose.
-
-    Four of the six `kind: "step"` hooks `capability.json` declares are
-    structurally unreachable in gsd-core 1.10.0: `plan:post` and
-    `execute:wave:post` dispatch `kind == "gate"` entries only,
-    `execute:wave:pre` checks only for a *contribution*, and `verify:post`
-    hardcodes `ref.skill == "secure-phase"`. `plan:pre`'s generic step
-    contract exists but sits behind an `AUTO_CHAIN` + frontend-detection
-    branch, so it too misses a manual `/gsd-plan-phase`. Every one is
-    `onError: "skip"`, so the miss is silent: a phase plans and executes
-    with zero bd issues and nothing reports it.
-
-    What every dead point DOES still do is run `gsd_run loop render-hooks
-    <point> --raw`. `hooks/lifecycle-dispatch.sh` matches that Bash call and
-    routes here, which is why this dispatch survives a gsd-core update:
-    breaking it would require gsd-core to stop resolving its own hooks.
+def lifecycle_dispatch(point):
+    """gh-2: run the beads operation a lifecycle point declares, entered from
+    the plugin's `PostToolUse` hook rather than from gsd-core's workflow prose.
+    Why the hook exists at all is documented once, in
+    `hooks/lifecycle-dispatch.sh`'s header.
 
     Each point maps onto an existing verb, all of them derivable from
     `phase_dir` alone -- deliberate, since the render-hooks call carries no
@@ -700,6 +677,12 @@ def lifecycle_dispatch(point, phase_dir_override=None):
     idempotent `reconcile_stale_closed` backstop (D-08) rather than
     `close_wave`, and `execute:wave:pre` renders a phase-wide (superset,
     never lossy) `<beads_status>` block.
+
+    `plan:post` passes `allow_strip=False`: the hook's trigger is a substring
+    of a shell command, so a spurious fire is always possible, and the one
+    irreversible thing in this whole path is `strip_task_bodies` deleting the
+    only copy of a task's content from PLAN.md. Creating a bd issue by mistake
+    is recoverable; deleting prose is not.
 
     Always returns 0. Every declared hook is `onError: "skip"`, and this is
     the call site that has to honour that contract: an unknown point, an
@@ -717,10 +700,7 @@ def lifecycle_dispatch(point, phase_dir_override=None):
         return 0
     if not read_beads_enabled(project_root):
         return 0
-    if phase_dir_override is not None:
-        phase_dir = Path(phase_dir_override).resolve()
-    else:
-        phase_dir = _resolve_default_phase_dir(project_root)
+    phase_dir = _resolve_default_phase_dir(project_root)
     if phase_dir is None or not phase_dir.is_dir():
         # stderr, not stdout: a repository between milestones has no
         # `.planning/phases/` at all, so this fires on every render-hooks call
@@ -755,7 +735,7 @@ def lifecycle_dispatch(point, phase_dir_override=None):
                 )
                 return 0
             for plan_id in sorted(plans):
-                create_issues(str(plans[plan_id]))
+                create_issues(str(plans[plan_id]), allow_strip=False)
         elif point == "execute:wave:pre":
             render_wave_status_block(str(phase_dir), sorted(discover_plan_files(phase_dir)))
         elif point == "execute:wave:post":
@@ -1297,7 +1277,19 @@ def reconcile_stale_closed(phase_dir_arg):
     return 0
 
 
-def create_issues(plan_arg):
+def create_issues(plan_arg, allow_strip=True):
+    """`allow_strip=False` keeps every `<task>` body in PLAN.md even when the
+    read-path patch is present (gh-2). `strip_task_bodies` is a deliberate,
+    destructive migration: it moves the ONLY copy of a task's content into a bd
+    database the project may be gitignoring. An unattended harness hook that
+    fired on a substring of a shell command is the wrong principal to authorize
+    that, so `lifecycle_dispatch` passes False; an explicit
+    `sync.py create-issues <plan>` keeps the default.
+
+    Note the strip is NOT gated on `beads.sync_mode` -- that key is declared in
+    capability.json and read by nothing (gsd-beads-v43). The only
+    gate is `check_execute_plan_patch()` below, plus this flag.
+    """
     if not bd_available():
         print(NOTICE)
         try:
@@ -1368,7 +1360,12 @@ def create_issues(plan_arg):
         # verifiably present -- verify the patch before trusting the strip,
         # never assume it (ROADMAP Cross-Cutting Constraint).
         newly_created_ids = {issue_id for _, issue_id in task_updates}
-        if newly_created_ids:
+        if newly_created_ids and not allow_strip:
+            print(
+                "beads-sync: hook-driven dispatch -- leaving task content in PLAN.md "
+                "(gh-2: an unattended dispatch never performs the authoritative strip)"
+            )
+        elif newly_created_ids:
             if check_execute_plan_patch() == 0:
                 new_text = strip_task_bodies(new_text, newly_created_ids)
             else:
@@ -2225,9 +2222,7 @@ def main(argv=None):
     # Deliberately no `choices=`: argparse would exit 2 with a usage dump on an
     # unrecognised point, and this verb's whole contract is that it never
     # returns non-zero (every hook it serves is `onError: "skip"`).
-    # `lifecycle_dispatch` validates the point itself and returns 0.
     lifecycle_p.add_argument("point")
-    lifecycle_p.add_argument("--phase-dir", default=None)
     sub.add_parser(
         "migrate-todos",
         help="One-shot migration of .planning/todos/pending/ entries into bd issues (B12)",
@@ -2258,7 +2253,7 @@ def main(argv=None):
     if args.command == "check-execute-plan-patch":
         return check_execute_plan_patch(args.execute_plan_path)
     if args.command == "lifecycle-dispatch":
-        return lifecycle_dispatch(args.point, args.phase_dir)
+        return lifecycle_dispatch(args.point)
     if args.command == "migrate-todos":
         project_root = find_project_root(Path.cwd())
         pending_dir = confined(project_root, ".planning", "todos", "pending")

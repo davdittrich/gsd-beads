@@ -3782,7 +3782,9 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             with mock.patch.object(sync, "create_issues", return_value=0) as create:
                 exit_code = sync.lifecycle_dispatch("plan:post")
         self.assertEqual(exit_code, 0)
-        create.assert_called_once_with(str(phase_dir / "07-01-PLAN.md"))
+        create.assert_called_once_with(
+            str(phase_dir / "07-01-PLAN.md"), allow_strip=False
+        )
 
     def test_wave_pre_renders_a_phase_wide_status_block(self):
         """The render-hooks call carries no wave plan-id list, so the block
@@ -3814,14 +3816,18 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         regen.assert_called_once_with(str(phase_dir))
 
-    def test_phase_dir_override_wins_over_state_md(self):
-        with self._in_workspace() as phase_dir:
-            other = phase_dir.parent / "09-other"
-            other.mkdir()
-            with mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regen:
-                exit_code = sync.lifecycle_dispatch("verify:post", str(other))
-        self.assertEqual(exit_code, 0)
-        regen.assert_called_once_with(str(other.resolve()))
+    def test_plan_post_never_strips_task_bodies(self):
+        """gh-2 regression. `strip_task_bodies` moves the ONLY copy of a task's
+        content out of PLAN.md and into a bd database the project may be
+        gitignoring. The hook's trigger is a substring of a shell command, so a
+        spurious fire is always possible; creating an issue by mistake is
+        recoverable, deleting prose is not. A hook-driven dispatch must
+        therefore never authorize the strip, whatever the read-path patch says."""
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        with self._in_workspace(plan_text=plan) as phase_dir:
+            with mock.patch.object(sync, "create_issues", return_value=0) as create:
+                sync.lifecycle_dispatch("plan:post")
+        self.assertEqual(create.call_args.kwargs.get("allow_strip"), False)
 
 
 class TestLifecycleDispatchFailOpen(unittest.TestCase):
@@ -4005,6 +4011,53 @@ class TestLifecycleDispatchHook(unittest.TestCase):
         self.assertIn(
             "execute:wave:pre", payload["hookSpecificOutput"]["additionalContext"]
         )
+
+    def test_commands_that_merely_mention_the_trigger_do_not_dispatch(self):
+        """gh-2 regression, and the reason the matcher is not a bare substring
+        test. Every command below fired the shipped v1.3.0 matcher; one `rg`
+        created bd issues and stripped the <task> bodies out of a PLAN.md.
+        They are all things an agent or a human really runs while working on
+        this very capability."""
+        innocent = [
+            "grep -rn render-hooks plan:post ~/.claude/gsd-core",
+            'grep -rn "render-hooks plan:post" ~/.claude/gsd-core',
+            'rg "render-hooks plan:post --raw" .',
+            "echo 'gsd-core calls render-hooks plan:post --raw here'",
+            'echo "gsd_run loop render-hooks plan:post --raw"',
+            "cat ~/.claude/gsd-core/workflows/plan-phase.md",
+            "sed -n '1348p' plan-phase.md  # PLAN_POST_HOOKS_JSON render-hooks plan:post",
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            for command in innocent:
+                result = self._run(command, Path(tmp))
+                self.assertEqual(result.returncode, 0, command)
+                self.assertEqual(result.stdout, "", f"dispatched on: {command}")
+
+    def test_real_gsd_core_call_shapes_still_dispatch(self):
+        """The narrowing above must not cost a true positive. These are the
+        forms gsd-core actually emits, across every shim the resolver picks."""
+        real = [
+            "PLAN_POST_HOOKS_JSON=$(gsd_run loop render-hooks plan:post --raw)",
+            "gsd_run loop render-hooks plan:post --raw",
+            "H=$(gsd-tools loop render-hooks plan:post --raw)",
+            "H=$(node ~/.claude/gsd-core/bin/gsd-tools.cjs loop render-hooks plan:post --raw)",
+            "cd /tmp && gsd_run loop render-hooks plan:post --raw",
+        ]
+        # A plan must exist: with none, plan:post reports on stderr and the
+        # hook is right to stay silent, which would pass this test vacuously.
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp), plan_text=plan)
+            for command in real:
+                result = self._run(command, Path(tmp))
+                self.assertEqual(result.returncode, 0, command)
+                payload = json.loads(result.stdout or "{}")
+                self.assertIn(
+                    "plan:post",
+                    payload.get("hookSpecificOutput", {}).get("additionalContext", ""),
+                    f"failed to dispatch on: {command}",
+                )
 
     def test_non_matching_command_produces_no_output(self):
         with tempfile.TemporaryDirectory() as tmp:
