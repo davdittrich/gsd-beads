@@ -60,10 +60,30 @@ task-state bookkeeping survives in `.planning/`.
   Phase 9
 - ✓ **PUB-12**: A gsd-tailored `.beads/PRIME.md` ships, overriding beads' generic `bd prime`
   default output — Phase 9 (`v1.1.1` released)
+- ✓ **MDL-01**: `markdown-linting` capability wraps `rumdl` over `.planning/**/*.md`, reports
+  violations at `verify:post` — Phase 13
+- ✓ **MDL-02**: `LINT-REPORT.md` regenerated every run, degrades honestly (non-numeric
+  `violation_count: unavailable` sentinel) when `rumdl` can't run — Phase 13
+- ✓ **MDL-03**: `ship:pre` gate on lint violations, advisory by default — Phase 13
+- ✓ **MDL-04**: `rumdl` invoked with an always-explicit `--config` path, never
+  `markdownlint-cli2` — Phase 13
+- ✓ **PRW-01**: `pr-workflow` capability wraps `gh pr create`/`gh pr checks`/`gh api`, projects
+  PR check status into `14-PR.md` at `execute:wave:post` — Phase 14
+- ✓ **PRW-02**: `ship:pre` gate on the derived `pr_gate_ok` boolean, advisory by default —
+  Phase 14
+- ✓ **PRW-03**: `ship:post` warn-only notice when no open PR exists for the branch — Phase 14
+- ✓ **PRW-04**: Fails open (one notice, exit 0, sentinel report) across all `gh`-degraded paths
+  — Phase 14
+- ✓ **Beads issue content parity** (D-01 through D-08, no `REQ-*` IDs — decision-tracked per the
+  Phase 15 precedent): every `bd create` for a task/epic carries a real description and
+  acceptance criteria instead of a title-only stub; `gsd-executor` reads `auto`/`tracer` task
+  instructions from `bd show <beads-id> --json`, hard-halting when bd can't answer; a
+  phase-wide `reconcile-stale-closed` backstop closes issues left open by per-wave dispatch —
+  Phase 16
 
 ### Active
 
-(v1.2 requirements pending definition — see Step 9 of `/gsd-core:new-milestone`)
+(v1.3 requirements pending definition — see Step 9 of `/gsd-core:new-milestone`)
 
 ### Out of Scope
 
@@ -80,8 +100,28 @@ task-state bookkeeping survives in `.planning/`.
 - A deterministic plan-checker reviewer capability (PRD Appendix A) — benefit is unmeasured and
   the failure mode is a second review pipeline nobody asked for; revisit only after `beads` has
   shipped and only if the LLM plan-checker is observed spending judgement on decidable properties
+- `get-available-resources` capability — originally a target feature for v1.2 (CPU/GPU/memory/disk
+  detection, advisory-only `plan:pre`/`execute:wave:pre` fragment); Phase 16 (beads issue content
+  parity) was discovered as a higher-priority gap mid-milestone and took its place, so this was
+  never planned or built in v1.2. Not invalidated, just deferred — revisit as a future milestone's
+  target if the need resurfaces
 
-## Current Milestone: v1.2 New Capability Plugins
+## Current State
+
+Shipped v1.2 (New Capability Plugins) 2026-08-19. `markdown-linting` and `pr-workflow` are both
+public, independently installable Claude Code plugins with their `ship:pre` gates re-proven live
+from the marketplace-installed copy. Every `bd create` now writes a real description and
+acceptance criteria instead of a title-only stub, and `gsd-executor` reads `auto`/`tracer` task
+instructions from `bd show`, not `PLAN.md`.
+
+## Next Milestone Goals
+
+Not yet defined — run `/gsd-new-milestone` (questioning → research → requirements → roadmap).
+`get-available-resources` (dropped from v1.2, see Out of Scope) is a candidate if the need
+resurfaces.
+
+<details>
+<summary>v1.2 New Capability Plugins — SHIPPED 2026-08-19</summary>
 
 **Goal:** Ship three new gsd-core capability plugins — `pr-workflow`, `markdown-linting`,
 `get-available-resources` — each dogfooded in this repo then extracted to its own public GitHub
@@ -94,7 +134,9 @@ repo and marketplace entry, exactly matching the proven Phase 10/11 (build) → 
 - `markdown-linting` capability: wraps `markdownlint-cli2` over `.planning/**/*.md`; `verify:post`
   report of MD0XX violations, `ship:pre` gate (mirrors `beads.ship_gate`'s pattern)
 - `get-available-resources` capability: wraps a CPU/GPU/memory/disk detection script producing
-  `.claude_resources.json`; advisory-only fragment at `plan:pre`/`execute:wave:pre`, no gate
+  `.claude_resources.json`; advisory-only fragment at `plan:pre`/`execute:wave:pre`, no gate —
+  **dropped**, never planned; Phase 16 (beads issue content parity) took its place, see Out of
+  Scope
 - Each ships first as a dogfooded `.gsd/capabilities/<id>/` subdirectory in this repo, then gets
   its own public repo (`davdittrich/<id>`) and a `git`-source `marketplace.json` entry alongside
   `beads`, `ponytail-everywhere`, `sota-numerics`
@@ -126,8 +168,21 @@ locked D-00 "stay untouched" clause, both in-repo dogfood bundles were then remo
 still installs from the same marketplace, both capabilities remain active here from their
 user-scope grants. Phase verification passed 10/10 (all four ROADMAP success criteria SC-1..SC-4
 independently re-checked against live `gh`/`claude plugin`/CI state, not just SUMMARY narration).
-Next: Phase 16 (`get-available-resources` capability, or milestone close if v1.2 scope is
-considered satisfied by the two shipped plugins — see ROADMAP.md).
+
+**Phase 16 (beads issue content parity) complete (2026-08-19):** `bd show <issue-id>` is now
+self-sufficient. Write path (16-01): every `bd create` for a task/epic carries a real description
+and `--acceptance`, closing the title-only gap. D-08 backstop (16-02): a phase-wide idempotent
+`reconcile-stale-closed` step at `verify:post` closed Phase 14's four stale-open issues as live
+proof. Read path (16-03/16-04): `sync.py`'s `check_execute_plan_patch` detector gates
+`strip_task_bodies`, which turns a synced `PLAN.md`'s `auto`/`tracer` task blocks into
+name+beads-id+files pointers; a machine-local `execute-plan.md` patch makes `gsd-executor` read
+those tasks' instructions from `bd show`, hard-halting on an unreachable bd. Filed upstream as
+open-gsd/gsd-core#3646 (the read-path change) and #3647 (an unrelated capability-dispatch
+reliability finding). UAT (3/3 passed) verified the branch-trigger conditions live against real
+bd rather than a synthetic mock — no stripped plan exists yet in this repo for a full
+`gsd-executor` end-to-end run, which remains open as the one unverified path.
+
+</details>
 
 ## Context
 
@@ -204,6 +259,8 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 | `.github/workflows/release.yml` interpolated `github.ref_name` directly into a `run:` shell command | Found by code review (08-REVIEW.md WR-02): classic GitHub Actions tag-name script-injection pattern, not mitigated via `env:` indirection | Fixed same session (commit `b4a7903`), independently confirmed pushed during Phase 8 goal verification |
 | README's beads-vs-gsd value proposition and lifecycle-integration example were missing entirely | Phase 8 UAT (human comprehension test) reported the README explains the mechanism of gsd-beads but never why a reader would choose it over gsd-core's built-in `.planning/` tracking, and the worked example showed only bare `bd` commands, not the `/gsd-plan-phase` → `/gsd-execute-phase` → `/gsd-verify-work` integration | Diagnosed (root cause: content existed in `docs/prd-beads-capability.md` §3.1-3.2 and PROJECT.md's own Core Value line but was never pulled into README), fixed via gap-closure plan `08-03-PLAN.md` (commits `83b3897`, `3e0e31f`), re-verified, UAT passed |
 | Two new hard requirements (PUB-11 SKILL.md parity, PUB-12 gsd-tailored PRIME.md) surfaced during Phase 8 UAT, after `v1.1.0` had already shipped | User explicitly ruled these hard requirements for v1.1, not deferred ideas — despite the public release already existing | Added to REQUIREMENTS.md, new Phase 9 (Beads Content Depth) created via `gsd_run phase add`; Phase 9 must complete before v1.1 is considered done, followed by a `v1.1.1` patch release replacing the public `v1.1.0` archive |
+| `get-available-resources` dropped from v1.2's originally-scoped three plugins, replaced by Phase 16 (beads issue content parity) | Discuss-phase (2026-08-19) surfaced that every synced `bd` issue was title-only (no description/acceptance criteria), a gap discovered mid-milestone and judged higher-priority than the third planned plugin — beads is this project's own core dependency, not a new capability, so fixing it compounds | `get-available-resources` moved to Out of Scope (deferred, not invalidated); Phase 16 shipped in its place (D-01..D-08, 4/4 plans) |
+| Phase 16 chose full inversion (task content lives in `bd`, `PLAN.md` becomes a pointer) over a minimal one-shot `--description` write | Discuss-phase resolved two competing proposals surfaced 2026-08-18; full inversion closes the drift-forever problem a one-shot write would leave open (D-01) | Shipped Phase 16 — write path (16-01), read path (16-03/16-04), `gsd-executor` patch filed upstream (open-gsd/gsd-core#3646). One gap: no real stripped `PLAN.md` has run through a live `gsd-executor` session yet in this repo, so branch-trigger conditions are UAT-verified live against real `bd`, not full end-to-end |
 
 ## Evolution
 
@@ -230,10 +287,26 @@ Milestone audit: 14/14 requirements satisfied, 4/4 phases integration-verified, 
 Phase 4 SUMMARY.md files missing `requirements-completed` frontmatter, and Phases 2-3-4 missing
 reconciled Nyquist `VALIDATION.md` coverage — neither blocks shipped functionality).
 
+## v1.2 Ship Summary
+
+Shipped 2026-08-19. 4 phases (13-16), 16 plans, 57 tasks, 58 files changed (+1640/-785 lines).
+8/8 v1 requirements (MDL-01..04, PRW-01..04) satisfied; Phase 16's D-01..D-08 decision set
+satisfied with no `REQ-*` IDs (mirrors the Phase 15 precedent). Two capabilities
+(`markdown-linting`, `pr-workflow`) shipped as public, independently installable plugins. One
+scope change mid-milestone: `get-available-resources` (originally the third target plugin)
+dropped in favor of Phase 16 (beads issue content parity) — deferred, not invalidated. One open
+gap carried forward: Phase 16's `gsd-executor` bd-read patch is UAT-verified live against real
+`bd` but not yet exercised end-to-end against a real stripped `PLAN.md` in this repo.
+
 ---
-*Last updated: 2026-08-18 — Phase 15 (public extraction of markdown-linting + pr-workflow) complete:
+*Last updated: 2026-08-19 — v1.2 milestone (New Capability Plugins) shipped: Phase 16 (beads
+issue content parity) complete, `get-available-resources` moved to Out of Scope (deferred), MDL/PRW
+requirements and Phase 16's D-01..D-08 moved to Validated. See Current State / Next Milestone Goals
+above.*
+
+*Previously: 2026-08-18 — Phase 15 (public extraction of markdown-linting + pr-workflow) complete:
 both plugins public, marketplace-reachable, gate-proven from the installed copy; both in-repo
-dogfood bundles removed per explicit operator instruction. See Current Milestone section above.*
+dogfood bundles removed per explicit operator instruction.*
 
 *Previously: 2026-08-18 — Phase 14 (pr-workflow dogfood) complete. Milestone v1.2 (New Capability Plugins) started: PUB-11/PUB-12 moved
 to Validated (Phase 9 shipped, `v1.1.1` released); Current Milestone section repointed at v1.2's

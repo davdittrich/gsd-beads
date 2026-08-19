@@ -2,18 +2,18 @@
 gsd_state_version: 1.0
 milestone: v1.2
 milestone_name: New Capability Plugins
-current_phase: 16
-status: completed
+status: Awaiting next milestone
 stopped_at: Completed 16-04-PLAN.md
-last_updated: "2026-08-19T01:52:00.719Z"
+last_updated: "2026-08-19T07:43:48.474Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 16 execution started
 progress:
-  total_phases: 3
-  completed_phases: 3
-  total_plans: 12
-  completed_plans: 12
+  total_phases: 4
+  completed_phases: 4
+  total_plans: 16
+  completed_plans: 16
   percent: 100
+current_phase: 16
 current_phase_name: beads-issue-content-parity
 ---
 
@@ -29,11 +29,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 16
-Plan: Not started
-Status: All phases complete
-Progress: [██████████] 100% (7/7 plans, v1.2)
-Last activity: 2026-08-19 — Phase 16 complete
+Phase: Milestone v1.2 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-19 — Milestone v1.2 completed and archived
 
 ## Performance Metrics
 
@@ -179,17 +178,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Phase 14 is complete: all 3 plans executed, all four requirements (PRW-01..04) satisfied, and
-  all five ROADMAP Success Criteria mapped to recorded evidence in
-  `.planning/phases/14-pr-workflow-capability-dogfood/14-GATE-SMOKE-TEST.md`'s closing Result
-  table. Run `/gsd-verify-work` for Phase 14 next.
-
-- After verification, Phase 15 (ship both `markdown-linting` and `pr-workflow` as public,
-  marketplace-installable plugins) can be planned — both capabilities' gates are live-proven to
-  fire correctly and advisorily on this machine, the baseline Phase 15's extraction work needs to
-  preserve.
-
-- Any further edit inside `.gsd/capabilities/pr-workflow/` (including Phase 15's extraction work,
-  if it touches the bundle in place before publishing) will again invalidate the project-scope
-  consent hash and require `capability install --scope project --yes` before the next live
-  dispatch is trusted (per-phase recurring gotcha, see Decisions above).
+- Start the next milestone with /gsd-new-milestone
