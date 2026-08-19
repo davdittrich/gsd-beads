@@ -1,14 +1,19 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.3
-milestone_name: Config/Code Truth
+milestone_name: Config/Code Truth (Phase 17) — IN PROGRESS
+current_phase: 17
+current_phase_name: Config/Code Truth
 status: roadmap_complete
-last_updated: "2026-08-19T22:10:00.000Z"
+stopped_at: Phase 17 context gathered
+last_updated: "2026-08-19T22:16:15.563Z"
 last_activity: 2026-08-19
+last_activity_desc: Phase 17 revised from 2 requirements/2 plans to 4/4 after research
+state_head: a46b643553086a3104d6f532deacf9ffbd026503
 progress:
   total_phases: 1
   completed_phases: 0
-  total_plans: 4
+  total_plans: 0
   completed_plans: 0
   percent: 0
 ---
@@ -56,12 +61,15 @@ call sites:
   `plugins/beads-lifecycle/.gsd/capabilities/beads/` → `Ran 164 tests in 4.740s ... OK`, exit 0.
   **Unchanged at 164.** Success Criterion 5 asserts `>= 164`, not `== 164` — no test asserts either
   marker's literal version string today.
+
 - Corrected line numbers: `plan:pre` checker pair `726-727` → **`737-738`**; `strip_task_bodies`
   live re-gate `1369` → **`1380`**; CLI routes `2252`/`2254` → **`2263`/`2265`**.
+
 - New, not previously recorded: `check_shipmd_patch` at `:2049`, `check_execute_plan_patch` at
   `:2114`, `SHIP_MD_PATCH_MARKER` (**v2**) at `:110`, `EXECUTE_PLAN_PATCH_MARKER` (**v1**) at
   `:115`, `sync.py` is 2286 lines. The two markers being at *different* versions is why a shared
   table needs a per-entry version field.
+
 - TRUTH-04 failures reproduced directly: `PLAN_FILE_RE` (`:72`) → `11.1-01-PLAN.md` is `False`;
   `int('01.5')` → `ValueError` at `:634` and `:1489`.
 
@@ -129,11 +137,13 @@ Phase 17 edits the exact surfaces these rows describe:
   *zero* observable output for an existing user. Precedent for option (b): 0.3.1 already collapsed
   `read_epic_per` + `read_beads_enabled` into one `read_beads_config` reader, and `beads.epic_per`
   is the ecosystem's only working imperatively-read enum.
+
 - **[v1.3, corrected]** `config-set` **does** validate enum values on write —
   `config-set beads.sync_mode bogus` → `Error: Invalid beads.sync_mode 'bogus'. Valid values: …`,
   value not stored. The earlier research claim that it validates only key existence was FALSE and
   was corrected by the orchestrator. The **read** path validates nothing: a hand-written value is
   returned verbatim forever, and gsd-core's unknown-key warning never descends into a namespace.
+
 - **[v1.3, grounding]** `.gsd/capabilities/beads/` is a gitignored runtime mirror
   (`.gitignore:41`); the git-tracked source is `plugins/beads-lifecycle/.gsd/capabilities/beads/`
   (17 files). Phase 16 plan 01 edited the wrong one and it was caught in review. Compounding
@@ -263,22 +273,25 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-19
-Stopped at: Phase 17 roadmap **revised** — was TRUTH-01 + TRUTH-02 / 2 plans, now TRUTH-01..04 /
+Last session: 2026-08-19T22:16:15.554Z
+Stopped at: Phase 17 context gathered
 4 plans, after a research phase that ran late and invalidated part of the original premise
 (gsd-core 1.10.0 → 1.11.0; upstream PR #3687 merged unreleased). Baselines re-verified; three
 `sync.py` line numbers corrected; the #3646 deletion worry resolved as "not deleting".
-Resume file: None
+Resume file: .planning/phases/17-config-code-truth/17-CONTEXT.md
 
 ## Operator Next Steps
 
 - `/gsd-plan-phase 17` — four plans, executed sequentially in the roadmap's stated order
   (17-01 TRUTH-04 → 17-02 TRUTH-03 → 17-03 TRUTH-01 → 17-04 TRUTH-02). Every plan goes through
   plan-check and the verifier; **no quick path this milestone.**
+
 - 17-01 must carry the `capability.json` 0.3.1 → 0.4.0 bump, because it is the first commit to
   touch `sync.py` and the runtime mirror does not re-sync on an equal version.
+
 - 17-03's plan must carry the Alternatives Considered table and the migration answer for existing
   `"sync_mode": "mirror"` / `"off"` projects, and must resolve the disagreement between
   ARCHITECTURE.md (narrow), FEATURES.md (drop) and PITFALLS.md C1 (narrow, on observability).
+
 - Before the milestone ships, re-run the upstream check on #3687's release status and clear all
   four release-hygiene items.
