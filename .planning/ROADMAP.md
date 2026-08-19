@@ -297,7 +297,13 @@ Each is a mechanical command in the ship task, not a prose reminder.
    claim that CI green means the running code is the tested code (see the runtime-mirror
    constraint above).
 
-**Plans**: 4 — one per requirement. TBD until `/gsd-plan-phase 17`.
+**Plans**: 4 plans — one per requirement, one wave each, executed in the argued order below.
+
+Plans:
+- [ ] 17-01-PLAN.md — decimal-phase support at all lifecycle points, plus the `capability.json` 0.3.1 → 0.4.0 bump and the runtime-mirror identity proof (TRUTH-04)
+- [ ] 17-02-PLAN.md — region-scoped native-dispatch probe gating `plan:post`/`verify:post`, and the `allow_strip` ruling wired to config on the explicit path only (TRUTH-03)
+- [ ] 17-03-PLAN.md — `beads.sync_mode` narrowed to values that do something, the D-04 migration notice, and the full doc sweep in the same commit (TRUTH-01)
+- [ ] 17-04-PLAN.md — one table-driven patch reader behind one collapsed CLI verb, with the missing coverage landing before the merge (TRUTH-02)
 
 | Plan | Requirement | bd | Priority | Why here in the order |
 |---|---|---|---|---|
