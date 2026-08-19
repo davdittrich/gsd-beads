@@ -140,6 +140,19 @@ None yet.
   a prerequisite, exactly as PROJECT.md already does — otherwise a stranger installs a plugin whose
   gate cannot fire.
 
+- **[Phase 16, plan 04]** Re-check [open-gsd/gsd-core#3646](https://github.com/open-gsd/gsd-core/issues/3646)
+  (native per-task external-tracker content-resolution seam) merge status before trusting the
+  local `execute-plan.md` bd-task-read patch is still needed — see `GSD-CORE-PATCH.md` Patch 2's
+  revert condition. Once merged, delete the marker-bracketed block, that section,
+  `check_execute_plan_patch()`, and `beads-recall/SKILL.md`'s Step 3.5 call to it.
+
+- **[Phase 16, plan 04]** [open-gsd/gsd-core#3647](https://github.com/open-gsd/gsd-core/issues/3647)
+  filed as a framework-level observation (capability lifecycle-dispatch steps intermittently
+  skipped — 3 of 4 `execute:wave:post`/`verify:post` BEADS.md-regenerating dispatches missed
+  across this project's history). No local patch corresponds to it; this project's own
+  `reconcile-stale-closed` backstop already covers the local symptom regardless of upstream
+  disposition.
+
 - **[Phases 13-14, advisory-by-design]** Both new gates default advisory. A green ship is therefore
   *not* evidence the gate works — only the live `gsd_run check predicate` smoke test is.
 

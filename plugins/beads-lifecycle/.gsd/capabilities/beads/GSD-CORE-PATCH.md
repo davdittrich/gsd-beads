@@ -188,11 +188,10 @@ pre-migration issue with an empty description (D-07, the Phases 1-15 boundary).
 
 ### Upstream tracking + revert condition
 
-Filed upstream as **open-gsd/gsd-core#PENDING** *(placeholder — filled by plan 16-04 Task 3;
-do not leave unfilled after Task 3 runs)* (native per-task external-tracker content-resolution
-seam in `execute-plan.md`'s `execute` step).
+Filed upstream as **open-gsd/gsd-core#3646** (native per-task external-tracker
+content-resolution seam in `execute-plan.md`'s `execute` step).
 
-**Revert condition:** once open-gsd/gsd-core#PENDING ships a native seam in `execute-plan.md`'s
+**Revert condition:** once open-gsd/gsd-core#3646 ships a native seam in `execute-plan.md`'s
 per-task read for resolving task content from an external tracker by id, this local patch
 becomes unnecessary and should be deleted, not kept as permanent duplication. Delete all four
 artifacts together: the marker-bracketed block in `$HOME/.claude/gsd-core/workflows/execute-plan.md`,
