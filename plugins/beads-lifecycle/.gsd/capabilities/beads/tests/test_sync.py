@@ -271,6 +271,91 @@ class TestEndToEndTracer(unittest.TestCase):
             self.assertTrue(payload.get("acceptance_criteria", "").strip(), payload)
 
 
+class TestDecimalPhase(unittest.TestCase):
+    """TRUTH-04: a decimal phase number (`1.5`, `01.5`, `10.1`, `11.1` -- the
+    form `/gsd-phase --insert` produces) works at every beads lifecycle
+    point instead of failing silently. D-07: string handling only -- no
+    `int()`/`float()`/`Decimal()` conversion of a phase number anywhere on
+    this path. Real end-to-end cases follow TestEndToEndTracer's shape
+    (real `bd init` in a tempdir, `subprocess.run` the CLI); pure-helper
+    cases run in-process."""
+
+    def _run_plan_pre_fixture(self, phase_dir_name, current_phase, header_num, plan_filename):
+        """Build a real `.planning/` tree plus a real bd db in a tempdir,
+        run `sync.py lifecycle-dispatch plan:pre`, and return the (matched,
+        unscoped) counts parsed from stdout. `header_num` is the bare phase
+        number as it appears in the ROADMAP.md header text (e.g. `"1.5"` or
+        `"1"`)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planning_dir = tmp_path / ".planning"
+            phase_dir = planning_dir / "phases" / phase_dir_name
+            phase_dir.mkdir(parents=True)
+            (planning_dir / "STATE.md").write_text(
+                f"---\ncurrent_phase: {current_phase}\n---\n\n"
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            (planning_dir / "ROADMAP.md").write_text(
+                f"### Phase {header_num}: Decimal Probe\nTouches `src/widget.py`.\n",
+                encoding="utf-8",
+            )
+            plan_path = phase_dir / plan_filename
+            plan_path.write_text(
+                (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8"),
+                encoding="utf-8",
+            )
+
+            init = subprocess.run(
+                ["bd", "init", "--prefix", "dec"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(init.returncode, 0, init.stderr)
+
+            created = subprocess.run(
+                ["bd", "create", "Widget task", "--description", "Touches src/widget.py."],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(created.returncode, 0, created.stderr)
+
+            result = subprocess.run(
+                [sys.executable, str(Path(sync.__file__)), "lifecycle-dispatch", "plan:pre"],
+                cwd=tmp_path,
+                capture_output=True,
+                text=True,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            m = re.search(r"(\d+) matched, (\d+) unscoped", result.stdout)
+            self.assertIsNotNone(m, result.stdout)
+            return int(m.group(1)), int(m.group(2))
+
+    @unittest.skipUnless(_bd_on_path(), "bd binary not found on PATH")
+    def test_decimal_phase_matches_at_plan_pre(self):
+        """Verified failing on the pre-fix tree: this identical fixture
+        reported `0 matched, 1 unscoped`."""
+        matched, unscoped = self._run_plan_pre_fixture(
+            "01.5-decimal-probe", "01.5", "1.5", "01.5-01-PLAN.md"
+        )
+        self.assertEqual((matched, unscoped), (1, 0))
+
+    @unittest.skipUnless(_bd_on_path(), "bd binary not found on PATH")
+    def test_integer_phase_control_arm_still_matches(self):
+        """Byte-identical fixture apart from the phase number -- a pass here
+        alongside the decimal arm's pass proves the phase number was the
+        cause, not some other fixture difference."""
+        matched, unscoped = self._run_plan_pre_fixture(
+            "01-integer-control", "01", "1", "01-01-PLAN.md"
+        )
+        self.assertEqual((matched, unscoped), (1, 0))
+
+
 class TestLiveDependencies(unittest.TestCase):
     """B2 proven against a real bd database: bd ready excludes a blocked
     task until its blocker closes. Named apart from TestEndToEndTracer so a

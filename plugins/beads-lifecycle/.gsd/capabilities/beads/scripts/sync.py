@@ -69,7 +69,21 @@ DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
 #     - "01-01"
 # parse_depends_on falls back to this regex when DEPENDS_ON_RE doesn't match.
 DEPENDS_ON_BLOCK_RE = re.compile(r"^depends_on:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
-PLAN_FILE_RE = re.compile(r"^(\d{2}-\d{2})-PLAN\.md$")
+# TRUTH-04: phase segment widened to `\d+(?:\.\d+)?` so a decimal phase
+# number (`10.1-01-PLAN.md`, the `/gsd-phase --insert` form) is discovered
+# too -- the sibling `sota-numerics` capability already carries the
+# equivalent widening for its own copy of this pattern
+# (`sota-numerics/scripts/check-alternatives.py`), naming this beads pattern
+# as the too-narrow one. Anchored at both ends with every repeated group
+# separated by a mandatory literal (`.`, `-`), so no two quantifiers can
+# match the same input span -- no nested quantifiers, no catastrophic
+# backtracking (ReDoS discipline, T-17-01-02). `\d` (not `[0-9]`) is kept
+# to preserve today's Unicode-aware matching semantics exactly -- narrowing
+# is a deliberate non-change, out of TRUTH-04's scope. The ordinal segment
+# widens to `\d+` to match the sibling pattern exactly; safe because the
+# captured group is only ever used as a dict key, never joined onto a path
+# (T-01-04).
+PLAN_FILE_RE = re.compile(r"^(\d+(?:\.\d+)?-\d+)-PLAN\.md$")
 # B12 migrate-todos: a pending todo's frontmatter (add-todo.md's schema --
 # created/title/area/severity/files, block-list files:) plus its
 # ## Problem/## Solution body. TITLE_RE allows spaces (title text), AREA_RE/
@@ -631,7 +645,7 @@ def apply_dependency_edges(edges):
 def get_phase_header(roadmap_path, phase_num):
     """Read the phase header verbatim from ROADMAP.md (D-05, no translation)."""
     text = Path(roadmap_path).read_text(encoding="utf-8")
-    pattern = re.compile(rf"^###\s+(Phase\s+0*{int(phase_num)}\s*:.*)$", re.MULTILINE)
+    pattern = re.compile(rf"^###\s+(Phase\s+0*{phase_regex_token(phase_num)}\s*:.*)$", re.MULTILINE)
     m = pattern.search(text)
     if not m:
         raise ValueError(f"no ROADMAP.md header found for phase {phase_num}")
@@ -674,6 +688,37 @@ def read_epic_per(project_root):
 def read_beads_enabled(project_root):
     """gh-2: `beads.enabled`, default `True` (capability.json since 0.2.0)."""
     return read_beads_config(project_root, "enabled", True)
+
+
+# TRUTH-04/D-07: a phase number (`"1.5"`, `"01.5"`, `"10.1"`, `"07"`) is
+# handled as a string everywhere on this path -- never `int()`/`float()`/
+# `Decimal()`. Its only consumers are regex construction (phase_regex_token)
+# and an on-disk directory-prefix comparison (phase_dir_prefix); a numeric
+# type would buy nothing there and would reintroduce both a parse that can
+# raise on `"1.5"` and a formatting risk (`Decimal("10.10") == Decimal("10.1")`
+# would silently collapse two distinct phase directories).
+def phase_regex_token(phase_num):
+    """Return phase_num as a regex-safe literal, integer part's leading
+    zeros stripped (fractional part untouched, never stripped): `"01.5"` ->
+    `1\\.5`; `"07"` -> `7`; `"010.1"` -> `10\\.1`; `"1.05"` -> `1\\.05`.
+    `re.escape` is non-negotiable (D-07): both consumers (get_phase_header,
+    extract_phase_mentions) interpolate this straight into a compiled
+    pattern, so an unescaped `.` would become a wildcard matching any
+    character (T-17-01-01)."""
+    integer_part, sep, frac_part = phase_num.partition(".")
+    integer_part = integer_part.lstrip("0") or "0"
+    return re.escape(integer_part + sep + frac_part)
+
+
+def phase_dir_prefix(phase_num):
+    """Return phase_num zero-padded to the on-disk directory convention,
+    integer part padded to two digits, fractional part untouched: `"1.5"` ->
+    `01.5`; `"7"` -> `07`; `"10.1"` -> `10.1`; `"01.5"` -> `01.5`. Replaces
+    the bare `.zfill(2)` in `_resolve_default_phase_dir`, which is a no-op
+    on any already-3-character token like `"1.5"` and therefore fails to
+    match an `01.5-` directory (D-07)."""
+    integer_part, sep, frac_part = phase_num.partition(".")
+    return integer_part.zfill(2) + sep + frac_part
 
 
 def lifecycle_dispatch(point):
@@ -1486,7 +1531,7 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
     """
     text = Path(roadmap_path).read_text(encoding="utf-8")
     pattern = re.compile(
-        rf"^###\s+Phase\s+0*{int(phase_num)}\s*:.*?(?=^###\s+Phase\s|\Z)",
+        rf"^###\s+Phase\s+0*{phase_regex_token(phase_num)}\s*:.*?(?=^###\s+Phase\s|\Z)",
         re.MULTILINE | re.DOTALL,
     )
     m = pattern.search(text)
@@ -1771,7 +1816,7 @@ def _resolve_default_phase_dir(project_root):
     m = CURRENT_PHASE_RE.search(fm_match.group(1))
     if not m:
         return None
-    padded = m.group(1).strip().zfill(2)
+    padded = phase_dir_prefix(m.group(1).strip())
     phases_root = confined(project_root, ".planning", "phases")
     if not phases_root.is_dir():
         return None
