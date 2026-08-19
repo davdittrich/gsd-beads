@@ -1009,6 +1009,40 @@ class TestEpicDescription(unittest.TestCase):
             bullet = sync.get_milestone_bullet(roadmap_path, "v9.9")
         self.assertEqual(bullet, "")
 
+    def test_get_milestone_bullet_does_not_collide_on_substring(self):
+        """WR-01: a bare "v1" token must not match "v1.0"/"v1.1"/"v1.2"
+        bullets as a substring -- get_milestone_bullet returns "" (correctly
+        reporting a miss) rather than the first colliding bullet's text."""
+        with tempfile.TemporaryDirectory() as tmp:
+            roadmap_path = Path(tmp) / "ROADMAP.md"
+            roadmap_path.write_text(
+                "## Milestones\n\n"
+                "- v1.0 milestone -- Phases 1-4\n"
+                "- v1.1 Publish and Document -- Phases 5-12\n"
+                "- v1.2 New Capability Plugins -- Phases 13-15\n\n"
+                "## Phases\n",
+                encoding="utf-8",
+            )
+            bullet = sync.get_milestone_bullet(roadmap_path, "v1")
+        self.assertEqual(bullet, "")
+
+    def test_get_milestone_bullet_matches_real_roadmap_bullet_shape(self):
+        """WR-01: real ROADMAP.md bullets carry a leading emoji and bold
+        markdown around the milestone token (see project ROADMAP.md), not
+        the bare "- v1.2 ..." shape the other fixtures use -- the anchored
+        match must still find the bullet despite that decoration."""
+        with tempfile.TemporaryDirectory() as tmp:
+            roadmap_path = Path(tmp) / "ROADMAP.md"
+            roadmap_path.write_text(
+                "## Milestones\n\n"
+                "- ✅ **v1.0 milestone** — Phases 1-4 (shipped)\n"
+                "- \U0001f6a7 **v1.2 New Capability Plugins** — Phases 13-15 (current)\n\n"
+                "## Phases\n",
+                encoding="utf-8",
+            )
+            bullet = sync.get_milestone_bullet(roadmap_path, "v1.2")
+        self.assertIn("v1.2 New Capability Plugins", bullet)
+
 
 class TestDependencyMapping(unittest.TestCase):
     """B2: dependency edges come only from intra-plan order and plan-level

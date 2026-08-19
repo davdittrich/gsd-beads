@@ -664,9 +664,19 @@ def get_milestone_bullet(roadmap_path, milestone):
     )
     if not section_m:
         return ""
+    # WR-01: bare `in` containment let a milestone token that is a substring
+    # of another milestone's bullet text (e.g. "v1" inside "v1.0"/"v1.1"/
+    # "v1.2") match the wrong bullet. Anchor on the token's own boundaries
+    # instead -- neither the char before nor after `milestone` may be a word
+    # char or `.`, so "v1" cannot match inside "v1.0" (the char right after
+    # "v1" there is ".", which the lookahead rejects) while still matching
+    # real bullets regardless of leading emoji/bold markdown decoration
+    # (e.g. "- ✅ **v1.0 milestone** -- ..."), unlike a literal
+    # `^-\s*\**{milestone}` anchor would.
+    token_re = re.compile(rf"(?<![\w.]){re.escape(milestone)}(?![\w.])")
     for line in section_m.group(1).splitlines():
         line = line.strip()
-        if line.startswith("-") and milestone in line:
+        if line.startswith("-") and token_re.search(line):
             return line
     return ""
 
