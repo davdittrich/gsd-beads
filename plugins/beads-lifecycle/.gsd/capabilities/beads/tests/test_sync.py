@@ -355,6 +355,190 @@ class TestDecimalPhase(unittest.TestCase):
         )
         self.assertEqual((matched, unscoped), (1, 0))
 
+    # -- Boundary --------------------------------------------------------
+
+    def test_phase_regex_token_boundary(self):
+        cases = {
+            "01": "1", "1": "1", "07": "7", "17": "17", "010": "10",
+            "01.5": r"1\.5", "1.5": r"1\.5", "10.1": r"10\.1", "11.1": r"11\.1",
+            "010.1": r"10\.1", "1.05": r"1\.05", "0": "0", "00": "0",
+        }
+        for phase_num, expected in cases.items():
+            with self.subTest(phase_num=phase_num):
+                self.assertEqual(sync.phase_regex_token(phase_num), expected)
+
+    def test_phase_dir_prefix_boundary(self):
+        cases = {
+            "01": "01", "1": "01", "07": "07", "17": "17", "010": "010",
+            "01.5": "01.5", "1.5": "01.5", "10.1": "10.1", "11.1": "11.1",
+            "010.1": "010.1", "1.05": "01.05", "0": "00", "00": "00",
+        }
+        for phase_num, expected in cases.items():
+            with self.subTest(phase_num=phase_num):
+                self.assertEqual(sync.phase_dir_prefix(phase_num), expected)
+
+    # -- Adjacency ---------------------------------------------------------
+
+    def _header_pattern(self, phase_num):
+        return re.compile(
+            rf"^###\s+(Phase\s+0*{sync.phase_regex_token(phase_num)}\s*:.*)$", re.MULTILINE
+        )
+
+    def test_header_pattern_adjacency_decimal_vs_integer(self):
+        self.assertIsNone(self._header_pattern("1.5").search("### Phase 15: Other\n"))
+        self.assertIsNone(self._header_pattern("15").search("### Phase 1.5: Decimal\n"))
+
+    def test_header_pattern_metacharacter_case(self):
+        """D-07's non-negotiable case: without re.escape, an unescaped `.`
+        becomes a wildcard matching any character, silently attributing one
+        phase's scope to another (T-17-01-01)."""
+        pattern = self._header_pattern("11.1")
+        for sep in ("x", "1", " ", "-"):
+            with self.subTest(sep=sep):
+                self.assertIsNone(pattern.search(f"### Phase 11{sep}1: Other\n"))
+        self.assertIsNotNone(pattern.search("### Phase 11.1: Real\n"))
+
+    def test_phase_regex_token_1_5_vs_1_50_distinct(self):
+        self.assertNotEqual(sync.phase_regex_token("1.5"), sync.phase_regex_token("1.50"))
+
+    # -- Empty ---------------------------------------------------------------
+
+    def test_empty_phase_num_does_not_raise(self):
+        self.assertEqual(sync.phase_regex_token(""), "0")
+        self.assertEqual(sync.phase_dir_prefix(""), "00")
+
+    def test_get_phase_header_empty_phase_raises_semantic_value_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            roadmap = Path(tmp) / "ROADMAP.md"
+            roadmap.write_text("### Phase 1: Substrate\nGoal.\n", encoding="utf-8")
+            with self.assertRaises(ValueError) as ctx:
+                sync.get_phase_header(roadmap, "")
+        self.assertIn("no ROADMAP.md header found", str(ctx.exception))
+
+    @mock.patch("subprocess.run")
+    def test_beads_recall_survives_missing_roadmap_with_empty_padded_phase(self, mock_run):
+        """padded_phase derives from phase_dir.name.split('-', 1)[0], which
+        is '' for a directory with no leading numeric token. extract_phase_
+        mentions then raises FileNotFoundError (an OSError subclass) reading
+        a missing ROADMAP.md; beads_recall's existing
+        except (OSError, ValueError) must still let it write a
+        BEADS-RECALL.md rather than crash."""
+        mock_run.side_effect = _make_beads_recall_bd_side_effect("[]\n")
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            phase_dir = tmp_path / ".planning" / "phases" / "-emptyprefix"
+            phase_dir.mkdir(parents=True)
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(out_path.exists())
+
+    # -- Precision -------------------------------------------------------
+
+    def test_plan_file_re_distinguishes_10_1_from_10_10(self):
+        self.assertEqual(sync.PLAN_FILE_RE.match("10.10-01-PLAN.md").group(1), "10.10-01")
+        self.assertEqual(sync.PLAN_FILE_RE.match("10.1-01-PLAN.md").group(1), "10.1-01")
+
+    def test_discover_plan_files_keeps_10_1_and_10_10_distinct(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = Path(tmp)
+            (phase_dir / "10.1-01-PLAN.md").write_text("", encoding="utf-8")
+            (phase_dir / "10.10-01-PLAN.md").write_text("", encoding="utf-8")
+            discovered = sync.discover_plan_files(phase_dir)
+        self.assertEqual(set(discovered), {"10.1-01", "10.10-01"})
+
+    # -- Ordering --------------------------------------------------------
+
+    def test_discover_plan_files_sorted_ordering(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = Path(tmp)
+            for name in ("01-01-PLAN.md", "01.5-01-PLAN.md", "02-01-PLAN.md"):
+                (phase_dir / name).write_text("", encoding="utf-8")
+            first = sorted(sync.discover_plan_files(phase_dir))
+            second = sorted(sync.discover_plan_files(phase_dir))
+        self.assertEqual(first, ["01-01", "01.5-01", "02-01"])
+        self.assertEqual(first, second)
+
+    # -- Repository-history fixtures (ROADMAP.md Success Criterion 6) ----
+
+    def test_repo_history_decimal_phases_resolve_headers_and_filenames(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            roadmap = Path(tmp) / "ROADMAP.md"
+            roadmap.write_text(
+                "### Phase 10: Ten\nGoal.\n"
+                "### Phase 10.1: Ten Point One\nGoal.\n"
+                "### Phase 11: Eleven\nGoal.\n"
+                "### Phase 11.1: Eleven Point One\nGoal.\n",
+                encoding="utf-8",
+            )
+            self.assertIn("Phase 10.1:", sync.get_phase_header(roadmap, "10.1"))
+            self.assertIn("Phase 11.1:", sync.get_phase_header(roadmap, "11.1"))
+        for filename, expected_key in (("10.1-01-PLAN.md", "10.1-01"), ("11.1-02-PLAN.md", "11.1-02")):
+            with self.subTest(filename=filename):
+                m = sync.PLAN_FILE_RE.match(filename)
+                self.assertIsNotNone(m)
+                self.assertEqual(m.group(1), expected_key)
+
+    # -- Path-safety (T-17-01-03) -----------------------------------------
+
+    def test_resolve_default_phase_dir_rejects_path_separator(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planning_dir = tmp_path / ".planning"
+            (planning_dir / "phases").mkdir(parents=True)
+            (planning_dir / "STATE.md").write_text(
+                "---\ncurrent_phase: ../../etc\n---\n\n"
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            result = sync._resolve_default_phase_dir(tmp_path)
+        self.assertIsNone(result)
+
+    # -- Idempotency -------------------------------------------------------
+
+    @unittest.skipUnless(_bd_on_path(), "bd binary not found on PATH")
+    def test_idempotent_repeated_plan_pre_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            planning_dir = tmp_path / ".planning"
+            phase_dir = planning_dir / "phases" / "01.5-decimal-probe"
+            phase_dir.mkdir(parents=True)
+            (planning_dir / "STATE.md").write_text(
+                "---\ncurrent_phase: 01.5\n---\n\n"
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            (planning_dir / "ROADMAP.md").write_text(
+                "### Phase 1.5: Decimal Probe\nTouches `src/widget.py`.\n", encoding="utf-8"
+            )
+            (phase_dir / "01.5-01-PLAN.md").write_text(
+                (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8"), encoding="utf-8"
+            )
+            init = subprocess.run(
+                ["bd", "init", "--prefix", "idem"],
+                cwd=tmp_path, capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(init.returncode, 0, init.stderr)
+            subprocess.run(
+                ["bd", "create", "Widget task", "--description", "Touches src/widget.py."],
+                cwd=tmp_path, capture_output=True, text=True, timeout=30,
+            )
+
+            def _run_once():
+                result = subprocess.run(
+                    [sys.executable, str(Path(sync.__file__)), "lifecycle-dispatch", "plan:pre"],
+                    cwd=tmp_path, capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return (phase_dir / "01.5-BEADS-RECALL.md").read_text(encoding="utf-8")
+
+            first = _run_once()
+            second = _run_once()
+
+        strip_generated_at = lambda text: re.sub(r"generated_at: \S+", "generated_at: X", text)
+        self.assertEqual(strip_generated_at(first), strip_generated_at(second))
+
 
 class TestLiveDependencies(unittest.TestCase):
     """B2 proven against a real bd database: bd ready excludes a blocked
