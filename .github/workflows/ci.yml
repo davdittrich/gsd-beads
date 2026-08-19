@@ -4,6 +4,12 @@ on:
   push:
   pull_request:
 
+env:
+  # Pinned deliberately: an upstream beads release must not be able to turn this
+  # build red on its own. Bump alongside the version README's Requirements and
+  # the capability's own compatibility notes claim.
+  BD_VERSION: 1.2.2
+
 jobs:
   checks:
     runs-on: ubuntu-latest
@@ -13,12 +19,26 @@ jobs:
       - name: Capability auto-install smoke test
         run: bash tests/test-capability-auto-install.sh
 
-      # gh-2: test_sync.py's suite existed since Phase 1 but nothing ran it in
-      # CI, so a regression in the sync layer reached a release unchallenged.
-      # Stdlib unittest, not pytest — N5 keeps this capability's dependencies at
-      # `bd` plus the Python standard library, and CI must not quietly widen
-      # that. The bd-backed cases self-skip when the binary is absent, which it
-      # is on this runner.
+      # test_sync.py mocks `bd`'s subprocess calls but not bd_available(), which
+      # probes shutil.which("bd") -- so without a real binary on PATH roughly a
+      # sixth of the suite short-circuits onto the "bd unavailable" fail-open
+      # path and its assertions fail. A stub `bd` would not do: _bd_on_path() is
+      # evaluated at import time and gates the handful of cases that drive a
+      # genuine bd database, so a stub would un-skip exactly the tests it cannot
+      # satisfy.
+      - name: Install bd
+        run: |
+          set -euo pipefail
+          curl -fsSL -o /tmp/bd.tar.gz \
+            "https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_amd64.tar.gz"
+          tar -xzf /tmp/bd.tar.gz -C /tmp bd
+          sudo install -m 0755 /tmp/bd /usr/local/bin/bd
+          bd version
+
+      # gh-2: this suite existed since Phase 1 and nothing ran it in CI, so a
+      # regression in the sync layer reached a release unchallenged. Stdlib
+      # unittest, not pytest -- N5 keeps this capability's dependencies at `bd`
+      # plus the Python standard library, and CI must not quietly widen that.
       - name: Beads sync tests
         working-directory: plugins/beads-lifecycle/.gsd/capabilities/beads
         run: python3 -m unittest discover -s tests -t tests
