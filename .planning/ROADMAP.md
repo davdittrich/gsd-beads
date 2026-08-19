@@ -252,11 +252,11 @@ machine-local patch and is filed upstream immediately (D-05), and both the descr
 and the `PLAN.md` migration are forward-only (D-06, D-07). D-08 adds the root-cause remediation
 for Phase 14's four stale-open issues.
 
-**Plans:** 3/4 plans executed
+**Plans:** 4/4 plans executed
 
 Plans:
 
 - [x] 16-01-PLAN.md — Write path: parse task content, render it, create bd issues with `-d`/`--acceptance`; epics gain descriptions (D-06, D-02, D-03)
 - [x] 16-02-PLAN.md — D-08: phase-wide idempotent `reconcile-stale-closed` backstop at `verify:post`, then close Phase 14's four stale issues with it as live proof
 - [x] 16-03-PLAN.md — Read-path enablement in `sync.py`: `check_execute_plan_patch` detector and the patch-gated `strip_task_bodies` that turns a synced plan into a pointer (D-01, D-03, D-05, D-07)
-- [ ] 16-04-PLAN.md — Install and document the machine-local `execute-plan.md` bd task-read patch, dispatch its detector at `plan:pre`, file the change upstream (D-01, D-04, D-05)
+- [x] 16-04-PLAN.md — Install and document the machine-local `execute-plan.md` bd task-read patch, dispatch its detector at `plan:pre`, file the change upstream (D-01, D-04, D-05)

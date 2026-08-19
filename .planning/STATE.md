@@ -4,9 +4,9 @@ milestone: v1.2
 milestone_name: New Capability Plugins
 current_phase: 16
 current_phase_name: beads-issue-content-parity
-status: executing
-stopped_at: Completed 16-03-PLAN.md
-last_updated: "2026-08-19T00:00:34.863Z"
+status: verifying
+stopped_at: Completed 16-04-PLAN.md
+last_updated: "2026-08-19T00:09:25.731Z"
 last_activity: 2026-08-19
 last_activity_desc: Phase 16 execution started
 progress:
@@ -31,7 +31,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 Phase: 16 (beads-issue-content-parity) — EXECUTING
 Plan: 4 of 4
-Status: Ready to execute
+Status: Phase complete — ready for verification
 Progress: [██████████] 100% (7/7 plans, v1.2)
 Last activity: 2026-08-19 — Phase 16 execution started
 
@@ -79,6 +79,7 @@ Last activity: 2026-08-19 — Phase 16 execution started
 | Phase 16 P01 | 14min | 2 tasks | 2 files |
 | Phase 16 P02 | 5min | 3 tasks | 3 files |
 | Phase 16 P03 | ~10min | 2 tasks | 2 files |
+| Phase 16 P04 | 10 min | 3 tasks | 4 files |
 
 Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
@@ -128,6 +129,8 @@ Phase 15 repeats the Phase 12 extraction playbook directly:
 - [Phase ?]: [Phase 16, plan 02]: closed the four stale Phase 14 issues (gsd-beads-bu0.3-.6) live via the new reconcile-stale-closed subcommand, proving the backstop on real data
 - [Phase ?]: [Phase 16, plan 03]: check_execute_plan_patch clones check_shipmd_patch's exact detector shape for the machine-local execute-plan.md bd-task-read patch (D-05)
 - [Phase ?]: [Phase 16, plan 03]: strip_task_bodies turns a newly-created auto/tracer task block into name+beads-id+files+pointer, gated on check_execute_plan_patch()==0 and scoped to task_updates (this run's created ids only) -- checkpoint:* blocks and pre-existing tasks stay byte-identical (D-01/D-03/D-07)
+- [Phase ?]: Second machine-local gsd-core patch (execute-plan.md bd task-read) installed under the same N2-exception discipline as ship.md; filed upstream as open-gsd/gsd-core#3646 with an explicit revert condition
+- [Phase ?]: Filed open-gsd/gsd-core#3647 (capability lifecycle-dispatch reliability finding) as a distinct-but-related report alongside pre-existing #3606, rather than adopting it as a duplicate
 
 ### Pending Todos
 
@@ -176,8 +179,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-19T00:00:34.855Z
-Stopped at: Completed 16-03-PLAN.md
+Last session: 2026-08-19T00:09:25.724Z
+Stopped at: Completed 16-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
