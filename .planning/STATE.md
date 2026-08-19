@@ -13,19 +13,19 @@ progress:
   total_plans: 16
   completed_plans: 16
   percent: 100
-current_phase: 16
-current_phase_name: beads-issue-content-parity
+current_phase: null
+current_phase_name: null
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-18)
+See: .planning/PROJECT.md (updated 2026-08-19)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 16 — beads-issue-content-parity
+**Current focus:** Planning next milestone
 
 ## Current Position
 
@@ -131,29 +131,27 @@ None yet.
 
 ### Blockers/Concerns
 
-- **[Phase 15, pre-extraction check]** Re-check gsd-core#3559's merge status before public
-  extraction. If unmerged, each plugin's README must document the required local `ship.md` patch as
-  a prerequisite, exactly as PROJECT.md already does — otherwise a stranger installs a plugin whose
-  gate cannot fire.
-
-- **[Phase 16, plan 04]** Re-check [open-gsd/gsd-core#3646](https://github.com/open-gsd/gsd-core/issues/3646)
-  (native per-task external-tracker content-resolution seam) merge status before trusting the
-  local `execute-plan.md` bd-task-read patch is still needed — see `GSD-CORE-PATCH.md` Patch 2's
-  revert condition. Once merged, delete the marker-bracketed block, that section,
+- **[open-gsd/gsd-core#3646](https://github.com/open-gsd/gsd-core/issues/3646)** (native per-task
+  external-tracker content-resolution seam) — re-check merge status before trusting the local
+  `execute-plan.md` bd-task-read patch is still needed; see `GSD-CORE-PATCH.md` Patch 2's revert
+  condition. Once merged, delete the marker-bracketed block, that section,
   `check_execute_plan_patch()`, and `beads-recall/SKILL.md`'s Step 3.5 call to it.
 
-- **[Phase 16, plan 04]** [open-gsd/gsd-core#3647](https://github.com/open-gsd/gsd-core/issues/3647)
-  filed as a framework-level observation (capability lifecycle-dispatch steps intermittently
-  skipped — 3 of 4 `execute:wave:post`/`verify:post` BEADS.md-regenerating dispatches missed
-  across this project's history). No local patch corresponds to it; this project's own
-  `reconcile-stale-closed` backstop already covers the local symptom regardless of upstream
-  disposition.
+- **[open-gsd/gsd-core#3647](https://github.com/open-gsd/gsd-core/issues/3647)** filed as a
+  framework-level observation (capability lifecycle-dispatch steps intermittently skipped). No
+  local patch corresponds to it; this project's own `reconcile-stale-closed` backstop already
+  covers the local symptom regardless of upstream disposition.
 
-- **[Phases 13-14, advisory-by-design]** Both new gates default advisory. A green ship is therefore
-  *not* evidence the gate works — only the live `gsd_run check predicate` smoke test is.
+- **[v1.1 formality, carried forward]** Phase 12's work is done and pushed but the v1.1 milestone
+  was never formally closed via `/gsd-complete-milestone` (user decision, 2026-08-18) — its
+  RETROSPECTIVE.md section is also missing as a result. Not a v1.3 blocker, but worth a
+  retroactive backfill if the gap starts costing real time.
 
-- **[v1.1 formality]** Phase 12's work is done and pushed but the milestone was never formally
-  closed via `/gsd-complete-milestone` (user decision, 2026-08-18). Not a v1.2 blocker.
+- **[Phase 16, one unverified path]** No real stripped `PLAN.md` has run through a live
+  `gsd-executor` session yet in this repo — the bd-read patch's branch-trigger conditions are
+  UAT-verified live against real `bd` (throwaway fixture, simulated failure, a genuine
+  pre-migration issue), not exercised end-to-end. Will self-resolve the first time a future
+  phase's `auto`/`tracer` tasks actually get stripped and executed.
 
 ### Quick Tasks Completed
 
@@ -172,8 +170,8 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-19T00:09:25.724Z
-Stopped at: Completed 16-04-PLAN.md
+Last session: 2026-08-19
+Stopped at: Milestone v1.2 shipped and archived, ready to plan v1.3
 Resume file: None
 
 ## Operator Next Steps
