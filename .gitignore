@@ -24,6 +24,7 @@ __pycache__/
 
 # Local tool state (per-machine, not shared across clones)
 .serena/
+.claude/
 
 # Project-scope capability install destination (per-machine runtime overlay) plus staging
 # and dispatch state — gsd-core's capability loader always installs project-scope bundles to

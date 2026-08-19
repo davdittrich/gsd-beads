@@ -6,7 +6,7 @@ status: Awaiting next milestone
 stopped_at: Completed 16-04-PLAN.md
 last_updated: "2026-08-19T07:43:48.474Z"
 last_activity: 2026-08-19
-last_activity_desc: Phase 16 execution started
+last_activity_desc: "Quick task 260819-k4p: gh-2 lifecycle hook dispatch fix, shipped as 0.3.0/1.3.0"
 progress:
   total_phases: 4
   completed_phases: 4
@@ -160,6 +160,7 @@ None yet.
 | 260815-mm8 | Fix gsd-beads-uh1 and gsd-beads-bgb | 2026-08-15 | cb0741e | | [260815-mm8](./quick/260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per/) |
 | 260818-h2h | Fix gsd-beads-1iq: scope beads-lifecycle marketplace source to exclude sota-numerics/ponytail dev copies | 2026-08-18 | 4d83504 | Verified | [260818-h2h](./quick/260818-h2h-fix-gsd-beads-1iq-scope-beads-lifecycle-/) |
 | 260819-e7a | Revise README.md with a full gsd-beads configuration reference section | 2026-08-19 | 640ccc3 | | [260819-e7a](./quick/260819-e7a-revise-readme-md-with-a-full-gsd-beads-c/) |
+| 260819-k4p | Fix gh-2: dispatch the four lifecycle hooks gsd-core never reached (capability 0.3.0 / plugin 1.3.0) | 2026-08-19 | 62162d4 | Verified | [260819-k4p](./quick/260819-k4p-fix-gsd-beads-2-lifecycle-hook-dispatch/) |
 
 ## Deferred Items
 
