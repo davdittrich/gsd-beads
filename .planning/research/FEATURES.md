@@ -1,144 +1,368 @@
-# Feature Research
+# Config-Precedent Research — milestone v1.3 (`beads.sync_mode`)
 
-**Domain:** gsd-core capability plugins (PR-workflow automation, markdown-lint gating, pre-phase resource advisory)
-**Researched:** 2026-08-18
-**Confidence:** HIGH (pattern precedent: three shipped capabilities in this repo — `beads`, `ponytail-everywhere`, `sota-numerics` — establish binding mechanics; MEDIUM on external tool defaults, grounded via one live web search on GitHub required-checks semantics)
+**Question:** what does established practice look like for a gsd-core capability config key, and
+which option does precedent favour — implement, narrow, or drop?
 
-## Feature Landscape
+**Researched:** 2026-08-19. All claims verified against files on this machine and the four live
+GitHub repos. Confidence scores (0-100) are per finding.
 
-### Table Stakes (Users Expect These)
-
-Features users assume exist. Missing these = product feels incomplete.
-
-| Feature | Why Expected | Complexity | Notes |
-|---------|--------------|------------|-------|
-| `pr-workflow`: `ship:pre` gate blocks on failing OR pending checks | GitHub itself treats "pending" as a hard block for required checks — a perpetually-unresolved check blocks merge exactly like a failure (confirmed via GitHub Docs). A gate that ignores pending checks would let a phase ship mid-CI-run, which is worse than no gate at all. | LOW | Gate predicate reads `gh pr checks --json` (or a generated `PR.md` artifact, matching `BEADS.md`'s shape) for a tri-state `passing/pending/failing`; both `pending` and `failing` fail the predicate, `passing` and `no-checks-configured` pass. `onError: skip` covers `gh` absent/unauthenticated/no PR. |
-| `pr-workflow`: draft-PR creation is opt-in via an explicit action step, not automatic | `pr-workflow` SKILL.md's own Step 6 always creates as draft, but only after 5 prior steps (branch, commit, rebase, push) the user explicitly triggered. Auto-creating a PR as a side effect of `ship:post` on every phase would spam PRs for phases the user isn't ready to open a PR for yet, and the capability has no branch/commit-strategy awareness (that's git, out of gsd's binding model). | LOW-MED | `ship:post` step with `when: pr_workflow.autoCreateDraft` (default **false** — warn-only: print "no open PR for this branch; run `gh pr create --draft` to open one" instead of forcing a `gh pr create` call). Matches the beads/ponytail precedent of config-gated, off-by-default aggressive behavior. |
-| `markdown-linting`: `verify:post` fragment reporting MD0XX violation counts | Every comparable doc-lint integration (markdownlint-cli2's own pre-commit hook, the `markdown-lint.yml` GitHub Action pattern in the SKILL.md itself) surfaces violations at the point content changes, not silently. `sota-numerics`' advisory-fragment pattern (four steering fragments, no gate) is the direct precedent for "surface, don't necessarily block." | LOW | `contributions[]` entry at `verify:post` into `verifier`, `onError: skip` — non-gate, matches N3 in `beads`' Out-of-Scope ("this capability tracks/reports, it does not decide how work is planned"). |
-| `markdown-linting`: config lives in a single `.markdownlint-cli2.jsonc`, never hand-edited per rule without approval | The skill's own "CRITICAL: Configuration Policy" section — "fix content to comply with rules, not rules to accommodate content" — is the industry-standard stance (mirrored by every pre-commit-framework markdown hook: violations are the actionable signal, not a reason to relax config). | LOW | Ship a curated default `config` block (see Anti-Features below for why "all defaults" is wrong for `.planning/`), documented as the single source of truth, consistent with `beads`' single-config-namespace constraint. |
-| `get-available-resources`: advisory-only, no gate | `beads.enabled` defaults false and `ponytail.enabled` defaults true, but neither ever *blocks* a lifecycle point on resource state — this class of signal (like CI runner sizing hints, `nproc`-based `make -j$(nproc)`, `pytest-xdist -n auto`) is universally advisory in comparable tooling; none of it auto-fails a build. | LOW | `contributions[]` fragment only, empty `gates[]` — matches `ponytail`'s `capability.json` shape exactly (see `.gsd/capabilities/ponytail/capability.json:83`, `"gates": []`). |
-| All three: `onError: skip` on every non-gate contribution | Established, tested pattern across all three existing capabilities (`beads`, `ponytail`, `sota-numerics`) — a missing binary, absent artifact, or non-zero exit must never strand a phase. This is now house style, not optional. | LOW | Reuse verbatim; no new failure-handling design needed. |
-| All three: config keys namespaced under `<id>.*` (e.g. `pr_workflow.*`, `markdown_linting.*`, `resources.*`) | `beads`' Constraints section explicitly calls out config-key collision as loader-rejected — every shipped manifest must be checked before reuse. | LOW | Trivial naming discipline, but must be verified against `beads.json`/`ponytail`/`sota-numerics` manifests before finalizing key names. |
-
-### Differentiators (Competitive Advantage)
-
-Features that set the product apart. Not required, but valuable.
-
-| Feature | Value Proposition | Complexity | Notes |
-|---------|-------------------|------------|-------|
-| `pr-workflow`: tri-state check gate (`passing`/`pending`/`failing`) instead of the skill's binary pass/fail framing | The source SKILL.md (Step 8-9) treats CI monitoring as a live `--watch` loop inside one long-running command — wrong shape for a one-shot lifecycle gate that fires once at `ship:pre`. A tri-state predicate read from a generated `PR.md` artifact (mirroring `BEADS.md`) is more correct than either "ignore pending" or "block forever waiting." | MEDIUM | This is the single most important design improvement over the source skill: it decouples "did CI finish" (artifact staleness — regenerate `PR.md` every step, same as `BEADS.md`) from "did CI pass" (the gate predicate). |
-| `markdown-linting`: curated default rule subset for `.planning/**/*.md`, not markdownlint-cli2's "all defaults true" | `.planning/` is agent-generated planning prose (PLAN.md, CONTEXT.md, ROADMAP.md), not hand-authored docs for human readers with strict style needs. Several defaults are actively hostile to this content: MD013 (line-length) fights long agent-generated bullet points and table rows; MD033 (no inline HTML) fights `<details>` collapsible sections gsd-core itself uses; MD041 (first-line-must-be-heading) fights frontmatter-led files. A curated subset (structural rules only: MD001 heading-increment, MD003 heading-style, MD009 trailing-spaces, MD012 no-multiple-blanks, MD022 blanks-around-headings, MD024 dupe-headings scoped to siblings, MD040 fenced-code-language) catches real defects without fighting the corpus. | LOW-MED | Directly disagrees with the source skill's "all defaults true, MD013 false" starting config — that config is tuned for human-authored READMEs, not machine-generated planning trees. Ship the curated list as this capability's opinionated default, adjustable via the existing `.markdownlint-cli2.jsonc` precedence the tool already supports. |
-| `markdown-linting`: violation count surfaced as a number in the fragment, not the full DavidAnson rule-explanation apparatus | The skill's ~850-line document (VS Code setup, GitHub Actions integration, "intelligent fix handling" with parallel Task agents, nested-code-block backtick-counting guidance) is scoped for an interactive human-fixing-errors session, not an automated lifecycle checkpoint. | LOW | Capability wraps the CLI call and count only; it does not carry over auto-fix orchestration, VS Code integration, or the manual-fix decision tree — those stay in the interactive skill, which remains usable standalone. |
-| `get-available-resources`: emits a structured recommendation object the fragment can quote verbatim, not prose the planner has to reinterpret | Matches how CI runner sizing hints work in mature tooling (e.g., GitHub Actions' `runner.os`/`ImageOS` env vars, `nproc`-based auto-parallelism in build tools) — machine-readable signal, human/agent decides. Never auto-sets a build config value in any comparable tool surveyed (CI sizing hints, `cargo build -j`, `pytest-xdist -n auto` all *read* a hint but leave the invocation to the caller). | LOW | Reuse the source skill's JSON shape (`cpu`, `memory`, `gpu`, `recommendations`) almost as-is — it's already structured correctly; strip the K-Dense upsell and the Dask/Zarr/scientific-computing library recommendations that don't apply to gsd's actual workload (agent orchestration, not dataset processing). |
-
-### Anti-Features (Commonly Requested, Often Problematic)
-
-Features that seem good but create problems.
-
-| Feature | Why Requested | Why Problematic | Alternative |
-|---------|---------------|------------------|-------------|
-| `pr-workflow`: auto-merge on green CI | Feels like the natural end of "automate the PR lifecycle" | `pr-workflow` SKILL.md's own Critical Rules #1 says "Never merge a PR... the user decides when to merge" — carrying this over would violate the source skill's own hardest constraint, and no CI system defaults to auto-merge without explicit opt-in (GitHub's own auto-merge is a per-PR toggle, never a repo default) | Ship-gate + report only. Auto-merge stays permanently out of scope, not "future" — it's a decision the source skill itself already made and this capability should not re-open. |
-| `pr-workflow`: auto-assign-reviewers, review-thread addressing (Phase 2/3 of the source skill), thread bulk-resolution | Looks like "full lifecycle coverage" per the skill's own scope | These require live conversational judgment (categorizing threads, drafting replies, deciding what's addressed) that a lifecycle *gate/fragment* cannot exercise — a `contributions[]` fragment or `gates[]` predicate is a one-shot, non-interactive check, not an agent loop. Building this into the capability would mean embedding an agent inside a gate predicate, which is architecturally impossible in gsd-core's current gate model (predicates are `command-exists` / `artifact-frontmatter-equals` only). | Leave PR review-thread handling to the existing interactive `pr-workflow` *skill* (already installed, unaffected by this capability). The capability only wraps creation status + check status for the ship gate. |
-| `pr-workflow`: `gh pr-review` extension dependency (`agynio/gh-pr-review`) | The source skill requires it for Phases 2-3 | This capability plugin only needs Phase 1's `gh pr create`/`gh pr checks`/`gh api` surface — pulling in a third-party `gh` extension as a hard dependency for functionality this capability doesn't use would violate the same "any dependency beyond the minimum" discipline `beads` holds itself to (N5: "Any dependency beyond the `bd` binary and Python 3 standard library" is explicitly out of scope for that capability) | Depend only on `gh` CLI + `gh auth status`, already a prerequisite check pattern in the source skill's own Section 1. |
-| `markdown-linting`: "NO AUTOMATED SCRIPTS" / mandatory Edit-tool-per-violation manual-fix workflow, carried into the capability | The skill's philosophy is right for interactive human-in-the-loop fixing sessions | A lifecycle gate is not a fixing session — it reports a count and (optionally) blocks; it must never itself attempt fixes, scripted or manual, because a gate firing inside `verify:post`/`ship:pre` has no mandate to edit content | Capability is read-only: run `markdownlint-cli2` in check mode, report the count. Fixing (auto or manual) stays entirely in the pre-existing interactive skill, invoked by the user/agent separately if they choose. |
-| `markdown-linting`: hard violation-count gate at `ship:pre`, enabled by default | Superficially mirrors `beads.ship_gate`'s pattern, and the milestone brief explicitly asks for one | Neither `markdownlint-cli2`'s own pre-commit integration nor typical doc-lint CI gates (the SKILL.md's own GitHub Actions example just runs on PR/push, no branch-protection requirement implied) default to blocking merges/ships — they default to reporting; teams opt into required-status-check enforcement deliberately, after tuning the rule-set to their corpus, because getting the config wrong (see MD013/MD033/MD041 above) produces false-positive blocks on legitimate content. Defaulting `.planning/` linting to hard-block would repeat that mistake on day one, before the curated rule-set has been validated against this repo's actual planning tree. | Ship the gate (predicate exists, `gates[]` entry present, matching the brief), but default `markdown_linting.ship_gate` to **advisory/false** — same shape as `beads.ship_gate` before it was proven, letting the user flip it to blocking once the curated rule-set has run clean against the existing `.planning/` corpus at least once. |
-| `get-available-resources`: auto-setting build/parallelism config values (e.g. writing `n_jobs` into a project config file) | "Why stop at a recommendation, just apply it" | No comparable tool surveyed does this by default — GitHub Actions runner sizing, `nproc`-based `make -j`, `pytest-xdist -n auto` all *compute* a hint at invocation time and leave the decision/application to the caller (build tool flag, not a persisted config mutation). Auto-writing config also collides with `beads`' own N3 precedent ("this capability tracks work, it does not decide how work is planned") extended to compute: a resource capability should inform, not decide. | Fragment presents the recommendation object inline in planner/executor context; nothing is written back into project config. |
-| `get-available-resources`: running before every `plan:pre`/`execute:wave:pre` unconditionally | Matches the milestone brief's literal ask and is the simplest to build | Genuinely useful only for compute-heavy phases (model training, large-scale parallel processing, dataset transforms) — for a typical gsd phase (editing markdown, wiring a capability manifest, writing a skill), CPU/GPU/disk detection is pure noise in the fragment and adds a subprocess call (`psutil`, `nvidia-smi`, `rocm-smi`) to every single lifecycle step for zero decision value. **Real gap, not resolved by research:** gsd-core has no phase-classification signal today (no `phase.compute_heavy: true` frontmatter, no tag surface) — there is nothing for a `when:` condition to key off. | **Scope narrowing recommendation:** ship the fragment gated on `resources.enabled` (default **false**, mirroring `beads.enabled`'s default-false precedent, not `ponytail.enabled`'s default-true) so it is opt-in per-project rather than firing unconditionally; flag the missing phase-compute-heavy signal as a real upstream gsd-core gap (candidate follow-up: a `phase.tags: [compute-heavy]` frontmatter field feeding a `when:` predicate) rather than pretending a heuristic in this capability can infer it reliably. |
-
-## Feature Dependencies
-
-```text
-pr-workflow.ship_gate (tri-state check predicate)
-    └──requires──> pr-workflow.pr_status_artifact (generated PR.md, regenerated every step)
-                       └──requires──> `gh` CLI present + authenticated (command-exists gate precedent from beads' `bd`-absence handling)
-
-markdown-linting.ship_gate (violation-count gate)
-    └──requires──> markdown-linting.verify_post_report (count surfaced first, non-blocking)
-                       └──requires──> curated `.markdownlint-cli2.jsonc` validated clean against existing .planning/ corpus
-
-get-available-resources.fragment
-    └──enhances──> plan:pre / execute:wave:pre context (same injection points as ponytail's three fragments)
-    └──conflicts (scope)──> "run on every phase" — narrowed to `resources.enabled` opt-in, no compute-heavy phase signal exists yet
-
-All three ──require (binding pattern)──> capability-loader.cts contribution/gate mechanics already proven by beads + ponytail + sota-numerics
-```
-
-### Dependency Notes
-
-- **`pr-workflow.ship_gate` requires a generated `PR.md` artifact:** gsd-core's gate predicates (`command-exists`, `artifact-frontmatter-equals`) never query an external tool directly — this is the same constraint `beads` documents in its Context section ("there is no predicate that queries an external tool directly, which is why the capability must project live `bd` state into a generated `BEADS.md` artifact at every step for gates to read"). `pr-workflow` must follow the identical shape: a `ship:pre` step (or `execute:wave:post`) that shells out to `gh pr checks --json`/`gh pr view --json` and writes `PR.md` frontmatter (`pr_status: passing|pending|failing|none`), then the gate reads that frontmatter via `artifact-frontmatter-equals`.
-- **`markdown-linting.ship_gate` requires the report step to run first:** never gate on a value nothing has computed yet in the same lifecycle pass — mirrors `beads.ship_gate`'s dependency on `BEADS.md` regeneration "every step, never hand-edited" (B11).
-- **`get-available-resources.fragment` enhances but does not gate:** no dependency chain into `gates[]` at all — this is a leaf contribution, matching `ponytail`'s `capability.json` (`"gates": []`) exactly, not `beads`' pattern.
-- **All three conflict with:** inventing a second gate-enforcement mechanism outside `gates[]` (e.g., a shell script that `exit 1`s from inside a fragment, or a hook that blocks independently of the `capability.json` schema). The milestone brief's own constraint — "must not introduce a second gate-enforcement mechanism outside `gates[]`" — rules this out explicitly; all blocking behavior must flow through the declared `gates[]` array and the same `ship:pre` dispatch patch (`$HOME/.claude/gsd-core/workflows/ship.md`) that `beads` already required and shipped in Phase 3. **These three capabilities inherit that same dependency: none of their gates can fire without the machine-local `ship.md` patch already in place from `beads`' Phase 3** (or the upstream fix, open-gsd/gsd-core#3559, if merged first) — this is a hard prerequisite, not just a shared pattern.
-
-## MVP Definition
-
-### Launch With (v1)
-
-Minimum viable product — what's needed to validate the concept, dogfooded in this repo first (matching the Phase 10/11 → Phase 12 precedent).
-
-- [ ] `pr-workflow`: `PR.md` artifact generation (status: none/passing/pending/failing) at `execute:wave:post` or `ship:pre` — essential, everything else depends on it
-- [ ] `pr-workflow`: `ship:pre` gate, tri-state, `onError: skip`, default **advisory** (warn, don't block) until proven against a real PR cycle in this repo — essential to prove the artifact-gate wiring works before trusting it to block
-- [ ] `pr-workflow`: `ship:post` warn-only notice when no PR exists (not auto-create) — essential, matches the source skill's own "ask before creating" spirit and avoids PR spam
-- [ ] `markdown-linting`: curated rule subset `.markdownlint-cli2.jsonc`, validated clean (0 violations) against the existing `.planning/` tree before shipping the gate — essential, an unvalidated rule-set would make the gate noise from day one
-- [ ] `markdown-linting`: `verify:post` violation-count report, `onError: skip` — essential, this is the report the gate later reads
-- [ ] `markdown-linting`: `ship:pre` gate reading the count, default **advisory** — essential per the brief, but off-by-default per the anti-features analysis above
-- [ ] `get-available-resources`: fragment at `plan:pre`/`execute:wave:pre`, `resources.enabled` default **false**, `onError: skip` — essential per the brief, but opt-in given the noise-for-non-compute-phases problem identified above
-
-### Add After Validation (v1.x)
-
-Features to add once core is working and the dogfooded gates have run through at least one real ship cycle each.
-
-- [ ] `pr-workflow.ship_gate` flips to blocking-by-default — trigger: at least one real PR cycle in this repo confirms the tri-state predicate reads `PR.md` correctly and doesn't false-block on a `gh` auth hiccup
-- [ ] `markdown-linting.ship_gate` flips to blocking-by-default — trigger: curated rule-set has run clean across a full milestone's worth of `.planning/` edits with zero false positives
-- [ ] `get-available-resources`: `phase.tags: [compute-heavy]` frontmatter + `when:` predicate narrowing the fragment to fire only on tagged phases — trigger: gsd-core ships (or this project patches, upstream-first per N2's precedent) a phase-classification signal; until then this stays opt-in-global, not phase-scoped
-
-### Future Consideration (v2+)
-
-Features to defer until the above prove themselves — explicitly deferred, not silently dropped.
-
-- [ ] `pr-workflow`: `gh pr ready` auto-promotion from draft — defer indefinitely; the source skill itself gates this on explicit user ask ("Only do this when the user explicitly asks"), a lifecycle step firing automatically would violate that
-- [ ] `pr-workflow`: review-thread addressing/resolution (source skill Phases 2-3) — defer permanently to the standalone interactive skill; architecturally cannot live in a `contributions[]`/`gates[]` shape (requires conversational judgment)
-- [ ] `markdown-linting`: VS Code / GitHub Actions setup automation from the source skill — defer permanently; out of a lifecycle capability's scope, stays in the interactive skill
-- [ ] `get-available-resources`: GPU-backend-specific library recommendations (PyTorch-MPS, JAX-Metal, RAPIDS) — defer/drop; gsd's own workload is agent orchestration, not model training, so this part of the source skill's output is dead weight for this consumer even though harmless to keep in the JSON shape
-
-## Feature Prioritization Matrix
-
-| Feature | User Value | Implementation Cost | Priority |
-|---------|------------|---------------------|----------|
-| `pr-workflow`: `PR.md` artifact + tri-state gate (advisory default) | HIGH | MEDIUM | P1 |
-| `pr-workflow`: no-PR warn-only notice | MEDIUM | LOW | P1 |
-| `markdown-linting`: curated rule-set + `verify:post` report | HIGH | LOW-MEDIUM | P1 |
-| `markdown-linting`: `ship:pre` gate (advisory default) | MEDIUM | LOW | P1 |
-| `get-available-resources`: opt-in fragment, default off | MEDIUM | LOW | P1 |
-| `pr-workflow.ship_gate` flip to blocking | HIGH | LOW (config-only) | P2 |
-| `markdown-linting.ship_gate` flip to blocking | MEDIUM | LOW (config-only) | P2 |
-| `get-available-resources`: compute-heavy phase tagging | MEDIUM | MEDIUM (needs upstream gsd-core signal) | P2 |
-| `pr-workflow`: draft-PR auto-create | LOW | LOW | P3 |
-| `pr-workflow`: review-thread automation | LOW (for a gate/fragment shape) | HIGH (needs agent loop, not a gate) | P3 (out of capability scope entirely) |
-| `get-available-resources`: GPU library recommendations | LOW (wrong workload) | already built (reuse) | P3 |
-
-**Priority key:**
-- P1: Must have for launch (dogfood-ready, matches Phase 10/11 precedent)
-- P2: Should have, add when validated (post-dogfood, pre-public-extraction)
-- P3: Nice to have or explicitly out of scope for this capability's shape
-
-## Competitor Feature Analysis
-
-| Feature | GitHub branch protection (native) | pre-commit framework (markdown hooks) | Our Approach |
-|---------|-----------------------------------|----------------------------------------|--------------|
-| Pending-check handling | Blocks merge on pending, same as failing — but pending-forever is a known operational trap (path-filter/branch-filter misconfiguration) | N/A (pre-commit is local, synchronous — no pending state) | Tri-state gate blocks on both `pending` and `failing`; `onError: skip` prevents the "stuck pending forever" trap from stranding a phase indefinitely — a missing/stale `PR.md` degrades to skip, not an infinite block |
-| Lint enforcement default | N/A | Hooks are opt-in per-repo; once installed, blocking is the whole point (that's why you installed the hook) — but rule *selection* is always curated per-repo, never "all defaults" | Curated rule subset by default (not markdownlint-cli2's `"default": true`), gate itself advisory-by-default until proven — splits the two decisions (which rules vs. do they block) that pre-commit frameworks bundle together |
-| Resource sizing hints | GitHub Actions runner sizing is a labeled runner choice (`ubuntu-latest`, `ubuntu-latest-4-cores`, etc.) — a config decision the user makes, never auto-applied by CI itself | N/A | Same posture: recommendation surfaced in context, never auto-written into config; narrowed to opt-in because most gsd phases aren't compute-heavy |
-
-## Sources
-
-- `/home/dd/projects/gsd-beads/.planning/PROJECT.md` — existing capability precedent (`beads`, `ponytail-everywhere`, `sota-numerics`), binding mechanics (`steps[]`/`contributions[]`/`gates[]`), `onError: skip` convention, N1-N6 Out-of-Scope reasoning reused above by analogy
-- `/home/dd/projects/gsd-beads/.gsd/capabilities/ponytail/capability.json` — advisory-only, zero-gate shape confirmed live (`"gates": []`, three `contributions[]` entries, all `onError: skip`)
-- `/home/dd/.claude/skills/pr-workflow/SKILL.md` — source skill's own scope boundaries (never-merge, never-force-push, draft-first, Phase 2/3 review-thread handling) mined for what NOT to carry into the capability
-- `/home/dd/.claude/skills/markdown-linting/SKILL.md` — source skill's configuration policy, "no automated scripts" philosophy, default rule-set (`"default": true, MD013: false`) — deliberately diverged from for `.planning/` content
-- `/home/dd/.claude/skills/get-available-resources/SKILL.md` — source skill's JSON output shape and recommendation categories, reused structurally; GPU/scientific-computing recommendation content flagged as not applicable to this workload
-- [GitHub Docs — Troubleshooting required status checks](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/collaborating-on-repositories-with-code-quality-features/troubleshooting-required-status-checks) — confirms pending-vs-failing semantics (both block merge; pending-forever is a known misconfiguration trap), grounding the tri-state gate design (MEDIUM-HIGH confidence, single web search, cross-checked against multiple result snippets in the same query)
+**Verdict up front:** precedent favours **drop the key** (remove `beads.sync_mode` from
+`capability.json`) rather than implement or narrow it. Three independent lines of evidence:
+a declared-but-unread key is a known, tolerated, *unblessed* state in this ecosystem (§3);
+gsd-core's own removal precedent is deletion-with-a-warning, not narrowing (§5); and every
+sibling capability that this author ships declares only keys it actually consumes (§4).
 
 ---
-*Feature research for: gsd-core capability plugins — PR-workflow automation, markdown-lint gating, pre-phase resource advisory*
-*Researched: 2026-08-18*
+
+## §0 — How a gsd-core capability key gets "read" at all
+
+Three distinct consumption mechanisms exist. This matters because "no Python reads it" is not
+the same as "nothing reads it".
+
+| Mechanism | Declared as | Resolved by | Example |
+|---|---|---|---|
+| **Declarative gate** | `"when": "<key>"` on a step/contribution/gate | `loop-resolver.cjs` | `beads.enabled` → capability.json:69,83,97,111,125,137,152 |
+| **Fragment interpolation** | `"configValues": { alias: "<key>" }` | `loop-resolver.cjs:169-259` | `ponytail.level` → ponytail/capability.json:49-50 |
+| **Imperative read** | code calls `config-get` / parses `.planning/config.json` | capability's own script or SKILL prose | `beads.epic_per` → `sync.py:669-671,919` |
+
+A key with **none** of the three is inert. Confidence 95 — mechanisms read directly from
+`/home/dd/.claude/gsd-core/bin/lib/loop-resolver.cjs:169-259` and `capability-validator.cjs:84-166`.
+
+`activationKey` is a fourth, formal mechanism (`capability-validator.cjs:695-716`: a capability may
+name one dotted key from its own config slice as its master gate). **No capability on this machine
+uses it** — not beads, not the four siblings, not one of the 44 first-party ones. Everyone hand-wires
+`"when": "<id>.enabled"` instead. Confidence 90.
+
+---
+
+## §1 — Every installed capability: declared keys and who reads them
+
+Scope: `~/.gsd/capabilities/*/capability.json` (5 capabilities) plus the project-scope
+`/home/dd/projects/gsd-beads/.gsd/capabilities/beads/` (identical bytes to the user-scope copy;
+canonical source is `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`, whose line
+numbers are cited below).
+
+| Capability | Key | Declared values | Read by code? |
+|---|---|---|---|
+| beads 0.3.1 | `beads.enabled` | boolean, default `true` | **YES** — declarative `when` ×7 (capability.json:69,83,97,111,125,137,152); imperative `sync.py:674-676` + `:712`; SKILL gates at `beads-recall/SKILL.md:27-28`, `beads-sync/SKILL.md:27-28`, `beads-status/SKILL.md:27-28`, `beads-migrate-todos/SKILL.md:27-28` |
+| beads 0.3.1 | **`beads.sync_mode`** | enum `authoritative\|mirror\|off`, default `authoritative` | **NO** — declared at capability.json:32; the only other occurrence in the entire bundle is a comment stating it is unread: `scripts/sync.py:1300` ("the strip is NOT gated on `beads.sync_mode` -- that key is declared in capability.json and read by nothing (gsd-beads-v43)") |
+| beads 0.3.1 | `beads.ship_gate` | boolean, default `true` | **YES** — declarative `when` ×2 on the two `ship:pre` gates (capability.json:167,181); imperative bypass-recording path `sync.py:1979,2204`; documented read at `beads-status/SKILL.md:131` |
+| beads 0.3.1 | `beads.epic_per` | enum `phase\|milestone`, default `phase` | **YES** — imperative only, no `when`: `sync.py:669-671` (`read_epic_per`) called at `sync.py:919`; 8 tests at `tests/test_sync.py:3503-3660` |
+| markdown-linting 0.1.0 | `markdown-linting.enabled` | boolean, default `true` | **YES** — `when` at capability.json:45; SKILL gate `markdown-linting-report/SKILL.md:21`; documented `README.md:30` |
+| markdown-linting 0.1.0 | `markdown-linting.ship_gate` | boolean, default `true` | **YES (declarative only)** — `when` at capability.json:61; documented `README.md:31`. No imperative read; `scripts/lint.py` never touches it |
+| ponytail 0.1.0 | `ponytail.enabled` | boolean, default `true` | **YES** — `when` ×3 at capability.json:48,62,76 |
+| ponytail 0.1.0 | `ponytail.level` | enum `lite\|full\|ultra`, default `full` | **YES** — `configValues` ×3 at capability.json:49-50,63-64,77-78; consumed in prose by `fragments/planner-ladder.md:3`, `fragments/executor-ladder.md:3`, `fragments/verifier-ladder.md:3` |
+| pr-workflow 0.1.0 | `pr-workflow.enabled` | boolean, default `true` | **YES** — `when` ×2 at capability.json:45,55; SKILL gate `pr-workflow-report/SKILL.md:21` |
+| pr-workflow 0.1.0 | `pr-workflow.ship_gate` | boolean, default `true` | **YES (declarative only)** — `when` at capability.json:71. `scripts/pr_status.py` never reads it |
+| sota-numerics 0.1.1 | `sota-numerics.enabled` | boolean, default `true` | **YES** — `when` ×5 at capability.json:38,49,60,71,85 |
+
+**Total: 11 declared keys across 5 installed capabilities. Exactly one — `beads.sync_mode` — has
+zero consumers of any kind.** Confidence 97 — every cell is a grep hit or a verified absence over
+the complete file list of each bundle.
+
+Two secondary observations the planner can use:
+
+- `beads.epic_per` is the ecosystem's only **imperatively-read enum**, and it is read *fresh at
+  each call site* (`sync.py:919`, per D-11) rather than cached. It is the working model for what an
+  implemented `sync_mode` would have to look like. Confidence 92.
+- `ponytail.level` is the only **fragment-interpolated enum**, and it is the cheapest possible
+  enum implementation: zero code, three `configValues` lines, three prose sentences. Confidence 92.
+
+---
+
+## §2 — gsd-core's own first-party capabilities
+
+gsd-core ships **no `capability.json` files**. Its 44 first-party capabilities are inlined in the
+generated registry `/home/dd/.claude/gsd-core/bin/lib/capability-registry.cjs` (7556 lines), exported
+as `capabilities` / `configKeys` / `configSchema`. Confidence 95.
+
+Enumerated programmatically: **62 first-party config keys**. Classified by consumer:
+
+| Consumption | Count | Notes |
+|---|---|---|
+| Declarative (`when` / `activationKey` / `configValues`) | 25 | e.g. `workflow.tdd`, `workflow.security` |
+| Imperative (read by a `.cjs` or a workflow `.md` outside the registry) | 24 | e.g. `review.ollama_host` → `workflows/review.md:30`; `refactor.complexity_threshold` → `bin/lib/refactor-trigger-command-router.cjs:222`; `claude_orchestration.min_agent_sdk_version` → `bin/lib/claude-orchestration.cjs:208` |
+| Referenced only in the registry's own **inline step prose** (documented, agent-interpreted) | 6 | `external_job.backend`, `external_job.submit_timeout_ms`, `mempalace.memory_mode`, `mempalace.recall_on_discuss`, `mempalace.capture_artifacts`, `mempalace.mirror_kg` |
+| **Zero consumers anywhere — declared and never read** | **7** | listed below |
+
+The seven orphans, with declaration line in `capability-registry.cjs`:
+
+| Capability | Key | Decl. line | Type / default |
+|---|---|---|---|
+| external-job | `external_job.artifact_dir` | :1565 | string, `"Artifacts/jobs"` |
+| external-job | `external_job.poll_timeout_ms` | :1575 | number, `15000` |
+| mempalace | `mempalace.recall_on_plan` | :2460 | boolean, `true` |
+| mempalace | `mempalace.cross_project_tunnels` | :2475 | boolean, `false` |
+| mempalace | `mempalace.diary_journal` | :2480 | boolean, `true` |
+| mempalace | `mempalace.auto_capture_hooks` | :2485 | boolean, `false` |
+| profile-pipeline | `profile-pipeline.enabled` | :3014 | boolean, `false` |
+
+Method: extracted every `config` slice + every `when`/`configValues`/`activationKey` from the
+registry via Node, then grepped all of `~/.claude/gsd-core/**/*.{cjs,md,json}` for each key,
+excluding the registry's own declaration block and the two generated manifests
+(`bin/shared/config-schema.manifest.json`, `config-defaults.manifest.json`). Confidence 90 — an
+orphan could in principle be read by an out-of-tree MCP server (mempalace notably ships elsewhere),
+which is why `mempalace.*` orphans are the weakest four of the seven.
+
+Note `profile-pipeline.enabled` — an `.enabled` master toggle with **no `when` clause referencing
+it and no `activationKey`**. Even the canonical "always-read" key shape gets orphaned in first-party
+code. Confidence 88.
+
+---
+
+## §3 — Is "declared but never read" unique to `beads.sync_mode`?
+
+**No. It is a widespread, tolerated pattern.** 7 of 62 first-party keys (11.3%) are orphans, plus
+`beads.sync_mode` makes 8 of 73 across everything installed on this machine (11.0%). Confidence 90.
+
+But three qualifications decide the milestone, and they all cut the same way:
+
+1. **Nothing detects or punishes it.** `capability-validator.cjs:84-166` validates a config slice's
+   *shape* (type present, default present, default's type matches, enum default is a member of
+   `values`, description non-empty) — never whether anything consumes the key. There is no
+   orphan-key lint anywhere in gsd-core. Confidence 95.
+2. ~~**Nothing validates a user's *value* against the declared enum either.**~~ **CORRECTED
+   2026-08-19 by the orchestrator — this claim was FALSE and the recommendation below rests on it.**
+
+   The original text asserted that `config-set` checks only key existence and never compares the
+   value to the slice's `values` array. Tested live against installed gsd-core 1.11.0 in a
+   throwaway project carrying a copy of this capability's bundle:
+
+   ```
+   $ gsd_run query config-set beads.sync_mode bogus_not_in_enum
+   Error: Invalid beads.sync_mode 'bogus_not_in_enum'. Valid values: authoritative, mirror, off
+   ```
+
+   The value was rejected and NOT written. `authoritative` and `mirror` were both accepted and
+   stored. So the **write path does enforce the enum**, and it is distinct from the
+   unknown-key error (`Unknown config key: "beads.totally_made_up"`), which was also reproduced
+   as a control.
+
+   What IS true: the **read path does not validate**. A value hand-written straight into
+   `.planning/config.json` is returned verbatim — `sync_mode: "mirror"` written directly to the
+   file read back as `"mirror"` with no complaint. And `/gsd-health` has no orphan- or
+   invalid-capability-value check.
+
+   **Consequence for the recommendation below:** narrowing `values` to `["authoritative"]` is
+   NOT mechanically inert. It would cause `config-set beads.sync_mode mirror` to start failing —
+   a real, user-visible behavior change on the write path. The "narrowing wouldn't even detect an
+   existing mirror" argument is void; narrowing does not detect a *stale on-disk* value, but it
+   does block a *new* one. Weigh narrow-vs-drop on precedent and semantics, not on this. Confidence 99.
+3. **This repo has already published the orphan as a defect, not a feature.** `CHANGELOG.md:36-39`,
+   under a "Known issues (pre-existing, now tracked)" heading: *"`beads.sync_mode` is declared in
+   `capability.json` and read by no code. `mirror` and `off` do nothing; only `beads.enabled: false`
+   stops dispatch. 0.3.0's changelog implied the strip was gated on it — it never was. Tracked as
+   `gsd-beads-v43`."* Confidence 99.
+
+So v1.3 is **not fighting a convention** — the convention is indifferent. It is closing a defect the
+project itself already classified as a defect and ticketed. That framing rules out "leave it";
+it does not by itself choose between implement / narrow / drop.
+
+---
+
+## §4 — The author's four sibling plugins
+
+All four repos are public and were verified live via `gh api`, not from the local bundles.
+Local installed bundles are byte-identical in their `config` blocks to the live `HEAD`. Confidence 95.
+
+| Repo | Path in repo | Version | Keys declared | All read? |
+|---|---|---|---|---|
+| [davdittrich/markdown-linting](https://github.com/davdittrich/markdown-linting) | `.gsd/capabilities/markdown-linting/capability.json` | 0.1.0 | 2 | yes |
+| [davdittrich/pr-workflow](https://github.com/davdittrich/pr-workflow) | `.gsd/capabilities/pr-workflow/capability.json` | 0.1.0 | 2 | yes |
+| [davdittrich/ponytail-everywhere](https://github.com/davdittrich/ponytail-everywhere) | `.gsd/capabilities/ponytail/capability.json` | 0.1.0 | 2 | yes |
+| [davdittrich/sota-numerics](https://github.com/davdittrich/sota-numerics) | `.gsd/capabilities/sota-numerics/capability.json` | 0.1.1 | 1 | yes |
+
+**Seven keys across four sibling plugins; zero orphans.** Confidence 96.
+
+The pattern is uniform and minimal:
+
+- Every plugin declares exactly one `<id>.enabled` boolean, defaulting `true`, wired as `"when"` on
+  every step it owns. No plugin uses `activationKey`.
+- A second key exists only when there is a second *independently switchable* behaviour:
+  `.ship_gate` (markdown-linting, pr-workflow) toggles gate registration separately from the
+  reporting step; `ponytail.level` parameterises an already-active fragment.
+- **`sota-numerics` is the direct counter-example to declaring aspirational keys.** It ships one
+  key and says so in the key's own description: *"Master toggle for both the advisory steering
+  fragments and the blocking `plan:post` Alternatives Considered gate (D-10, D-11) — **the only
+  config key this capability declares**."* (`sota-numerics/capability.json:22`, live at HEAD). The
+  author has already articulated "declare one key, mean it" as a design stance in a shipped
+  artefact. Confidence 94.
+- None of the four ships a `CHANGELOG.md` (verified: `gh api repos/<r>/contents/CHANGELOG.md`
+  returns empty for all four), so they offer no key-removal precedent of their own. Confidence 90.
+
+Read against §1, the sibling corpus says: **a capability's key count equals its switchable-behaviour
+count.** `beads.sync_mode` has zero switchable behaviours behind it. Confidence 88.
+
+---
+
+## §5 — Precedent for removing / renaming / narrowing a key
+
+### 5a. The canonical removal: `runtime.hostBehaviors.reviewerCli` (gsd-core, ADR-2782 D9 / #2801)
+
+This is a manifest *field*, not a `config` key, but it is the closest and best-documented analogue
+in the ecosystem — same problem (a declared knob in a capability manifest that must go away), same
+blast radius (out-of-tree third-party manifests already carrying it).
+
+The full sequence, from `bin/lib/review-reviewer-selection.cjs:30-37`:
+
+> *"`runtime.hostBehaviors.reviewerCli` is GONE (Phase 7, #2801). It survived one release as a
+> derived legacy alias — a capability setting only the flag contributed its capability id as a slug
+> — and that window closed when 1.10.0 shipped after Phase 5a's 1.9.0. A declared `reviewer` body is
+> now the ONLY route onto the roster. A manifest still carrying the key contributes no lane and is
+> told so: `collectReviewerWarnings` (`gsd-core/bin/lib/capability-validator.cjs`) emits a removal
+> notice on both the build-time registry generation and the third-party overlay load path."*
+
+Four-step pattern, each step verifiable:
+
+1. **Ship the replacement first**, keep the old name working as a derived alias for **one full
+   release** (1.9.0 → 1.10.0). Confidence 95.
+2. **Delete the behaviour in the next minor.** A manifest still carrying the key gets nothing.
+3. **Emit a warning, never an error.** `capability-validator.cjs:1720-1726` is explicit that erroring
+   was rejected: *"An error would hard-break an out-of-tree descriptor carrying a bespoke key, with no
+   deprecation window — the exact mistake #2801's own alias removal spent a full release avoiding."*
+   Confidence 96.
+4. **Make the warning a typed record, keyed to the removal, naming the replacement and the docs.**
+   `capability-validator.cjs:1816-1817` keeps the removed path as a named constant
+   (`REMOVED_REVIEWER_CLI_FIELD`); the warning-record shape at :1949-1951 carries
+   `{ code: REMOVED_HOST_BEHAVIOR, capId, field, replacement, docs, message }`; it is emitted
+   **presence-based at any value** (:1997-2001), and surfaces on both the build path and the overlay
+   load path because *"a warning written only to a build log nobody reads is not a warning"* (:1975).
+   Confidence 94.
+
+### 5b. The rename precedent: `review.models.antigravity` → `review.models.agy`
+
+`bin/lib/review-lane-descriptor.cjs:301-303` — the shipped key is `review.models.agy`, and the code
+carries a standing comment forbidding the intuitive longer name, with the reason that the short name
+is what was federated. Migration handled by **never shipping the other name at all**, plus a
+permanent comment at the one site that would otherwise drift. Confidence 90.
+
+### 5c. Narrowing an enum: **no precedent exists anywhere.**
+
+No capability on this machine, first-party or third-party, has ever removed a member from an enum's
+`values` array. Searched: full git history of this repo for `capability.json`, all four sibling repo
+HEADs, and every deprecation/migration mention in `~/.claude/gsd-core/bin/lib/capability-*.cjs` +
+`config-schema.cjs`. Confidence 85 (absence of evidence over a corpus this small).
+
+This matters directly: **"narrow `beads.sync_mode` to `authoritative` only" is the one option with
+zero precedent**, and it would leave a single-valued enum — a key whose only legal value is its
+default, i.e. a key that cannot change anything. That is the same inert state as today, with extra
+machinery. And because §3.2 established nothing validates a user's value against `values` anyway,
+narrowing the array would not even *detect* an existing `mirror`, let alone reject it.
+
+---
+
+## §6 — This repo's own precedent: the 0.2.0 `beads.enabled` default flip
+
+The only prior config change in this repo's history. Both artefacts read in full.
+
+**Commit `252984f`** — `feat(11.1-01): flip beads.enabled default to true, invert beads-recall gate`
+(dd, 2026-08-17). Two files, 4 insertions / 4 deletions:
+
+- `capability.json`: `"version": "0.1.0"` → `"0.2.0"` **in the same commit**, and
+  `beads.enabled` `"default": false` → `true`.
+- `beads-recall/SKILL.md` Step 1: gate polarity inverted from *opt-in* (`config.beads.enabled !== true`
+  → stop) to *opt-out* (stop only when the value is **explicitly the boolean `false`**; a missing
+  file, a missing `config.beads`, or a present `config.beads` with no `enabled` key all fall
+  through to the shipped default).
+- Commit message carries the end-to-end verification: *"a scratch project with no beads key now
+  resolves all 7 `beads.enabled`-gated hooks active; explicit `beads.enabled:false` still disables
+  all 7."*
+
+Confidence 99 — read from `git show 252984f`.
+
+**CHANGELOG entry** (`CHANGELOG.md:86-96`, written separately in `b69b335`) gives the migration
+contract its own top-level heading, not a bullet buried in Changed:
+
+```markdown
+## 0.2.0
+
+### Changed
+- **`beads.enabled` now defaults to `true`**: a fresh install runs with issue tracking on out of
+  the box. Opting out is now the explicit action — set `beads.enabled: false` in a project's
+  `.planning/config.json`. The four beads skills' Step 1 config gates were inverted to match, so
+  an absent key resolves to the shipped default rather than stopping at the gate.
+
+### No regression for existing installs
+- A project that already sets `beads.enabled` explicitly in `.planning/config.json` keeps its
+  current behavior unchanged — an explicit value always wins over the shipped default. Only
+  installs that never set the key pick up the new default.
+```
+
+The house rule this establishes, in the author's own words: **an explicitly-set value always wins
+over the shipped default; a config change may only move the behaviour of installs that never set
+the key.** Note `CHANGELOG.md:3` scopes the whole file to `capability.json`'s version, so the
+capability version is the migration unit. Confidence 97.
+
+---
+
+## §7 — The concrete migration pattern for an already-set `beads.sync_mode`
+
+Synthesising §5a (gsd-core's removal ritual) with §6 (this repo's own no-regression contract), and
+constrained by §3.2 (a stale value on disk is already inert and nothing will ever re-validate it):
+
+1. **Bump `capability.json` to 0.4.0 in the same commit as the key removal.** Precedent: `252984f`
+   bumped `version` in the same 4-line diff as the config change.
+2. **Delete the `beads.sync_mode` slice** from `capability.json` (currently lines 32-41). Do not
+   narrow `values` — §5c: no precedent, and it produces a single-valued enum that still changes
+   nothing.
+3. **Convert `sync.py:1300`'s comment from a defect note into a removal note.** It already names the
+   key and the ticket; it becomes the `REMOVED_REVIEWER_CLI_FIELD` analogue — the one permanent,
+   greppable record of why the name is gone, in the exact function whose behaviour the key claimed
+   to gate.
+4. **Do not write a migration.** A leftover `"sync_mode": "..."` inside `.planning/config.json`'s
+   `beads` object is harmless: `read_beads_config` (`sync.py:641`) only ever fetches named keys, and
+   nothing enumerates the object. Deleting a user's config entry is a bigger action than the defect
+   warrants, and gsd-core's own removal precedent (§5a step 3) is *warn, never break* — here there is
+   not even anything to warn about at runtime, because no read path exists to warn from.
+   Confidence 88 — this is the one judgement call rather than a cited precedent.
+5. **Give the removal its own CHANGELOG heading under 0.4.0, mirroring `## 0.2.0`'s two-heading
+   shape**, and state the disposition of an already-set value explicitly:
+
+   ```markdown
+   ### Removed
+   - **`beads.sync_mode` is gone.** It was declared in `capability.json` since 0.1.0 and read by no
+     code; `mirror` and `off` never did anything (tracked as `gsd-beads-v43`, disclosed in 0.3.1's
+     Known issues). `beads.enabled: false` remains the only way to stop dispatch.
+
+   ### No regression for existing installs
+   - A project whose `.planning/config.json` still sets `beads.sync_mode` needs no action. The key
+     was never read, so removing the declaration changes no behaviour; the leftover entry is inert
+     and may be deleted at leisure. Note `gsd-tools config-set beads.sync_mode <value>` will now
+     fail with `Unknown config key` (bin/lib/config.cjs:657) — the key is no longer in the
+     federated schema.
+   ```
+
+   That last sentence is the only user-visible break in the whole change, and it is a break in
+   *writing* a value that never had an effect. Confidence 92.
+6. **If `mirror`/`off` are ever genuinely wanted, `beads.epic_per` is the template** — declare the
+   key in the same commit as `read_<key>` + its call site + its tests, read fresh at each call site
+   (`sync.py:669-671,919`, D-11), never ahead of the implementation.
+
+---
+
+## §8 — Precedent scoreboard for the Alternatives Considered table
+
+| Option | Precedent for it | Precedent against it | Verdict |
+|---|---|---|---|
+| **Implement** `mirror` / `off` | `beads.epic_per` shows the shape works (`sync.py:669-671,919` + 8 tests) | No sibling plugin declares a key it does not need (§4, 7/7 clean); `sota-numerics/capability.json:22` states the one-key stance outright; nothing in v1.3's scope requires a second sync semantic | Rejected — builds machinery for a demand no artefact evidences |
+| **Narrow** `values` to `["authoritative"]` | none found anywhere (§5c) | Produces a single-valued enum = still inert; §3.2 shows nothing validates user values against `values`, so it detects no existing `mirror`; adds a version bump and a doc change for zero behaviour delta | Rejected — the only option with zero precedent |
+| **Drop** the key | gsd-core `#2801` removed `runtime.hostBehaviors.reviewerCli` outright (§5a); repo already published it as a defect (`CHANGELOG.md:36-39`); orphan keys are tolerated but never *blessed* (§2-3) | The removal ritual (§5a) normally spends a release on a deprecation alias — but that exists to protect *working* behaviour, and there is none here | **Recommended** |
+
+Confidence in the overall recommendation: **88.** The residual 12% is the possibility that a
+downstream consumer outside this machine reads `beads.sync_mode` from the federated config schema
+(the same uncertainty that weakens the `mempalace.*` orphan findings in §2). Mitigated by the fact
+that a value read from a schema no code acts on still cannot change behaviour.
+
+---
+
+## Gaps
+
+- The four sibling repos ship no CHANGELOGs, so the author has exactly one key-migration precedent
+  of his own (§6) and it is a default flip, not a removal. Confidence 90.
+- gsd-core's `#2801` is a *manifest field*, not a `config` key. No removal of a `config`-slice key
+  was found in any corpus. The transfer is by analogy — strong (same manifest, same third-party
+  blast radius, same validator) but not exact. Confidence 80.
+- The `mempalace.*` orphans may be consumed by an out-of-tree MCP server not on this machine. If a
+  planner wants the 11% orphan rate to be load-bearing, the safe floor is the three non-mempalace
+  orphans (`external_job.artifact_dir`, `external_job.poll_timeout_ms`, `profile-pipeline.enabled`)
+  — still enough to establish the pattern is not unique to beads. Confidence 90.

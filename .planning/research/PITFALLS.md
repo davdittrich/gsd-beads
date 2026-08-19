@@ -1,383 +1,420 @@
-# Pitfalls Research
+# Pitfalls Research — Milestone v1.3 (Phase 17: Config/Code Truth)
 
-**Domain:** gsd-core capability plugins — adding `pr-workflow`, `markdown-linting`,
-`get-available-resources` to gsd-beads (a repo that has already shipped `beads`,
-`ponytail-everywhere`, `sota-numerics` and hit six documented, named bugs doing it)
-**Researched:** 2026-08-18
-**Confidence:** HIGH (all findings verified against this repo's own PROJECT.md Key Decisions
-table, live-read `capability.json` files, and a live read of the installed, patched
-`$HOME/.claude/gsd-core/workflows/ship.md`) — one MEDIUM item flagged below where verification
-relied on community docs rather than the primary Anthropic reference.
+**Researched:** 2026-08-19 (system time verified: `2026-08-19T21:36:59Z`)
+**Environment observed:** gsd-core `1.11.0` (latest available), Claude Code `2.1.235`,
+plugin `beads-lifecycle` 1.3.1 / capability `beads` 0.3.1, test baseline `Ran 164 tests … OK`.
+**Method:** every claim below is either a command + its output, or is labelled `UNVERIFIED`.
+
+---
 
 ## Critical Pitfalls
 
-### Pitfall 1: Trusting an unpatched `ship:pre` gate to fire on a fresh machine
+### C1. Removing `sync_mode` from `capability.json` is 100% silent for existing users — the only place it surfaces is a *misleading* error on the write path
 
-**What goes wrong:**
-A new capability declares `gates[]` at `ship:pre` (as `pr-workflow`'s and `markdown-linting`'s
-manifests both plan to, per PROJECT.md's Current Milestone section) and the plan/verifier marks
-the phase done because the gate mechanism "exists" in the manifest — but on any machine where
-`$HOME/.claude/gsd-core/workflows/ship.md` still ships the stock dispatch, the gate never
-evaluates. Stock `ship.md`'s `ship:pre` preflight only enumerates `capId == "security"` and
-`capId == "broken-windows"`; every other capability's `gates[]` entry is invisible to it.
+**Confidence: 95** (directly demonstrated).
 
-**Why it happens:**
-This repo already hit this exact bug with `beads`'s own two `ship:pre` gates in Phase 3 — found
-only via a full-file read of the installed workflow during plan-checking, not by testing (a live
-run would have "succeeded" by silently never invoking the gate, no error surfaced). The fix that
-made `beads`'s and `sota-numerics`'s gates visible today is a **machine-local patch**
-(`<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->`, confirmed live-read at
-`$HOME/.claude/gsd-core/workflows/ship.md` lines 157-240, adding step 8 "Generic `ship:pre` gate
-dispatch"), installed on this one developer machine. The companion upstream feature request
-(open-gsd/gsd-core#3554, closed as filed-without-template; re-filed as #3559) has **not** been
-confirmed merged into any released gsd-core version as of this research — PROJECT.md documents it
-only as "filed," never as "merged." Any other machine, CI runner, or contributor clone running
-stock gsd-core reverts to the old, capId-restricted dispatch with zero warning.
+I simulated the removal against the *registered* global capability
+(`~/.gsd/capabilities/beads/capability.json`), restored afterward:
 
-**How to avoid:**
-1. Before trusting `pr-workflow`'s or `markdown-linting`'s `ship:pre` gate in *any* environment,
-   read `$HOME/.claude/gsd-core/workflows/ship.md` (or the equivalent install path) and confirm
-   the `<!-- gsd-beads-patch:ship-pre-generic-dispatch v1 -->` marker (or its upstream-merged
-   successor) is present. Absence means the gate is decorative.
-2. Do not mark a phase's success criteria met from the manifest declaring `gates[]` alone — mirror
-   `beads`'s own precedent: "ship:pre gates confirmed to actually block/pass via a live
-   `gsd_run check predicate` smoke test against a synthetic" gate-input artifact (e.g. a synthetic
-   `PR-CHECKS.md`/`LINT.md`), not just a manifest lint.
-3. Track the upstream PR/issue status explicitly per new capability that relies on this dispatch;
-   don't assume a prior capability's verification carries forward to a new capId — the dispatch
-   loop is generic *once patched*, but the patch's presence itself is not guaranteed to persist
-   across a `gsd-core` version bump (an upstream release could ship its own `ship.md` and silently
-   drop an unmerged local patch on next `npx @opengsd/gsd-core@latest` refresh).
+```
+=== installed global capability BEFORE ===
+0.3.1 ['beads.enabled', 'beads.sync_mode', 'beads.ship_gate', 'beads.epic_per']
+dropped -> ['beads.enabled', 'beads.ship_gate', 'beads.epic_per']
 
-**Warning signs:** A `ship:pre` gate that always reports "passing" with no visible failure mode
-ever observed in testing; no `⚠ Ship gate blocked` or `⚠ {capId} advisory` line ever printed
-during a deliberately-failing dry run.
+--- A) config-get of the now-undeclared key (existing user keeps their value) ---
+"mirror" exit=0
+--- B) all stderr on that call ---
+(end stderr)                       # ← nothing. Zero warnings.
+--- C) config-set the removed key ---
+Error: Unknown config key: "beads.sync_mode". Valid keys: agent_skills_security.trusted…
+ exit=0
+```
 
-**Phase to address:** dogfood-build phase, as an explicit success criterion for each of the two
-capabilities that declare a `ship:pre` gate (`pr-workflow`, `markdown-linting`) — not deferred to
-the public-extraction phase, since a broken gate ships silently.
+Three separate observed facts:
 
----
+1. **Read path is silent forever.** `gsd_run config-get beads.sync_mode` returns `"mirror"`,
+   exit 0, no stderr — with the key gone from the schema. The stale value sits in
+   `.planning/config.json` indefinitely.
+2. **gsd-core's unknown-key warning is TOP-LEVEL-ONLY and cannot help.** From
+   `~/.claude/gsd-core/bin/config-loader.cjs:727` the check is
+   `Object.keys(parsed).filter(k => !KNOWN_TOP_LEVEL.has(k))` — it never descends into a
+   namespace. Demonstrated: with `{"beads":{"sync_mode":"banana","ghost_key":42},"zzzfakecap":{}}`,
+   the warning names only `zzzfakecap`; `beads.sync_mode: "banana"` and a wholly invented
+   `beads.ghost_key` produce nothing. `config-get beads.ghost_key` returns `42`, exit 0.
+3. **`validate health` has no capability-config rule at all.** `health-diagnostic-rules/config-validation.cjs`
+   covers W003/W004/W008/W016/W012-W015/E005 — `model_profile`, `workflow.*`,
+   `branching_strategy`, `models`. Nothing reads capability schemas. A full scratch project
+   with `sync_mode: "banana"` reports `"warnings"` containing only PROJECT.md-section and
+   phase-naming items.
 
-### Pitfall 2: Consent-hash invalidation silently deactivating a capability after a late fix
+The *only* surface is `config-set`, and its message misleads: the "Valid keys" dump is ~2000
+characters of gsd-core's own keys and **contains no `beads.*` entry whatsoever**. A user reads that
+as "beads config does not exist", not "this one key retired".
 
-**What goes wrong:**
-gsd-core's project-scope capability consent is a content hash over the whole bundle directory.
-Editing *any* file inside an already-consented bundle — including a legitimate late-stage bug fix
-— silently deactivates the capability. `render-hooks` just stops naming it; no error is raised.
-This repo hit it for real: a post-code-review fix invalidated Phase 1's own `beads` install/consent
-11 minutes after the checkpoint closed, and it was caught only because the verifier independently
-re-ran `render-hooks` live instead of trusting green tests.
+**Contrast — narrowing behaves much better.** Keeping the key and shrinking `values` yields
+`Error: Invalid beads.sync_mode 'banana'. Valid values: authoritative, mirror, off` (exit 1) on the
+write path — but a **hand-edited** config still bypasses it entirely (fact 1 applies unchanged).
 
-**Why it happens:**
-Consent is a snapshot hash, not a semantic diff — the loader has no concept of "this edit doesn't
-change behavior," so any bundle mutation post-consent is treated identically to a hostile
-substitution. This is fundamental to the consent model, not a bug to be fixed later.
+**Prevention — belongs to the TRUTH-01 decision task (Phase 17, the Alternatives Considered
+task), and its migration sub-task:**
 
-**How to avoid:**
-For all three new capabilities, and *especially* if they are built in parallel (their own
-milestone goal explicitly allows this — "each dogfooded... then extracted"): re-run
-`capability install --scope project` (or the auto-install re-grant mechanism from Phase 10.1,
-already vendored in `hooks/capability-auto-install.sh` and `hooks/session-start.sh`) after
-**every** edit to a bundle directory, every phase, not just at first install. Treat "did the
-capability actually fire on the next lifecycle point" as the verification step, never "did the
-manifest validate" or "did tests stay green" — tests don't exercise the consent hash.
+- Whichever of (a)/(b)/(c) wins, **`config-set` validation is not a migration path** — it fires
+  only when a user re-writes the key, which by definition they will not do. The migration answer
+  must be a channel the user hits without acting.
+- The cheapest channel that actually fires is `sync.py` itself, which already reads config on
+  every dispatch via `read_beads_config` (`sync.py:641`). One `read_beads_config(root,
+  "sync_mode", "")`-style probe printing a one-line deprecation notice when the value is
+  non-empty and non-`authoritative` costs ~6 lines and reaches the user through the existing
+  `hookSpecificOutput.additionalContext` channel. **Success Criterion 3 ("demonstrated by an
+  actual run against such a config") is not satisfiable without something like this** — with
+  option (c) as currently framed, an actual run produces *no observable output at all*, which is
+  indistinguishable from the notice being broken.
+- Prefer **(a) narrow** over **(c) drop** on this evidence alone: (a) keeps `config-set`
+  validation as a live guard and keeps the key discoverable; (c) converts every existing
+  `.planning/config.json` in the wild into permanently-unwarned dead weight.
 
-**Warning signs:** A capability that worked in an earlier phase silently stops appearing in
-`render-hooks` output after any commit touching its bundle directory; no explicit error, just
-absence.
+### C2. The stale `gsd-local-patches/` backup is a live landmine that will fight this milestone's own v2 trim
 
-**Phase to address:** dogfood-build phase — bake a "re-consent + live render-hooks check" step
-into the end of every plan that touches any of the three new bundle directories, not just the
-final one before ship.
+**Confidence: 92** (verifier run; the reinstatement outcome is inference from the verifier's
+documented gate role).
 
----
+gsd-core 1.11.0 ships a patch-preservation system that **gsd-beads references nowhere**:
 
-### Pitfall 3: Marketplace `source` type mismatch reintroducing SSH-only clone failures
+```
+$ grep -rn "reapply-patches\|gsd-local-patches\|gsd-pristine" /home/dd/projects/gsd-beads …
+(end)                                   # ← zero hits across all .md/.json/.py/.sh
+```
 
-**What goes wrong:**
-`.claude-plugin/marketplace.json` entries using the GitHub-shorthand source
-(`{"source": "github", "repo": "owner/repo"}`) clone over SSH unconditionally, regardless of the
-user's configured git credential helper — this is documented Claude Code behavior (see
-`docs.claude.com/en/plugin-marketplaces` and multiple linked `anthropics/claude-code` issues), not
-a bug specific to this repo. This repo hit it for real: installing `ponytail-everywhere` failed
-with `Permission denied (publickey)` for a user with no SSH key registered to GitHub, HTTPS-only
-via `gh auth`. Fixed (commit `f706179`) by switching both existing plugin entries to
-`{"source": "url", "url": "https://github.com/.../....git"}`.
+Yet it is already active on this machine, holding *this capability's* patches:
 
-**Why it happens:** The `github` source type has an undocumented (from the caller's perspective)
-SSH-clone default baked into Claude Code's plugin installer, independent of the host's actual git
-credential configuration.
+```
+$ cat ~/.claude/gsd-local-patches/backup-meta.json
+{ "backed_up_at": "2026-08-19T21:20:36.288Z",
+  "from_version": "1.10.0",
+  "files": ["gsd-core/workflows/execute-plan.md", "gsd-core/workflows/ship.md"], … }
+```
 
-**How to avoid:** For each of the three new capabilities' eventual `marketplace.json` entries
-(public-extraction phase), use the `url` source type with an explicit `https://` git URL, matching
-the pattern already fixed for `ponytail-everywhere`/`sota-numerics` — do not copy the `github`
-shorthand from any older example or docs snippet. Per current (2026) Claude Code marketplace docs,
-`github`, `url`, and `git-subdir` are all valid source *types* at the schema level (this is not a
-schema-validity issue), but `github` carries the SSH-default gotcha `url` avoids; MEDIUM confidence
-on the exact list of valid source types, since verification relied on community docs
-(`ice-ice-bear.github.io`, `cc-marketplace`) rather than a primary Anthropic page fetch — re-verify
-against `code.claude.com/en/plugin-marketplaces` directly before the public-extraction phase.
-Verify the fix locally exactly as the repo's own commit did: run the install with no SSH key
-present, HTTPS-only `gh auth`, before calling `PUB-02`-equivalent done.
+The backup is **stale relative to today's work**:
 
-**Warning signs:** `Permission denied (publickey)` during `/plugin install` on a machine with no
-SSH key registered to GitHub.
+```
+-- backup ship.md:  gsd-beads-patch:ship-pre-generic-dispatch v1
+-- live   ship.md:  gsd-beads-patch:ship-pre-generic-dispatch v2
+```
 
-**Phase to address:** public-extraction phase (this is a `marketplace.json` concern; the
-dogfooded `.gsd/capabilities/<id>/` subdirectory phase never touches `marketplace.json`).
+Commit `966315a` trimmed the ship.md patch to v2 (dropping the generic GATE loop now native in
+1.11.0 — live `ship.md:107`). The backup still carries v1, **including that gate loop**
+(backup `ship.md:219`: `If activeHooks has no qualifying kind == "gate" entry…`).
 
----
+gsd-core's deterministic gate already fails against the current tree:
 
-### Pitfall 4: External-tool dependency (`gh`, `markdownlint-cli2`) blocking the lifecycle instead of degrading
+```
+$ node ~/.claude/gsd-core/bin/verify-reapply-patches.cjs \
+    --patches-dir ~/.claude/gsd-local-patches --config-dir ~/.claude
+# Hunk Verification Gate (#2969)
+Checked: 2 file(s)
+Failures: 2
+- gsd-core/workflows/execute-plan.md   reason: fail_user_lines_missing  (…60+ lines…)
+- gsd-core/workflows/ship.md           reason: fail_user_lines_missing
+EXIT=1
+```
 
-**What goes wrong:**
-Unlike `bd` — already a hard dependency with an established, tested B6 fail-open pattern
-("absent, failing or locked degrades to a no-op with one visible notice") — `gh` (for
-`pr-workflow`) and `markdownlint-cli2`/Node+npm (for `markdown-linting`) are *new* external-tool
-dependencies. A naive port of `beads`'s `steps[]`/`gates[]` shape without also porting its
-`onError: skip` + existence-check discipline will hang or hard-fail the lifecycle on a machine
-missing `gh` or Node, rather than degrading.
+No `~/.claude/gsd-pristine/` exists, so the verifier is in its documented over-broad fallback
+("treating every significant backup line as required"). Most of the 60+ "missing" lines are
+1.10.0 upstream text that legitimately changed in 1.11.0 — **false positives that bury the two
+real signals**. On the next `/gsd-update --reapply`, Step 5's gate either halts the update or
+demands a human triage of 60+ noisy hunks, and the v1 gate loop is a live candidate for
+reinstatement alongside 1.11.0's native one — undoing `966315a` silently.
 
-**Why it happens:** It's tempting to assume "the gate predicate machinery already fails safe" —
-but the machinery's fail-safety is opt-in per gate (`onError: skip` vs `halt`), and the *step*
-side (`plan:pre`/`ship:post` invoking a script that shells out to `gh`/`markdownlint-cli2`) has no
-generic fail-open wrapper at all; a script that assumes the binary exists and doesn't check first
-just crashes non-zero, and depending on how the step's `onError` is set, that can propagate.
+**Prevention — add a task to Phase 17 (not currently in the roadmap's five criteria):**
 
-**How to avoid:**
-1. Reuse the `command-exists` predicate kind (already used by `review-lane-descriptor.cjs` for
-   `gemini`/`claude`/`codex`/`coderabbit`/`opencode`/`qwen` — confirmed live-read in
-   `capability-registry.cjs`) as a **gate precondition**, not just inside the wrapped script: gate
-   on `command-exists: gh` / `command-exists: markdownlint-cli2` before ever invoking the real
-   check, mirroring `sota-numerics`'s own `check-alternatives.py` gate script pattern (`test -f
-   "$SOTA_SCRIPT" || { echo ...; exit 1; }` combined with `onError: halt` deliberately reserved
-   for the check-command-itself-failing case, never the substantive block decision).
-2. Every step/gate that shells out to `gh` or `markdownlint-cli2` declares `onError: "skip"` (the
-   only value `beads`'s own step entries use), and the wrapped script itself checks `command -v gh`
-   / `command -v markdownlint-cli2` first and exits with a distinguishable "tool absent" message
-   rather than a bare non-zero from the tool-not-found shell error.
-3. Print exactly one visible notice per missing tool per invocation, matching B6's shape — not a
-   silent no-op (undetectable) and not a repeated warning per lifecycle point (noisy).
-4. `gh` additionally needs an *auth* check, not just an existence check (`gh auth status`, as
-   `ship.md`'s own step 5 preflight already does) — `pr-workflow`'s gate must fail-open on
-   "installed but unauthenticated" too, not just "not installed."
+- Refresh `~/.claude/gsd-local-patches/` after the patch work lands (re-run the backup, or delete
+  the stale one so the next update re-snapshots from the correct v2 baseline). One line in
+  `GSD-CORE-PATCH.md`'s reapply procedure naming `gsd-local-patches/` closes the doc gap
+  permanently and costs nothing.
+- `GSD-CORE-PATCH.md` should state that gsd-core has a first-class reapply path and that this
+  capability's markers are what makes it auditable. Right now the doc reads as if manual
+  reapplication is the only mechanism.
 
-**Warning signs:** A phase's `ship:pre` or `plan:pre` hangs or errors opaquely on a machine without
-Node/npm or `gh` installed, rather than printing one notice and continuing.
+### C3. This repo dogfoods a **stale copy** of `sync.py` whenever `capability.json`'s version is not bumped — and CI cannot see it
 
-**Phase to address:** dogfood-build phase for each capability individually — this is exactly the
-kind of thing that "works on the author's machine" (which has `gh`/Node installed) and only
-surfaces on a clean machine, so the public-extraction phase's "fresh clone" verification step
-(the same one that caught `PUB-09`'s clean-clone validation) is the right place to *catch* a
-regression, but the *design* must be built in from the dogfood phase, not patched in afterward.
+**Confidence: 96** (directly demonstrated, reverted cleanly).
 
----
+`hooks/lifecycle-dispatch.sh:102-105` resolves the script **project-scope first**:
 
-### Pitfall 5: Unquoted or unvalidated shell invocation in new hook scripts
+```
+"$PROJECT_DIR/.gsd/capabilities/beads/scripts/sync.py"        ← preferred
+"${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py"
+"${CLAUDE_PLUGIN_ROOT:-…}/.gsd/capabilities/beads/scripts/sync.py"
+```
 
-**What goes wrong:**
-The `hooks/capability-auto-install.sh` script shipped with a real bug (CR-01, found by code
-review): an unquoted `node` invocation broke on paths containing spaces, and — critically — the
-failure mode was not a loud crash but a **silent fail-open to `enabled: true`**, the opposite of
-the intended fail-safe direction for a hook that grants capability consent.
+`.gsd/` is gitignored (`.gitignore:39-41`) and is a copy of
+`plugins/beads-lifecycle/.gsd/capabilities/beads/`. CI runs the tests in the **plugin** tree only
+(`ci.yml`, `working-directory: plugins/beads-lifecycle/.gsd/capabilities/beads`).
 
-**Why it happens:** Shell scripts that build a command line via unquoted variable interpolation
-break silently (word-splitting) rather than erroring, and if the script's error handling defaults
-"couldn't determine state" to the permissive branch, an environment bug becomes a silent
-over-grant.
+I appended a marker line to the plugin-tree `sync.py` **without bumping any version** and ran
+the update path:
 
-**How to avoid:** For each of the three new capabilities' hook/gate scripts:
-1. Quote every path-bearing shell variable (`"$VAR"`, never bare `$VAR`), matching the fix already
-   applied to `capability-auto-install.sh`.
-2. Explicitly test the failure direction: a script bug or missing dependency must fail toward the
-   *safe* state (capability inactive / gate not enforced / notice printed), never toward "silently
-   grant" or "silently pass." Write this as an explicit assertion in the one-file regression test
-   (ponytail discipline: non-trivial branch logic needs one runnable check) — run each new hook
-   script against a path containing a space as a first-class test case, not an afterthought.
-3. Reuse `tests/test-capability-auto-install.sh` as the structural template for the new scripts'
-   own regression tests rather than writing test scaffolding from scratch.
+```
+== marking the SOURCE tree (no version bump) ==
+fed9ab66…  plugins/beads-lifecycle/.gsd/…/sync.py     ← changed
+77f0b40f…  .gsd/…/sync.py                              ← unchanged
 
-**Warning signs:** A hook script that has never been exercised against a path containing a space,
-a non-ASCII character, or a symlink; any script whose error path is untested.
+$ gsd_run capability update beads
+{ "status": "upgraded", "id": "beads", "fromVersion": "0.3.1", "toVersion": "0.3.1", …
 
-**Phase to address:** dogfood-build phase, per capability, at script-authoring time — code review
-(the mechanism that caught CR-01 originally) must explicitly check quoting and fail-direction for
-every new hook/gate script, not rely on happy-path execution alone.
+== after ==
+fed9ab66…  plugins/…/sync.py
+77f0b40f…  .gsd/…/sync.py
+DST does NOT have the marker -> project copy is STALE
+```
+
+**`capability update` reported `"status": "upgraded"` and copied nothing.** `0.3.1 → 0.3.1` is a
+no-op the tool reports as success. `.gsd-capabilities.json` pins `"version": "0.3.1"` with
+`"integrity": ""`, so there is no content hash to fall back on.
+
+This is exactly the "tests pass, reality broken" shape that produced the v1.3.0 incident: during
+Phase 17 the developer edits `sync.py`, CI goes green on the plugin tree, and every `plan:pre`
+hook firing **in this very repo** keeps executing the pre-change code — including the old
+two-clone patch checkers TRUTH-02 is collapsing.
+
+**Prevention — a precondition on every Phase 17 task that edits `sync.py`:**
+
+- Bump `capability.json` `version` **in the first commit that touches `sync.py`**, not at ship
+  time. `0.3.1 → 0.4.0` immediately, then re-run `gsd_run capability update beads`.
+- Add a mechanical check to the verify task: `diff -q .gsd/capabilities/beads/scripts/sync.py
+  plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py` must be silent before any
+  behavioral claim about hook dispatch is accepted. (Both trees are identical *today* —
+  `diff -rq` → `IDENTICAL` — so this is a guard, not a repair.)
 
 ---
 
-### Pitfall 6: `get-available-resources` behaving differently non-interactively inside a lifecycle hook than as an interactive Claude skill
+## Moderate Pitfalls
 
-**What goes wrong:**
-The source `get-available-resources` Claude *skill* is designed for interactive agent invocation —
-an agent runs the detection script, reads its own stdout/stderr, and can retry or ask the user if
-something looks wrong. As a gsd-core capability contribution at `plan:pre`/`execute:wave:pre`
-("advisory-only fragment... no gate" per PROJECT.md's Current Milestone section), the same script
-now runs unattended inside a lifecycle hook with no human or agent watching its live output for
-plausibility — several things that degrade gracefully or get silently retried in the interactive
-case become **wrong data baked into `.claude_resources.json` and then trusted downstream**:
-- `nvidia-smi` absent or erroring (no GPU, driver mismatch, or — specific to CI/sandboxed
-  runners — GPU present on the host but not passed through to the container) produces an empty or
-  error string that a naive parser could coerce into "0 GPUs" or crash on, rather than "GPU status
-  unknown."
-- Restricted `/proc` access in a sandboxed/containerized runner (common in CI) makes
-  `/proc/cpuinfo`/`/proc/meminfo`-based core/memory counts silently wrong (e.g. reporting the host's
-  full core count when only a cgroup-limited slice is actually available) — a resource strategy
-  recommendation ("use joblib with N workers") derived from a wrong core count then gets baked into
-  advisory fragments consumed uncritically by the planner/executor.
-- No interactive human to notice "huh, that GPU count looks wrong" — the fragment is consumed by
-  an LLM agent that has no independent way to sanity-check hardware claims and will treat the JSON
-  as ground truth.
+### M1. `PostToolUse` no longer fires on failed tool calls — `PostToolUseFailure` split off
 
-**Why it happens:** Interactivity was implicitly part of the original skill's error-handling
-contract (a human or agent in the loop provides the sanity check); porting it into a fire-and-forget
-lifecycle hook removes that check without replacing it with anything.
+**Confidence: 78** (live docs at https://code.claude.com/docs/en/hooks, fetched 2026-08-19; the
+per-event schema section was truncated in the fetch, so the `PostToolUse`-specific
+`hookSpecificOutput` contract is `UNVERIFIED` from that page).
 
-**How to avoid:**
-1. Every hardware probe (`nvidia-smi`, `/proc/cpuinfo`, `/proc/meminfo`, disk free) must
-   distinguish "0" (verified absent) from "unknown" (probe failed/restricted) in the JSON schema —
-   never coerce a probe failure into a numeric zero.
-2. The advisory fragment text must explicitly hedge on "unknown" fields ("GPU count could not be
-   determined — do not assume none is available") rather than presenting a best-effort number as
-   fact.
-3. Test the script inside an actual restricted/sandboxed environment (a container with `--cpus`
-   limits and no GPU passthrough is a reasonable stand-in for the real CI conditions) as part of
-   the dogfood-build phase, not just on the author's bare-metal dev machine — this mirrors Pitfall
-   4's "works on author's machine" trap, but for hardware detection specifically.
-4. Since this contribution point is advisory-only with `onError: skip` expected (matching
-   `sota-numerics`'s and `beads`'s contribution pattern), confirm a probe *script* failure (not
-   just a missing binary) degrades to "no fragment injected" rather than an empty/wrong
-   `.claude_resources.json` silently informing the planner.
+The current event table reads `PostToolUse | After tool call succeeds`, with a sibling
+`PostToolUseFailure | After tool call fails`. Consequence for gh-2: if
+`gsd_run loop render-hooks plan:pre --raw` exits non-zero, the dispatch hook does not fire and
+`check_shipmd_patch` / `check_execute_plan_patch` never run. That is arguably correct
+(fail-open), but it is a *new* narrowing of the trigger the whole gh-2 design rests on, and it is
+undocumented in this repo.
 
-**Warning signs:** A resource-strategy recommendation in a plan or execute step that references a
-GPU or core count that doesn't match the actual host, with no accompanying "resources could not be
-fully determined" caveat.
+Everything else the fix depends on is confirmed current:
 
-**Phase to address:** dogfood-build phase — this capability has no `ship:pre` gate to catch it
-later (per its own scope, "advisory-only... no gate"), so correctness must be verified at
-build time via direct testing in a restricted environment; there is no downstream enforcement
-mechanism that would surface a bad resource report at ship time.
+- `matcher` is still the field name; `"Bash"` is pure `[A-Za-z]` so it takes the **exact-string**
+  branch, not the new unanchored-regex branch. Safe as written.
+- `hookSpecificOutput.additionalContext` is still live and model-visible; **no deprecation notice
+  found**.
+- The **10,000-character cap is confirmed** ("Hook output strings, including `additionalContext`
+  … capped at 10,000 characters. Output that exceeds this limit is saved to a file and replaced
+  with a preview and file path"). `lifecycle-dispatch.sh`'s `LIMIT = 9000` and its comment are
+  accurate. No change needed.
+
+**Prevention:** one sentence in `hooks/lifecycle-dispatch.sh`'s header noting the success-only
+firing. No code change. Attach to the TRUTH-02 task's doc pass (it already touches this area) or
+skip — this is documentation debt, not a defect.
+
+### M2. `timeout: 120` is a *reduction* from the default, and the changelog implies the opposite
+
+**Confidence: 88** for the semantics; **60** for the truncated-write consequence (`UNVERIFIED`).
+
+Live docs: `timeout` is **seconds**; command-hook default is **600**, and `PostToolUse` is not in
+the list of events that lower it. `hooks.json` sets `120`.
+
+CHANGELOG 0.3.1 lists this under **Performance**: "set an explicit 120 s hook timeout." That
+reads as *added protection*. It is the opposite — it removes 480 s of headroom that was already
+there by default. Nothing is broken today, but the changelog line is exactly the kind of
+"documentation claiming an effect the code does not have" that TRUTH-01's doc sweep exists to
+purge, and it sits two lines from the entries the sweep is already correcting.
+
+The consequence worth flagging: on expiry, "Claude Code discards the hook's output, and the hook
+renders no decision" — the process is cancelled. `create_issues` writes PLAN.md with a plain
+non-atomic `plan_path.write_text(new_text, encoding="utf-8")` (`sync.py:1388`). A cancellation
+landing inside that call truncates PLAN.md. Reaching 120 s requires ~8 consecutive `BD_TIMEOUT`
+(15 s) stalls, so this is remote — but the blast radius is *the same file the v1.3.0 incident
+destroyed*, and `allow_strip=False` does not protect against it (that flag prevents *stripping*,
+not the write).
+
+**Prevention — two independent, both cheap:**
+
+- Correct the CHANGELOG line during the TRUTH-01 doc sweep task: state it as a deliberate
+  tightening from the 600 s default, with the reason.
+- If the plan touches `create_issues` at all: write to `plan_path.with_suffix('.tmp')` then
+  `os.replace()`. Two lines, makes truncation structurally impossible. **Do not add this as a
+  standalone task** — it is out of TRUTH-01/TRUTH-02 scope; file it as a bd ticket unless the
+  merge task already opens that function.
+
+### M3. Merging the two checkers: the tests constrain **five exact strings**, not the structure
+
+**Confidence: 97** (read directly from `tests/test_sync.py`).
+
+Criterion 5 requires `TestCheckShipmdPatch` / `TestCheckExecutePlanPatch` **unedited**. Read
+literally, the merge must preserve these assertions (`tests/test_sync.py:2937-3072`):
+
+| Case | Assertion | What it pins |
+|------|-----------|--------------|
+| marker found (both) | `assertIn("present", …)`, exit `0` | substring `present` in the success line |
+| marker absent — ship | `assertIn("GSD-CORE-PATCH.md", …)` **and** `assertIn("ship_override", …)`, exit `1` | ship's message must name `ship_override` |
+| marker absent — exec | `assertIn("GSD-CORE-PATCH.md", …)` **and** `assertIn("gsd-executor", …)`, exit `1` | exec's message must name `gsd-executor` |
+| file absent (both) | `assertIn(str(missing_path), …)`, exit `1` | the probed path is interpolated |
+| non-UTF-8 (both) | `assertIn("could not be read", …)`, exit `1` | shared substring |
+| exec only | `test_never_writes_to_target_file` | read-only discipline |
+| exec only | `sync.main(["check-execute-plan-patch", "--execute-plan-path", …])` → exit `0` | **CLI flag name is pinned by test** |
+
+**The real hazards, in order:**
+
+1. **`--ship-md-path` has no CLI test; `--execute-plan-path` does.** Only
+   `test_cli_routes_through_main_and_returns_function_exit_code` exercises a flag, and only the
+   execute-plan one. A table-driven merge that unifies the CLI into a single
+   `check-patch <target>` verb would keep 164/164 green **while silently breaking
+   `--ship-md-path`** — which `beads-status/SKILL.md` Step 2d depends on. **Keep both
+   subcommands and both flag spellings.** If the merge unifies the CLI, that is an interface
+   break on a published plugin and needs its own changelog entry plus a preserved alias.
+2. **Four divergent message strings users may grep.** `ship_override` / `gsd-executor` are
+   asserted, so they survive by test. But the *unasserted* halves are the ones that vanish
+   quietly under a shared template: ship's `"the ship_override step will not fire. The two
+   ship:pre GATES are unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR
+   #3608)"` and its `"(v2)"` version suffix; exec's `"gsd-executor will not read task content
+   from bd"` and `"(v1)"`. **The version suffix is the one to watch** — the two markers are at
+   *different* versions (ship v2, execute-plan v1), so the table needs a per-entry version field,
+   not a shared constant.
+3. **No test asserts the marker *version*.** Both suites reference `sync.SHIP_MD_PATCH_MARKER` /
+   `sync.EXECUTE_PLAN_PATCH_MARKER` symbolically, so a wrong version string passes 164/164 while
+   `check_shipmd_patch` reports "missing" against every real install forever. `966315a` changed
+   this constant with no test able to catch a typo. The merge is the moment to add one literal
+   assertion per entry.
+4. **Both are called back-to-back at `sync.py:737-738`** inside `lifecycle_dispatch`'s
+   `try/except Exception` — an exception in a merged reader now takes out `beads_recall` too
+   (same `try` block), degrading the whole `plan:pre` to one notice line. Keep the merged reader
+   total (it already catches `OSError`/`UnicodeDecodeError`); do not introduce a `KeyError` path
+   on an unknown table key.
+
+**Prevention — the TRUTH-02 task:** parameterize on `(filename, marker, version, missing_reason)`
+where `missing_reason` is the per-target clause (`"the ship_override step will not fire…"` /
+`"gsd-executor will not read task content from bd"`). Keep the two CLI subcommands and their two
+flag names as thin wrappers. Add two literal-marker assertions. Do **not** unify the CLI.
+
+### M4. `check_shipmd_patch` at `plan:pre` fires early enough — but only if you plan a phase
+
+**Confidence: 90** (call sites read directly; the "silently stripped" premise is confirmed by the
+backup-meta.json above).
+
+The trigger is real and reached three times in a manual run —
+`workflows/plan-phase.md:348, 411, 441`, all `gsd_run loop render-hooks plan:pre --raw`, the
+first at "Spawn gsd-phase-researcher" (before any planning work). So *within* a `/gsd:plan-phase`
+run, detection is early enough to matter.
+
+The gap is **between** plan runs:
+
+- The ship.md patch protects `ship:pre`. Its detector runs at `plan:pre`. A patch lost right
+  after planning is undetected through the entire execute→verify→ship cycle — `ship_override`
+  silently does not fire, and the ship gate records nothing. Discovery is at the **next phase's
+  planning**, i.e. one full phase later. On this repo's cadence that is days.
+- The execute-plan.md patch fails *safe*: `create_issues` re-checks it live at `sync.py:1380`
+  (`if check_execute_plan_patch() == 0:`) and leaves task content in PLAN.md when absent. Good
+  design — preserve it verbatim through the TRUTH-02 merge; it is the last line of defense
+  against the v1.3.0 failure mode.
+- Neither detector fires at `ship:pre` independently: `beads-status/SKILL.md` Step 2d is
+  reachable only *through* the patch it checks (documented in `check_shipmd_patch`'s own
+  docstring).
+
+**Prevention — no new task needed, but a verify-task assertion:** confirm after the merge that
+`lifecycle_dispatch`'s `plan:pre` arm still calls both checks and that `create_issues`'s live
+re-check at `:1380` still routes through the merged reader with unchanged `== 0` semantics.
 
 ---
 
-## Technical Debt Patterns
+## Release Hygiene — what this milestone's ship step must check that the last one did not
 
-| Shortcut | Immediate Benefit | Long-term Cost | When Acceptable |
-|----------|-------------------|----------------|------------------|
-| Skipping the "live smoke test against a synthetic gate-input artifact" for a new `ship:pre` gate, trusting the manifest alone | Faster phase close | Repeats Pitfall 1 exactly — a gate that silently never fires, discovered only much later (as `beads`'s did, during Phase 3 planning, not execution) | Never — this repo already paid the cost once per capability; do not re-pay it |
-| Copying `github`-shorthand `marketplace.json` entries from an older internal example instead of `url` | Slightly shorter JSON | Reintroduces the SSH-clone failure this repo already fixed once (commit `f706179`) | Never |
-| Coercing a hardware-probe failure to `0` instead of `null`/`"unknown"` in `get-available-resources` | Simpler JSON schema, fewer null-checks downstream | Downstream planner/executor treats a probe failure as "verified absent," may recommend wrong resource strategy silently | Never — always distinguish absent from unknown |
-| Wrapping `gh`/`markdownlint-cli2` calls without a `command-exists` precondition, relying only on the tool's own non-zero exit | Less code up front | Non-zero exit from "command not found" (127) is indistinguishable from a real check failure (e.g. actual failing PR checks or actual lint violations) unless explicitly probed first | Never — probe first, always |
+**Confidence: 94** (all observed via `git` / `gh`).
 
-## Integration Gotchas
+### R1. `main` is *already* ahead of `v1.3.1` with unversioned, unchangelogged shipped code
 
-| Integration | Common Mistake | Correct Approach |
-|-------------|-----------------|-------------------|
-| `gh` (pr-workflow) | Assuming presence implies auth; gating only on `command -v gh` | Gate on both `command-exists: gh` AND `gh auth status` succeeding (mirrors `ship.md` step 5's existing preflight), fail-open with one notice on either failure |
-| `markdownlint-cli2` (markdown-linting) | Assuming it's globally installed; invoking bare `markdownlint-cli2` without checking `npx`/local install path | Probe with `command-exists`, support both a global binary and an `npx markdownlint-cli2` fallback, fail-open with one notice if neither resolves |
-| `ship:pre` gate registration (all three) | Trusting the gate fires because `gates[]` is declared in `capability.json` | Verify against the *installed, possibly-patched* `ship.md` directly — the generic dispatch loop is a local patch, not (yet, per this research) a confirmed-merged upstream feature |
-| `marketplace.json` git source (public-extraction) | Using `github` shorthand for a new repo entry | Use `url` source type with explicit `https://` URL, per commit `f706179`'s established fix |
-| gsd-core capability consent (all three, during parallel build) | Editing a bundle file after consent, assuming the capability stays active | Re-run `capability install --scope project` (or trigger the Phase 10.1 auto-install re-grant) after every bundle edit, every phase |
+```
+$ git log --oneline v1.3.1..HEAD
+966315a fix(beads): trim ship.md patch to v2, correct the upstream citation
+…
+$ git diff --stat v1.3.1..HEAD -- plugins .claude-plugin README.md
+ README.md                                      |   6 +-
+ …/beads/GSD-CORE-PATCH.md                      | 137 +++++--------
+ …/beads/scripts/sync.py                        |  20 ++-
+ …/beads/skills/beads-status/SKILL.md           |  15 ++-
 
-## Performance Traps
+$ grep -n "v2\|1\.11\.0\|3608\|3559" CHANGELOG.md
+NONE — the v2 trim is unchangelogged
 
-Not applicable at this scope — these are lifecycle-integration capabilities (hook/gate scripts
-invoked at most a handful of times per phase), not services with a growth curve. No performance
-trap identified beyond correctness/fail-open behavior already covered above.
+versions at HEAD:  plugin.json 1.3.1   capability.json 0.3.1   (unchanged from the v1.3.1 tag)
+```
 
-## Security Mistakes
+`966315a` changed a **behavioral constant** — `SHIP_MD_PATCH_MARKER` v1→v2, which flips
+`check_shipmd_patch`'s verdict on every machine still carrying v1 — with no version bump and no
+changelog entry. Marketplace install resolves `"source": "./plugins/beads-lifecycle"` from the
+repo, so consumers tracking the default branch already have this while `plugin.json` tells them
+they have 1.3.1.
 
-| Mistake | Risk | Prevention |
-|---------|------|------------|
-| Building `gh pr create`/`gh api` command strings from plan/ticket text rather than typed values | Command/argument injection if a plan or PR title ever contains adversarial content — this repo's existing `beads` capability explicitly forbids this exact pattern (N4: "never assembled from artifact text, because the artifact's author and the workflow's runner are frequently different principals") | Apply N4 identically to `pr-workflow`: `gh` invocations built from typed/validated fields only, never raw plan/PLAN.md/PR-description text interpolated into a shell command |
-| Interpolating a git ref/branch name (e.g. from `github.ref_name` equivalent, or a user-supplied PR title) directly into a shell `run:` step, mirroring the `release.yml` tag-injection bug this repo already fixed (`08-REVIEW.md` WR-02, commit `b4a7903`) | Classic script-injection via an attacker-controlled ref/branch/title string | Route any such value through `env:` indirection (GitHub Actions) or explicit shell quoting/allowlist validation (local scripts), never direct `${{ }}`/`$VAR` interpolation into a `run:` command string |
-| `get-available-resources`' JSON output consumed uncritically as ground truth by the planner (per Pitfall 6) | Not a classic security issue, but a trust-boundary issue: an LLM agent making resource-allocation decisions from unverified hardware claims | Hedge/mark "unknown" fields explicitly; do not let a probe failure masquerade as a verified low-resource state that could, e.g., wrongly justify skipping a safety check "because resources are constrained" |
+**Ship step must check:** `git diff --quiet <last-tag>..HEAD -- plugins .claude-plugin README.md`
+→ if non-empty, both `plugin.json` and `capability.json` versions differ from the last tag, and
+CHANGELOG has a section for the new capability version. This is mechanical; make it a shell
+command in the ship task, not a prose reminder.
 
-## UX Pitfalls
+### R2. The withdrawn `v1.3.0` tag still resolves — and deleting the GitHub Release did not withdraw the code
 
-| Pitfall | User Impact | Better Approach |
-|---------|-------------|-------------------|
-| Silent no-op when `gh`/`markdownlint-cli2` is absent (no notice at all) | User has no idea the PR-check gate or lint report simply never ran; false confidence | Print exactly one visible notice per missing tool per invocation, matching the already-established B6 pattern |
-| Repeated identical "tool missing" notice at every lifecycle point in a phase | Notice fatigue, user starts ignoring warnings generally | One notice per *tool* per *phase run*, not per hook invocation — dedupe within a session |
-| A `ship:pre` gate that appears in `capability.json` but never actually fires (Pitfall 1) with no indication to the user | User believes PR checks or lint status are gating ship, when they are not | Explicit, visible confirmation the gate fired (pass or block message), never silent pass-through |
+```
+$ git merge-base --is-ancestor v1.3.0 HEAD && echo "YES ancestor"
+YES ancestor
+$ gh release list
+v1.3.1   Latest   2026-08-19T20:39:47Z
+v1.2.0            2026-08-16T21:57:40Z
+v1.1.1            2026-08-16T21:07:36Z      # ← no v1.3.0 release
+```
 
-## "Looks Done But Isn't" Checklist
+The GitHub *Release* is gone; the **tag remains and is reachable**. Anything resolving
+`v1.3.0` — a pin, a `git checkout`, a mirror — gets the data-loss build. Meanwhile marketplace
+users install from the *branch*, not the release, so deleting the release withdrew nothing that
+mattered; the actual remedy was the v1.3.1 branch commit.
 
-- [ ] **`pr-workflow`'s `ship:pre` gate:** Manifest declares `gates[]` — verify it actually appears
-  in `gsd_run loop render-hooks ship:pre --raw`'s `activeHooks`, AND that the installed `ship.md`
-  carries the generic-dispatch patch (or upstream-merged equivalent) that would process it.
-- [ ] **`markdown-linting`'s `ship:pre` gate:** Same as above — a second capId hitting the same
-  dispatch path is not automatically covered just because `beads`'s and `sota-numerics`'s gates
-  were previously verified; verify per-capId, since the dispatch loop is generic but each gate's
-  own predicate/artifact wiring is not.
-- [ ] **Fail-open behavior for `gh`/`markdownlint-cli2`:** Don't just check "does it work when the
-  tool is installed" — explicitly uninstall/rename the binary and re-run the lifecycle point,
-  confirming exactly one notice and no hang/crash.
-- [ ] **`get-available-resources`' non-interactive correctness:** Don't just check "does the script
-  run and produce JSON" — check that a probe *failure* (not just probe success) produces an
-  explicit "unknown," not a coerced zero or crash.
-- [ ] **`marketplace.json` entries (public-extraction phase):** Don't just check "does
-  `claude plugin validate --strict` pass" — actually install from a machine with no SSH key
-  registered, HTTPS-only auth, matching the repo's own established verification standard for the
-  two existing extracted plugins.
-- [ ] **Consent-hash currency:** After the *last* edit to each bundle directory before a phase is
-  marked complete, re-run `capability install --scope project` (or confirm auto-install re-grant
-  fired) and independently re-run `render-hooks` — do not trust that an earlier consent grant in
-  the same phase is still valid.
+**Ship step must check:** either delete the `v1.3.0` tag from `origin` (and say so in
+CHANGELOG), or add an explicit CHANGELOG line stating that `v1.3.0` is withdrawn, must not be
+used, and why. Silence plus a live tag is the worst of both. Also note `release.yml` fires on
+**any** `v*.*.*` tag push — a retag is a re-release, so the tag cannot simply be moved.
 
-## Recovery Strategies
+### R3. Green CI is necessary and was not sufficient — but this time it is not even necessary yet
 
-| Pitfall | Recovery Cost | Recovery Steps |
-|---------|-----------------|-------------------|
-| Gate silently not firing (Pitfall 1) discovered after phase claimed complete | MEDIUM | Re-verify installed `ship.md` for the patch marker; if absent, either re-apply the machine-local patch (as done for Phase 3) or block on upstream #3559 merging; re-run the smoke test before re-closing the phase |
-| Capability silently deactivated post-consent (Pitfall 2) | LOW | Re-run `capability install --scope project`; re-run `render-hooks` to confirm the capId reappears; no data loss, just a missed lifecycle point that must be manually caught up if it already happened |
-| SSH-clone failure on `marketplace.json` install (Pitfall 3) | LOW | Switch the entry's `source` to `url` type, exactly as commit `f706179` did; no data migration needed |
-| External tool absent breaking (not degrading) the lifecycle (Pitfall 4) | LOW–MEDIUM | Add the missing `command-exists` precondition and `onError: skip`; retroactively confirmed safe the same way `beads`'s B6 pattern was |
-| Unquoted shell variable breaking on a space-containing path (Pitfall 5) | LOW | Quote the variable, add the regression test case, matching the `capability-auto-install.sh` CR-01 fix exactly |
-| Wrong resource data baked into a fragment already consumed by a planner/executor (Pitfall 6) | MEDIUM | No automated recovery — requires manually identifying which plans/decisions consumed the bad fragment and flagging them for re-review; expensive precisely because there's no gate to catch it after the fact, reinforcing why build-time correctness is the only real defense |
+The roadmap already carries "No release tag is cut until CI is green on the exact commit being
+tagged." Two additions this incident argues for:
 
-## Pitfall-to-Phase Mapping
+- **CI green on the plugin tree does not mean the running code is the tested code** (see C3).
+  The ship task should assert the two trees are identical *and* the version was bumped.
+- **164 tests, OK is the pre-change baseline** — assert the post-change count is
+  `>= 164`, not `== 164`. The TRUTH-02 merge should *add* the two literal-marker assertions from
+  M3.3; a task that leaves the count at exactly 164 has added no coverage for the thing it
+  changed.
 
-| Pitfall | Prevention Phase | Verification |
-|---------|-------------------|----------------|
-| 1. Unpatched `ship:pre` dispatch | dogfood-build (per capability with a gate) | Live `gsd_run check predicate` smoke test against a synthetic gate-input artifact + confirmation of the installed `ship.md` patch marker |
-| 2. Consent-hash invalidation | dogfood-build (every phase touching a bundle dir) | `render-hooks` re-run after every bundle edit, capId presence confirmed in output |
-| 3. `marketplace.json` SSH-clone gotcha | public-extraction | Real `/plugin install` from a machine/session with no SSH key, HTTPS-only `gh auth` |
-| 4. External-tool fail-open (`gh`, `markdownlint-cli2`) | dogfood-build (design), public-extraction (fresh-clone catch) | Deliberately remove/rename the binary, re-run the lifecycle point, confirm one notice + no hang |
-| 5. Unquoted shell invocation in new hook scripts | dogfood-build (script authoring + code review) | Regression test against a path containing a space, per script, matching `test-capability-auto-install.sh`'s structure |
-| 6. `get-available-resources` non-interactive correctness | dogfood-build (no later gate exists to catch this) | Run inside a restricted/sandboxed container (cgroup CPU limit, no GPU passthrough), confirm "unknown" fields are hedged, not coerced |
+---
+
+## Phase-Task Mapping
+
+| Pitfall | Confidence | Phase 17 task that owns it | Prevention in one line |
+|---------|-----------|---------------------------|------------------------|
+| C1 silent config removal | 95 | TRUTH-01 decision + migration | Emit a deprecation line from `sync.py`'s existing config read; prefer (a) narrow over (c) drop |
+| C2 stale `gsd-local-patches/` | 92 | **new task** (not in the 5 criteria) | Refresh/clear the backup after the v2 trim; name the mechanism in `GSD-CORE-PATCH.md` |
+| C3 stale project-scope copy | 96 | precondition on every `sync.py` task | Bump `capability.json` version in the *first* such commit; `diff -q` the two trees in verify |
+| M1 PostToolUse success-only | 78 | doc pass (optional) | One header sentence in `lifecycle-dispatch.sh` |
+| M2 `timeout: 120` mischaracterized | 88 / 60 | TRUTH-01 doc sweep | Correct the CHANGELOG line; atomic PLAN.md write only if that function is already open |
+| M3 merge breaks unasserted strings / CLI | 97 | TRUTH-02 | Per-entry `version` + `missing_reason`; keep both subcommands and both flags; add literal-marker assertions |
+| M4 detector cadence | 90 | TRUTH-02 verify | Preserve `create_issues`'s live `check_… == 0` gate verbatim |
+| R1 unversioned shipped code on main | 94 | ship task | Mechanical `git diff --quiet <tag>..HEAD -- plugins` + version + CHANGELOG check |
+| R2 live withdrawn tag | 94 | ship task | Delete `v1.3.0` from origin or document the withdrawal |
+| R3 CI sufficiency | 90 | ship task | Assert tree identity, version bump, and test count `>= 164` |
+
+---
 
 ## Sources
 
-- `/home/dd/projects/gsd-beads/.planning/PROJECT.md` — Key Decisions table (primary source for
-  Pitfalls 1, 2, 3, 5; HIGH confidence, first-party documented incident history)
-- `/home/dd/projects/gsd-beads/.gsd/capabilities/beads/capability.json` (live-read) — gate/step
-  shape, `onError: skip` convention, `ship_gate` predicate pattern
-- `/home/dd/projects/gsd-beads/.gsd/capabilities/sota-numerics/capability.json` (live-read) —
-  `onError: halt` vs `skip` distinction, `command-exit-zero` gate script existence-check pattern
-- `$HOME/.claude/gsd-core/workflows/ship.md` (live-read, lines 94-240) — confirms the generic
-  `ship:pre` dispatch patch is present and how it processes non-security/broken-windows gates;
-  HIGH confidence, primary source, but the patch's upstream-merge status is unverified beyond
-  PROJECT.md's own "filed" (not "merged") language
-- `$HOME/.claude/gsd-core/bin/lib/capability-registry.cjs`,
-  `$HOME/.claude/gsd-core/bin/lib/review-lane-descriptor.cjs` (live-read/grep) — confirms
-  `command-exists` predicate kind is an established, reusable mechanism for external-tool
-  detection
-- git commit `f706179` ("fix(marketplace): use url source type, not github shorthand, for both
-  plugins") — primary source for Pitfall 3, includes citations to
-  `anthropics/claude-code#52234/#49875/#47088/#26588/#31930/#27771/#28012`
-- [Create and distribute a plugin marketplace - Claude Code Docs](https://code.claude.com/docs/en/plugin-marketplaces) —
-  MEDIUM confidence corroboration for current `source` type schema (not independently re-fetched
-  in full during this research pass; re-verify directly before the public-extraction phase)
-- [Claude Code Plugin Marketplace: A Deep Dive](https://ice-ice-bear.github.io/posts/2026-04-03-claude-code-plugin-marketplace/) —
-  community source, MEDIUM confidence, corroborating detail on `github`/`url`/`git-subdir` source
-  types and `sha`-pinning
-- `/home/dd/projects/gsd-beads/hooks/capability-auto-install.sh`,
-  `/home/dd/projects/gsd-beads/tests/test-capability-auto-install.sh` (located, not fully
-  read line-by-line — referenced as the existing regression-test template for Pitfall 5)
-
----
-*Pitfalls research for: gsd-core capability plugins (pr-workflow, markdown-linting,
-get-available-resources) added to gsd-beads*
-*Researched: 2026-08-18*
+- **Observed here** (HIGH): `config-get`/`config-set`/`validate health` runs; `verify-reapply-patches.cjs`; the `capability update beads` no-op test; `git`/`gh` tag and release state; the 164-test baseline.
+- **Read directly** (HIGH): `sync.py`, `lifecycle-dispatch.sh`, `hooks.json`, `test_sync.py:2937-3072`, `capability.json`, `CHANGELOG.md`, `.gitignore`, `.github/workflows/*`, `marketplace.json`; gsd-core 1.11.0's `config-loader.cjs`, `health-diagnostic-rules/config-validation.cjs`, `workflows/plan-phase.md`, `workflows/reapply-patches.md`.
+- **Live docs** (MEDIUM — page truncated before the per-event `PostToolUse` schema): https://code.claude.com/docs/en/hooks, fetched 2026-08-19. The `PostToolUse` `hookSpecificOutput` field list is UNVERIFIED from that fetch; the 10,000-char cap, `timeout` units/defaults, matcher semantics and the `PostToolUseFailure` split are quoted from visible text.

@@ -1,433 +1,312 @@
-# Architecture Research: pr-workflow, markdown-linting, get-available-resources
+# Capability Config Architecture — research for milestone v1.3
 
-**Domain:** gsd-core capability plugin integration (Claude Code marketplace + `.gsd/capabilities/` overlay)
-**Researched:** 2026-08-18
-**Confidence:** HIGH — every claim below is sourced from a direct read of gsd-core's generated
-Loop Host Contract, its gate-predicate evaluator, its capability validator, and this repo's own
-shipped `beads`/`sota-numerics`/`ponytail` capability manifests. No web research was needed or
-used; this is a closed-world question about code already present on this machine.
+**Question:** How does capability config actually work in gsd-core, and what does that imply for
+`beads.sync_mode` — a declared enum that no code reads?
 
-**Correction to the brief's framing (load-bearing, read first):** the brief states gate
-predicates are "restricted to `command-exists` and `artifact-frontmatter-equals`." That is
-imprecise. Read directly from `~/.claude/gsd-core/bin/lib/gate-predicate-evaluator.cjs:37`:
+**Verified against:** installed gsd-core **1.11.0** (`~/.claude/gsd-core/VERSION`), plus the shipped
+marketplace tree at `~/.claude/plugins/marketplaces/gsd-core/`, plus one live upstream doc fetch.
+Every mechanism claim below carries a `file:line` or a URL. Claims tagged **(inferred)** are not
+directly executed code.
+
+**Bottom line:** a capability's `config` block is a *schema + default + write-time validator*. It is
+**not** a delivery channel — the value never reaches a `step` hook. `beads.sync_mode` therefore has
+no wiring to be "finished"; it has a declaration to be corrected. Recommendation: **(a) narrow the
+declaration to `["authoritative"]`**. Migration for an existing `"mirror"`/`"off"` is a no-op on
+disk plus one release-note line, because gsd-core performs **zero read-time validation**.
+
+---
+
+## 1. What the `config` block actually does — three things, none of them "hand the value to a hook"
+
+### 1.1 It federates the key into the composed registry `configSchema`
+
+`capability-loader.cjs:440` reads the first-party `configSchema` and merges accepted overlay
+capabilities into it. Verified live on this project — the composed schema carries all four beads
+keys with `owner: "beads"`:
+
+```
+beads.sync_mode {"owner":"beads","type":"enum","default":"authoritative",
+                 "values":["authoritative","mirror","off"], "description":"…"}
+```
+(executed: `loadRegistry({includeInstalled:true, cwd:'/home/dd/projects/gsd-beads'})`)
+
+Consequence: `isValidConfigKey` (`config-schema.cjs:44-48, 63-67`) accepts `beads.sync_mode` as a
+settable key. **Confidence 98.**
+
+### 1.2 It supplies the level-4 default in the config precedence walk
+
+`capability-activation.cjs:71-103` — `resolveConfigKey(dotKey, {config, cwd, registry})`:
+
+| Level | Source | Line |
+|---|---|---|
+| 1 | `loadConfig(cwd)` result, guarded nested lookup | `capability-activation.cjs:74-76` |
+| 2 | `planningDir(cwd)/config.json` raw read | `:79, 81-83` |
+| 3 | `planningRoot(cwd)/config.json` raw read (only if path differs) | `:80, 84-88` |
+| 4 | `registry.configSchema[dotKey].default` | `:90-100` |
+| 5 | absent → `{found:false}` | `:102` |
+
+Verified empirically: with no `beads.sync_mode` on disk, `gsd-tools config-get beads.sync_mode`
+returns `authoritative` — i.e. level 4 fires and the key reports as live even when unset.
+**Confidence 98.**
+
+### 1.3 It backs **write-time** enum enforcement in `config-set`
+
+`config.cjs:805-813` — generic capability-registry validation, added by upstream #1628:
+
+```js
+const capDef = getCapabilityConfigSchema(cwd)[kp];
+if (capDef && typeof capDef.type === 'string') {
+  switch (capDef.type) {
+    case 'enum':
+      if (Array.isArray(capDef.values))
+        assertEnumValue(parsedValue, val, capDef.values.map(String), kp);
+```
+
+Executed in this repo (and reverted — `git status --porcelain .planning/config.json` is clean):
+
+```
+$ gsd-tools config-set beads.sync_mode mirror   → beads.sync_mode=mirror   (accepted, written)
+$ gsd-tools config-set beads.sync_mode bogus    → Error: Invalid beads.sync_mode 'bogus'.
+                                                   Valid values: authoritative, mirror, off
+```
+
+So today gsd-core **actively invites** the user to set `mirror`, then silently ignores it.
+**Confidence 99.**
+
+**That is the entire contract.** There is no fourth thing. The declaration does not cause the value
+to be passed anywhere.
+
+---
+
+## 2. `configValues` reaches **contributions only** — never steps, never gates
+
+`loop-resolver.cjs:175-192` defines `resolveConfigValues(hook)`, which maps a hook's declared
+`configValues: { alias: "dotted.key" }` through `resolveConfigKey` and returns raw (uncoerced)
+values. It is called at exactly **one** site:
+
+- `loop-resolver.cjs:244` — inside the **contributions** loop, attached at `:258-259`.
+
+The steps loop (`:196-226`) and the gates loop (`:265-287`) never call it. A step hook's emitted
+shape is fixed at `:212-225`: `capId, kind, ref, fragment, when, produces, consumes, onError`.
+The `when` string is echoed **verbatim as a string** (`:207, 217`) — not resolved, not evaluated in
+the payload. **Confidence 99.**
+
+### The one first-party consumer, end to end
+
+Producer — `capability-registry.cjs:3436-3446` (security capability, `plan:pre` contribution):
+
+```json
+"configValues": {
+  "security_asvs_level": "workflow.security_asvs_level",
+  "security_block_on": "workflow.security_block_on"
+}
+```
+
+Consumer — `workflows/plan-phase.md:418`:
+
+> Read `SECURITY_ASVS` from the active hook's `configValues.security_asvs_level` (default: `1`) …
+> These values are resolved by the capability registry from user config using the same four-level
+> precedence as hook activation — **no inline `config-get` is needed.**
+
+That last clause is the design intent stated in gsd-core's own prose: `configValues` exists so a
+consumer does **not** re-read config. It is available only to contributions. **Confidence 97.**
+
+### Live proof for beads
+
+`gsd-tools loop render-hooks plan:post --raw`, run in this repo:
+
+```json
+{ "capId": "beads", "kind": "step", "ref": {"skill":"beads-sync"},
+  "when": "beads.enabled", "produces":["PLAN.md"], "consumes":["PLAN.md"], "onError":"skip" }
+```
+
+No `configValues` field, and no mechanism to add one — beads' six hooks are all `steps` (five) and
+`gates` (two), plus one `contribution` at `plan:pre` (`capability.json:141-155`). Only that single
+`plan:pre` recall contribution could ever carry `configValues`, and `beads-sync` (the only place
+`sync_mode` would matter) is a **step**. **Confidence 96.**
+
+---
+
+## 3. How `when:` is evaluated — boolean coercion, so it cannot express an enum
+
+`loop-resolver.cjs:126-135` → `_resolveActivationValue(when, config, cwd, registry)` →
+`capability-activation.cjs:104-107`:
+
+```js
+function _resolveActivationValue(dotKey, config, cwd, registry) {
+    const r = resolveConfigKey(dotKey, { config, cwd, registry });
+    return r.found ? Boolean(r.value) : false;   // ← Boolean coercion
+}
+```
+
+`when` takes a **dotted key only** — no operators, no comparison, no expression grammar. Confirmed
+by the manifest reference: *"Dotted config key; the step is active only when the key is truthy"*
+(`docs/reference/capability-manifest.md:83`, `:97`, `:110`).
+
+**Hard consequence:** `when: "beads.sync_mode"` would be truthy for **all three** values, including
+the string `"off"` (a non-empty string coerces to `true`). An enum key is structurally unusable as a
+`when`. **Confidence 99.**
+
+### The `config-equals` gate predicate does not exist in 1.11.0
+
+`capability-manifest.md:117` lists `"config-equals"` among predicate kinds. The shipped evaluator
+disagrees — `gate-predicate-evaluator.cjs:37`:
 
 ```js
 const EVALUATOR_KINDS = Object.freeze(['command-exit-zero', 'artifact-frontmatter-equals']);
 ```
 
-`command-exists` is a *different* mechanism (`reviewer.probe.kind` for code-review lane probes,
-validated in `capability-validator.cjs`'s `validateLaneProbe`, ~line 1901) — it has nothing to do
-with `gates[].check.predicate`. The two real gate predicate kinds are **`command-exit-zero`**
-(run a bounded `sh -c` command, block if exit code ≠ 0) and **`artifact-frontmatter-equals`**
-(compare a frontmatter field on a named artifact to a literal). `sota-numerics`' own shipped gate
-already uses `command-exit-zero` — it is not a hypothetical.
+An unknown kind throws (`:188-190`). So `config-equals` is **documented but unimplemented**. There
+is currently **no declarative way anywhere in gsd-core to branch on a config value's content** —
+only on its truthiness. **Confidence 97.**
 
-This correction changes the answer to the brief's second question: `command-exit-zero` **can**
-call an external tool (`gh`, `bd`, `markdownlint-cli2`, anything) directly inside the gate check —
-no intermediate generated artifact is structurally required. The generated-artifact route
-(`BEADS.md`) is `beads`' choice because that artifact is *already* being computed and cached for
-other consumers (planner/executor prompt context) every step; reusing it for the gate is DRY, not
-a workaround forced by a missing predicate kind. Each of the three new capabilities needs its own
-answer, not a copy-paste of `beads`' pattern — see Patterns below.
+### Therefore: a capability must re-read config itself
 
-## Standard Architecture
+That is exactly what beads already does — `scripts/sync.py:641-676`, `read_beads_config()` reads
+`.planning/config.json` fresh on every call, with the docstring stating why:
 
-### System Overview — Loop Host Contract (ground truth, not inferred)
+> entering from a harness hook bypasses both the SKILL.md Step 1 config gate **and the capability
+> registry that evaluates each hook's `when`**.
 
-Source: `~/.claude/gsd-core/bin/lib/loop-host-contract.cjs` (generated, `DO NOT EDIT BY HAND`,
-ADR-894 §3). `contributions[].into` is mechanically validated against this table at capability
-load/validate time (`capability-validator.cjs:2380-2389`, `validateAgainstContract`) — a
-contribution naming a role outside its point's `agentRoles` is a hard validation error, not a
-runtime surprise.
+This is not a workaround. For a step-based capability it is the **only** available mechanism, and
+first-party capabilities do the same (see §6). **Confidence 95.**
 
-```text
-┌────────────────────────────────────────────────────────────────────────────────┐
-│ step     │ points                                    │ agentRoles              │
-├──────────┼───────────────────────────────────────────┼─────────────────────────┤
-│ discuss  │ discuss:pre, discuss:post                  │ orchestrator            │
-│ plan     │ plan:pre, plan:post                        │ researcher, planner,    │
-│          │                                             │ checker                 │
-│ execute  │ execute:pre, execute:wave:pre,              │ executor, verifier      │
-│          │ execute:wave:post, execute:post             │                         │
-│ verify   │ verify:pre, verify:post                    │ orchestrator            │
-│ ship     │ ship:pre, ship:post                        │ orchestrator            │
-└────────────────────────────────────────────────────────────────────────────────┘
-```
-
-**Direct confirmation of the brief's question:** `ship:pre`/`ship:post` have `agentRoles:
-["orchestrator"]` — byte-identical restriction to `verify:pre`/`verify:post`, not merely
-analogous. `sota-numerics`' `ship:pre` contribution already declares `"into": "orchestrator"`
-(the only value that would pass validation) — confirmed by reading
-`.gsd/capabilities/sota-numerics/capability.json` in this repo. **Every `ship:pre`/`ship:post`
-contribution the new capabilities add must use `"into": "orchestrator"`.** `execute:wave:pre`/
-`execute:wave:post` are the only points where `into: "executor"` or `into: "verifier"` is legal
-(this is what `ponytail`'s `executor-ladder.md`/`verifier-ladder.md` fragments rely on).
-
-### Component Responsibilities
-
-| Component | Responsibility | This repo's precedent |
-|-----------|-----------------|------------------------|
-| `capability.json` | Declares `contributions[]` (prompt injection), `gates[]` (block/pass), `config` (typed keys under `<id>.*`), `steps[]` (skill/agent dispatch at a point) | all three existing capabilities |
-| `fragments/*.md` | The literal prompt text injected verbatim (`loop-hook-dispatch.md`: "Do not paraphrase — the text is the product") | `ponytail`'s 3 fragments, `sota-numerics`' 4 fragments |
-| generated artifact (e.g. `BEADS.md`) | Projects live external-tool state into frontmatter a gate predicate can read; regenerated by a `steps[]` skill at one or more points | `beads`' `BEADS.md`, regenerated at `execute:wave:pre/post` and `verify:post` |
-| gate script (e.g. `check-alternatives.py`) | Runs synchronously inside a `command-exit-zero` predicate; exit code IS the block decision | `sota-numerics`' `scripts/check-alternatives.py` |
-| `hooks/hooks.json` | SessionStart hook (e.g. `bd prime`) | `beads` |
-| `hooks/capability-auto-install.sh` | Vendored per-plugin (not shared at runtime, D-05 in Phase 10.1); hashes the bundle dir, re-grants `capability install --scope <global\|project> --yes` on drift, called from `session-start.sh` before `exec` | `beads`, `ponytail-everywhere` (Phase 10.1) |
-
-## Recommended Project Structure (per new capability, dogfooded copy)
-
-```text
-.gsd/capabilities/<id>/
-├── capability.json              # contributions[], gates[], config, steps[]
-├── fragments/
-│   └── <role>-<point>.md        # one file per contribution
-├── scripts/                     # only if a gate needs one (pr-workflow, markdown-linting)
-│   └── <check>.sh|.py
-└── hooks/                       # only if SessionStart behavior is needed (none of the 3 need this)
-```
-
-`get-available-resources` needs no `scripts/` gate target and no `hooks/` — it is a
-fragment-only, zero-gate capability, structurally identical to `ponytail`
-(`.gsd/capabilities/ponytail/`: `capability.json` + `fragments/` only, `gates: []`).
-
-## Architectural Patterns
-
-### Pattern 1 — Fragment-only, zero-gate (`get-available-resources`)
-
-**What:** `contributions[]` only, `gates: []`. Matches `ponytail` exactly — 3 fragments
-(`plan:pre`, `execute:wave:pre`, `execute:wave:post`), all `into: "planner"`/`"executor"`/
-`"verifier"` respectively, no `steps[]`, no `hooks[]`.
-**When to use:** advisory-only guidance with no enforceable pass/fail condition — this is
-explicitly the milestone's own framing ("advisory-only fragment... no gate").
-**Trade-offs:** none of significance; this is the simplest of the three capabilities and has zero
-dependency on the other two.
-
-`capability.json` sketch (values only, mirroring `ponytail`'s shape):
-
-```json
-{
-  "id": "get-available-resources",
-  "role": "feature",
-  "config": {
-    "get-available-resources.enabled": { "type": "boolean", "default": true }
-  },
-  "steps": [
-    {
-      "point": "plan:pre",
-      "ref": { "skill": "detect-resources" },
-      "produces": ["RESOURCES.md"],
-      "consumes": [],
-      "when": "get-available-resources.enabled",
-      "onError": "skip"
-    }
-  ],
-  "contributions": [
-    {
-      "point": "plan:pre",
-      "into": "planner",
-      "fragment": { "path": "fragments/planner-resources.md" },
-      "consumes": ["RESOURCES.md"],
-      "when": "get-available-resources.enabled",
-      "onError": "skip"
-    },
-    {
-      "point": "execute:wave:pre",
-      "into": "executor",
-      "fragment": { "path": "fragments/executor-resources.md" },
-      "consumes": ["RESOURCES.md"],
-      "when": "get-available-resources.enabled",
-      "onError": "skip"
-    }
-  ],
-  "gates": []
-}
-```
-
-One design note: the milestone description says the underlying script "produc[es]
-`.claude_resources.json`" — that is the existing `get-available-resources` *skill's* own
-detection-script output (repo-root scratch file, not a `.planning/` artifact). Wrapping it as a
-gsd-core `steps[]` entry additionally regenerating a `.planning/`-scoped `RESOURCES.md` (as
-sketched above) is optional polish, not required for the "no gate" answer — the minimal version
-is a `contributions[]`-only capability whose fragment text simply tells the planner/executor to
-run the existing skill/script themselves. Ship the minimal version first; add the `steps[]`
-auto-regeneration only if UAT shows agents aren't invoking the skill on their own.
-
-### Pattern 2 — Direct `command-exit-zero` gate, no intermediate artifact (`pr-workflow`)
-
-**What:** the gate's `check.predicate` runs `gh pr checks` (or `gh api`) directly; the command's
-own exit code is the block decision, and `gate-predicate-evaluator.cjs`'s
-`evaluateCommandExitZero` already surfaces up to 2000 chars of the command's stdout/stderr tail
-as `check.message` on failure (`gate-predicate-evaluator.cjs:95-101`) — so the "which check
-failed" detail reaches the user without a generated report file.
-**When to use:** when the live state you're gating on (a GitHub PR's check-run status) is
-naturally expressed as a single command's exit code, and nothing else in the lifecycle needs that
-state cached for other prompts (unlike `beads`, where `BEADS.md` also feeds the planner's
-`BEADS-RECALL.md` and the executor's live-issue-state fragment).
-**Trade-offs:** `gh pr checks` can block for a while if run with `--watch`; bound it with the
-predicate's own `timeout` field (same field `sota-numerics` sets to 30s) rather than reaching for
-`--watch`. At `ship:pre`, no PR may exist yet on a first run (this capability's own `ship:post`
-step is what opens the draft PR) — the command must treat "no PR found for this branch" as
-pass-through (exit 0), not failure, or every first ship on a phase would spuriously block.
-
-`capability.json` sketch:
-
-```json
-{
-  "id": "pr-workflow",
-  "config": {
-    "pr-workflow.enabled": { "type": "boolean", "default": true },
-    "pr-workflow.ship_gate": { "type": "boolean", "default": true }
-  },
-  "contributions": [
-    {
-      "point": "ship:post",
-      "into": "orchestrator",
-      "fragment": { "path": "fragments/ship-open-pr.md" },
-      "when": "pr-workflow.enabled",
-      "onError": "skip"
-    }
-  ],
-  "gates": [
-    {
-      "point": "ship:pre",
-      "check": {
-        "predicate": {
-          "kind": "command-exit-zero",
-          "command": "PR_CHECK_SCRIPT=\"$(git rev-parse --show-toplevel)/.gsd/capabilities/pr-workflow/scripts/check-pr-status.sh\"; test -x \"$PR_CHECK_SCRIPT\" || exit 0; \"$PR_CHECK_SCRIPT\"",
-          "timeout": 30
-        }
-      },
-      "when": "pr-workflow.ship_gate",
-      "blocking": false,
-      "onError": "skip"
-    }
-  ]
-}
-```
-
-`blocking: false` is a literal value in the gate object (`capability-validator.cjs`'s
-`validateGate` requires `gate.blocking` be a boolean, not a config-driven value) — "advisory by
-default" is satisfied by shipping it hardcoded `false`. **Do not build a blocking/advisory config
-toggle** (e.g. a second mutually-exclusive gate entry gated by opposite `when` config keys) unless
-a real need for hard-blocking on failing CI surfaces later — that is exactly the kind of
-speculative flexibility the milestone's own precedent (`beads`' Out-of-Scope N3: "this capability
-tracks work, it does not decide how work is planned") argues against building pre-emptively.
-`check-pr-status.sh`'s own exit-0-if-missing-PR guard, not `onError: skip`, is what should absorb
-the "not a PR yet" case — `onError` governs the *command itself* erroring (missing `gh` binary,
-timeout), not a legitimate "nothing to check yet" outcome, mirroring `sota-numerics`' documented
-distinction between the two (`sota-numerics/capability.json`'s gate `description` field).
-
-### Pattern 3 — Generated artifact + `artifact-frontmatter-equals`, mirroring `beads` exactly (`markdown-linting`)
-
-**What:** a `steps[]` entry at `verify:post` regenerates `.planning/LINT-REPORT.md` from a live
-`markdownlint-cli2` run over `.planning/**/*.md`, with YAML frontmatter carrying a single
-machine-checkable field; `ship:pre`'s gate reads that frontmatter via
-`artifact-frontmatter-equals` — structurally identical to `beads`' `BEADS.md` →
-`blocking_open`/`diverged` → `ship:pre` gate chain.
-**When to use:** the milestone description explicitly calls for this ("`ship:pre` gate (mirrors
-`beads.ship_gate`'s pattern)") — this is a locked decision from `PROJECT.md`, not a choice to
-re-derive. Also structurally correct independent of that instruction: `verify:post`'s own
-`LINT-REPORT.md` is worth generating regardless of the gate (the milestone also wants a
-human-readable "report of MD0XX violations" at `verify:post`), so the gate reusing that same
-artifact is free — no second computation.
-**Trade-offs:** one extra generated file to keep out of the ship diff / gitignore discussion
-(same class of housekeeping `beads` already solved for `BEADS.md`).
-
-`LINT-REPORT.md` frontmatter (minimal — one field, mirroring `beads`' two-gate/two-field shape
-only if a real need for finer granularity than "any violation" surfaces):
-
-```yaml
 ---
-generated_by: markdown-linting
-generated_at: 2026-08-18T00:00:00Z
-violation_count: 0
----
-```
 
-`capability.json` sketch:
+## 4. Read-time validation: **none**
 
-```json
-{
-  "id": "markdown-linting",
-  "config": {
-    "markdown-linting.enabled": { "type": "boolean", "default": true },
-    "markdown-linting.ship_gate": { "type": "boolean", "default": true }
-  },
-  "steps": [
-    {
-      "point": "verify:post",
-      "ref": { "skill": "markdown-lint-report" },
-      "produces": ["LINT-REPORT.md"],
-      "consumes": [],
-      "when": "markdown-linting.enabled",
-      "onError": "skip"
-    }
-  ],
-  "gates": [
-    {
-      "point": "ship:pre",
-      "check": {
-        "predicate": {
-          "kind": "artifact-frontmatter-equals",
-          "artifact": "LINT-REPORT.md",
-          "field": "violation_count",
-          "equals": 0
-        }
-      },
-      "when": "markdown-linting.ship_gate",
-      "blocking": true,
-      "onError": "skip"
-    }
-  ]
-}
-```
+`resolveConfigKey` returns the raw on-disk value with no membership check
+(`capability-activation.cjs:71-103`). Verified empirically in a scratch project whose
+`.planning/config.json` contained a stale out-of-enum value **and** an entirely undeclared key:
 
-`onError: skip` here for the same reason `beads`' two `ship:pre` gates use `skip`, not
-`sota-numerics`' `halt`: a missing/unreadable `LINT-REPORT.md` (capability just installed,
-`markdownlint-cli2` absent) must fail open, not strand a finished phase — this is the general
-rule stated in `PROJECT.md`'s Constraints for `beads` and it applies identically here (same
-predicate kind, same "no predicate queries an external tool directly" root cause).
-
-## Data Flow
-
-### Direct command-exit-zero flow (pr-workflow)
-
-```text
-gh pr checks (or gh api)
-    ↓ (exit code + stdout/stderr, run inside the predicate's own sh -c, bounded by "timeout")
-gate-predicate-evaluator.evaluateCommandExitZero
-    ↓ (exit 0 → block:false | exit ≠0 → block:true, message = stderr/stdout tail, capped 2000 chars)
-ship.md's generic ship:pre gate dispatch (blocking:false → advisory, surfaced but does not stop ship)
-```
-
-### Generated-artifact flow (markdown-linting, mirrors beads)
-
-```text
-markdownlint-cli2 --config ... .planning/**/*.md   (run inside verify:post's steps[] skill)
-    ↓ (violation list + count)
-.planning/LINT-REPORT.md  (YAML frontmatter: violation_count, generated_at)
-    ↓ (read by artifact-frontmatter-equals — never queries markdownlint-cli2 directly)
-gate-predicate-evaluator.evaluateArtifactFrontmatterEquals
-    ↓ (violation_count == 0 → block:false | else → block:true)
-ship.md's generic ship:pre gate dispatch (blocking:true → hard-stops ship, per beads.ship_gate precedent)
-```
-
-### Fragment-only flow (get-available-resources)
-
-```text
-(existing) get-available-resources skill/script  →  .claude_resources.json
-    ↓ (referenced by prose, not by a gate)
-fragments/planner-resources.md, fragments/executor-resources.md
-    ↓ (injected verbatim via contributions[], no produces/consumes coupling to a gate)
-planner / executor prompt context
-```
-
-## Anti-Patterns
-
-### Anti-Pattern 1 — Building a `PR-STATUS.md`-with-frontmatter artifact for `pr-workflow` "because that's what `beads` did"
-
-**What people do:** copy `beads`' generated-artifact-plus-`artifact-frontmatter-equals` shape
-onto every gate, treating it as gsd-core's only supported way to gate on external state.
-**Why it's wrong:** `command-exit-zero` already runs an arbitrary bounded shell command and
-already surfaces its output as the gate message — for a single external command whose exit code
-already means "pass/fail" (`gh pr checks`), an intermediate artifact is a second moving part (a
-regeneration step, a frontmatter schema, a staleness question — "was this file regenerated since
-the PR's last push?") that buys nothing. This is the same shape of over-build the milestone's own
-`beads` capability explicitly rejects elsewhere (Out-of-Scope N3).
-**Do this instead:** `command-exit-zero` directly, per Pattern 2. Reserve the generated-artifact
-route for cases where the same computation is *already* needed by another lifecycle point (as
-`LINT-REPORT.md` is, per the milestone's own `verify:post` requirement) or where the underlying
-tool has no single clean exit-code-means-pass/fail contract.
-
-### Anti-Pattern 2 — A `contributions[]` entry at `verify:pre`/`verify:post`/`ship:pre`/`ship:post` with `into` set to `"executor"` or `"verifier"`
-
-**What people do:** copy the `execute:wave:pre`/`execute:wave:post` contribution shape
-(`into: "executor"`/`"verifier"`, which is legal there) onto a `verify:*`/`ship:*` point.
-**Why it's wrong:** `capability-validator.cjs`'s `validateAgainstContract` hard-rejects this at
-load time — `verify` and `ship` steps have `agentRoles: ["orchestrator"]` only. The capability
-would fail to install, not silently misbehave, but it is still a wasted planning/build cycle to
-discover this at validation time instead of at design time.
-**Do this instead:** every `verify:*`/`ship:*` contribution declares `"into": "orchestrator"`,
-full stop — confirmed structurally identical for both steps, not merely by analogy.
-
-## Integration Points
-
-### New components (per capability)
-
-| Capability | New files | Gate needed? |
+| Read | On disk | Result |
 |---|---|---|
-| `get-available-resources` | `.gsd/capabilities/get-available-resources/capability.json`, `fragments/planner-resources.md`, `fragments/executor-resources.md` | No — `gates: []` |
-| `pr-workflow` | `.gsd/capabilities/pr-workflow/capability.json`, `fragments/ship-open-pr.md`, `scripts/check-pr-status.sh` | Yes — `command-exit-zero`, `blocking: false` |
-| `markdown-linting` | `.gsd/capabilities/markdown-linting/capability.json`, skill or script that writes `.planning/LINT-REPORT.md`, gate reading it | Yes — `artifact-frontmatter-equals`, `blocking: true` |
+| `config-get beads.sync_mode` | `"mirror"` | `mirror` — returned, no warning |
+| `config-get beads.bogus_key` (undeclared) | `"zzz"` | `zzz` — returned, no warning |
+| `config-get totally.unknown` (undeclared namespace) | `"yes"` | `yes` — returned, no warning |
 
-### Modified components (repo-wide, one-time)
+The health rule that validates config values,
+`bin/lib/health-diagnostic-rules/config-validation.cjs`, checks exactly two hardcoded **central**
+keys — `model_profile` (`:103`) and `git.branching_strategy` (`:153`). It performs no
+capability-schema enum check and no orphan-key detection. A repo-wide grep for orphan/unknown-key
+detection hits only `config.cjs` and `config-loader.cjs`, both on the **write** path.
 
-| File | Change |
-|---|---|
-| `.claude-plugin/marketplace.json` | Add 3 entries once each capability is extracted to its own public repo — `"source": {"source": "url", "url": "https://github.com/davdittrich/<id>.git"}`, exactly the shape already used for `ponytail-everywhere`/`sota-numerics` (confirmed by reading this repo's current `marketplace.json`) |
-| `.gsd-capabilities.json` | Machine-local consent record; not git-tracked — each new capability needs a fresh `capability install --scope <global\|project> --yes` after its bundle is authored, same as every prior capability in this repo |
-
-### Extraction-to-public-repo playbook (reuse Phase 12's proven decisions, not rediscovery)
-
-Confirmed from `.planning/milestones/v1.1-phases/12-.../12-CONTEXT.md` (the actual precedent
-this milestone's own `PROJECT.md` cites: "exactly matching the proven Phase 10/11 (build) →
-Phase 12 (extract + publish) pattern"):
-
-- Each capability is first dogfooded as a `.gsd/capabilities/<id>/` subdirectory in *this* repo
-  (build phase) — no different from how `beads`, `ponytail`, `sota-numerics` started.
-- Extraction is a **separate, later phase**: fresh `git init` per new repo, no history carried
-  over (D-03) — do not conflate the two; the build phase should not pre-optimize for extraction.
-- `marketplace.json`'s `"source": {"source": "url", "url": "..."}` shape (not a GitHub-shorthand
-  `owner/repo` string) is the schema already proven twice in this repo — reuse verbatim, do not
-  re-research the schema per capability (see commit `f706179` in this repo's own history: "use
-  url source type, not github shorthand, for both plugins").
-- README structure (purpose, requirements, install, uninstall, caveats, license, gsd-core link)
-  and `claude plugin validate . --strict` + real marketplace round-trip are the fixed bar for
-  every extracted repo (D-09/D-10) — apply identically to all three new capabilities when their
-  turn comes.
-
-## Build Order
-
-Dependency analysis: `get-available-resources` has zero coupling to gate mechanics (Pattern 1) —
-it can be built, tested, and shipped fully independently of the other two. `pr-workflow` and
-`markdown-linting` both need a gate pattern proven once before the second repeats it, but they
-use **different** patterns from each other (Pattern 2 vs Pattern 3) — there is no shared
-artifact-schema work between them the way the brief's framing assumed. The actual shared risk is
-narrower: "does a `command-exit-zero` gate correctly surface a failing external command as an
-advisory block, end-to-end, through `ship.md`'s generic dispatch" (Pattern 2) and "does an
-`artifact-frontmatter-equals` gate correctly re-derive from a freshly-regenerated non-`beads`
-artifact" (Pattern 3) are two independent proofs, not one proof repeated.
-
-Recommended order:
-
-1. **`get-available-resources`** first — no gate, no external-tool timing/availability risk,
-   fastest to a shipped, dogfooded state; also the smallest surface for the first
-   `capability install`/consent round-trip of this milestone.
-2. **`markdown-linting`** second — its gate pattern (`artifact-frontmatter-equals`) is a
-   byte-for-byte structural repeat of `beads.ship_gate`, the most-proven gate pattern in this
-   repo (3 phases of live verification behind it: Phase 2/3 build, Phase 3's `ship.md` patch
-   fix, Phase 4's real-`bd` round trip). Lowest-risk of the two gated capabilities to build next
-   precisely because it reuses a mechanism already debugged here, not a new one.
-3. **`pr-workflow`** third — its gate pattern (`command-exit-zero` calling `gh` directly) has one
-   proven precedent in this repo (`sota-numerics`' `check-alternatives.py` gate) but a materially
-   different risk profile: `gh` is a *network*-dependent external command (auth state, rate
-   limits, PR-not-yet-existing on first run), where `sota-numerics`' gate command is a fully
-   local, deterministic Python script. Build this last so the advisory-only fail-open behavior
-   (`blocking: false`, `onError: skip`) can be validated against `markdown-linting`'s already-
-   proven blocking-gate wiring as a known-good baseline to diff against if something misbehaves.
-
-## Sources
-
-- `~/.claude/gsd-core/bin/lib/loop-host-contract.cjs` (generated Loop Host Contract — HIGH, primary source)
-- `~/.claude/gsd-core/bin/lib/gate-predicate-evaluator.cjs` (real predicate kinds, message surfacing — HIGH, primary source)
-- `~/.claude/gsd-core/bin/lib/capability-validator.cjs` (contribution.into ∈ agentRoles enforcement, lane-probe `command-exists` distinction — HIGH, primary source)
-- `~/.claude/gsd-core/references/loop-hook-dispatch.md` (dispatch envelope contract — HIGH, primary source)
-- `/home/dd/projects/gsd-beads/.planning/PROJECT.md` (milestone target features, `beads` Key Decisions on gate predicate restriction — HIGH, project source of truth)
-- `/home/dd/projects/gsd-beads/.gsd/capabilities/beads/capability.json`, `.gsd/capabilities/sota-numerics/capability.json`, `.gsd/capabilities/ponytail/capability.json` (three shipped structural precedents — HIGH, primary source)
-- `/home/dd/projects/gsd-beads/.gsd/capabilities/beads/skills/beads-status/SKILL.md` (BEADS.md frontmatter generation — HIGH, primary source)
-- `/home/dd/projects/gsd-beads/.claude-plugin/marketplace.json` and `.planning/milestones/v1.1-phases/12-.../12-CONTEXT.md` (extraction-to-public-repo playbook — HIGH, primary source)
-- `/home/dd/projects/gsd-beads/hooks/capability-auto-install.sh` (auto-install hook shape — HIGH, primary source)
+**Answer to Q4:** an unknown or out-of-enum value is **rejected at `config-set`, passed through
+silently on every read**. Nothing warns; nothing errors; nothing strips it. **Confidence 97.**
 
 ---
-*Architecture research for: gsd-core capability plugin integration (pr-workflow, markdown-linting, get-available-resources)*
-*Researched: 2026-08-18*
+
+## 5. Deprecation / migration path for a capability config key: **undocumented and unimplemented**
+
+- Upstream `docs/reference/capability-manifest.md` (live fetch, raw.githubusercontent.com/open-gsd/
+  gsd-core/main): **no** deprecation, removal, or enum-narrowing policy for federated `config` keys.
+  The page *does* document a deprecation lifecycle where one exists (`reviewerCli` "survived one
+  release (1.9.0 → 1.10.0) as a derived legacy alias"), so the omission is real, not an oversight of
+  the fetch. **Confidence 90.**
+- `~/.claude/gsd-core/references/` — no capability-config deprecation reference. The only migration
+  prose is for a **central** key: `planning-config.md:397`, `depth` → `granularity`, "automatically
+  migrated … and persisted back to disk."
+- The migration machinery exists but is **central-schema only**: `cmdMigrateConfig`
+  (`config.cjs:1121-1141`) delegates to `configuration.cjs migrateOnDisk()`, which applies "all four
+  legacy-key migrations" — a fixed first-party list. There is no capability-supplied migration hook
+  and no `installer-migrations/` entry for a capability config key (`010` entries `000`–`009` are
+  install-surface migrations only). **Confidence 92.**
+- gsd-core's own stated house rule on removal, `capability-validator.cjs:1719-1726`: unknown fields
+  **WARN, never error**, because an error "would hard-break an out-of-tree descriptor … with no
+  deprecation window — the exact mistake #2801's own alias removal spent a full release avoiding."
+
+**The available migration lever** is `config-set <key> null`, the documented "clear" action which
+*deletes* the key rather than persisting `null` (`config.cjs:684-700`). Verified:
+`config-set beads.sync_mode null` → `beads.sync_mode unset`, key removed from disk.
+
+---
+
+## 6. Is declared-but-unread config common in first-party gsd-core? **No — zero cases.**
+
+Scanned all **62** first-party `configSchema` keys against: `"when"` references in
+`capability-registry.cjs`, `configValues` blocks, and the full text of gsd-core workflows,
+references, contexts, templates, `bin/lib/*.cjs`, `bin/shared/*`, plus the entire marketplace tree
+(skills, commands, docs, scripts, capability manifests).
+
+**Result: 0 of 62 unreferenced.**
+
+An intermediate scan restricted to the `~/.claude/gsd-core/` runtime tree flagged 11 keys
+(8 × `mempalace.*`, 3 × `external_job.*`). All 11 are read — by the capability's **own** artifacts
+outside the runtime tree:
+
+- `mempalace.memory_mode` etc. → `~/.claude/skills/gsd-mempalace-recall/SKILL.md`,
+  `gsd-mempalace-capture/SKILL.md`
+- `external_job.artifact_dir` etc. → `marketplaces/gsd-core/scripts/slurm-adapter.cjs`
+
+That is precisely the `sync.py:read_beads_config` pattern — **first-party capabilities read their own
+federated keys from their own skill/script, not from the loop envelope.** This corroborates §3.
+**Confidence 88** (scan is text-matching over a large corpus; a dynamically-composed key string
+would be missed).
+
+`beads.sync_mode` is, on this project's composed registry, the **only** key nothing reads. It is an
+anomaly, not a sanctioned pattern. **Confidence 90.**
+
+One adjacent precedent worth noting for tone: `mempalace.memory_mode` ships three enum values and its
+doc entry openly states "Cross-mode migration of existing `.planning/graphs/` into the palace is a
+separate, not-yet-implemented concern" (`docs/CONFIGURATION.md:739`). Partial enum support is
+survivable upstream **when the doc says so**. `beads.sync_mode` does the opposite — its description
+claims the reserved values are "reserved for later phases" while `config-set` accepts them as valid
+today. **Confidence 85.**
+
+---
+
+## 7. Decision input for the planner
+
+### Cost of each option
+
+| Option | Work | Residual risk |
+|---|---|---|
+| **(a) Narrow to `["authoritative"]` + doc** | 1-line `values` edit in `capability.json`; description rewrite; release note. No code. | None mechanical. Users who set `mirror` get a *new* `config-set` rejection — which is the desired signal. |
+| **(b) Implement `mirror` / `off`** | Cannot use `when` (§3 — enum is untypeable as a `when`). Cannot use `configValues` (§2 — `beads-sync` is a step). Requires a new `read_beads_config(root,"sync_mode","authoritative")` accessor plus three behavioral branches in `sync.py` and a semantic definition of what `mirror` *means* for a bd database. Plus tests for each mode. | Large; and `off` overlaps `beads.enabled=false`, which already exists (`capability.json:27-31`) and already gates all six hooks. **`off` is a duplicate of an implemented key.** |
+| **(c) Drop the key** | Remove from `capability.json`. | `config-set beads.sync_mode …` then fails with `Unknown config key` — a *worse* message than an enum rejection, and it loses the record that the semantics ("bd is authoritative after first sync", D-01) are a deliberate decision. That semantic is real and documented in `sync.py:1300-1302`; deleting the key deletes its only user-visible statement. |
+
+**Cheapest-correct: (a).** It costs one JSON edit, it turns the currently-silent failure into an
+explicit `config-set` rejection naming the one valid value, and it preserves the D-01 semantic
+statement. Option (b) buys behavior nobody asked for and duplicates `beads.enabled`. Option (c)
+throws away a correct piece of documentation to fix a wrong one.
+
+### Migration answer for a project that already set `"mirror"` or `"off"`
+
+**Nothing breaks, and nothing needs to run.** Grounded in §4:
+
+1. The stale value stays on disk and every read path (`resolveConfigKey`, `config-get`,
+   `sync.py:read_beads_config`) returns it without validation or warning
+   (`capability-activation.cjs:71-103`; empirically confirmed).
+2. Because nothing reads `sync_mode`, the stale value has never had an effect and will not acquire
+   one. Behavior after narrowing is byte-identical to behavior before.
+3. The only observable change: a *future* `gsd-tools config-set beads.sync_mode mirror` now fails
+   with `Invalid beads.sync_mode 'mirror'. Valid values: authoritative` (`config.cjs:805-813`).
+4. Optional cleanup, if a release note wants to offer one — `gsd-tools config-set beads.sync_mode
+   null` deletes the key (`config.cjs:684-700`, verified). **Do not** ship an automated migration:
+   there is no capability-migration hook (§5), and writing one would be new machinery for a no-op.
+
+**Ship the migration as one release-note sentence, not as code.** Confidence 93.
+
+### Correctness note that belongs in the same commit
+
+`capability.json:40`'s description currently asserts `mirror`/`off` are "reserved for later phases"
+while `config-set` accepts them as valid *now*. Whichever option is chosen, that sentence is the
+false claim doing the actual damage — the enum `values` array is documented upstream as the
+**"Exhaustive list of permitted string values"** (`capability-manifest.md`, `config` table), not as
+a roadmap.
+
+---
+
+## Confidence summary
+
+| Finding | Confidence | Basis |
+|---|---|---|
+| `config` block = schema + level-4 default + `config-set` validator, nothing more | 98 | `capability-loader.cjs:440`, `capability-activation.cjs:71-103`, `config.cjs:805-813`; executed |
+| `configValues` reaches contributions only, never steps/gates | 99 | `loop-resolver.cjs:244` (sole call site) + live `render-hooks plan:post` |
+| `when:` is boolean-coerced; enums are untypeable as `when` | 99 | `capability-activation.cjs:104-107` |
+| `config-equals` predicate documented but not implemented | 97 | `gate-predicate-evaluator.cjs:37` vs `capability-manifest.md:117` |
+| Zero read-time validation of config values | 97 | executed 3-case scratch test + `config-validation.cjs:103,153` |
+| No documented deprecation/migration path for capability config keys | 90 | live upstream fetch + `references/` grep + `config.cjs:1121` scope |
+| 0 of 62 first-party keys declared-but-unread | 88 | text scan of gsd-core + full marketplace tree |
+| Capabilities re-read their own keys from their own scripts (first-party norm) | 88 | mempalace SKILL.md, `slurm-adapter.cjs`; matches `sync.py:641` (inferred pattern) |
+| Migration for stale `mirror`/`off` is a documentation no-op | 93 | follows from read-time-validation finding |
