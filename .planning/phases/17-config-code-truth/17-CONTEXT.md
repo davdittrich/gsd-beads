@@ -115,8 +115,8 @@ TRUTH-01 (`sync_mode`), TRUTH-02 (patch-checker merge). Scope is fixed by ROADMA
   merge keeps the suite at 164/164 green while silently breaking `beads-status/SKILL.md` Step 2d.
   The suite must be able to detect the contract break before the break is possible.
 
-- **D-10: The table carries a per-entry marker version, and a new test asserts the literal marker
-  strings.** The two markers are already at different versions (`ship-pre-generic-dispatch v2`,
+- **D-10: The table carries a per-entry marker version, and a new test asserts the literal marker strings.**
+  The two markers are already at different versions (`ship-pre-generic-dispatch v2`,
   `execute-plan-bd-task-read v1`), so a single shared version field is wrong. No test asserts
   either marker today — which is how commit `966315a` changed `SHIP_MD_PATCH_MARKER` from v1 to v2
   with the suite still reporting green. That edit could have been a typo. Closing this satisfies

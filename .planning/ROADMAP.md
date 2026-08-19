@@ -194,6 +194,7 @@ that disagreement, not average it:**
   a self-read in `sync.py` remains — which is exactly how `beads.enabled` and `beads.epic_per`
   already work, so (b) is *possible*, just unwired. Separately, `off` largely duplicates
   `beads.enabled: false`, which already gates all six hooks.
+
 - **Enum values ARE validated on write** — verified live, and this **corrects a claim the
   precedent research originally made in the opposite direction**: `config-set beads.sync_mode
   bogus` → `Error: Invalid beads.sync_mode 'bogus'. Valid values: authoritative, mirror, off`, and
@@ -201,10 +202,12 @@ that disagreement, not average it:**
   `.planning/config.json` is returned verbatim, forever, with no warning. So (a) is not
   mechanically inert — it starts rejecting a *new* `config-set … mirror` — but it detects no stale
   on-disk value either.
+
 - **(c) removes the only error surface the key has.** Dropping it makes `config-set
   beads.sync_mode …` fail with a generic `Unknown config key` whose ~2000-character valid-key dump
   contains **no `beads.*` entry at all** — a user reads that as "beads config does not exist", not
   "this one key retired".
+
 - **Precedent cuts toward (c); mechanism research cuts toward (a).** Precedent: 0 orphan keys
   across all four sibling plugins; `sota-numerics/capability.json:22` states the "declare one key,
   mean it" stance outright; gsd-core's one removal precedent (`runtime.hostBehaviors.reviewerCli`,
@@ -275,9 +278,11 @@ Each is a mechanical command in the ship task, not a prose reminder.
    `git diff --quiet <last-tag>..HEAD -- plugins .claude-plugin README.md` → if non-empty, both
    versions must differ from the last tag and CHANGELOG must have a section for the new capability
    version.
+
 2. **CHANGELOG 0.3.1 mis-files the hook `timeout`** under Performance as added protection; 120 s is
    a *reduction* from the 600 s command-hook default. Corrected by Success Criterion 2's sweep;
    ship verifies it landed.
+
 3. **The withdrawn `v1.3.0` tag still resolves** (`git merge-base --is-ancestor v1.3.0 HEAD` →
    yes) even though the GitHub Release is deleted — and deleting the release withdrew nothing that
    mattered, since marketplace installs came from the branch, not the zip. The real exposure was
@@ -285,6 +290,7 @@ Each is a mechanical command in the ship task, not a prose reminder.
    from `origin` (noting that `release.yml` fires on **any** `v*.*.*` push, so a retag is a
    re-release and the tag cannot simply be moved) or add an explicit CHANGELOG line stating v1.3.0
    is withdrawn and why. Silence plus a live tag is the worst of both.
+
 4. **`~/.claude/gsd-local-patches/` holds a stale v1 copy of the ship.md patch** while the live
    file carries v2; `backup-meta.json` records `"from_version": "1.10.0"`, and
    `node ~/.claude/gsd-core/bin/verify-reapply-patches.cjs` exits 1 on both files. Most of the 60+
@@ -293,6 +299,7 @@ Each is a mechanical command in the ship task, not a prose reminder.
    reinstatement *alongside* 1.11.0's native one, silently undoing `966315a`. Refresh or delete the
    backup after the patch work lands, and name the mechanism in `GSD-CORE-PATCH.md`, which
    currently references it nowhere and reads as if manual reapplication is the only path.
+
 5. **Assert `>= 164` tests, and that the two capability trees are identical**, before accepting any
    claim that CI green means the running code is the tested code (see the runtime-mirror
    constraint above).
@@ -300,9 +307,20 @@ Each is a mechanical command in the ship task, not a prose reminder.
 **Plans**: 4 plans — one per requirement, one wave each, executed in the argued order below.
 
 Plans:
+**Wave 1**
+
 - [ ] 17-01-PLAN.md — decimal-phase support at all lifecycle points, plus the `capability.json` 0.3.1 → 0.4.0 bump and the runtime-mirror identity proof (TRUTH-04)
+
+**Wave 2** *(blocked on Wave 1 completion)*
+
 - [ ] 17-02-PLAN.md — region-scoped native-dispatch probe gating `plan:post`/`verify:post`, and the `allow_strip` ruling wired to config on the explicit path only (TRUTH-03)
+
+**Wave 3** *(blocked on Wave 2 completion)*
+
 - [ ] 17-03-PLAN.md — `beads.sync_mode` narrowed to values that do something, the D-04 migration notice, and the full doc sweep in the same commit (TRUTH-01)
+
+**Wave 4** *(blocked on Wave 3 completion)*
+
 - [ ] 17-04-PLAN.md — one table-driven patch reader behind one collapsed CLI verb, with the missing coverage landing before the merge (TRUTH-02)
 
 | Plan | Requirement | bd | Priority | Why here in the order |
