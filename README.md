@@ -108,7 +108,7 @@ object, and the shipped defaults are declared in
 
 ### How a value is resolved
 
-All four lifecycle skills implement an identical enabled gate: the capability is disabled only
+All four capability skills implement an identical enabled gate: the capability is disabled only
 when `.planning/config.json` exists, has a `beads` object, and that object's `enabled` is
 explicitly the boolean `false`. A missing file, a missing `beads` object, and a present `beads`
 object with no `enabled` key all fall through to the `capability.json` default of `true`, so a
