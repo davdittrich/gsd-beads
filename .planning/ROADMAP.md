@@ -195,38 +195,6 @@ Plans:
 - [x] 15-04-PLAN.md — Re-prove auto-install, re-consent, and both `ship:pre` gates from the installed copies
 - [x] 15-05-PLAN.md — Audit and decide the dogfood-bundle disposition, execute it, push, prove CI green
 
-## Progress
-
-| Phase | Plans Complete | Status | Completed |
-|-------|----------------|--------|-----------|
-| 13. markdown-linting capability (dogfood) | 4/4 | Complete    | 2026-08-18 |
-| 14. pr-workflow capability (dogfood) | 3/3 | Complete    | 2026-08-18 |
-| 15. Ship both plugins publicly | 5/5 | Complete    | 2026-08-18 |
-
-## Cross-Cutting Constraints (v1.2)
-
-- **Verify the patch before trusting any gate.** The `ship:pre` generic gate-dispatch
-  generalization is a **machine-local patch only**; upstream gsd-core#3559 is filed, not confirmed
-  merged. Every phase that declares a gate must first confirm the marker in the installed
-  `ship.md`, and must prove the gate live — never accept "the manifest declares `gates[]`" as
-  evidence.
-
-- **Re-consent after every bundle edit.** gsd-core's project/global capability consent is a content
-  hash over the whole bundle; any post-consent edit silently deactivates the capability with no
-  error. Re-run `capability install` (or the vendored `capability-auto-install.sh`) after every
-  edit inside a bundle directory.
-
-- **Both new gates default advisory, not blocking.** This is a v1 requirement (PRW-02, MDL-03), not
-  a shortcut. Flipping to blocking is v2 (PRW-05, MDL-05) and is out of scope here.
-
-- **Fail-open on every external tool.** `rumdl` and `gh` are external dependencies; every
-  contribution and gate declares `onError: skip`, every script guards with `shutil.which()` (plus
-  `gh auth status` for `pr-workflow`), and prints exactly one notice per missing tool (B6 pattern).
-
-- **`markdown-linting` uses `rumdl`, never `markdownlint-cli2`**, invoked with an always-explicit
-  `--config` path — auto-discovery was measured to silently ignore config. See REQUIREMENTS.md's
-  Out of Scope table for the benchmark that decided this.
-
 ### Phase 16: beads issue content parity
 
 **Goal:** A `bd show <issue-id>` on any beads-synced task is self-sufficient — readable without
@@ -261,3 +229,36 @@ Plans:
 - [x] 16-02-PLAN.md — D-08: phase-wide idempotent `reconcile-stale-closed` backstop at `verify:post`, then close Phase 14's four stale issues with it as live proof
 - [x] 16-03-PLAN.md — Read-path enablement in `sync.py`: `check_execute_plan_patch` detector and the patch-gated `strip_task_bodies` that turns a synced plan into a pointer (D-01, D-03, D-05, D-07)
 - [x] 16-04-PLAN.md — Install and document the machine-local `execute-plan.md` bd task-read patch, dispatch its detector at `plan:pre`, file the change upstream (D-01, D-04, D-05)
+
+## Progress
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 13. markdown-linting capability (dogfood) | 4/4 | Complete    | 2026-08-18 |
+| 14. pr-workflow capability (dogfood) | 3/3 | Complete    | 2026-08-18 |
+| 15. Ship both plugins publicly | 5/5 | Complete    | 2026-08-18 |
+| 16. beads issue content parity | 4/4 | Complete    | 2026-08-19 |
+
+## Cross-Cutting Constraints (v1.2)
+
+- **Verify the patch before trusting any gate.** The `ship:pre` generic gate-dispatch
+  generalization is a **machine-local patch only**; upstream gsd-core#3559 is filed, not confirmed
+  merged. Every phase that declares a gate must first confirm the marker in the installed
+  `ship.md`, and must prove the gate live — never accept "the manifest declares `gates[]`" as
+  evidence.
+
+- **Re-consent after every bundle edit.** gsd-core's project/global capability consent is a content
+  hash over the whole bundle; any post-consent edit silently deactivates the capability with no
+  error. Re-run `capability install` (or the vendored `capability-auto-install.sh`) after every
+  edit inside a bundle directory.
+
+- **Both new gates default advisory, not blocking.** This is a v1 requirement (PRW-02, MDL-03), not
+  a shortcut. Flipping to blocking is v2 (PRW-05, MDL-05) and is out of scope here.
+
+- **Fail-open on every external tool.** `rumdl` and `gh` are external dependencies; every
+  contribution and gate declares `onError: skip`, every script guards with `shutil.which()` (plus
+  `gh auth status` for `pr-workflow`), and prints exactly one notice per missing tool (B6 pattern).
+
+- **`markdown-linting` uses `rumdl`, never `markdownlint-cli2`**, invoked with an always-explicit
+  `--config` path — auto-discovery was measured to silently ignore config. See REQUIREMENTS.md's
+  Out of Scope table for the benchmark that decided this.
