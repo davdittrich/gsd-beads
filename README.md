@@ -54,18 +54,19 @@ claude plugin install beads-lifecycle@gsd-beads -y
 The capability is on by default: `beads.enabled` defaults to `true`, so a fresh install runs
 with issue tracking on. Opt out by setting `beads.enabled: false` in the project's
 `.planning/config.json` — every step below checks that gate first and no-ops with a visible
-notice when a project has opted out.
+notice when a project has opted out. See [Configuration](#configuration) below for the full key
+list.
 
 gsd-core's own lifecycle commands drive `bd` state directly:
 
-1. `/gsd-plan-phase` — before planning, `beads-recall` queries existing open issues so
+1. `/gsd:plan-phase` — before planning, `beads-recall` queries existing open issues so
    already-ticketed work isn't planned twice; after the plan is written, `beads-sync` creates
    one phase epic plus one `bd` issue per plan-task block, and writes the ids back into the plan
    (a `beads_epic` frontmatter key and a `<beads-id>` element per task).
-2. `/gsd-execute-phase` — before a wave of tasks runs, `beads-status` puts that wave's live
+2. `/gsd:execute-phase` — before a wave of tasks runs, `beads-status` puts that wave's live
    issue state into the orchestrator's context; after the wave finishes, it closes the `bd`
    issues for every task the wave completed.
-3. `/gsd-verify-work` — after verification, `beads-status` refreshes the projected `BEADS.md`
+3. `/gsd:verify-work` — after verification, `beads-status` refreshes the projected `BEADS.md`
    state from `bd`.
 4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
    refuse to ship while `blocking_open` or `diverged` is non-zero.
@@ -81,10 +82,85 @@ bd close <id> --reason="Completed"
 
 See `AGENTS.md` in this repo for the full command reference.
 
+## Configuration
+
+Every gsd-beads setting lives in the project's `.planning/config.json` under a single `beads`
+object, and the shipped defaults are declared in
+`plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`.
+
+| Key | Type | Values | Default | Effect |
+| :--- | :--- | :--- | :--- | :--- |
+| `beads.enabled` | boolean | `true` / `false` | `true` | Master toggle for the beads issue-tracking capability. |
+| `beads.sync_mode` | enum | `authoritative`, `mirror`, `off` | `"authoritative"` | Controls who owns task status and content: under `authoritative`, `bd` owns status and content after first sync. |
+| `beads.ship_gate` | boolean | `true` / `false` | `true` | When true, `ship:pre` blocks on `BEADS.md`'s `blocking_open` or `diverged` frontmatter fields being non-zero; both gates are blocking. |
+| `beads.epic_per` | enum | `phase`, `milestone` | `"phase"` | `phase`: one epic per phase, as today. `milestone`: one epic shared across every phase in the current milestone. |
+
+```json
+{
+  "beads": {
+    "enabled": true,
+    "sync_mode": "authoritative",
+    "ship_gate": true,
+    "epic_per": "phase"
+  }
+}
+```
+
+### How a value is resolved
+
+All four lifecycle skills implement an identical enabled gate: the capability is disabled only
+when `.planning/config.json` exists, has a `beads` object, and that object's `enabled` is
+explicitly the boolean `false`. A missing file, a missing `beads` object, and a present `beads`
+object with no `enabled` key all fall through to the `capability.json` default of `true`, so a
+fresh install runs with tracking on.
+
+When disabled, every lifecycle step prints a visible notice and no-ops rather than fails, since
+all six steps are declared `onError: skip`.
+
+`epic_per` is re-read fresh from `.planning/config.json` at each epic-creation call site, not
+resolved once per session, and falls back to `phase` when the file is absent, the JSON is
+malformed, or the key is missing.
+
+`ship_gate` is read at `ship:pre` alongside `BEADS.md`'s `blocking_open`/`diverged` fields.
+Setting it to `false` while either field is non-zero does not silently skip the gate: the bypass
+is recorded as a `Beads-Override:` git trailer on the amended ship commit plus a best-effort `bd`
+comment on the phase epic, and the amend is refused when HEAD is already pushed.
+
+### Caveats
+
+- `mirror` and `off` are reserved for later phases and not yet implemented — `authoritative` is
+  the only working `sync_mode`.
+- Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
+  never re-synced from later `bd` edits.
+- `epic_per: milestone` is forward-only — it does not retroactively fold existing per-phase
+  epics into the milestone epic.
+
+### Environment variables
+
+| Variable | Read by | Default | Purpose |
+| :--- | :--- | :--- | :--- |
+| `CLAUDE_PLUGIN_ROOT` | `hooks/session-start.sh`, `hooks/capability-auto-install.sh` | `$(cd "$(dirname "$0")/.." && pwd)` | Resolves the plugin's own root directory. |
+| `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the gsd-tools resolver and the local-patch checks against `gsd-core/workflows/ship.md` and `gsd-core/workflows/execute-plan.md`. |
+| `GSD_HOME` | `hooks/capability-auto-install.sh` | `$HOME` | Locates the per-capability bundle-drift hash sidecar (`.gsd/capability-auto-install-$CAP_ID.hash`). |
+
+gsd-beads only reads these — it never sets them — and every one has a working default, so none
+is required. The two `CLAUDE_CONFIG_DIR` consumers in `sync.py` probe the Claude runtime home
+only; they do not check other runtime homes such as `CODEX_HOME` or `CURSOR_CONFIG_DIR`.
+`sync.py`'s 15-second `bd` subprocess timeout is a module constant, not a configurable
+environment variable.
+
+### Not gsd-beads configuration
+
+`BEADS_DIR` and `bd config set …` are `bd`-owned knobs that change `bd`'s own behaviour for
+every consumer, documented in the bundled `bd` skill resources; gsd-beads neither reads nor
+writes them, and they have no `.planning/config.json` equivalent. `BEADS_DIR` points a worktree
+or a whole project at a beads workspace outside the tree; `bd config set no-git-ops true` keeps
+`bd prime` output in stealth mode.
+
 ## Uninstall
 
 ```bash
-claude plugin uninstall beads -y
+claude plugin uninstall beads-lifecycle@gsd-beads -y
 ```
 
 ## Caveats
