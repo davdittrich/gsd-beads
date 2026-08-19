@@ -1,8 +1,8 @@
 ---
-status: diagnosed
+status: resolved
 trigger: "UAT gap G-08-1: the README does not explain at all what the benefit of using beads with gsd is instead of using gsd's built-in tracking."
 created: 2026-08-16T00:00:00Z
-updated: 2026-08-16T00:00:00Z
+updated: 2026-08-19T00:00:00Z
 ---
 
 ## Current Focus
@@ -116,8 +116,21 @@ root_cause: |
   (comparison table + drift-cost paragraph) and PROJECT.md's "Core Value" line, both of which
   predate Phase 8 and were not consulted/pulled forward when the README was drafted.
 
-fix: (not applied — find_root_cause_only mode)
+fix: |
+  Already shipped, prior to this session, in commit 83b3897 "docs(readme): add
+  beads-vs-planning-markdown value proposition" — added a "Why not just use gsd-core's
+  built-in tracking?" subsection plus the PRD's comparison table to README.md's
+  "What it does" section. This debug session was diagnose-only and was never marked
+  resolved once the fix landed via a separate commit; closing it now at milestone v1.2
+  close, since verification below confirms the shipped README matches the diagnosis's
+  `expecting` criteria.
 
-verification: (not applicable — no fix applied)
+verification: |
+  Read README.md lines 5-38 directly: the "Why not just use gsd-core's built-in tracking?"
+  section states the problem (two hand-written representations, silent drift, no shared
+  comparison) and the benefit (single source of truth for task state), followed by the
+  same comparison table identified in Evidence as existing in docs/prd-beads-capability.md
+  §3.1. Matches the diagnosis's root cause and the missing content it identified.
 
-files_changed: []
+files_changed:
+  - README.md (commit 83b3897, prior to this debug session's closure)
