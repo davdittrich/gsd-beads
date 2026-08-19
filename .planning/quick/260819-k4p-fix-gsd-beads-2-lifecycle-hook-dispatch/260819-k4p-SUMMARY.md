@@ -10,6 +10,9 @@ commits:
   - 6961eb8
   - ecf9004
   - 62162d4
+  - 55855cd
+  - 0c65d69
+released: v1.3.0
 ---
 
 # Summary: make the four dead lifecycle hooks dispatch
@@ -54,7 +57,13 @@ all, so there is nothing left to strip.
 ## Verification
 
 - 162 unit tests pass (134 pre-existing + 28 new); `tests/test-capability-auto-install.sh` still ALL PASS.
-- CI now runs the sync suite. It had 134 cases and ran none of them.
+- CI now runs the sync suite. It had 134 cases and ran none of them. Wiring it in turned `main`
+  red and surfaced a pre-existing gap: ~15 cases mock `bd`'s subprocess calls but not
+  `bd_available()`, which probes `shutil.which("bd")`, so on a runner without the binary they
+  short-circuit onto the fail-open path and their assertions fail. Fixed by installing the pinned
+  upstream release binary (`0c65d69`) rather than stubbing one — `_bd_on_path()` is evaluated at
+  import time and gates the cases that drive a genuine `bd` database, so a stub would un-skip
+  exactly the tests it cannot satisfy. CI green with all 162 cases executing, not skipping.
 - End-to-end against a real `bd` database in a scratch project: `bd list` went from
   `No issues found.` (the reported symptom, verbatim) to an epic plus one issue per `<task>`, with
   `beads_epic` and both `<beads-id>` elements written back into `PLAN.md`. A second identical hook
