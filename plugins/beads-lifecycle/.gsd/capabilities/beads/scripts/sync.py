@@ -37,6 +37,18 @@ ACTION_RE = re.compile(r"<action>(.*?)</action>", re.DOTALL)
 VERIFY_RE = re.compile(r"<verify>(.*?)</verify>", re.DOTALL)
 ACCEPTANCE_CRITERIA_RE = re.compile(r"<acceptance_criteria>(.*?)</acceptance_criteria>", re.DOTALL)
 DONE_RE = re.compile(r"<done>(.*?)</done>", re.DOTALL)
+# CR-01: checkpoint:decision/checkpoint:human-verify field regexes -- D-03
+# excludes these tasks from strip_task_bodies but NOT from resolve_issue's
+# create path, so their real content must be extractable too, feeding
+# _checkpoint_task_description() rather than _task_description() (which only
+# knows the auto/tracer field set above).
+DECISION_RE = re.compile(r"<decision>(.*?)</decision>", re.DOTALL)
+CONTEXT_RE = re.compile(r"<context>(.*?)</context>", re.DOTALL)
+OPTIONS_RE = re.compile(r"<options>(.*?)</options>", re.DOTALL)
+SELECTION_PROMPT_RE = re.compile(r"<selection-prompt>(.*?)</selection-prompt>", re.DOTALL)
+WHAT_BUILT_RE = re.compile(r"<what-built>(.*?)</what-built>", re.DOTALL)
+HOW_TO_VERIFY_RE = re.compile(r"<how-to-verify>(.*?)</how-to-verify>", re.DOTALL)
+RESUME_SIGNAL_RE = re.compile(r"<resume-signal>(.*?)</resume-signal>", re.DOTALL)
 # TASK_TYPE_RE is the only regex here that reads an XML *attribute* rather
 # than a tag body -- run it against a TASK_RE match's whole block
 # (m.group(0)), same way NAME_RE.search(block) etc. already run (D-03).
@@ -187,6 +199,13 @@ def parse_plan(path):
         verify_m = VERIFY_RE.search(block)
         acceptance_criteria_m = ACCEPTANCE_CRITERIA_RE.search(block)
         done_m = DONE_RE.search(block)
+        decision_m = DECISION_RE.search(block)
+        context_m = CONTEXT_RE.search(block)
+        options_m = OPTIONS_RE.search(block)
+        selection_prompt_m = SELECTION_PROMPT_RE.search(block)
+        what_built_m = WHAT_BUILT_RE.search(block)
+        how_to_verify_m = HOW_TO_VERIFY_RE.search(block)
+        resume_signal_m = RESUME_SIGNAL_RE.search(block)
         files = (
             [f.strip() for f in files_m.group(1).split(",") if f.strip()]
             if files_m
@@ -208,6 +227,18 @@ def parse_plan(path):
                     acceptance_criteria_m.group(1).strip() if acceptance_criteria_m else ""
                 ),
                 "done": done_m.group(1).strip() if done_m else "",
+                # CR-01: checkpoint:decision/checkpoint:human-verify content,
+                # empty for every auto/tracer task -- consumed only by
+                # _checkpoint_task_description().
+                "decision": decision_m.group(1).strip() if decision_m else "",
+                "context": context_m.group(1).strip() if context_m else "",
+                "options": options_m.group(1).strip() if options_m else "",
+                "selection_prompt": (
+                    selection_prompt_m.group(1).strip() if selection_prompt_m else ""
+                ),
+                "what_built": what_built_m.group(1).strip() if what_built_m else "",
+                "how_to_verify": how_to_verify_m.group(1).strip() if how_to_verify_m else "",
+                "resume_signal": resume_signal_m.group(1).strip() if resume_signal_m else "",
             }
         )
     return text, frontmatter, tasks
@@ -367,6 +398,35 @@ def _task_description(task):
         sections.append(f"## Done\n{task['done']}")
     if task["files"]:
         sections.append("## Files\n" + "\n".join(f"- {f}" for f in task["files"]))
+    return "\n\n".join(sections) + ("\n" if sections else "")
+
+
+def _checkpoint_task_description(task):
+    """Fold a checkpoint:decision/checkpoint:human-verify task's real content
+    into one `-d` prose string (CR-01), same "## section, only when non-empty"
+    shape as `_task_description` -- but a distinct field set, since D-03 keeps
+    checkpoint content in its own tags (`<decision>`/`<context>`/`<options>`/
+    `<selection-prompt>` for checkpoint:decision, `<what-built>`/
+    `<how-to-verify>`/`<resume-signal>` for checkpoint:human-verify) rather
+    than the auto/tracer shape `_task_description` reads. `resolve_issue`
+    dispatches here for any `checkpoint:*`-typed task so its `bd create -d`
+    is never the auto/tracer renderer's empty string for fields it doesn't
+    know about (16-01-PLAN.md's D-06 must-have: a non-empty description)."""
+    sections = []
+    if task.get("decision"):
+        sections.append(f"## Decision\n{task['decision']}")
+    if task.get("context"):
+        sections.append(f"## Context\n{task['context']}")
+    if task.get("options"):
+        sections.append(f"## Options\n{task['options']}")
+    if task.get("selection_prompt"):
+        sections.append(f"## Selection Prompt\n{task['selection_prompt']}")
+    if task.get("what_built"):
+        sections.append(f"## What Built\n{task['what_built']}")
+    if task.get("how_to_verify"):
+        sections.append(f"## How To Verify\n{task['how_to_verify']}")
+    if task.get("resume_signal"):
+        sections.append(f"## Resume Signal\n{task['resume_signal']}")
     return "\n\n".join(sections) + ("\n" if sections else "")
 
 
@@ -773,7 +833,20 @@ def resolve_issue(task, epic_id, ordinal_prefix, task_index):
             return task["beads_id"], False, True
         return task["beads_id"], False, False
     title = f"{ordinal_prefix}.{task_index} {task['name']}"
-    argv = ["bd", "create", title, "-d", _task_description(task)]
+    # CR-01: a checkpoint:*-typed task's real content lives in its own field
+    # set (decision/context/options/... or what-built/how-to-verify/...),
+    # never in the auto/tracer fields _task_description reads -- dispatch to
+    # the matching renderer so a checkpoint task's -d is never empty. The
+    # `if description` guard (matching resolve_epic's existing discipline)
+    # is kept as a second line of defense even though both renderers already
+    # return "" only when every source field is empty.
+    if task.get("type", "").startswith("checkpoint:"):
+        description = _checkpoint_task_description(task)
+    else:
+        description = _task_description(task)
+    argv = ["bd", "create", title]
+    if description:
+        argv += ["-d", description]
     if task["acceptance_criteria"]:
         argv += ["--acceptance", task["acceptance_criteria"]]
     argv += ["--type", "task", "--parent", epic_id, "--silent"]

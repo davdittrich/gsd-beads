@@ -443,6 +443,68 @@ class TestCreateIssues(unittest.TestCase):
         self.assertEqual(len(task_creates), 1)
         self.assertNotIn("--acceptance", task_creates[0])
 
+    @mock.patch("subprocess.run")
+    def test_checkpoint_decision_task_create_argv_carries_real_content(self, mock_run):
+        """CR-01: a checkpoint:decision task with no <beads-id> flows through
+        resolve_issue's `bd create` path (D-03 excludes checkpoint tasks from
+        strip_task_bodies only, never from issue creation) -- its -d must
+        carry the task's real <decision>/<context>/<options>/
+        <selection-prompt> content, never an empty string, closing the
+        content-parity gap CR-01 identified (no prior test exercised this
+        create path for a checkpoint task -- TestStripTaskBodies's checkpoint
+        fixtures are pre-seeded with a <beads-id> and only exercise the
+        early-return branch)."""
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_text = """---
+phase: 01-substrate
+plan: 01
+type: execute
+wave: 1
+depends_on: []
+autonomous: true
+requirements: [B1]
+---
+
+<objective>
+Checkpoint-only fixture for TestCreateIssues -- no beads-id on the task.
+</objective>
+
+<tasks>
+
+<task type="checkpoint:decision" gate="blocking">
+  <name>Task 1: Approve the approach</name>
+  <decision>Pick an approach.</decision>
+  <context>
+    Some context here.
+  </context>
+  <options>
+    <option id="a">
+      <name>Option A</name>
+    </option>
+  </options>
+  <selection-prompt>Which option?</selection-prompt>
+</task>
+
+</tasks>
+"""
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        task_creates = self._create_argvs(mock_run.call_args_list, "task")
+        self.assertEqual(len(task_creates), 1)
+        argv = task_creates[0]
+        self.assertIn("-d", argv)
+        description = argv[argv.index("-d") + 1]
+        self.assertTrue(description.strip())
+        self.assertIn("## Decision", description)
+        self.assertIn("Pick an approach.", description)
+        self.assertIn("## Context", description)
+        self.assertIn("## Options", description)
+        self.assertIn("## Selection Prompt", description)
+        self.assertIn("Which option?", description)
+
 
 def _strip_test_plan_text():
     """A plan carrying one of every shape strip_task_bodies must decide
@@ -820,6 +882,59 @@ class TestTaskDescription(unittest.TestCase):
         description = sync._task_description(task)
         self.assertNotIn("- src/example.py exists", description)
         self.assertNotIn("acceptance", description.lower())
+
+
+class TestCheckpointTaskDescription(unittest.TestCase):
+    """CR-01: _checkpoint_task_description(task) renders a checkpoint task's
+    decision/human-verify fields, mirroring _task_description's "## section,
+    only when non-empty" shape but reading a distinct field set."""
+
+    def test_decision_task_emits_every_non_empty_section(self):
+        task = {
+            "decision": "Pick an approach.",
+            "context": "Some context here.",
+            "options": "<option id=\"a\"><name>Option A</name></option>",
+            "selection_prompt": "Which option?",
+            "what_built": "",
+            "how_to_verify": "",
+            "resume_signal": "",
+        }
+        description = sync._checkpoint_task_description(task)
+        self.assertIn("## Decision\nPick an approach.", description)
+        self.assertIn("## Context", description)
+        self.assertIn("## Options", description)
+        self.assertIn("## Selection Prompt\nWhich option?", description)
+        self.assertNotIn("## What Built", description)
+        self.assertNotIn("## How To Verify", description)
+        self.assertNotIn("## Resume Signal", description)
+
+    def test_human_verify_task_emits_its_own_fields(self):
+        task = {
+            "decision": "",
+            "context": "",
+            "options": "",
+            "selection_prompt": "",
+            "what_built": "Nothing yet.",
+            "how_to_verify": "1. Do this.",
+            "resume_signal": 'Type "verified".',
+        }
+        description = sync._checkpoint_task_description(task)
+        self.assertIn("## What Built\nNothing yet.", description)
+        self.assertIn("## How To Verify", description)
+        self.assertIn("## Resume Signal", description)
+        self.assertNotIn("## Decision", description)
+
+    def test_empty_checkpoint_task_returns_empty_string(self):
+        task = {
+            "decision": "",
+            "context": "",
+            "options": "",
+            "selection_prompt": "",
+            "what_built": "",
+            "how_to_verify": "",
+            "resume_signal": "",
+        }
+        self.assertEqual(sync._checkpoint_task_description(task), "")
 
 
 class TestEpicDescription(unittest.TestCase):
