@@ -32,7 +32,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 Phase: Milestone v1.2 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-19 — Milestone v1.2 completed and archived
+Last activity: 2026-08-19 — Completed quick task 260819-e7a: Revise README.md with a full gsd-beads configuration reference section
 
 ## Performance Metrics
 
@@ -159,6 +159,7 @@ None yet.
 |---|-------------|------|--------|--------|-----------|
 | 260815-mm8 | Fix gsd-beads-uh1 and gsd-beads-bgb | 2026-08-15 | cb0741e | | [260815-mm8](./quick/260815-mm8-fix-gsd-beads-uh1-create-issues-epic-per/) |
 | 260818-h2h | Fix gsd-beads-1iq: scope beads-lifecycle marketplace source to exclude sota-numerics/ponytail dev copies | 2026-08-18 | 4d83504 | Verified | [260818-h2h](./quick/260818-h2h-fix-gsd-beads-1iq-scope-beads-lifecycle-/) |
+| 260819-e7a | Revise README.md with a full gsd-beads configuration reference section | 2026-08-19 | 640ccc3 | | [260819-e7a](./quick/260819-e7a-revise-readme-md-with-a-full-gsd-beads-c/) |
 
 ## Deferred Items
 
