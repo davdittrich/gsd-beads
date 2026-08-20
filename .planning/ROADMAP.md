@@ -380,3 +380,45 @@ must re-prove the two-tree identity and test-count guards before the next begins
 | TRUTH-04 | Phase 17 | 17-01 | `gsd-beads-bzl` (P1) |
 
 v1.3 requirements: 4 total, 4 mapped, 0 unmapped ✓
+
+### Phase 18: Address tech debt: patch-check doc accuracy + CHANGELOG
+
+**Goal:** Every claim this capability makes about itself is true again, and nothing withdrawn,
+stale, or already-fixed is still resolving: the patch-check docstring matches the code, every
+patch-check problem message is uniformly marked and no consumer depends on that mark, the
+CHANGELOG documents all four of Phase 17's requirements and files its own entries correctly, both
+version declarations match what `main` actually carries, the withdrawn `v1.3.0` tag is gone, the
+four already-shipped bd issues are closed, and both machine-local gsd-core patches are live again
+on both runtime homes.
+
+**Requirements**: None — this phase maps to no REQUIREMENTS.md ID. Its scope is audit-sourced:
+`17-REVIEW.md` WR-01/WR-02/WR-03 (confirmed still open by `.planning/v1.3-MILESTONE-AUDIT.md`),
+Ship-step checks #1/#2/#3/#4 from the Phase 17 section above, and a live bd-staleness finding
+surfaced by this phase's own `beads-recall` dispatch. Decisions D-01..D-09 in `18-CONTEXT.md`.
+**Depends on:** Phase 17
+**Plans:** 4 plans
+
+Plans:
+
+**Wave 1**
+
+- [ ] 18-01-PLAN.md — reapply both machine-local gsd-core patches to both live runtime homes,
+  reconcile the backup, and name the reapply-verification mechanism in `GSD-CORE-PATCH.md` (D-08).
+  Highest urgency in the phase: both homes are currently unpatched, so `ship_override` does not
+  fire and `gsd-executor` cannot read task content from `bd` for any phase, and the repo's own
+  suite reports 6 failures because of it.
+- [ ] 18-02-PLAN.md — close the four already-shipped Phase 17 bd issues with verified identity, and
+  delete the withdrawn `v1.3.0` tag from `origin` behind a one-way `checkpoint:decision`
+  (D-09, D-07). Closes Ship-step check #3.
+
+**Wave 2** *(blocked on 18-01: the suite-green gate cannot pass until the local patch is restored)*
+
+- [ ] 18-03-PLAN.md — mark all four unmarked `PATCH_CHECKS` problem messages with per-target tests,
+  re-key both SKILL.md surfacing rules to `check-patch`'s exit code, and correct the false
+  output-stream claim at both sites where it is made (D-01, D-02, D-03). Closes WR-01 and WR-02.
+
+**Wave 3** *(blocked on 18-01, 18-02, 18-03 — it documents what they shipped)*
+
+- [ ] 18-04-PLAN.md — add the missing TRUTH-03 entry plus Phase 18's own changes to CHANGELOG 0.4.0,
+  refile the 0.3.1 hook-timeout reduction under a correct heading, and bump `plugin.json` to
+  `1.4.0` (D-04, D-05, D-06). Closes WR-03 and Ship-step checks #1 and #2.
