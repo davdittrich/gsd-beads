@@ -9,6 +9,9 @@
 - A region-scoped, fence-aware, fail-open probe (`check_native_step_dispatch`) gates `plan:post`/`verify:post` on gsd-core PR #3687's native `kind == "step"` dispatch, and `beads.sync_mode` now governs only the explicit `create-issues` CLI's destructive strip -- the hook path stays permanently non-stripping (D-03).
 - `beads.sync_mode` narrows to `["authoritative", "mirror"]` with both values now doing something distinct (mirror withholds the `create-issues` strip), and a project holding the retired `off` value gets exactly one `plan:pre` stdout notice -- never a write to its config, never an error.
 - `check_shipmd_patch` and `check_execute_plan_patch` now delegate to one parameterized `check_patch` reader over a `PATCH_CHECKS` table with per-entry version tokens, reached through a single collapsed `check-patch <target> [--path]` CLI verb (D-08 hard break, every caller updated in the same commit) -- closing the blind spot that let commit `966315a` move a marker from v1 to v2 with the suite still reporting green.
+- Phase 18 (tech debt, no REQUIREMENTS.md IDs): both machine-local gsd-core patches reapplied and verified live on both runtime homes, four stale Phase 17 bd issues closed with verified identity, withdrawn `v1.3.0` tag deleted from `origin` and locally behind a live-confirmed `checkpoint:decision`, CHANGELOG/`plugin.json` accuracy gaps closed. A follow-up quick task (260820-j6g) closed the standalone-issue reconciliation gap Phase 18 itself surfaced.
+
+**Known verification overrides:** 2 newly acknowledged, 0 carried forward from a prior close — both are Phase 12 (archived v1.1) items unrelated to this milestone's own work: a pending UAT scenario and a `human_needed` verification gap. See STATE.md Deferred Items.
 
 ---
 
