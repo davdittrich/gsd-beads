@@ -242,6 +242,41 @@ reinstall strips the patch, paste this block back in at the anchor above.
 <!-- /gsd-beads-patch:execute-plan-bd-task-read v1 -->
 ````
 
+## Reapply verification: two independent mechanisms
+
+This document's own patch sections above read as if pasting the "Patch Content (verbatim)"
+block back in by hand is the only way to recover from a lost patch. It is not — two
+verification mechanisms exist to confirm whether a reapply actually landed, and neither is
+mentioned above. Named here (D-08.3), not restated: see each patch's own "Patch-loss detection
+is independent of the patch itself" subsection (Patch 1's, above; Patch 2's, above) for how
+`plan:pre` detection stays independent of the patch it protects — this section is about which
+tool answers "did the reapply land," not about when the check runs.
+
+1. **`verify-reapply-patches.cjs`** — a gsd-core-provided checker under `bin/` in each runtime
+   home (`$HOME/{.claude,.codex}/gsd-core/bin/verify-reapply-patches.cjs`), driven by
+   `/gsd-update --reapply` against the `~/.claude/gsd-local-patches/` backup. Known limitation
+   from direct observation (not the ROADMAP's paraphrase): across a `gsd-core` version change,
+   most of its reported "missing" lines are base-workflow text that legitimately changed between
+   versions, not lost patch content — its signal-to-noise is poor, and it must not be treated as
+   the sole verdict on whether a patch survived.
+2. **`sync.py check-patch <ship-md|execute-plan> [--path]`** — this capability's own detector,
+   and the authoritative answer to "did the reapply land." It tests for the marker string alone,
+   so it is unaffected by base-version churn the way (1) is. Returns 0 when the marker is
+   present, 1 when it is absent or the target file is unreadable. The `--path` flag overrides the
+   probed file, which is how to check a runtime home other than the one `CLAUDE_CONFIG_DIR`
+   resolves to — the unflagged default probes exactly one home, and this machine runs two
+   (`~/.claude` and `~/.codex`).
+
+Two facts this phase established that the sections above do not state:
+
+- An automatic `gsd-core` update can back up the patched files and then install unpatched ones
+  in the same pass — both halves happen silently, with no error surfaced. When that happens, the
+  backup under `~/.claude/gsd-local-patches/` is a valid byte-exact reapply oracle (`diff` against
+  it should be empty after reapplying), but only for the runtime home it was taken from.
+- The two runtime homes are separately templated (see each patch's own body for the exact
+  divergent tokens). Neither the backup nor a live patched file may be copied across homes —
+  only the marker-bracketed block itself, inserted independently at each home's own anchor.
+
 ## Probe (not a patch): native `kind == "step"` dispatch detection (PR #3687)
 
 **Target files (read-only):** `$HOME/.claude/gsd-core/workflows/plan-phase.md` and
