@@ -139,6 +139,21 @@ LIFECYCLE_DISPATCH_POINTS = (
     "execute:wave:post",
     "verify:post",
 )
+# 17-02 Task 1 (D-05): gsd-core PR #3687 (merged to `next` 2026-08-19,
+# unreleased as of 1.11.0) adds native generic `kind == "step"` dispatch at
+# these two points only -- `check_native_step_dispatch` probes the installed
+# workflow file each maps onto, scoped to the point's own
+# `render-hooks <point> --raw` region so it does not false-positive on the
+# unrelated `kind == "step"`/`kind == "gate"` mentions both shipped 1.11.0
+# files carry outside that region. `execute:wave:pre`/`execute:wave:post`
+# are deliberately absent -- no upstream work covers them anywhere.
+NATIVE_STEP_DISPATCH_WORKFLOW_FILES = {
+    "plan:post": "plan-phase.md",
+    "verify:post": "verify-work.md",
+}
+NATIVE_STEP_DISPATCH_REGION_LINES = 120
+_GENERIC_STEP_KIND_RE = re.compile(r'\bkind\s*==\s*"step"')
+_STEP_QUALIFIER_RE = re.compile(r'\b(?:capId\s*==|ref\.skill\s*==)')
 # B13/D-08: on-demand `status` with no phase_dir argument resolves the
 # current/last-active phase from STATE.md's frontmatter -- single-token
 # style matching BEADS_EPIC_RE.
@@ -677,7 +692,7 @@ def read_beads_config(project_root, key, default):
     return value if isinstance(value, type(default)) else default
 
 
-# The two accessors below exist so each shipped default is written down exactly
+# The accessors below exist so each shipped default is written down exactly
 # once, next to the key it belongs to, and matches capability.json's `config`
 # block. Inlining them would scatter the defaults across call sites.
 def read_epic_per(project_root):
@@ -688,6 +703,17 @@ def read_epic_per(project_root):
 def read_beads_enabled(project_root):
     """gh-2: `beads.enabled`, default `True` (capability.json since 0.2.0)."""
     return read_beads_config(project_root, "enabled", True)
+
+
+def read_sync_mode(project_root):
+    """17-02 Task 3 (D-06): `beads.sync_mode`, default `"authoritative"`
+    (matches capability.json's declared default). Governs ONLY the explicit
+    native `create-issues` CLI path's strip permission -- `main()`'s
+    create-issues dispatch compares this against the mirror value.
+    `lifecycle_dispatch`'s plan:post branch never calls this: the hook's
+    `allow_strip=False` stays a literal, ungated by config (D-03). See
+    `create_issues`' docstring for the full asymmetry."""
+    return read_beads_config(project_root, "sync_mode", "authoritative")
 
 
 # TRUTH-04/D-07: a phase number (`"1.5"`, `"01.5"`, `"10.1"`, `"07"`) is
@@ -782,6 +808,18 @@ def lifecycle_dispatch(point):
             check_shipmd_patch()
             check_execute_plan_patch()
         elif point == "plan:post":
+            # 17-02 Task 1 (D-05): gsd-core PR #3687 adds native generic
+            # kind == "step" dispatch here -- stand down rather than
+            # double-dispatch once it is detected on the installed
+            # workflow file. execute:wave:pre/execute:wave:post are
+            # deliberately NOT gated: no upstream work covers them anywhere.
+            if check_native_step_dispatch("plan:post"):
+                print(
+                    "lifecycle-dispatch plan:post: gsd-core now dispatches this point "
+                    "natively (PR #3687) -- skipped",
+                    file=sys.stderr,
+                )
+                return 0
             plans = discover_plan_files(phase_dir)
             if not plans:
                 # stderr for the same reason as the unresolved-phase skip above.
@@ -797,6 +835,14 @@ def lifecycle_dispatch(point):
         elif point == "execute:wave:post":
             reconcile_stale_closed(str(phase_dir))
         elif point == "verify:post":
+            # 17-02 Task 2: same native-dispatch gate as plan:post above.
+            if check_native_step_dispatch("verify:post"):
+                print(
+                    "lifecycle-dispatch verify:post: gsd-core now dispatches this point "
+                    "natively (PR #3687) -- skipped",
+                    file=sys.stderr,
+                )
+                return 0
             regenerate_beads_md(str(phase_dir))
     except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
         print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})")
@@ -1337,14 +1383,27 @@ def create_issues(plan_arg, allow_strip=True):
     """`allow_strip=False` keeps every `<task>` body in PLAN.md even when the
     read-path patch is present (gh-2). `strip_task_bodies` is a deliberate,
     destructive migration: it moves the ONLY copy of a task's content into a bd
-    database the project may be gitignoring. An unattended harness hook that
-    fired on a substring of a shell command is the wrong principal to authorize
-    that, so `lifecycle_dispatch` passes False; an explicit
-    `sync.py create-issues <plan>` keeps the default.
+    database the project may be gitignoring.
 
-    Note the strip is NOT gated on `beads.sync_mode` -- that key is declared in
-    capability.json and read by nothing (gsd-beads-v43). The only
-    gate is `check_execute_plan_patch()` below, plus this flag.
+    17-02 Task 3 (D-06) asymmetry -- which caller computes this flag from
+    what, and why:
+    - `lifecycle_dispatch`'s plan:post branch passes the literal `False`,
+      never consulting config. Its trigger is a substring of a shell
+      command, so a spurious fire is always possible, and an unattended
+      harness hook is the wrong principal to authorize an irreversible
+      deletion regardless of what a config file says (D-03). This is the
+      answer to the v1.3.0 incident and it does not change here.
+    - `main()`'s `create-issues` CLI dispatch computes this flag from
+      `read_sync_mode(project_root)`: `mirror` withholds the strip,
+      every other value (including the shipped `authoritative` default, no
+      config file at all, and the retired `off` value) behaves as before
+      this task. An explicit CLI invocation is a different, stronger
+      principal than a string-matched hook, so it is the one path config is
+      allowed to govern.
+
+    Either way, `check_execute_plan_patch() == 0` below is the last-line-of-
+    defence re-gate: config and this flag can only ever subtract permission
+    from a run whose patch is missing, never add it back.
     """
     if not bd_available():
         print(NOTICE)
@@ -2222,6 +2281,127 @@ def check_execute_plan_patch(execute_plan_path_override=None):
     return 1
 
 
+def check_native_step_dispatch(point, workflow_path_override=None):
+    """D-05 diagnostic (17-02 Task 1): report whether the installed gsd-core
+    workflow file now dispatches `kind == "step"` hooks natively at this
+    lifecycle point -- gsd-core PR #3687 (merged to `next` 2026-08-19,
+    unreleased as of the installed 1.11.0), which `lifecycle_dispatch` needs
+    to know so it can stand down at `plan:post`/`verify:post` rather than
+    double-dispatch alongside gsd-core's own native loop.
+
+    Opposite polarity from check_shipmd_patch/check_execute_plan_patch just
+    above: those ask "is our local patch still here" (missing is bad); this
+    asks "does upstream now do this natively" (present means the hook is
+    redundant here). Kept a SEPARATE function rather than a shared table
+    with those two for exactly that reason -- sharing one table would
+    produce a misleading unified pass/fail semantic.
+
+    Region-scoped, not whole-file: a whole-file `kind == "step"` grep is a
+    verified false positive on both shipped 1.11.0 workflow files --
+    `plan-phase.md` carries three unrelated occurrences outside the
+    `plan:post` region (the plan:pre generic contract, the auto-chain UI
+    branch, the intel step read) and `verify-work.md`'s own `verify:post`
+    region already carries one qualified to `ref.skill == "secure-phase"`.
+    The region is anchored on the point's own literal
+    `render-hooks <point> --raw` call and ends at the earlier of the next
+    non-fenced level-two heading or `NATIVE_STEP_DISPATCH_REGION_LINES`
+    lines past the anchor -- fence awareness matters because
+    `verify-work.md` prints heading-shaped lines inside fenced output
+    templates, which would otherwise terminate the region far too early.
+
+    Every miss -- unmapped point, missing file, unreadable file, no anchor,
+    no qualifying line in the region -- returns 0 (not detected), which
+    degrades to today's working double dispatch: the only acceptable
+    failure direction (D-05). Never raises.
+
+    WR-03: only the Claude runtime home (`CLAUDE_CONFIG_DIR`, default
+    `~/.claude`) is probed, matching the two patch checkers above; every
+    message names the exact path checked. Unlike those two (which print to
+    stdout, since their only caller today is plan:pre, an already-active
+    dispatch point), this probe's own diagnostics print to stderr: it is
+    called unconditionally at the top of the plan:post/verify:post
+    branches, before either knows whether there is anything to do, and
+    stdout is what a PostToolUse hook promotes into Claude's context -- a
+    benign "not detected, continuing as normal" diagnostic must not turn a
+    silent no-op (e.g. no PLAN.md in the phase) into per-call noise there.
+    """
+    filename = NATIVE_STEP_DISPATCH_WORKFLOW_FILES.get(point)
+    if filename is None:
+        return 0
+    if workflow_path_override:
+        workflow_path = Path(workflow_path_override)
+    else:
+        workflow_path = (
+            Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+            / "gsd-core"
+            / "workflows"
+            / filename
+        )
+    if not workflow_path.exists():
+        print(
+            f"native-step-dispatch probe ({point}): {workflow_path} not found -- "
+            "assuming not detected, lifecycle-dispatch keeps dispatching",
+            file=sys.stderr,
+        )
+        return 0
+    try:
+        text = workflow_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(
+            f"native-step-dispatch probe ({point}): {workflow_path} could not be read "
+            f"({exc}) -- assuming not detected, lifecycle-dispatch keeps dispatching",
+            file=sys.stderr,
+        )
+        return 0
+
+    anchor_literal = f"render-hooks {point} --raw"
+    lines = text.splitlines()
+    anchor_idx = next((i for i, line in enumerate(lines) if anchor_literal in line), None)
+    if anchor_idx is None:
+        print(
+            f"native-step-dispatch probe ({point}): no '{anchor_literal}' anchor found in "
+            f"{workflow_path} -- assuming not detected, lifecycle-dispatch keeps dispatching",
+            file=sys.stderr,
+        )
+        return 0
+
+    # Fence parity carries across the anchor: the anchor line itself commonly
+    # sits inside a ```bash ... ``` block opened BEFORE it (the shipped
+    # shape), so the closing fence line immediately after the anchor must
+    # not be mistaken for an opening one.
+    in_fence = False
+    for i in range(anchor_idx):
+        if lines[i].strip().startswith("```"):
+            in_fence = not in_fence
+
+    region_limit = min(anchor_idx + 1 + NATIVE_STEP_DISPATCH_REGION_LINES, len(lines))
+    region_end = region_limit
+    for i in range(anchor_idx + 1, region_limit):
+        line = lines[i]
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and re.match(r"^##\s", line):
+            region_end = i
+            break
+
+    for line in lines[anchor_idx:region_end]:
+        if _GENERIC_STEP_KIND_RE.search(line) and not _STEP_QUALIFIER_RE.search(line):
+            print(
+                f"native-step-dispatch probe ({point}): detected at {workflow_path} -- "
+                "lifecycle-dispatch standing down for this point",
+                file=sys.stderr,
+            )
+            return 1
+
+    print(
+        f"native-step-dispatch probe ({point}): not detected at {workflow_path} -- "
+        "lifecycle-dispatch continues dispatching",
+        file=sys.stderr,
+    )
+    return 0
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="sync.py")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -2292,7 +2472,19 @@ def main(argv=None):
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
     if args.command == "create-issues":
-        return create_issues(args.plan_path)
+        # 17-02 Task 3 (D-06): the explicit CLI path's strip permission is
+        # governed by beads.sync_mode -- the hook path (lifecycle_dispatch)
+        # never reaches this branch and stays ungated by design (D-03).
+        # Fail-open: an unresolvable project root falls back to the
+        # shipped authoritative default rather than raising.
+        try:
+            sync_mode_root = find_project_root(Path(args.plan_path).resolve().parent)
+        except ValueError:
+            sync_mode_root = None
+        sync_mode = (
+            read_sync_mode(sync_mode_root) if sync_mode_root is not None else "authoritative"
+        )
+        return create_issues(args.plan_path, allow_strip=(sync_mode != "mirror"))
     if args.command == "close-wave":
         return close_wave(args.phase_dir, args.plan_ids)
     if args.command == "reconcile-stale-closed":

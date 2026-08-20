@@ -88,7 +88,7 @@ gsd-core 1.11.0 made reachable.
 
 ### Forward Compatibility
 
-- [ ] **TRUTH-03**: The `lifecycle-dispatch` PostToolUse hook stays correct when gsd-core ships
+- [x] **TRUTH-03**: The `lifecycle-dispatch` PostToolUse hook stays correct when gsd-core ships
   PR **#3687**, which adds native generic `kind: "step"` dispatch at `plan:post` and
   `verify:post`. Merged to `next` 2026-08-19T20:41:28Z; unreleased as of v1.11.0.
 
@@ -159,7 +159,7 @@ Deferred, tracked, not in this roadmap.
 |-------------|-------|------|-----|--------|
 | TRUTH-01 | Phase 17 | 17-03 | `gsd-beads-v43` (P1) | Pending |
 | TRUTH-02 | Phase 17 | 17-04 | `gsd-beads-t7a` (P3) | Pending |
-| TRUTH-03 | Phase 17 | 17-02 | `gsd-beads-he1` (P1) | Pending |
+| TRUTH-03 | Phase 17 | 17-02 | `gsd-beads-he1` (P1) | Complete |
 | TRUTH-04 | Phase 17 | 17-01 | `gsd-beads-bzl` (P1) | Complete |
 
 Plan order is deliberate and argued in ROADMAP.md Phase 17: TRUTH-04 first (P1, silent failure,
