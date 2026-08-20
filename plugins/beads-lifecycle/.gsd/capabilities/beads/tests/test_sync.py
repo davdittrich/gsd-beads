@@ -3259,6 +3259,38 @@ class TestCheckShipmdPatch(unittest.TestCase):
         self.assertEqual(exit_code, 1)
         self.assertIn("could not be read", captured.getvalue())
 
+    def test_never_writes_to_target_file(self):
+        """D-09: mirrors TestCheckExecutePlanPatch's never-writes test,
+        target-swapped -- the ship-md counterpart did not exist before this
+        task."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ship_md = Path(tmp) / "ship.md"
+            original = f"...preamble...\n{sync.SHIP_MD_PATCH_MARKER}\n...body...\n"
+            ship_md.write_text(original, encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_shipmd_patch(str(ship_md))
+            self.assertEqual(ship_md.read_text(encoding="utf-8"), original)
+
+    def test_cli_routes_through_main_and_returns_function_exit_code(self):
+        """D-09: mirrors TestCheckExecutePlanPatch's CLI-level test,
+        target-swapped -- a repo-wide search for the ship-md flag spelling
+        returned zero matches in tests/test_sync.py before this task.
+        Written against today's verb spelling (check-shipmd-patch,
+        --ship-md-path); Task 3 updates this to the collapsed verb as a
+        visible diff."""
+        with tempfile.TemporaryDirectory() as tmp:
+            ship_md = Path(tmp) / "ship.md"
+            ship_md.write_text(f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.main(
+                    ["check-shipmd-patch", "--ship-md-path", str(ship_md)]
+                )
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("present", captured.getvalue())
+
 
 class TestCheckExecutePlanPatch(unittest.TestCase):
     """16-03 Task 1: check_execute_plan_patch mirrors check_shipmd_patch's
@@ -3340,6 +3372,80 @@ class TestCheckExecutePlanPatch(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("present", captured.getvalue())
+
+
+class TestPatchChecksTable(unittest.TestCase):
+    """17-04 Task 1 (D-09/D-10): pre-merge coverage pinning the exact literal
+    marker strings, the per-entry version tokens in each present message, and
+    the consequence text in each missing message -- the blind spot commit
+    `966315a` exploited (moving SHIP_MD_PATCH_MARKER v1 -> v2 with the suite
+    still reporting 164/164 green, because no test asserted either marker's
+    literal string). Written against today's two standalone functions, before
+    Task 3's merge; Task 3 extends this class with the merged table's own
+    invariants and these assertions must survive byte-identically."""
+
+    def test_ship_md_marker_literal_string(self):
+        self.assertEqual(
+            sync.SHIP_MD_PATCH_MARKER,
+            "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->",
+        )
+
+    def test_execute_plan_marker_literal_string(self):
+        self.assertEqual(
+            sync.EXECUTE_PLAN_PATCH_MARKER,
+            "<!-- gsd-beads-patch:execute-plan-bd-task-read v1 -->",
+        )
+
+    def test_ship_md_and_execute_plan_markers_are_distinct(self):
+        self.assertNotEqual(sync.SHIP_MD_PATCH_MARKER, sync.EXECUTE_PLAN_PATCH_MARKER)
+
+    def test_ship_md_present_message_carries_v2_token(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ship_md = Path(tmp) / "ship.md"
+            ship_md.write_text(f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_shipmd_patch(str(ship_md))
+        self.assertIn("(v2)", captured.getvalue())
+
+    def test_execute_plan_present_message_carries_v1_token(self):
+        """Separate from the v2 assertion above so a shared-template merge
+        that quietly emits one version for both targets cannot mask this
+        failure with the other test's pass."""
+        with tempfile.TemporaryDirectory() as tmp:
+            execute_plan_md = Path(tmp) / "execute-plan.md"
+            execute_plan_md.write_text(
+                f"{sync.EXECUTE_PLAN_PATCH_MARKER}\n", encoding="utf-8"
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_execute_plan_patch(str(execute_plan_md))
+        self.assertIn("(v1)", captured.getvalue())
+
+    def test_ship_md_missing_message_names_ship_pre_gates_unaffected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ship_md = Path(tmp) / "ship.md"
+            ship_md.write_text("no patch marker in this file\n", encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_shipmd_patch(str(ship_md))
+        out = captured.getvalue()
+        self.assertIn("ship_override step will not fire", out)
+        self.assertIn("ship:pre GATES are", out)
+        self.assertIn("unaffected", out)
+
+    def test_execute_plan_missing_message_names_executor_consequence(self):
+        """Separate from the ship-md consequence assertion above so a merge
+        that collapses both consequence strings into one shared sentence
+        cannot pass this test on the other target's wording."""
+        with tempfile.TemporaryDirectory() as tmp:
+            execute_plan_md = Path(tmp) / "execute-plan.md"
+            execute_plan_md.write_text("no patch marker in this file\n", encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_execute_plan_patch(str(execute_plan_md))
+        out = captured.getvalue()
+        self.assertIn("gsd-executor will not read task content from bd", out)
 
 
 def _write_todo_pending_workspace(tmp_path, with_state=True):
