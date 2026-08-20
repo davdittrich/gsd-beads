@@ -26,6 +26,12 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   code); it is now honored. The next explicit `sync.py create-issues <plan>` in that project stops
   stripping task bodies — the behavior someone who wrote that value was asking for, but a live
   behavior change on upgrade, not a no-op.
+- **A project whose stored `sync_mode` falls outside the declared list (the retired `off` value,
+  or any other value) now gets exactly one notice.** `check_sync_mode_value` prints it on stdout
+  at the next `plan:pre` dispatch, naming the stored value, stating that the shipped
+  `authoritative` default applies — so task bodies may still be stripped once the read-path patch
+  gate passes — and giving the one-command remedy (`gsd-tools config-set beads.sync_mode
+  authoritative`, or `mirror`). Never an error; never writes to the project's config.
 - **Resolves the 0.3.1 Known-issue below**: `beads.sync_mode` is no longer declared-but-dead.
 
 ## 0.3.1
