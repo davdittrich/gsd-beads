@@ -21,6 +21,19 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   reports not-detected and degrades to the working double dispatch instead. Detects
   [open-gsd/gsd-core#3687](https://github.com/open-gsd/gsd-core/pull/3687), merged to `next` on
   2026-08-19 and unreleased at the time of writing (TRUTH-03).
+- **`resolves_issues:` frontmatter key lets `reconcile-stale-closed` close a standalone
+  problem-report bd issue that carries no `<beads-id>` anywhere.** A completed plan's `SUMMARY.md`
+  frontmatter may now declare `resolves_issues: ["id"]` (inline flow) or the block-list form
+  (`resolves_issues:` / `  - "id"`); `_resolve_marked_issue_ids` unions every marked id across the
+  phase into a second candidate set, issued through its own separately-reasoned `bd close` call
+  (`--reason "resolves_issues marker: <phase>"`, distinct from the existing `--reason
+  "phase-wide reconciliation: <phase>"`) so the two closure paths stay distinguishable in bd's
+  audit trail — the only forensic handle on a wrong close, since `.beads/` is untracked. Each raw
+  id is validated against `SAFE_BD_ID_RE` (leading alphanumeric, then `[A-Za-z0-9._-]*`) before it
+  can reach a `bd close` argv, and the marker search is restricted to the SUMMARY.md frontmatter
+  fence only — never the body — so a bd id merely *mentioned* in prose (e.g. as a newly filed
+  follow-up, the exact shape `18-02-SUMMARY.md` has for bd `gsd-beads-72u`) can never be closed.
+  Closes bd `gsd-beads-72u`.
 
 ### Fixed
 - **A decimal-numbered phase (`1.5`, `01.5`, `10.1`, `11.1` — the form `/gsd-phase --insert`
