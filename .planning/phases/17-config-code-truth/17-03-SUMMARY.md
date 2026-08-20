@@ -244,6 +244,16 @@ None - no external service configuration required.
 Ready for 17-04 (TRUTH-02, a checkpoint plan). This plan's scope (TRUTH-01) is closed: ROADMAP.md
 Phase 17 Success Criteria 1, 2, and 3 are all met by the coverage above.
 
+## Self-Check: PASSED
+
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py (SYNC_MODE_VALUES, _sanitize_notice_value, check_sync_mode_value)
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py (TestSyncModeDeclarationParity, TestSyncModeAdjacencyAndEncoding, TestCheckSyncModeValue)
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json (beads.sync_mode.values narrowed)
+- FOUND commit 29be614 (Task 1 RED)
+- FOUND commit 2184f51 (Task 1 GREEN)
+- FOUND commit a182cfb (Task 2 RED)
+- FOUND commit 804a662 (Task 2 GREEN)
+
 ---
 *Phase: 17-config-code-truth*
 *Completed: 2026-08-20*
