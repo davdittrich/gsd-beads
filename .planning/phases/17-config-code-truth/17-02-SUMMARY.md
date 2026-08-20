@@ -236,6 +236,19 @@ Ready for 17-03 (TRUTH-01). The `beads.sync_mode` accessor this plan introduces
 cross-decision note -- 17-03 owns the `capability.json` declaration change and the doc sweep;
 nothing here needs revisiting.
 
+## Self-Check: PASSED
+
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py (check_native_step_dispatch, read_sync_mode, native-dispatch gate branches)
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py (7 new test classes, 28 new methods)
+- FOUND: plugins/beads-lifecycle/.gsd/capabilities/beads/GSD-CORE-PATCH.md (new Probe section, `#3687` referenced 4x)
+- FOUND: .planning/phases/17-config-code-truth/17-02-SUMMARY.md
+- FOUND commit a80aeb8 (Task 1 RED)
+- FOUND commit 2e788ea (Task 1 GREEN)
+- FOUND commit 30e0ad6 (Task 2 RED)
+- FOUND commit 45146ac (Task 2 GREEN)
+- FOUND commit 4bef541 (Task 3 RED)
+- FOUND commit ca8cb36 (Task 3 GREEN)
+
 ---
 *Phase: 17-config-code-truth*
 *Completed: 2026-08-20*
