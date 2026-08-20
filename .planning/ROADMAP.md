@@ -313,7 +313,7 @@ Plans:
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
-- [ ] 17-02-PLAN.md — region-scoped native-dispatch probe gating `plan:post`/`verify:post`, and the `allow_strip` ruling wired to config on the explicit path only (TRUTH-03)
+- [x] 17-02-PLAN.md — region-scoped native-dispatch probe gating `plan:post`/`verify:post`, and the `allow_strip` ruling wired to config on the explicit path only (TRUTH-03)
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
@@ -362,7 +362,7 @@ must re-prove the two-tree identity and test-count guards before the next begins
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 17. Config/Code Truth | 1/4 | In Progress|  |
+| 17. Config/Code Truth | 2/4 | In Progress|  |
 
 ## Coverage
 
