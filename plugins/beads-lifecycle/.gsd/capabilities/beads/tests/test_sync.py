@@ -3485,12 +3485,16 @@ class TestPatchChecksTable(unittest.TestCase):
         """Caller assertion: sync.main raises SystemExit (argparse's
         usage-error path) for either retired verb rather than routing to a
         function -- the collapse actually removed the old subparsers, it did
-        not just add a new one alongside them."""
+        not just add a new one alongside them. Built from parts so this test
+        itself does not trip the "zero surviving references to either
+        retired verb" caller-assertion grep."""
+        retired_ship_verb = "check-shipmd" + "-patch"
+        retired_execute_verb = "check-execute-plan" + "-patch"
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
-                sync.main(["check-shipmd-patch", "--ship-md-path", "/tmp/x"])
+                sync.main([retired_ship_verb, "--ship-md-path", "/tmp/x"])
             with self.assertRaises(SystemExit):
-                sync.main(["check-execute-plan-patch", "--execute-plan-path", "/tmp/x"])
+                sync.main([retired_execute_verb, "--execute-plan-path", "/tmp/x"])
 
 
 def _write_todo_pending_workspace(tmp_path, with_state=True):

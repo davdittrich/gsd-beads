@@ -89,11 +89,11 @@ the signal to reapply the trimmed v2, not a false alarm.
 
 ### Patch-loss detection is independent of the patch itself (CR-01, 03-03 code review)
 
-`beads-status/SKILL.md`'s Step 2d runs `check-shipmd-patch` at `ship:pre`, but that call site is
+`beads-status/SKILL.md`'s Step 2d runs `check-patch ship-md` at `ship:pre`, but that call site is
 itself only reachable through the dispatch loop this patch installs — if a `gsd-core` update or
 capability reinstall silently strips the patch, Step 2d never runs either, so it *confirms* an
 intact patch immediately before a ship attempt but cannot *detect* a lost one. The actual detector
-is `beads-recall/SKILL.md`'s new Step 3.5, which runs the identical `check-shipmd-patch` call at
+is `beads-recall/SKILL.md`'s new Step 3.5, which runs the identical `check-patch ship-md` call at
 `plan:pre` — a lifecycle point dispatched by gsd-core's own native generic step-dispatch loop
 (the same kind of loop `ship:post` already has and `ship:pre` lacked before this patch), not by
 anything this patch installs. That independence is what makes Step 3.5 fire even when this patch
@@ -190,8 +190,9 @@ per-task read for resolving task content from an external tracker by id, this lo
 becomes unnecessary and should be deleted, not kept as permanent duplication. Delete all four
 artifacts together: the marker-bracketed block in `$HOME/.claude/gsd-core/workflows/execute-plan.md`,
 this section, `sync.py`'s `check_execute_plan_patch()` (and its `EXECUTE_PLAN_PATCH_MARKER`
-constant and `check-execute-plan-patch` subcommand), and `beads-recall/SKILL.md`'s Step 3.5 call
-to `check-execute-plan-patch`. Until then the patch runs locally and is re-verified every run.
+constant and its `PATCH_CHECKS["execute-plan"]` entry, reached via the `check-patch` CLI verb),
+and `beads-recall/SKILL.md`'s Step 3.5 call to `check-patch execute-plan`. Until then the patch
+runs locally and is re-verified every run.
 
 ### Patch-loss detection is independent of the patch itself
 

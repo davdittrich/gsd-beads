@@ -2,8 +2,6 @@
 
 > Generated from `.planning/intel/api-map.json`. Do not edit by hand.
 
-> **Warning:** api-map.json is stale (>24 hours old). Data below may be out of date.
-
 ## `CLI sync.py create-issues`
 
 - **method:** CLI
@@ -52,13 +50,13 @@
 - **file:** .gsd/capabilities/beads/scripts/sync.py
 - **description:** Record a beads.ship_gate=false bypass via `git commit --amend --trailer` (refuses if HEAD is already pushed) plus a best-effort `bd comment` mirror on the phase epic. Invoked at ship:pre when the ship gate is bypassed.
 
-## `CLI sync.py check-shipmd-patch`
+## `CLI sync.py check-patch`
 
 - **method:** CLI
-- **path:** sync.py check-shipmd-patch [--ship-md-path <path>]
-- **params:** --ship-md-path
+- **path:** sync.py check-patch <ship-md|execute-plan> [--path <path>]
+- **params:** target, --path
 - **file:** .gsd/capabilities/beads/scripts/sync.py
-- **description:** Read-only diagnostic: reports whether GSD-CORE-PATCH.md's ship:pre dispatch patch is present in the installed ship.md. Called from beads-status (ship:pre) and beads-recall (plan:pre).
+- **description:** Read-only diagnostic: reports whether the named GSD-CORE-PATCH.md patch (ship-md's ship:pre dispatch patch, or execute-plan's bd-task-read patch) is present in the installed target file. Replaces the retired check-shipmd-patch/check-execute-plan-patch verbs (17-04, D-08). Called from beads-status (ship:pre, ship-md only) and beads-recall (plan:pre, both targets).
 
 ## `CLI sync.py migrate-todos`
 

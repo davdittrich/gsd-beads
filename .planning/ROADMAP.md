@@ -120,15 +120,21 @@ sites, so **three previously-cited line numbers were wrong and are corrected her
    **without acting** — `config-set` validation does not qualify, because it fires only when a user
    re-writes a key they will never re-write.
 
-4. **One reader serves both patch checks, and neither published interface moves.** *(TRUTH-02)*
-   `check_shipmd_patch` (`sync.py:2049`) and `check_execute_plan_patch` (`sync.py:2114`) no longer
-   carry two copies of the same ~39-line body — the duplicated control flow exists once,
-   parameterized by `(filename, marker, marker_version, missing_reason)`. `sync.py` is measurably
-   shorter than its 2286-line baseline (~50 lines recoverable). **Both CLI subcommands and both
-   flag spellings survive**: `check-shipmd-patch --ship-md-path` and `check-execute-plan-patch
-   --execute-plan-path`. This is load-bearing and untested today — only `--execute-plan-path` is
-   pinned by a test, so unifying the CLI would keep the suite green while silently breaking
-   `beads-status/SKILL.md` Step 2d, which invokes `check-shipmd-patch` by name.
+4. **One reader serves both patch checks, and both Python function names survive.**
+   *(TRUTH-02)* `check_shipmd_patch` and `check_execute_plan_patch` no longer carry two copies of
+   the same ~39-line body — the duplicated control flow exists once, in a `PATCH_CHECKS` table plus
+   one parameterized reader (`check_patch`), each entry carrying its own `filename`, `marker`,
+   `version` and message templates. `sync.py` is measurably shorter than its plan-17-03-end
+   baseline. **One CLI verb reaches both targets**: `check-patch ship-md [--path]` and `check-patch
+   execute-plan [--path]` replace the two prior single-target verbs and their per-target
+   `--*-path` flags — a hard break with no alias window. Every caller (`beads-recall/SKILL.md`,
+   `beads-status/SKILL.md`, `GSD-CORE-PATCH.md`) was updated in the same commit as the CLI change,
+   and Task 1 of plan 17-04 landed the missing `--ship-md-path`-equivalent CLI coverage *before*
+   the break was possible (D-09), closing this criterion's original untested-load-bearing worry.
+   **D-08 (locked 2026-08-20, after a caller grep found no README exposure and no caller outside
+   this repo) supersedes this criterion's original "both CLI subcommands and both flag spellings
+   survive" clause** — what actually survives, and is what Criterion 5 depends on, is the two
+   *Python function names* as thin wrappers over the shared reader.
 
 5. **Every existing call site behaves identically, and the suite gains coverage rather than just
    staying green.** *(TRUTH-02)* All five call sites — the `lifecycle_dispatch` `plan:pre` pair at
