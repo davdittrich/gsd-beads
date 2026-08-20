@@ -73,9 +73,11 @@ python3 .gsd/capabilities/beads/scripts/sync.py check-patch ship-md
 python3 .gsd/capabilities/beads/scripts/sync.py check-patch execute-plan
 ```
 
-If either output contains the "⚠" warning line, surface it to the user verbatim -- never swallow
-it -- but never block planning on either; both are diagnostic only, matching the `onError: skip`
-this entire beads-recall `plan:pre` dispatch already runs under.
+If either command exits non-zero, or its output does not contain the string "present", surface
+that output to the user verbatim -- never swallow it -- but never block planning on either; both
+are diagnostic only, matching the `onError: skip` this entire beads-recall `plan:pre` dispatch
+already runs under. Keyed on exit code / absence of "present" rather than on the "⚠" marker glyph,
+so a future message template that forgets the marker prefix still surfaces (D-03.2).
 
 This is the call site that actually *detects* patch loss for both patches (unlike `beads-status`'s
 Step 2d, which only *confirms* the `ship.md` patch is still intact, and has no counterpart at all
