@@ -4713,5 +4713,114 @@ class TestLifecycleDispatchPointsAgreeWithHook(unittest.TestCase):
         self.assertEqual(sync.LIFECYCLE_DISPATCH_POINTS, hook_points)
 
 
+class TestReadSyncMode(unittest.TestCase):
+    """17-02 Task 3 (D-06): read_sync_mode is a one-line read_beads_config
+    accessor for beads.sync_mode, matching read_epic_per/read_beads_enabled's
+    shape immediately above it -- default is the shipped authoritative
+    value."""
+
+    def _mode_for(self, payload):
+        with tempfile.TemporaryDirectory() as tmp:
+            planning_dir = Path(tmp) / ".planning"
+            planning_dir.mkdir()
+            if payload is not None:
+                (planning_dir / "config.json").write_text(payload, encoding="utf-8")
+            return sync.read_sync_mode(Path(tmp))
+
+    def test_absent_config_resolves_to_authoritative_default(self):
+        self.assertEqual(self._mode_for(None), "authoritative")
+
+    def test_explicit_mirror_is_honored(self):
+        self.assertEqual(
+            self._mode_for(json.dumps({"beads": {"sync_mode": "mirror"}})), "mirror"
+        )
+
+    def test_explicit_off_is_honored(self):
+        self.assertEqual(self._mode_for(json.dumps({"beads": {"sync_mode": "off"}})), "off")
+
+    def test_malformed_json_resolves_to_authoritative_default(self):
+        self.assertEqual(self._mode_for("{not json"), "authoritative")
+
+
+class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
+    """17-02 Task 3 (D-06): `sync.py create-issues <plan>` computes its
+    strip permission from `beads.sync_mode` -- mirror withholds the strip,
+    authoritative (default, no config file, and the retired `off` value)
+    behaves as today. No CLI flag is added: `beads-sync/SKILL.md` Step 3
+    invokes this verb with no strip-related argument."""
+
+    def _run_create_issues(self, sync_mode_payload):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            if sync_mode_payload is not None:
+                (Path(tmp) / ".planning" / "config.json").write_text(
+                    sync_mode_payload, encoding="utf-8"
+                )
+            with mock.patch("subprocess.run", side_effect=_make_bd_side_effect()):
+                exit_code = sync.main(["create-issues", str(plan_copy)])
+            return exit_code, plan_copy.read_text(encoding="utf-8")
+
+    def test_mirror_leaves_task_body_intact(self):
+        exit_code, written = self._run_create_issues(
+            json.dumps({"beads": {"sync_mode": "mirror"}})
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertIn("<action>Implement the thing.</action>", written)
+        self.assertNotIn(sync.TASK_POINTER_PREFIX, written)
+
+    def test_authoritative_strips_task_body(self):
+        exit_code, written = self._run_create_issues(
+            json.dumps({"beads": {"sync_mode": "authoritative"}})
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertIn(sync.TASK_POINTER_PREFIX, written)
+        self.assertNotIn("<action>", written)
+
+    def test_no_config_file_behaves_like_authoritative(self):
+        exit_code, written = self._run_create_issues(None)
+        self.assertEqual(exit_code, 0)
+        self.assertIn(sync.TASK_POINTER_PREFIX, written)
+        self.assertNotIn("<action>", written)
+
+    def test_retired_off_value_behaves_like_authoritative(self):
+        """codex MEDIUM (17-REVIEWS.md, BINDING per 17-02-PLAN.md's
+        review_dispositions): a stored retired `off` value must produce the
+        same outcome as the no-config fixture -- allow_strip =
+        ("off" != "mirror") = True, today's default, so nothing regresses
+        mid-phase ahead of 17-03's schema narrowing."""
+        exit_code, written = self._run_create_issues(json.dumps({"beads": {"sync_mode": "off"}}))
+        self.assertEqual(exit_code, 0)
+        self.assertIn(sync.TASK_POINTER_PREFIX, written)
+        self.assertNotIn("<action>", written)
+
+
+class TestLifecycleDispatchNeverConsultsSyncMode(unittest.TestCase):
+    """17-02 Task 3 (D-06/D-03): the hook path's plan:post allow_strip stays
+    the literal False regardless of beads.sync_mode -- config can only ever
+    govern the explicit native `create-issues` CLI path, never the
+    substring-matched hook (the D-03 asymmetry)."""
+
+    @mock.patch("subprocess.run")
+    def test_authoritative_config_still_leaves_task_bodies_intact_via_hook(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp), plan_text=plan_text)
+            (Path(tmp) / ".planning" / "config.json").write_text(
+                json.dumps({"beads": {"sync_mode": "authoritative"}}), encoding="utf-8"
+            )
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                exit_code = sync.lifecycle_dispatch("plan:post")
+            finally:
+                os.chdir(prev)
+            written = (phase_dir / "07-01-PLAN.md").read_text(encoding="utf-8")
+        self.assertEqual(exit_code, 0)
+        self.assertIn("<action>", written)
+        self.assertNotIn(sync.TASK_POINTER_PREFIX, written)
+
+
 if __name__ == "__main__":
     unittest.main()
