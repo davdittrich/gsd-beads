@@ -1,5 +1,17 @@
 # Milestones
 
+## v1.3 Config/Code Truth (Shipped: 2026-08-20)
+
+**Phases completed:** 2 phases, 8 plans, 17 tasks
+
+**Key accomplishments:**
+
+- A region-scoped, fence-aware, fail-open probe (`check_native_step_dispatch`) gates `plan:post`/`verify:post` on gsd-core PR #3687's native `kind == "step"` dispatch, and `beads.sync_mode` now governs only the explicit `create-issues` CLI's destructive strip -- the hook path stays permanently non-stripping (D-03).
+- `beads.sync_mode` narrows to `["authoritative", "mirror"]` with both values now doing something distinct (mirror withholds the `create-issues` strip), and a project holding the retired `off` value gets exactly one `plan:pre` stdout notice -- never a write to its config, never an error.
+- `check_shipmd_patch` and `check_execute_plan_patch` now delegate to one parameterized `check_patch` reader over a `PATCH_CHECKS` table with per-entry version tokens, reached through a single collapsed `check-patch <target> [--path]` CLI verb (D-08 hard break, every caller updated in the same commit) -- closing the blind spot that let commit `966315a` move a marker from v1 to v2 with the suite still reporting green.
+
+---
+
 ## v1.2 New Capability Plugins (Shipped: 2026-08-19)
 
 **Phases completed:** 4 phases, 16 plans, 38 tasks

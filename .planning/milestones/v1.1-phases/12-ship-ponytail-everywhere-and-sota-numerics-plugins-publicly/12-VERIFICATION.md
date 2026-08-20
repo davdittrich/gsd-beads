@@ -6,9 +6,14 @@ score: 15/15 must-haves verified
 behavior_unverified: 0
 overrides_applied: 0
 human_verification:
+
   - test: "Open https://github.com/davdittrich/ponytail-everywhere and https://github.com/davdittrich/sota-numerics in a browser and read the rendered README (not raw markdown)."
     expected: "A stranger with no gsd-beads context can tell what each plugin does, install it, and uninstall it from the README alone (D-09's stated bar — matches the beads-lifecycle/Phase 8 precedent)."
     why_human: "README comprehension by an unfamiliar reader is a judgment call on rendering/clarity, not something grep or a structural heading check can certify. Section presence (7/7 headings, correct order) was verified programmatically; comprehension quality was not, and 12-04-SUMMARY.md explicitly deferred this exact check to a human (its own plan-level `<human-check>`, never executed)."
+audit_acknowledged:
+  milestone: v1.3
+  at: 2026-08-20
+  status: human_needed
 ---
 
 # Phase 12: Ship ponytail-everywhere and sota-numerics plugins publicly Verification Report

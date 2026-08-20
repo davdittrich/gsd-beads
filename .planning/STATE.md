@@ -1,20 +1,20 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.3
-milestone_name: Config/Code Truth (Phases 17-18) — FEATURE-COMPLETE
-current_phase: 18
-status: completed
+milestone_name: Config/Code Truth (Phases 17-18) — FEATURE-COMPLETE, AWAITING MILESTONE CLOSE
+status: Awaiting next milestone
 stopped_at: Phase 18 complete — v1.3 feature-complete, awaiting /gsd-complete-milestone
-last_updated: "2026-08-20T11:24:56.886Z"
+last_updated: "2026-08-20T12:24:42.504Z"
 last_activity: 2026-08-20
-last_activity_desc: Completed quick task 260820-j6g (gsd-beads-72u fix)
-state_head: 258cda685c0014da0d1f4962555657baa6051ca8
+last_activity_desc: Milestone v1.3 completed and archived
+state_head: 8f2ec3d5e489e5726b989a676ee5a95e32c217d8
 progress:
   total_phases: 2
   completed_phases: 2
   total_plans: 8
   completed_plans: 8
   percent: 100
+current_phase: 18
 ---
 
 # Project State
@@ -29,45 +29,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: 18
-Plan: Not started
-Status: All phases complete
-Last activity: 2026-08-20 - Completed quick task 260820-j6g: Fix gsd-beads-72u: extend reconcile_stale_closed to also close standalone problem-report bd issues
-
-Progress: [████████████████████] 8/8 plans (100%)
-
-**Plan order is argued, not incidental** (full reasoning in ROADMAP.md Phase 17): TRUTH-04 is a P1
-correctness bug that fails *silently* and it unblocks `/gsd-phase --insert` — the escape hatch this
-phase itself would need if #3687 lands mid-flight; TRUTH-03 is time-boxed by an upstream release
-that can land at any cut; TRUTH-01 and TRUTH-02 are not urgent by any clock. **Do not reorder
-without re-reading that argument.** Note the numbering changed in this revision: 17-01/17-02 no
-longer mean TRUTH-01/TRUTH-02.
-
-**Gating for this milestone (non-negotiable):** `plan_check` and `verifier` both on; no release
-tag until CI is green on the exact commit being tagged. Reason: the gh-2 fix shipped the quick
-path on 2026-08-19 as v1.3.0 and a post-release review found a data-loss bug in the fix itself
-(hook matcher fired on any command merely mentioning its trigger string, reaching
-`strip_task_bodies` and deleting `PLAN.md` task prose). v1.3.0 withdrawn, v1.3.1 tagged.
-
-**Phase 17 baselines — RE-VERIFIED 2026-08-19 on gsd-core 1.11.0 at commit `966315a`.** The
-originals were recorded on 1.10.0 and before `966315a`, which inserted 11 lines above the `sync.py`
-call sites:
-
-- `python3 -m unittest discover -s tests -t tests` from
-  `plugins/beads-lifecycle/.gsd/capabilities/beads/` → `Ran 164 tests in 4.740s ... OK`, exit 0.
-  **Unchanged at 164.** Success Criterion 5 asserts `>= 164`, not `== 164` — no test asserts either
-  marker's literal version string today.
-
-- Corrected line numbers: `plan:pre` checker pair `726-727` → **`737-738`**; `strip_task_bodies`
-  live re-gate `1369` → **`1380`**; CLI routes `2252`/`2254` → **`2263`/`2265`**.
-
-- New, not previously recorded: `check_shipmd_patch` at `:2049`, `check_execute_plan_patch` at
-  `:2114`, `SHIP_MD_PATCH_MARKER` (**v2**) at `:110`, `EXECUTE_PLAN_PATCH_MARKER` (**v1**) at
-  `:115`, `sync.py` is 2286 lines. The two markers being at *different* versions is why a shared
-  table needs a per-entry version field.
-
-- TRUTH-04 failures reproduced directly: `PLAN_FILE_RE` (`:72`) → `11.1-01-PLAN.md` is `False`;
-  `int('01.5')` → `ValueError` at `:634` and `:1489`.
+Phase: Milestone v1.3 complete
+Plan: —
+Status: Awaiting next milestone
+Last activity: 2026-08-20 — Milestone v1.3 completed and archived
 
 ## Performance Metrics
 
@@ -266,6 +231,8 @@ None yet.
 | Runtime reach | Lifecycle dispatch outside Claude Code (REACH-01) | Deferred — v1.3 is truth-in-declaration, not reach | v1.3 requirements, 2026-08-19 |
 | Atomic write | `create_issues`' non-atomic `plan_path.write_text` (`sync.py:1388`) — a timeout cancellation inside it truncates `PLAN.md`, the same file the v1.3.0 incident destroyed | Not a standalone task; fold in only if a plan already opens that function, else file as bd | v1.3 pitfalls research, 2026-08-19 |
 | Doc debt | `PostToolUse` no longer fires on failed tool calls (`PostToolUseFailure` split off) — one header sentence in `lifecycle-dispatch.sh` | Optional, attach to whichever plan already touches the hook | v1.3 pitfalls research, 2026-08-19 |
+| uat_gaps | Phase 12 (archived v1.1) `12-UAT.md` — 1 pending scenario | status: testing, acknowledged not resolved | v1.3 milestone close, 2026-08-20 |
+| verification_gaps | Phase 12 (archived v1.1) `12-VERIFICATION.md` | status: human_needed, acknowledged not resolved | v1.3 milestone close, 2026-08-20 |
 
 ## Session Continuity
 
@@ -278,17 +245,4 @@ Resume file: None
 
 ## Operator Next Steps
 
-- **[DONE 2026-08-20]** Security gate closed for both phases: `17-SECURITY.md` (21/21 threats
-  closed, `threats_open: 0`) and `18-SECURITY.md` (17/17 threats closed, `threats_open: 0`,
-  all mitigate-dispositioned threats live-reverified, not just claimed). `beads.ship_gate` is
-  no longer blocked on security for either phase.
-
-- The 5 non-blocking WARNING findings from `17-REVIEW.md` and the 1 from `18-REVIEW.md` remain
-  open (all doc/test-truth gaps, none functional). Consider `/gsd-code-review 17 --fix` and/or
-  `/gsd-code-review 18 --fix`, or a follow-up quick task.
-
-- Follow-up bd issue `gsd-beads-72u` filed by Phase 18 (reconcile_stale_closed cannot reach
-  standalone problem-report issues) is open and unscheduled — not a v1.3 blocker.
-
-- Once ready: `/gsd-complete-milestone v1.3` — Phases 17 and 18 are both complete, no other
-  active workstreams block the close.
+- Start the next milestone with /gsd-new-milestone

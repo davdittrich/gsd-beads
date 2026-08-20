@@ -4,6 +4,10 @@ phase: 12-ship-ponytail-everywhere-and-sota-numerics-plugins-publicly
 source: [12-VERIFICATION.md]
 started: 2026-08-17T16:49:59Z
 updated: 2026-08-17T16:49:59Z
+audit_acknowledged:
+  milestone: v1.3
+  at: 2026-08-20
+  gap_snapshot: "testing::scenarios=1"
 ---
 
 ## Current Test
