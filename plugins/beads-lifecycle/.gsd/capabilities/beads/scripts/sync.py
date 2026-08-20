@@ -799,10 +799,12 @@ def check_sync_mode_value(project_root):
     so a failure here degrades to at most one skipped notice and cannot
     take out `beads_recall`.
 
-    Prints to STDOUT -- the opposite of `check_shipmd_patch`/
-    `check_execute_plan_patch`'s stderr-only benign-skip convention.
-    `hooks/lifecycle-dispatch.sh` promotes only stdout into
-    `additionalContext`; the whole point of this notice is that a user
+    Prints to STDOUT -- the same stream `check_patch` uses for all four of
+    its message paths (`not_found_msg`, `could_not_read_msg`, `present_msg`,
+    `missing_msg`), which `check_shipmd_patch`/`check_execute_plan_patch`
+    both thin-wrap (WR-01: this function shares that convention, it is not
+    the opposite of it). `hooks/lifecycle-dispatch.sh` promotes only stdout
+    into `additionalContext`; the whole point of this notice is that a user
     encounters it without taking any action, so a stderr line would be
     exactly the invisible outcome the D-04 migration answer rejects. Do
     not "fix" this to stderr.
@@ -936,9 +938,10 @@ def lifecycle_dispatch(point):
             check_shipmd_patch()
             check_execute_plan_patch()
             # 17-03 Task 2 (D-04 Case 2): stdout notice for an out-of-enum
-            # beads.sync_mode value -- see check_sync_mode_value's
-            # docstring for why this deliberately breaks from the two
-            # checks above's stderr-only convention.
+            # beads.sync_mode value -- all three plan:pre checks above and
+            # here print to stdout and run inside this one try/except
+            # alongside beads_recall; see check_sync_mode_value's docstring
+            # for why stdout is the correct stream (WR-01).
             check_sync_mode_value(project_root)
         elif point == "plan:post":
             # 17-02 Task 1 (D-05): gsd-core PR #3687 adds native generic
@@ -2318,6 +2321,9 @@ def check_patch(target, path_override=None):
         return 1
     present = entry["marker"] in text
     fmt = entry["present_msg"] if present else entry["missing_msg"]
+    # WR-01: stdout is deliberate here, not a convention to "fix" -- the
+    # hook (hooks/lifecycle-dispatch.sh) promotes only stdout into
+    # additionalContext, so a stderr line would silently vanish.
     print(fmt.format(filename=entry["filename"], path=path, version=entry["version"]))
     return 0 if present else 1
 
