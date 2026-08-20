@@ -122,18 +122,19 @@ task-state bookkeeping survives in `.planning/`.
 
 ## Current State
 
-Phase 18 (v1.3's tech-debt cleanup phase, audit-sourced, no REQUIREMENTS.md ID) complete
-2026-08-20 — 4/4 plans, deep code review clean of blockers (0 critical, 1 warning, 2 info),
-phase verification passed 9/9 against live-executed checks. Both machine-local gsd-core patches
-restored on both runtime homes, four stale Phase 17 bd issues closed, withdrawn `v1.3.0` tag
-deleted from `origin` and locally (checkpoint answered `option-a`), CHANGELOG/`plugin.json`
-accuracy gaps closed. v1.3 milestone (Phases 17-18) is now fully feature-complete;
-`/gsd-complete-milestone v1.3` not yet run.
+v1.3 (Config/Code Truth, Phases 17-18) archived 2026-08-20 via `/gsd-complete-milestone` — 2/2
+phases, 8/8 plans, 4/4 requirements (TRUTH-01..04) shipped and validated. Both machine-local
+gsd-core patches restored on both runtime homes, four stale Phase 17 bd issues closed, withdrawn
+`v1.3.0` tag deleted from `origin` and locally (checkpoint answered `option-a`),
+CHANGELOG/`plugin.json` accuracy gaps closed. Full detail archived to
+`.planning/milestones/v1.3-ROADMAP.md` / `v1.3-REQUIREMENTS.md`. No milestone currently active —
+next step is `/gsd-core:new-milestone` (v1.4 requirements not yet defined).
 
-## Current Milestone: v1.3 Config/Code Truth — Phases 17-18 complete, ready to close
+<details>
+<summary>v1.3 Config/Code Truth — SHIPPED 2026-08-20</summary>
 
 **Status:** All target features shipped (Phase 17, 2026-08-20) plus tech-debt cleanup (Phase 18,
-2026-08-20). Awaiting `/gsd-complete-milestone v1.3` to formally archive.
+2026-08-20), archived via `/gsd-complete-milestone v1.3`.
 
 **Goal:** Every config key this capability declares is one the code actually reads, and the
 patch-checker duplication the gh-2 post-release review flagged is gone. (Phase 18 extended this:
@@ -161,6 +162,16 @@ milestone, and no tag is cut until CI is green on the exact commit being tagged.
 
 **Deferred, still open:** `get-available-resources` (dropped from v1.2, see Out of Scope) remains
 a candidate for a later milestone if the need resurfaces.
+
+**Phase 18 (added mid-milestone, tech debt, no REQUIREMENTS.md IDs):** every claim the capability
+makes about itself is true again — patch-check docstring/messages match the code, CHANGELOG
+documents all four of Phase 17's requirements, both version declarations match `main`, the
+withdrawn `v1.3.0` tag is gone, the four already-shipped bd issues are closed, both machine-local
+gsd-core patches are live again. Closed via a live-confirmed `checkpoint:decision` (option-a) for
+the tag deletion. A follow-up quick task (260820-j6g) closed the standalone-issue reconciliation
+gap Phase 18 itself surfaced (`gsd-beads-72u`).
+
+</details>
 
 <details>
 <summary>v1.2 New Capability Plugins — SHIPPED 2026-08-19</summary>
