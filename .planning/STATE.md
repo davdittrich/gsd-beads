@@ -4,12 +4,12 @@ milestone: v1.3
 milestone_name: Config/Code Truth (Phase 17) — IN PROGRESS
 current_phase: 17
 current_phase_name: Config/Code Truth
-status: roadmap_complete
+status: executing
 stopped_at: Phase 17 context gathered
-last_updated: "2026-08-19T23:16:36.188Z"
-last_activity: 2026-08-19
-last_activity_desc: Phase 17 revised from 2 requirements/2 plans to 4/4 after research
-state_head: d42da9ed9f3a1070e78388089d91177c050dac38
+last_updated: "2026-08-19T23:41:19.813Z"
+last_activity: 2026-08-20
+last_activity_desc: Phase 17 execution started
+state_head: e96820adc02419cc9f9e8f3607868e80a8e619ed
 progress:
   total_phases: 1
   completed_phases: 0
@@ -26,17 +26,17 @@ See: .planning/PROJECT.md (updated 2026-08-19)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 17 (Config/Code Truth) — everything the capability *declares* (a config
+**Current focus:** Phase 17 — Config/Code Truth
 enum, five lifecycle dispatch points, a phase-number format, two patch markers) matches what its
 code actually does.
 
 ## Current Position
 
-Phase: 17 (Config/Code Truth) — READY TO EXECUTE
-Plan: — (4 planned, in this order: 17-01 → TRUTH-04, 17-02 → TRUTH-03, 17-03 → TRUTH-01,
+Phase: 17 (Config/Code Truth) — EXECUTING
+Plan: 1 of 4
 17-04 → TRUTH-02)
-Status: Roadmap revised after the research phase; ready to plan
-Last activity: 2026-08-19 — Phase 17 revised from 2 requirements/2 plans to 4/4 after research
+Status: Executing Phase 17
+Last activity: 2026-08-20 — Phase 17 execution started
 
 Progress: [░░░░░░░░░░] 0% (0/4 plans)
 

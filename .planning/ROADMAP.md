@@ -309,7 +309,7 @@ Each is a mechanical command in the ship task, not a prose reminder.
 Plans:
 **Wave 1**
 
-- [ ] 17-01-PLAN.md — decimal-phase support at all lifecycle points, plus the `capability.json` 0.3.1 → 0.4.0 bump and the runtime-mirror identity proof (TRUTH-04)
+- [x] 17-01-PLAN.md — decimal-phase support at all lifecycle points, plus the `capability.json` 0.3.1 → 0.4.0 bump and the runtime-mirror identity proof (TRUTH-04)
 
 **Wave 2** *(blocked on Wave 1 completion)*
 
@@ -362,7 +362,7 @@ must re-prove the two-tree identity and test-count guards before the next begins
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 17. Config/Code Truth | 0/4 | Not started | - |
+| 17. Config/Code Truth | 1/4 | In Progress|  |
 
 ## Coverage
 
