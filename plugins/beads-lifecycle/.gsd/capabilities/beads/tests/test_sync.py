@@ -3446,6 +3446,49 @@ class TestPatchChecksTable(unittest.TestCase):
         out = captured.getvalue()
         self.assertIn("gsd-executor will not read task content from bd", out)
 
+    # -- 18-03 Task 1 (D-03.1): not-found/could-not-read now carry the same
+    # marker missing_msg already does, one test per target per case so a
+    # merge that collapses the two targets' wording cannot pass on the
+    # other target's message. --
+
+    def test_ship_md_not_found_message_carries_the_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = Path(tmp) / "does-not-exist" / "ship.md"
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_shipmd_patch(str(missing_path))
+        self.assertTrue(captured.getvalue().startswith("⚠ "))
+
+    def test_ship_md_could_not_read_message_carries_the_marker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            ship_md = Path(tmp) / "ship.md"
+            ship_md.write_bytes(b"\xff\xfe not valid utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_shipmd_patch(str(ship_md))
+        self.assertTrue(captured.getvalue().startswith("⚠ "))
+
+    def test_execute_plan_not_found_message_carries_the_marker(self):
+        """Separate from the ship-md assertion above so a merge that
+        collapses both targets' wording into one shared template cannot
+        pass this test on the other target's message."""
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = Path(tmp) / "does-not-exist" / "execute-plan.md"
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_execute_plan_patch(str(missing_path))
+        self.assertTrue(captured.getvalue().startswith("⚠ "))
+
+    def test_execute_plan_could_not_read_message_carries_the_marker(self):
+        """Separate from the ship-md assertion above for the same reason."""
+        with tempfile.TemporaryDirectory() as tmp:
+            execute_plan_md = Path(tmp) / "execute-plan.md"
+            execute_plan_md.write_bytes(b"\xff\xfe not valid utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_execute_plan_patch(str(execute_plan_md))
+        self.assertTrue(captured.getvalue().startswith("⚠ "))
+
     # -- 17-04 Task 3: the merged PATCH_CHECKS table's own invariants --
 
     def test_table_has_exactly_two_entries_with_distinct_keys(self):

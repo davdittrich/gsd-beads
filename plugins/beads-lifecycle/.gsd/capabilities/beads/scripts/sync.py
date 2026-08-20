@@ -140,12 +140,12 @@ PATCH_CHECKS = {
         "version": "v2",
         "filename": "ship.md",
         "not_found_msg": (
-            "{filename} not found at {path} -- cannot verify the local ship:pre dispatch "
+            "⚠ {filename} not found at {path} -- cannot verify the local ship:pre dispatch "
             "patch (only this runtime home was probed; other runtime homes such as "
             "CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
         ),
         "could_not_read_msg": (
-            "{filename} at {path} could not be read ({exc}) -- cannot verify the "
+            "⚠ {filename} at {path} could not be read ({exc}) -- cannot verify the "
             "local ship:pre dispatch patch"
         ),
         "present_msg": "{filename} ship:pre step-dispatch patch: present ({version}) at {path}",
@@ -162,12 +162,12 @@ PATCH_CHECKS = {
         "version": "v1",
         "filename": "execute-plan.md",
         "not_found_msg": (
-            "{filename} not found at {path} -- cannot verify the local bd-task-read "
+            "⚠ {filename} not found at {path} -- cannot verify the local bd-task-read "
             "patch (only this runtime home was probed; other runtime homes such "
             "as CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
         ),
         "could_not_read_msg": (
-            "{filename} at {path} could not be read ({exc}) -- cannot "
+            "⚠ {filename} at {path} could not be read ({exc}) -- cannot "
             "verify the local bd-task-read patch"
         ),
         "present_msg": "{filename} bd-task-read patch: present ({version}) at {path}",

@@ -146,9 +146,11 @@ This step always runs at `ship:pre`, independent of whether Step 2c did anything
 python3 .gsd/capabilities/beads/scripts/sync.py check-patch ship-md
 ```
 
-If its output contains the "⚠" warning line, surface it to the user verbatim -- never swallow it
--- but never block shipping on it; this is diagnostic only, matching the `onError: skip` this
-entire beads-status `ship:pre` dispatch already runs under.
+If the command exits non-zero, or its output does not contain the string "present", surface that
+output to the user verbatim -- never swallow it -- but never block shipping on it; this is
+diagnostic only, matching the `onError: skip` this entire beads-status `ship:pre` dispatch already
+runs under. Keyed on exit code / absence of "present" rather than on the "⚠" marker glyph, so a
+future message template that forgets the marker prefix still surfaces (D-03.2).
 
 ## Step 2e -- Bare invocation: On-demand status (B13)
 
