@@ -2154,6 +2154,262 @@ class TestReconcileStaleClosed(unittest.TestCase):
         self.assertEqual(exit_code, 0)
 
 
+def _no_beads_id_plan_text(plan_num, phase="01-substrate"):
+    """One task, no <beads-id> anywhere -- a plan whose contribution to
+    `_resolve_completed_task_ids` is empty, isolating the
+    `_resolve_marked_issue_ids` marker set under test in
+    TestResolvesIssuesMarker from the existing <beads-id> union path."""
+    return f"""---
+phase: {phase}
+plan: {plan_num}
+type: execute
+wave: 3
+depends_on: []
+beads_epic: standalone-marker
+files_modified:
+  - src/example.py
+autonomous: true
+requirements: [B3]
+---
+
+<objective>
+Single-task plan fixture with no <beads-id> anywhere -- TestResolvesIssuesMarker's
+base case for a plan whose SUMMARY.md carries the only closure signal (bd
+gsd-beads-72u).
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Do a thing with no synced id</name>
+  <files>src/example.py</files>
+  <read_first>src/example.py</read_first>
+  <action>Implement the thing.</action>
+  <verify>python3 -m py_compile src/example.py</verify>
+  <acceptance_criteria>
+    - src/example.py exists
+  </acceptance_criteria>
+  <done>The thing is implemented.</done>
+</task>
+
+</tasks>
+"""
+
+
+def _summary_with_frontmatter(resolves_issues_yaml="", body=""):
+    """A SUMMARY.md body carrying a fenced frontmatter block plus an optional
+    `resolves_issues_yaml` line/block and body prose -- the shape
+    `_resolve_marked_issue_ids` reads (FRONTMATTER_RE-fenced) versus the
+    shape it must never read (everything after the closing `---`)."""
+    return f"""---
+status: complete
+{resolves_issues_yaml}---
+{body}"""
+
+
+class TestResolvesIssuesMarker(unittest.TestCase):
+    """bd gsd-beads-72u: `resolves_issues:` in a completed plan's SUMMARY.md
+    frontmatter is the only way `reconcile_stale_closed` can reach a
+    standalone problem-report bd issue that carries no <beads-id> anywhere.
+    The identity-safety property -- a bd id named only in SUMMARY body prose
+    is never closed -- is this class's central regression."""
+
+    def _close_argvs(self, mock_run):
+        return [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+
+    @mock.patch("subprocess.run")
+    def test_inline_marker_closes_standalone_issue_with_no_beads_id_anywhere(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _no_beads_id_plan_text("07"), True)]
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_text(
+                _summary_with_frontmatter('resolves_issues: ["gsd-beads-he1"]\n'),
+                encoding="utf-8",
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        closed_ids = {i for argv in self._close_argvs(mock_run) for i in argv[2:argv.index("--reason")]}
+        self.assertIn("gsd-beads-he1", closed_ids)
+
+    @mock.patch("subprocess.run")
+    def test_block_list_marker_form_behaves_identically_to_inline_form(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _no_beads_id_plan_text("07"), True)]
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_text(
+                _summary_with_frontmatter('resolves_issues:\n  - "gsd-beads-he1"\n'),
+                encoding="utf-8",
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        closed_ids = {i for argv in self._close_argvs(mock_run) for i in argv[2:argv.index("--reason")]}
+        self.assertIn("gsd-beads-he1", closed_ids)
+
+    @mock.patch("subprocess.run")
+    def test_identity_safety_body_mentioned_id_is_never_closed(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _no_beads_id_plan_text("07"), True)]
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_text(
+                _summary_with_frontmatter(
+                    'resolves_issues: ["gsd-beads-he1"]\n',
+                    body=(
+                        "## Follow-ups\n\nFiled a new follow-up ticket, "
+                        "gsd-beads-72u, to track the remaining gap.\n"
+                    ),
+                ),
+                encoding="utf-8",
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        all_closed = [
+            i for argv in self._close_argvs(mock_run) for i in argv[2:argv.index("--reason")]
+        ]
+        self.assertIn("gsd-beads-he1", all_closed)
+        self.assertNotIn("gsd-beads-72u", all_closed)
+
+    @mock.patch("subprocess.run")
+    def test_summary_with_no_frontmatter_fence_contributes_no_marker_ids(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            # Default _write_wave_workspace SUMMARY.md is bare "status:
+            # complete\n" -- no frontmatter fence at all.
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = self._close_argvs(mock_run)
+        self.assertEqual(len(close_argvs), 1)
+        reason_idx = close_argvs[0].index("--reason")
+        self.assertEqual(set(close_argvs[0][2:reason_idx]), {"tracer-wave1.1", "tracer-wave1.2"})
+
+    @mock.patch("subprocess.run")
+    def test_unsafe_marker_entries_never_reach_close_argv_and_are_counted_rejected(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _no_beads_id_plan_text("07"), True)]
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_text(
+                _summary_with_frontmatter(
+                    'resolves_issues: ["-force", "--reason", "a b", "../evil", ""]\n'
+                ),
+                encoding="utf-8",
+            )
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = self._close_argvs(mock_run)
+        self.assertEqual(close_argvs, [])
+        for unsafe in ("-force", "--reason", "a b", "../evil"):
+            for argv in close_argvs:
+                self.assertNotIn(unsafe, argv)
+        self.assertIn("rejected 5", captured.getvalue())
+
+    @mock.patch("subprocess.run")
+    def test_id_both_task_beads_id_and_marker_appears_exactly_once(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                _summary_with_frontmatter('resolves_issues: ["tracer-wave1.1"]\n'),
+                encoding="utf-8",
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        all_closed = [
+            i for argv in self._close_argvs(mock_run) for i in argv[2:argv.index("--reason")]
+        ]
+        self.assertEqual(all_closed.count("tracer-wave1.1"), 1)
+
+    @mock.patch("subprocess.run")
+    def test_marker_close_uses_own_reason_distinct_from_phase_wide_reconciliation(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-07", _no_beads_id_plan_text("07"), True)],
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_text(
+                _summary_with_frontmatter('resolves_issues: ["gsd-beads-he1"]\n'),
+                encoding="utf-8",
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        close_argvs = self._close_argvs(mock_run)
+        self.assertEqual(len(close_argvs), 2)
+        reasons = [argv[argv.index("--reason") + 1] for argv in close_argvs]
+        phase_wide = [r for r in reasons if "phase-wide reconciliation" in r]
+        marker = [r for r in reasons if "resolves_issues marker" in r]
+        self.assertEqual(len(phase_wide), 1)
+        self.assertEqual(len(marker), 1)
+        self.assertNotIn("resolves_issues marker", phase_wide[0])
+        self.assertNotIn("phase-wide reconciliation", marker[0])
+
+    @mock.patch("subprocess.run")
+    def test_repeat_run_over_same_phase_with_marker_issues_zero_close_calls(
+        self, mock_run
+    ):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-04", plan_a, True), ("01-07", _no_beads_id_plan_text("07"), True)],
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_text(
+                _summary_with_frontmatter('resolves_issues: ["gsd-beads-he1"]\n'),
+                encoding="utf-8",
+            )
+            sync.reconcile_stale_closed(str(phase_dir))
+            mock_run.reset_mock()
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_unreadable_or_undecodable_summary_is_skipped_not_raised(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _no_beads_id_plan_text("07"), True)]
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_bytes(b"\xff\xfe\x00\x01not valid utf-8")
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+
 class TestFailOpen(unittest.TestCase):
     """B6: bd absent, or every bd invocation failing, degrades to exit 0, one
     stdout notice, one STATE.md bullet, and no BEADS.md -- never an
