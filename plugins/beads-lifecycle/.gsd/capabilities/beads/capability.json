@@ -33,11 +33,10 @@
       "type": "enum",
       "values": [
         "authoritative",
-        "mirror",
-        "off"
+        "mirror"
       ],
       "default": "authoritative",
-      "description": "authoritative (default): bd owns task status and task content (title/description) after first sync. Content originates in PLAN.md at first sync, but PLAN.md task text is never re-synced from later bd edits (D-01). 'mirror' and 'off' are reserved for later phases."
+      "description": "Governs whether an explicit `sync.py create-issues <plan>` strips synced <task> bodies out of PLAN.md. authoritative (default): strips once the read-path patch is present -- bd owns task content after first sync, and PLAN.md task text is never re-synced from later bd edits (D-01). mirror: never strips -- PLAN.md keeps every task body regardless of patch state. Neither value governs the hook-driven plan:post dispatch, which never strips (D-03)."
     },
     "beads.ship_gate": {
       "type": "boolean",

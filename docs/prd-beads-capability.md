@@ -38,7 +38,7 @@ A mirror writes issues *after* gsd decides something and never reads them back. 
 
 | # | Property | Mechanism |
 | :--- | :--- | :--- |
-| **F1** | Task **status** lives in beads. gsd's markdown holds the *plan*; beads holds *state*. | `steps[]` bound at each state transition; `beads.sync_mode` defaults to `authoritative` for status. |
+| **F1** | Task **status** lives in beads. gsd's markdown holds the *plan*; beads holds *state*. | `steps[]` bound at each state transition; `beads.sync_mode` (`authoritative` default vs. `mirror`) governs whether an explicit `create-issues` strips synced task bodies out of PLAN.md. |
 | **F2** | The planner and executor **see** beads. Their prompts carry live issue state. | `contributions[]` injecting prompt fragments `into: orchestrator` and `into: verifier`. |
 | **F3** | Beads state can **block a ship**. An unfinished or diverged phase does not pass. | `gates[]` with `artifact-frontmatter-equals` over a generated `BEADS.md`, `blocking: true`. |
 | **F4** | Beads is **queried before planning**, so ticketed work is not planned twice. | `steps[]` at `plan:pre` producing a recall artifact. |
@@ -146,7 +146,7 @@ The closest shipped analogue for the overall shape is `capabilities/mempalace/ca
   "hooks": [],
   "config": {
     "beads.enabled":      { "type": "boolean", "default": true },
-    "beads.sync_mode":    { "type": "enum", "values": ["authoritative", "mirror", "off"], "default": "authoritative" },
+    "beads.sync_mode":    { "type": "enum", "values": ["authoritative", "mirror"], "default": "authoritative" },
     "beads.epic_per":     { "type": "enum", "values": ["phase", "milestone"], "default": "phase" },
     "beads.ship_gate":    { "type": "boolean", "default": true },
     "beads.recall_scope": { "type": "enum", "values": ["phase-files", "project", "all"], "default": "phase-files" }

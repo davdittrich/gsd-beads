@@ -716,6 +716,83 @@ def read_sync_mode(project_root):
     return read_beads_config(project_root, "sync_mode", "authoritative")
 
 
+# 17-03 Task 1 (D-01/D-02): the two beads.sync_mode values capability.json
+# declares -- the source of truth for check_sync_mode_value's "is this
+# declared" test below. Kept as a module constant rather than re-parsing
+# capability.json at runtime (sync.py never reads that file; see the
+# read_beads_enabled/read_sync_mode comment above for why each default is
+# instead written down once, here, beside the accessor that uses it).
+SYNC_MODE_VALUES = frozenset({"authoritative", "mirror"})
+
+
+def _sanitize_notice_value(value, max_len=80):
+    """Bound and single-line an untrusted config value before it enters
+    agent-readable `additionalContext` (T-17-03-02): drop every
+    non-printable character -- `str.isprintable()` is False for both
+    control characters and newlines -- and truncate to `max_len`, so a
+    crafted config value cannot inject additional lines or fabricate
+    structure into the notice. Non-string values are stringified first: one
+    code path for every JSON type the key could hold."""
+    text = value if isinstance(value, str) else str(value)
+    text = "".join(ch for ch in text if ch.isprintable())
+    return text[:max_len]
+
+
+def check_sync_mode_value(project_root):
+    """17-03 Task 2 (D-04 Case 2): read-only, never-raises notice for a
+    project whose `.planning/config.json` stores a `beads.sync_mode` value
+    outside the declared enum -- the retired `off` value, an empty string,
+    a case/whitespace variant, or a non-string type. Called from
+    `lifecycle_dispatch`'s `plan:pre` branch, beside `check_shipmd_patch`
+    and `check_execute_plan_patch`, inside the same `try/except Exception`,
+    so a failure here degrades to at most one skipped notice and cannot
+    take out `beads_recall`.
+
+    Prints to STDOUT -- the opposite of `check_shipmd_patch`/
+    `check_execute_plan_patch`'s stderr-only benign-skip convention.
+    `hooks/lifecycle-dispatch.sh` promotes only stdout into
+    `additionalContext`; the whole point of this notice is that a user
+    encounters it without taking any action, so a stderr line would be
+    exactly the invisible outcome the D-04 migration answer rejects. Do
+    not "fix" this to stderr.
+
+    Presence is answered by a membership test against the RAW parsed
+    `beads` mapping, before and independently of any effective-value read:
+    `read_beads_config`'s `isinstance(value, type(default))` wrong-type
+    guard returns the identical default for an absent key and for a
+    present key of the wrong type, so the effective-value reader
+    (`read_sync_mode`) alone cannot tell the two states apart
+    (17-REVIEWS.md, both cross-AI reviewers, BINDING). An absent key is
+    not an anomaly and produces nothing; a present key holding anything
+    outside `SYNC_MODE_VALUES` always notices, including a non-string
+    value -- an authoring mistake is exactly as invisible to the user as a
+    misspelled string.
+
+    Never writes to `.planning/config.json` -- a prohibition in this
+    plan's `must_haves`, not merely a preference.
+    """
+    try:
+        cfg = json.loads(
+            confined(project_root, ".planning", "config.json").read_text(encoding="utf-8")
+        )
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return 0
+    beads_cfg = cfg.get("beads") if isinstance(cfg, dict) else None
+    if not isinstance(beads_cfg, dict) or "sync_mode" not in beads_cfg:
+        return 0
+    value = beads_cfg["sync_mode"]
+    if isinstance(value, str) and value in SYNC_MODE_VALUES:
+        return 0
+    print(
+        f"beads.sync_mode: stored value {_sanitize_notice_value(value)!r} is not one of "
+        f"the declared values ({', '.join(sorted(SYNC_MODE_VALUES))}) -- the shipped "
+        "authoritative default applies, so task bodies may still be stripped once the "
+        "read-path patch gate passes. Remedy: gsd-tools config-set beads.sync_mode "
+        "authoritative (or mirror)."
+    )
+    return 0
+
+
 # TRUTH-04/D-07: a phase number (`"1.5"`, `"01.5"`, `"10.1"`, `"07"`) is
 # handled as a string everywhere on this path -- never `int()`/`float()`/
 # `Decimal()`. Its only consumers are regex construction (phase_regex_token)
@@ -807,6 +884,11 @@ def lifecycle_dispatch(point):
             # independent of gsd-core's dispatch prose altogether.
             check_shipmd_patch()
             check_execute_plan_patch()
+            # 17-03 Task 2 (D-04 Case 2): stdout notice for an out-of-enum
+            # beads.sync_mode value -- see check_sync_mode_value's
+            # docstring for why this deliberately breaks from the two
+            # checks above's stderr-only convention.
+            check_sync_mode_value(project_root)
         elif point == "plan:post":
             # 17-02 Task 1 (D-05): gsd-core PR #3687 adds native generic
             # kind == "step" dispatch here -- stand down rather than

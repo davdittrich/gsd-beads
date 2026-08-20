@@ -13,6 +13,27 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   with two string-only helpers, `phase_regex_token` and `phase_dir_prefix` — no `int()`/`float()`/
   `Decimal()` conversion of a phase number survives on the fixed path (TRUTH-04).
 
+### Changed
+- **`beads.sync_mode` is resolved: the declared `values` array narrows to `authoritative` and
+  `mirror` — the `off` value is retired (it duplicated `beads.enabled: false`, already implemented
+  and already the documented opt-out).** `mirror` now does something for the first time: an
+  explicit `sync.py create-issues <plan>` withholds the `<task>`-body strip that `authoritative`
+  performs, exposing the `allow_strip` parameter that has existed since 0.3.1 under the name
+  already declared for it. Neither value ever governs the hook-driven `plan:post` dispatch, which
+  never strips regardless of config (D-03) — see 0.3.1's Fixed entry below.
+- **On-upgrade behavior change for a project that already wrote `"sync_mode": "mirror"` into
+  `.planning/config.json` before this release.** That value was previously inert (read by no
+  code); it is now honored. The next explicit `sync.py create-issues <plan>` in that project stops
+  stripping task bodies — the behavior someone who wrote that value was asking for, but a live
+  behavior change on upgrade, not a no-op.
+- **A project whose stored `sync_mode` falls outside the declared list (the retired `off` value,
+  or any other value) now gets exactly one notice.** `check_sync_mode_value` prints it on stdout
+  at the next `plan:pre` dispatch, naming the stored value, stating that the shipped
+  `authoritative` default applies — so task bodies may still be stripped once the read-path patch
+  gate passes — and giving the one-command remedy (`gsd-tools config-set beads.sync_mode
+  authoritative`, or `mirror`). Never an error; never writes to the project's config.
+- **Resolves the 0.3.1 Known-issue below**: `beads.sync_mode` is no longer declared-but-dead.
+
 ## 0.3.1
 
 ### Fixed
@@ -36,7 +57,10 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   plugin loaded. A locale-pinned bash-builtin pre-filter now rejects the common case before any
   spawn: **13.00 ms → 0.91 ms** per non-matching call. `LC_ALL=C` matters because PostToolUse
   payloads carry the tool's full output — on a 4 MB payload, UTF-8 pattern matching alone cost
-  ~34 ms. Also merged two JSON parses into one, and set an explicit 120 s hook timeout.
+  ~34 ms. Also merged two JSON parses into one. Separately, the hook's own timeout is set
+  explicitly to 120 s — a deliberate reduction from Claude Code's 600 s default hook timeout,
+  bounding the hook's own worst-case blocking time; this is not itself a throughput
+  optimization and does not belong under this heading's ms/call numbers above.
 
 ### Changed
 - `read_epic_per` and `read_beads_enabled` now share one `read_beads_config` reader; each
@@ -47,7 +71,9 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
 ### Known issues (pre-existing, now tracked)
 - **`beads.sync_mode` is declared in `capability.json` and read by no code.** `mirror` and `off`
   do nothing; only `beads.enabled: false` stops dispatch. 0.3.0's changelog implied the strip was
-  gated on it — it never was. Tracked as `gsd-beads-v43`.
+  gated on it — it never was. Tracked as `gsd-beads-v43`. **Resolved in 0.4.0** — see 0.4.0's
+  `### Changed` section: the declaration narrows to `authoritative`/`mirror` and `mirror` now does
+  something.
 
 ## 0.3.0
 
@@ -90,8 +116,10 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
 - A project that planned phases before 0.3.0 has no issues for them. Backfill with
   `sync.py create-issues <plan>` per plan — note this strips `<task>` bodies out of `PLAN.md`
   once the `execute-plan.md` read-path patch is present, so confirm the content landed in `bd`
-  before committing, particularly if `.beads/` is gitignored. (The strip is gated on that patch
-  check, not on `beads.sync_mode` — see 0.3.1's Known issues.) Hook-driven dispatch never strips.
+  before committing, particularly if `.beads/` is gitignored. (At 0.3.0 the strip was gated only
+  on that patch check, not on `beads.sync_mode` — `sync_mode` began governing this CLI path's
+  strip decision as of 0.4.0; see 0.4.0's `### Changed` section.) Hook-driven dispatch never
+  strips.
 
 ## 0.2.0
 

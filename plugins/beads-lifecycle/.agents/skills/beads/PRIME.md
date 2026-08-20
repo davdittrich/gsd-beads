@@ -56,6 +56,6 @@ Two consequences worth knowing:
 ## Config keys
 
 - `beads.enabled` (default `true`) — master toggle for this whole integration.
-- `beads.sync_mode` (default `authoritative`) — `bd` owns task content after first sync; `PLAN.md` task text is never re-synced from later `bd` edits.
+- `beads.sync_mode` (default `authoritative`) — governs whether an explicit `create-issues` strips synced `<task>` bodies out of `PLAN.md`. `authoritative`: strips once the read-path patch is present; `bd` owns task content after first sync, and `PLAN.md` task text is never re-synced from later `bd` edits. `mirror`: never strips. The hook-driven `plan:post` dispatch never strips either way.
 - `beads.ship_gate` (default `true`) — see Ship gate above.
 - `beads.epic_per` (default `phase`) — see Phase epics above.
