@@ -7,7 +7,7 @@ status: completed
 stopped_at: Phase 18 complete — v1.3 feature-complete, awaiting /gsd-complete-milestone
 last_updated: "2026-08-20T11:24:56.886Z"
 last_activity: 2026-08-20
-last_activity_desc: Phase 18 complete
+last_activity_desc: Completed quick task 260820-j6g (gsd-beads-72u fix)
 state_head: 258cda685c0014da0d1f4962555657baa6051ca8
 progress:
   total_phases: 2
@@ -32,7 +32,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 Phase: 18
 Plan: Not started
 Status: All phases complete
-Last activity: 2026-08-20 — Phase 18 complete
+Last activity: 2026-08-20 - Completed quick task 260820-j6g: Fix gsd-beads-72u: extend reconcile_stale_closed to also close standalone problem-report bd issues
 
 Progress: [████████████████████] 8/8 plans (100%)
 
@@ -249,6 +249,7 @@ None yet.
 | 260818-h2h | Fix gsd-beads-1iq: scope beads-lifecycle marketplace source to exclude sota-numerics/ponytail dev copies | 2026-08-18 | 4d83504 | Verified | [260818-h2h](./quick/260818-h2h-fix-gsd-beads-1iq-scope-beads-lifecycle-/) |
 | 260819-e7a | Revise README.md with a full gsd-beads configuration reference section | 2026-08-19 | 640ccc3 | | [260819-e7a](./quick/260819-e7a-revise-readme-md-with-a-full-gsd-beads-c/) |
 | 260819-k4p | Fix gh-2: dispatch the four lifecycle hooks gsd-core never reached (capability 0.3.0 / plugin 1.3.0) | 2026-08-19 | 62162d4 | Verified | [260819-k4p](./quick/260819-k4p-fix-gsd-beads-2-lifecycle-hook-dispatch/) |
+| 260820-j6g | Fix gsd-beads-72u: extend reconcile_stale_closed to also close standalone problem-report bd issues via opt-in SUMMARY.md `resolves_issues:` frontmatter marker | 2026-08-20 | ed027be | | [260820-j6g](./quick/260820-j6g-extend-reconcile-stale-closed-to-also-cl/) |
 
 ### Roadmap Evolution
 
