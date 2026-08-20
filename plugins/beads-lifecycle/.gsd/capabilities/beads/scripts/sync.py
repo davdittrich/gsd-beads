@@ -692,7 +692,7 @@ def read_beads_config(project_root, key, default):
     return value if isinstance(value, type(default)) else default
 
 
-# The two accessors below exist so each shipped default is written down exactly
+# The accessors below exist so each shipped default is written down exactly
 # once, next to the key it belongs to, and matches capability.json's `config`
 # block. Inlining them would scatter the defaults across call sites.
 def read_epic_per(project_root):
@@ -703,6 +703,17 @@ def read_epic_per(project_root):
 def read_beads_enabled(project_root):
     """gh-2: `beads.enabled`, default `True` (capability.json since 0.2.0)."""
     return read_beads_config(project_root, "enabled", True)
+
+
+def read_sync_mode(project_root):
+    """17-02 Task 3 (D-06): `beads.sync_mode`, default `"authoritative"`
+    (matches capability.json's declared default). Governs ONLY the explicit
+    native `create-issues` CLI path's strip permission -- `main()`'s
+    create-issues dispatch compares this against the mirror value.
+    `lifecycle_dispatch`'s plan:post branch never calls this: the hook's
+    `allow_strip=False` stays a literal, ungated by config (D-03). See
+    `create_issues`' docstring for the full asymmetry."""
+    return read_beads_config(project_root, "sync_mode", "authoritative")
 
 
 # TRUTH-04/D-07: a phase number (`"1.5"`, `"01.5"`, `"10.1"`, `"07"`) is
@@ -1372,14 +1383,27 @@ def create_issues(plan_arg, allow_strip=True):
     """`allow_strip=False` keeps every `<task>` body in PLAN.md even when the
     read-path patch is present (gh-2). `strip_task_bodies` is a deliberate,
     destructive migration: it moves the ONLY copy of a task's content into a bd
-    database the project may be gitignoring. An unattended harness hook that
-    fired on a substring of a shell command is the wrong principal to authorize
-    that, so `lifecycle_dispatch` passes False; an explicit
-    `sync.py create-issues <plan>` keeps the default.
+    database the project may be gitignoring.
 
-    Note the strip is NOT gated on `beads.sync_mode` -- that key is declared in
-    capability.json and read by nothing (gsd-beads-v43). The only
-    gate is `check_execute_plan_patch()` below, plus this flag.
+    17-02 Task 3 (D-06) asymmetry -- which caller computes this flag from
+    what, and why:
+    - `lifecycle_dispatch`'s plan:post branch passes the literal `False`,
+      never consulting config. Its trigger is a substring of a shell
+      command, so a spurious fire is always possible, and an unattended
+      harness hook is the wrong principal to authorize an irreversible
+      deletion regardless of what a config file says (D-03). This is the
+      answer to the v1.3.0 incident and it does not change here.
+    - `main()`'s `create-issues` CLI dispatch computes this flag from
+      `read_sync_mode(project_root)`: `mirror` withholds the strip,
+      every other value (including the shipped `authoritative` default, no
+      config file at all, and the retired `off` value) behaves as before
+      this task. An explicit CLI invocation is a different, stronger
+      principal than a string-matched hook, so it is the one path config is
+      allowed to govern.
+
+    Either way, `check_execute_plan_patch() == 0` below is the last-line-of-
+    defence re-gate: config and this flag can only ever subtract permission
+    from a run whose patch is missing, never add it back.
     """
     if not bd_available():
         print(NOTICE)
@@ -2448,7 +2472,19 @@ def main(argv=None):
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
     if args.command == "create-issues":
-        return create_issues(args.plan_path)
+        # 17-02 Task 3 (D-06): the explicit CLI path's strip permission is
+        # governed by beads.sync_mode -- the hook path (lifecycle_dispatch)
+        # never reaches this branch and stays ungated by design (D-03).
+        # Fail-open: an unresolvable project root falls back to the
+        # shipped authoritative default rather than raising.
+        try:
+            sync_mode_root = find_project_root(Path(args.plan_path).resolve().parent)
+        except ValueError:
+            sync_mode_root = None
+        sync_mode = (
+            read_sync_mode(sync_mode_root) if sync_mode_root is not None else "authoritative"
+        )
+        return create_issues(args.plan_path, allow_strip=(sync_mode != "mirror"))
     if args.command == "close-wave":
         return close_wave(args.phase_dir, args.plan_ids)
     if args.command == "reconcile-stale-closed":
