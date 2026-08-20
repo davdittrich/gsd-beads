@@ -76,6 +76,102 @@
 
 ---
 
+## Milestone: v1.3 — Config/Code Truth
+
+**Shipped:** 2026-08-20
+**Phases:** 2 (17-18) | **Plans:** 8 | **Sessions:** at least 2 (Phase 17 execution, then a
+second continuous session covering Phase 18, a follow-up quick task, both phases' security gate,
+and milestone close)
+
+### What Was Built
+- TRUTH-04: decimal-numbered phases (`1.5`, `11.1`) resolve at every beads lifecycle point via
+  string-only helpers — closed a P1 bug that was failing silently on every hook (Phase 17)
+- TRUTH-03: `check_native_step_dispatch` gates the double-dispatch hook on live probing of the
+  installed gsd-core workflow files, not a version guess — self-adapts the moment upstream #3687
+  releases (Phase 17)
+- TRUTH-01: `beads.sync_mode` narrowed to two behaviorally-distinct values; a project holding the
+  retired `off` value gets exactly one silent notice, never a crash or a config write (Phase 17)
+- TRUTH-02: two structurally-cloned patch-check functions collapsed into one `PATCH_CHECKS`-table
+  reader behind one CLI verb, D-08 hard break with no alias window (Phase 17)
+- Both machine-local gsd-core patches reapplied and verified live on both runtime homes; the
+  withdrawn `v1.3.0` tag deleted from `origin` behind a live-confirmed `checkpoint:decision`; four
+  stale Phase 17 bd issues closed with verified identity; CHANGELOG/`plugin.json` accuracy gaps
+  closed (Phase 18)
+- Follow-up quick task: `reconcile_stale_closed` extended with an opt-in `resolves_issues:`
+  SUMMARY.md frontmatter marker so standalone problem-report bd issues (no `<beads-id>`) can be
+  closed by the phase-wide backstop too — closing the exact gap Phase 18 surfaced about itself
+
+### What Worked
+- Live-reverifying every `mitigate`-dispositioned threat at security-gate time, not just trusting
+  each plan's own threat-model prose: for Phase 18's 17-threat register, every high-severity claim
+  (patch markers present, tag actually gone from origin, `bd show` confirms closure, `diff -rq`
+  empty between tracked/overlay trees) was re-run live against the current `HEAD`, not accepted
+  from a SUMMARY.md's self-report.
+- Pinning every `bd` invocation inside an isolated executor worktree to `-C <main-repo-root>`
+  before dispatch, once the worktree/`.beads/` gap was diagnosed — caught a correctness bug (an
+  isolated worktree cannot see the untracked, gitignored `.beads/` database) before any bd state
+  was silently mutated against a stale/absent local copy instead of the real project database.
+- Treating a genuinely destructive, checkpoint-gated operation (deleting a public git tag) as a
+  real decision point even though the plan itself recommended an option — surfaced it via
+  `AskUserQuestion` rather than auto-approving the plan's own recommendation, consistent with
+  "hard-to-reverse, affects shared state" always warranting explicit confirmation regardless of
+  which option a subagent argues for.
+
+### What Was Inefficient
+- A Claude Code worktree got torn down by the harness mid-checkpoint (between a plan pausing at
+  `checkpoint:decision` and being resumed with the answer), losing the in-progress worktree state
+  for plan 18-02's Task 3. Recovery required the orchestrator to manually recreate the worktree at
+  the same base/branch before resuming — the checkpoint-pause protocol does not currently protect
+  against harness-side worktree cleanup firing on a paused (not actually finished) agent.
+- The `gsd-write-guard.js` shrink-protection hook's documented escape hatch (a single-use
+  `.gsd-allow-shrink` sentinel file, armed by the workflow before the milestone-close ROADMAP.md
+  rewrite) failed three times in a row during this milestone's close. Root cause: **two copies of
+  the hook are both registered** (a user-level install and a marketplace-plugin install), and the
+  sentinel is single-use — the first hook instance to run consumes it, so the second instance always
+  finds it already gone and blocks. The documented workaround (Edit instead of Write, after a full
+  Read) works and was used, but the sentinel mechanism itself is silently broken for any project
+  with both hook copies registered, and nothing surfaces that duplication to the user.
+- `.gsd-capabilities.json`'s `updatedAt` timestamp kept drifting into a merge conflict on nearly
+  every worktree merge and cross-session sync this milestone (stash-and-drop was the workaround
+  each time) — pure bookkeeping noise with no semantic content, but it cost a manual stash/drop
+  cycle on at least four separate merges across Phase 18 and this close.
+
+### Patterns Established
+- **Re-verify high-severity threat mitigations live at the security gate, independent of the
+  executor's own SUMMARY.md claim** — this milestone's `asvs_level: 1` short-circuit rule still
+  means "grep-depth," not "trust the report"; every `mitigate` disposition at `high` severity got
+  an independent command re-run before being marked closed.
+- **`-C <main-repo-root>` for every `bd` call inside an isolated executor worktree** — `.beads/` is
+  untracked and a `git worktree add` checkout never contains it; any plan whose real work is bd
+  state (not repo files) needs this pinning or it silently operates on an absent/stale database.
+
+### Key Lessons
+1. A checkpoint pause is not the same as agent completion from the harness's perspective — a
+   worktree can be reclaimed between a plan pausing at `checkpoint:decision` and being resumed with
+   the user's answer. Treat "worktree missing on resume" as an expected, recoverable orchestrator
+   task (recreate at the recorded base/branch), not a fatal error.
+2. A single-use escape-hatch sentinel is only as reliable as the assumption that exactly one
+   consumer will check it. Two registered copies of the same hook silently defeats a single-use
+   token every time, with no error pointing at the actual cause — worth auditing for duplicate hook
+   registration (`~/.claude/hooks/` vs. `~/.claude/plugins/marketplaces/*/hooks/`) whenever a
+   documented single-use bypass mysteriously never works.
+3. Deleting a public git tag (or any destructive operation against shared/external state) still
+   needs explicit human confirmation even when the executing plan already argues for a specific
+   option — a plan's own recommendation is not the same as the user's consent.
+
+### Cost Observations
+- Model mix: security-gate re-verification and milestone archival ran on the orchestrator directly
+  (no subagent spawn needed for either); phase execution used sonnet executors/verifiers, opus for
+  the quick-task planner and the security auditor role (unused this pass — `asvs_level: 1`
+  short-circuited both phases' auditor spawn)
+- Sessions: Phase 17 in one session; Phase 18 + quick task 260820-j6g + both phases' security gate
+  + this milestone close in one continuous second session
+- Notable: the worktree-recreation recovery for plan 18-02 and the write-guard sentinel workaround
+  for ROADMAP.md were both real, in-session recoveries from genuine tooling gaps — neither was a
+  planning or execution defect in this milestone's own deliverables
+
+---
+
 ## Cross-Milestone Trends
 
 ### Process Evolution
@@ -85,6 +181,7 @@
 | v1.0 | 1 | 4 | First milestone — established the overlay-capability pattern, fail-open discipline, and tracer-first planning for this project |
 | v1.1 | — | 8 (5-12) | Not recorded — this milestone's retrospective section was never written at close time |
 | v1.2 | 2+ days | 4 (13-16) | First milestone to ship independent public plugins extracted from in-repo dogfood, and the first mid-milestone scope reallocation (get-available-resources dropped for a higher-priority discovered gap) |
+| v1.3 | 2+ (1 day) | 2 (17-18) | First milestone with a mid-milestone tech-debt phase inserted after the requirement-scoped phase shipped (Phase 18, audit-sourced, no REQUIREMENTS.md IDs), and the first to hit real harness/tooling gaps (worktree reclaimed mid-checkpoint, duplicate-hook sentinel) rather than planning or execution defects |
 
 ### Cumulative Quality
 
@@ -92,8 +189,10 @@
 |-----------|-------|----------|---------------------|
 | v1.0 | 88 | Not measured (no coverage tool configured) | 0 (N5: `bd` binary + Python stdlib only, no new dependency added) |
 | v1.2 | 4/4 phases verification `passed` | Not measured (no coverage tool configured) | 0 (`markdown-linting`/`pr-workflow` wrap external CLIs already required, no new project dependency) |
+| v1.3 | 2/2 phases verification `passed`, 261/261 suite (up from 246 at Phase 17 start) | Not measured (no coverage tool configured) | 0 (both phases and the follow-up quick task stayed within `bd` + Python stdlib) |
 
 ### Top Lessons (Verified Across Milestones)
 
 1. Fail-open correctly hid a real, fixable problem (bd schema skew) for most of the milestone — the design worked exactly as intended, but "no error" isn't the same as "everything is fine"; worth a periodic real-environment check, not just trusting the skip path. (v1.0)
 2. Tracking artifacts (debug sessions, UAT gaps, milestone headers) need their own explicit closure step — a shipped fix or a phase's existence in the file doesn't automatically close the record that references it. (v1.2)
+3. A worktree-isolated executor cannot see untracked project state (`.beads/`), and a checkpoint pause is not the same as agent completion to the harness — both need an explicit, documented recovery path rather than being discovered fresh each time. (v1.3)
