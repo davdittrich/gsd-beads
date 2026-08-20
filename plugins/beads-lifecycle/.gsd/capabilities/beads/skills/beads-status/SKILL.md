@@ -125,6 +125,42 @@ here and no single wave's issues to name -- it regenerates `BEADS.md`, recomputi
 `ship:pre`'s gates is fresh. Report both commands' stdout. Then stop; do not call the wave-scoped
 `close-wave` from this branch (see Anti-Pattern 6).
 
+### `resolves_issues:` marker -- reaching a standalone issue with no `<beads-id>` (260820-j6g, bd gsd-beads-72u)
+
+`reconcile-stale-closed`'s candidate set above is drawn entirely from `<beads-id>` links across a
+phase's `PLAN.md` files. A standalone problem-report bd issue -- filed independently of any task,
+never linked from a `<beads-id>` anywhere -- cannot be reached by that path *by construction*, and
+stays open forever unless someone closes it by hand.
+
+To close such an issue automatically, add a `resolves_issues:` key to the **frontmatter** of the
+completed plan's `SUMMARY.md` that fixed it (either YAML form is accepted):
+
+```yaml
+resolves_issues: ["gsd-beads-he1"]
+```
+
+or the block-list form:
+
+```yaml
+resolves_issues:
+  - "gsd-beads-he1"
+```
+
+`reconcile-stale-closed` unions every marked id across the phase's SUMMARY.md frontmatters into its
+candidate set, closes any that are still open through the same `filter_open_ids` live-status gate
+the `<beads-id>` path uses, and reports the marker-closed count and any rejected-entry count
+separately on stdout. Two properties an author can depend on:
+
+- An id named only in the SUMMARY.md **body** (prose) is never closed -- only the frontmatter fence
+  is ever searched, deliberately, so a phase that merely *mentions* a bd id (e.g. as a newly filed
+  follow-up) cannot trigger a close.
+- An id bd does not recognize, or that has already been closed, is a silent no-op, not an error --
+  the same idempotency `filter_open_ids` already gives the `<beads-id>` path.
+
+**This key is the only way the backstop can reach an unlinked issue.** A phase that resolves a
+standalone problem-report issue and omits the key leaves that issue open indefinitely -- that
+sentence is what stops this gap being rediscovered a third time.
+
 ## Step 2c -- ship:pre: record an override if one occurred
 
 Read `{padded_phase}-BEADS.md`'s `blocking_open`/`diverged` frontmatter fields and
@@ -263,3 +299,7 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
 10. DO NOT call `bd close`, `bd update`, or `bd comment` from the on-demand status branch (Step
     2e) -- it only reports the plan-task <-> bd issue mapping and its orphans, it never
     reconciles bd state (mirrors `beads-recall`'s own read-only discipline; T-04-05).
+11. DO NOT widen the `resolves_issues:` marker search out of the frontmatter fence into SUMMARY.md
+    body text. `18-02-SUMMARY.md` mentions bd `gsd-beads-72u` in its body as a follow-up ticket it
+    just filed -- a body scan would close the very ticket that opened one line earlier. The
+    frontmatter fence is the entire prose-immunity property; do not erode it.
