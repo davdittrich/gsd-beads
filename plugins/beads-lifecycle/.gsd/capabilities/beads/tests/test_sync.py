@@ -4795,6 +4795,90 @@ class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
         self.assertNotIn("<action>", written)
 
 
+class TestSyncModeDeclarationParity(unittest.TestCase):
+    """17-03 Task 1 (D-01/D-02): capability.json's declared beads.sync_mode
+    values array narrows to the two values that do something -- pin the
+    array by equality and order (gsd-core echoes it back in that exact
+    order in its rejection message for an invalid config-set write), and
+    prove every declared value has a covering behavioral test by iterating
+    the declaration itself rather than hardcoding a count, so a future
+    value added to the declaration without a covering reader goes red
+    here."""
+
+    CAPABILITY_PATH = Path(__file__).resolve().parent.parent / "capability.json"
+    # Each key is a declared value; each value names the arm-proving test
+    # method already exercising it in TestCreateIssuesCliSyncModeGate above.
+    COVERING_TESTS = {
+        "authoritative": "test_authoritative_strips_task_body",
+        "mirror": "test_mirror_leaves_task_body_intact",
+    }
+
+    def _sync_mode_config(self):
+        return json.loads(self.CAPABILITY_PATH.read_text(encoding="utf-8"))["config"][
+            "beads.sync_mode"
+        ]
+
+    def test_declared_values_array_is_exactly_authoritative_then_mirror(self):
+        self.assertEqual(self._sync_mode_config()["values"], ["authoritative", "mirror"])
+
+    def test_default_is_unchanged(self):
+        self.assertEqual(self._sync_mode_config()["default"], "authoritative")
+
+    def test_every_declared_value_has_a_covering_test(self):
+        declared = self._sync_mode_config()["values"]
+        self.assertEqual(set(declared), set(self.COVERING_TESTS))
+        for value in declared:
+            method_name = self.COVERING_TESTS[value]
+            self.assertTrue(
+                hasattr(TestCreateIssuesCliSyncModeGate, method_name),
+                f"declared value {value!r} has no covering test "
+                f"TestCreateIssuesCliSyncModeGate.{method_name}",
+            )
+
+
+class TestSyncModeAdjacencyAndEncoding(unittest.TestCase):
+    """17-03 Task 1: comparison against the mirror value (main()'s
+    `sync_mode != "mirror"`) is exact code-point string equality -- no
+    case-folding, no whitespace trimming, no Unicode normalization. A
+    value that merely LOOKS like "mirror" must fall through to today's
+    authoritative (stripping) behavior: a config value may only ever
+    withhold strip permission, never grant it (T-17-03-01), so treating a
+    near-miss as "mirror" would be the wrong failure direction."""
+
+    def _run_create_issues(self, sync_mode_value):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            (Path(tmp) / ".planning" / "config.json").write_text(
+                json.dumps({"beads": {"sync_mode": sync_mode_value}}), encoding="utf-8"
+            )
+            with mock.patch("subprocess.run", side_effect=_make_bd_side_effect()):
+                exit_code = sync.main(["create-issues", str(plan_copy)])
+            return exit_code, plan_copy.read_text(encoding="utf-8")
+
+    def _assert_strips_like_authoritative(self, sync_mode_value):
+        exit_code, written = self._run_create_issues(sync_mode_value)
+        self.assertEqual(exit_code, 0)
+        self.assertIn(sync.TASK_POINTER_PREFIX, written)
+        self.assertNotIn("<action>", written)
+
+    def test_case_variant_of_mirror_strips_like_authoritative(self):
+        self._assert_strips_like_authoritative("Mirror")
+
+    def test_whitespace_padded_mirror_strips_like_authoritative(self):
+        self._assert_strips_like_authoritative(" mirror ")
+
+    def test_homoglyph_value_strips_like_authoritative(self):
+        """Cyrillic U+043E (о) in place of "mirror"'s fifth-character Latin
+        'o' -- renders identically to "mirror" in most fonts, is a
+        different sequence of code points, and Python string equality
+        (used by main()'s `sync_mode != "mirror"` comparison) applies no
+        normalization that would collapse the two."""
+        homoglyph = "mirr" + "о" + "r"
+        self.assertNotEqual(homoglyph, "mirror")  # sanity: genuinely different code points
+        self._assert_strips_like_authoritative(homoglyph)
+
+
 class TestLifecycleDispatchNeverConsultsSyncMode(unittest.TestCase):
     """17-02 Task 3 (D-06/D-03): the hook path's plan:post allow_strip stays
     the literal False regardless of beads.sync_mode -- config can only ever
