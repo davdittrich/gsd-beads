@@ -93,6 +93,24 @@ TITLE_RE = re.compile(r"^title:\s*(.+)$", re.MULTILINE)
 AREA_RE = re.compile(r"^area:\s*(\S+)\s*$", re.MULTILINE)
 SEVERITY_RE = re.compile(r"^severity:\s*(\S+)\s*$", re.MULTILINE)
 FILES_BLOCK_RE = re.compile(r"^files:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
+# 260820-j6g (bd gsd-beads-72u): a completed plan's SUMMARY.md frontmatter
+# `resolves_issues:` key -- the only signal that lets reconcile_stale_closed
+# reach a standalone problem-report issue carrying no <beads-id> anywhere.
+# Inline-flow/block-list pair mirrors DEPENDS_ON_RE/DEPENDS_ON_BLOCK_RE
+# exactly, same ReDoS discipline (anchored, mandatory literal separators, no
+# nested quantifiers). A third clone of this parse idiom, rather than a
+# shared extraction over parse_depends_on/parse_todo_files_block, is
+# deliberate: both of those are under test and out of this ticket's blast
+# radius.
+RESOLVES_ISSUES_RE = re.compile(r"^resolves_issues:\s*\[(.*?)\]\s*$", re.MULTILINE)
+RESOLVES_ISSUES_BLOCK_RE = re.compile(r"^resolves_issues:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
+# The argv trust boundary for every id parse_resolves_issues extracts: a
+# leading alphanumeric character (so an entry beginning with `-` can never
+# reach `bd close` as an option flag) followed by alphanumerics, `.`, `_`,
+# or `-`. Matched with .fullmatch(), never .search() or .match(), so a
+# multi-token string like "a b" or "../evil" cannot pass by matching only a
+# safe prefix.
+SAFE_BD_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 PROBLEM_RE = re.compile(r"^##\s*Problem\s*\n(.*?)(?=^##\s*Solution\s*$)", re.MULTILINE | re.DOTALL)
 # WR-02: PROBLEM_RE's lookahead anchor requires a literal "## Solution"
 # heading later in the body. When that heading is missing/misspelled,
@@ -387,6 +405,36 @@ def parse_todo_files_block(frontmatter):
     stripped. Absent -> [] (B12, Pattern 1: `DEPENDS_ON_BLOCK_RE`'s
     block-item extraction technique, cloned and scoped to `files:`)."""
     m = FILES_BLOCK_RE.search(frontmatter)
+    if not m:
+        return []
+    items = []
+    for line in m.group(1).splitlines():
+        line = line.strip()
+        if not line.startswith("-"):
+            continue
+        item = line[1:].strip().strip('"').strip("'")
+        if item:
+            items.append(item)
+    return items
+
+
+def parse_resolves_issues(frontmatter):
+    """Return a SUMMARY.md's `resolves_issues` frontmatter array as a list of
+    raw, unvalidated strings, quotes/whitespace stripped (260820-j6g, bd
+    gsd-beads-72u). Absent -> [].
+
+    Structurally identical to parse_depends_on: inline-flow form tried
+    first, block-list form as fallback. Performs no id-shape validation --
+    that check belongs at `_resolve_marked_issue_ids`, the one place these
+    values cross into a `bd close` argv."""
+    m = RESOLVES_ISSUES_RE.search(frontmatter)
+    if m:
+        inner = m.group(1).strip()
+        if not inner:
+            return []
+        return [item.strip().strip('"').strip("'") for item in inner.split(",") if item.strip()]
+
+    m = RESOLVES_ISSUES_BLOCK_RE.search(frontmatter)
     if not m:
         return []
     items = []
@@ -1351,6 +1399,44 @@ def _resolve_completed_task_ids(phase_dir):
     return completed_ids
 
 
+def _resolve_marked_issue_ids(phase_dir):
+    """Return (set_of_ids, rejected_count): the union of every id named in a
+    `resolves_issues:` frontmatter key across every completed plan's
+    SUMMARY.md in phase_dir (260820-j6g, bd gsd-beads-72u) -- the sibling
+    candidate-set source to _resolve_completed_task_ids's <beads-id> union,
+    for a standalone problem-report issue that carries no <beads-id>
+    anywhere.
+
+    The search is deliberately restricted to the frontmatter fence
+    (FRONTMATTER_RE) and never the SUMMARY body: a bd id named only in body
+    prose -- e.g. an 18-02-SUMMARY.md shape that mentions gsd-beads-72u as a
+    follow-up it just filed -- must never be closeable, and that immunity to
+    prose false positives is structural only if the body is never searched
+    at all. Each raw id parse_resolves_issues extracts is admitted only when
+    it fullmatches SAFE_BD_ID_RE; anything else is dropped and counted in
+    rejected_count rather than ever reaching a `bd close` argv.
+    """
+    ids = set()
+    rejected = 0
+    for plan_id, plan_path in discover_plan_files(phase_dir).items():
+        summary_path = plan_path.with_name(f"{plan_id}-SUMMARY.md")
+        if not summary_path.exists():
+            continue
+        try:
+            text = summary_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        fm_match = FRONTMATTER_RE.match(text)
+        if not fm_match:
+            continue
+        for raw_id in parse_resolves_issues(fm_match.group(1)):
+            if SAFE_BD_ID_RE.fullmatch(raw_id):
+                ids.add(raw_id)
+            else:
+                rejected += 1
+    return ids, rejected
+
+
 def _compute_diverged(rows, ordinal_map, completed_ids):
     """Return (diverged_count, task_status_by_id) (B10/D-04): a row whose id
     is a key in ordinal_map (i.e. a synced task) is diverged when its `bd`
@@ -1508,9 +1594,26 @@ def reconcile_stale_closed(phase_dir_arg):
         if result.returncode != 0:
             print(f"reconcile-stale-closed: bd close failed: {result.stderr.strip()}")
 
+    # 260820-j6g (bd gsd-beads-72u): a second, separately-reasoned close call
+    # for standalone issues named only via `resolves_issues:` markers -- a
+    # sibling candidate set, never merged into the call above, so a
+    # `--reason` (which is per-call) keeps the two closure paths
+    # distinguishable in bd's audit trail. `.beads/` is untracked, so that
+    # trail is the only forensic handle on a wrong close.
+    marked_ids, rejected = _resolve_marked_issue_ids(phase_dir)
+    marked_ids -= set(completed_ids)
+    marked_to_close = filter_open_ids(sorted(marked_ids))
+
+    if marked_to_close:
+        marker_reason = f"resolves_issues marker: {phase_dir.name}"
+        marker_result = run_bd(["bd", "close", *marked_to_close, "--reason", marker_reason])
+        if marker_result.returncode != 0:
+            print(f"reconcile-stale-closed: bd close failed: {marker_result.stderr.strip()}")
+
     print(
         f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) in {phase_dir.name}; "
-        f"skipped {skipped_total} task(s) with no beads-id"
+        f"skipped {skipped_total} task(s) with no beads-id; "
+        f"closed {len(marked_to_close)} marker issue(s), rejected {rejected}"
     )
     return 0
 
