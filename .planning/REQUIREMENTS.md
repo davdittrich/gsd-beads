@@ -64,7 +64,7 @@ gsd-core 1.11.0 made reachable.
 
 ### Internal Consistency
 
-- [ ] **TRUTH-02**: `check_shipmd_patch` and `check_execute_plan_patch` are served by one
+- [x] **TRUTH-02**: `check_shipmd_patch` and `check_execute_plan_patch` are served by one
   table-driven reader. They are structural clones — ~39 body lines each, identical control flow,
   differing only in filename, marker constant, and four message strings (~50 lines recoverable).
   `lifecycle_dispatch` now calls them back-to-back at `plan:pre`, which is exactly the table
@@ -158,7 +158,7 @@ Deferred, tracked, not in this roadmap.
 | Requirement | Phase | Plan | bd | Status |
 |-------------|-------|------|-----|--------|
 | TRUTH-01 | Phase 17 | 17-03 | `gsd-beads-v43` (P1) | Pending |
-| TRUTH-02 | Phase 17 | 17-04 | `gsd-beads-t7a` (P3) | Pending |
+| TRUTH-02 | Phase 17 | 17-04 | `gsd-beads-t7a` (P3) | Complete |
 | TRUTH-03 | Phase 17 | 17-02 | `gsd-beads-he1` (P1) | Complete |
 | TRUTH-04 | Phase 17 | 17-01 | `gsd-beads-bzl` (P1) | Complete |
 
