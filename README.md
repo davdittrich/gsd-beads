@@ -136,7 +136,7 @@ object, and the shipped defaults are declared in
 | Key | Type | Values | Default | Effect |
 | :--- | :--- | :--- | :--- | :--- |
 | `beads.enabled` | boolean | `true` / `false` | `true` | Master toggle for the beads issue-tracking capability. |
-| `beads.sync_mode` | enum | `authoritative`, `mirror`, `off` | `"authoritative"` | Controls who owns task status and content: under `authoritative`, `bd` owns status and content after first sync. |
+| `beads.sync_mode` | enum | `authoritative`, `mirror` | `"authoritative"` | Governs whether an explicit `sync.py create-issues <plan>` strips synced task bodies out of `PLAN.md`: `authoritative` strips once the read-path patch is present, `mirror` never strips. Never governs the hook-driven `plan:post` dispatch, which never strips either way. |
 | `beads.ship_gate` | boolean | `true` / `false` | `true` | When true, `ship:pre` blocks on `BEADS.md`'s `blocking_open` or `diverged` frontmatter fields being non-zero; both gates are blocking. |
 | `beads.epic_per` | enum | `phase`, `milestone` | `"phase"` | `phase`: one epic per phase, as today. `milestone`: one epic shared across every phase in the current milestone. |
 
@@ -173,8 +173,6 @@ comment on the phase epic, and the amend is refused when HEAD is already pushed.
 
 ### Caveats
 
-- `mirror` and `off` are reserved for later phases and not yet implemented — `authoritative` is
-  the only working `sync_mode`.
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.
 - `epic_per: milestone` is forward-only — it does not retroactively fold existing per-phase
