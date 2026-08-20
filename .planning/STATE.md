@@ -277,9 +277,10 @@ Resume file: None
 
 ## Operator Next Steps
 
-- Security enforcement is on (`workflow.security_enforcement`) and neither `17-SECURITY.md` nor
-  `18-SECURITY.md` exists yet — run `/gsd-secure-phase 17` and `/gsd-secure-phase 18` before
-  shipping (advisory at execute-phase, not blocking; surfaced here as it will gate ship).
+- **[DONE 2026-08-20]** Security gate closed for both phases: `17-SECURITY.md` (21/21 threats
+  closed, `threats_open: 0`) and `18-SECURITY.md` (17/17 threats closed, `threats_open: 0`,
+  all mitigate-dispositioned threats live-reverified, not just claimed). `beads.ship_gate` is
+  no longer blocked on security for either phase.
 
 - The 5 non-blocking WARNING findings from `17-REVIEW.md` and the 1 from `18-REVIEW.md` remain
   open (all doc/test-truth gaps, none functional). Consider `/gsd-code-review 17 --fix` and/or
