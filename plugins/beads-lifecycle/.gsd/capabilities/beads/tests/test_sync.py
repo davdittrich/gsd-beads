@@ -4394,5 +4394,180 @@ class TestLifecycleDispatchHook(unittest.TestCase):
         )
 
 
+def _installed_workflow_path(filename):
+    return (
+        Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+        / "gsd-core"
+        / "workflows"
+        / filename
+    )
+
+
+class TestNativeStepDispatchProbe(unittest.TestCase):
+    """17-02 Task 1 (D-05): check_native_step_dispatch is a read-only,
+    fail-open probe for gsd-core PR #3687's native `kind == "step"`
+    dispatch, region-scoped on the point's own `render-hooks <point> --raw`
+    anchor so it does not false-positive on either shipped 1.11.0 workflow
+    file."""
+
+    def _probe(self, point, text):
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow_path = Path(tmp) / "workflow.md"
+            workflow_path.write_text(text, encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_native_step_dispatch(point, str(workflow_path))
+            return exit_code, captured.getvalue(), workflow_path
+
+    def test_unqualified_generic_step_arm_in_region_is_detected(self):
+        text = (
+            "## 13e. Post-Planning Gap Analysis (plan:post capability gate dispatch)\n\n"
+            "```bash\n"
+            "PLAN_POST_HOOKS_JSON=$(gsd_run loop render-hooks plan:post --raw)\n"
+            "```\n\n"
+            'For each active entry where `kind == "step"`: dispatch it.\n\n'
+            "## 14. Present Final Status\n"
+        )
+        exit_code, out, path = self._probe("plan:post", text)
+        self.assertEqual(exit_code, 1)
+        self.assertIn(str(path), out)
+
+    def test_shipped_1_11_0_plan_phase_shape_is_not_detected(self):
+        """Whole-file-grep false positive, pinned: three unqualified
+        `kind == "step"` mentions live OUTSIDE the plan:post region in the
+        real shipped file (the plan:pre generic contract, the auto-chain UI
+        branch, the intel step read); the region itself carries only a
+        `kind == "gate"` loop."""
+        text = (
+            '**Generic step hook dispatch contract:** For each active entry where '
+            '`kind == "step"`:\n\n'
+            'For each entry in `activeHooks` where `kind == "step"` and `ref.skill` '
+            "is set:\n\n"
+            'Read the active intel step hook where `kind == "step"` and '
+            '`capId == "intel"`.\n\n'
+            "## 13e. Post-Planning Gap Analysis (plan:post capability gate dispatch)\n\n"
+            "```bash\n"
+            "PLAN_POST_HOOKS_JSON=$(gsd_run loop render-hooks plan:post --raw)\n"
+            "```\n\n"
+            '**For each active entry where `kind == "gate"`** (process in array order).\n\n'
+            "## 14. Present Final Status\n"
+        )
+        exit_code, out, path = self._probe("plan:post", text)
+        self.assertEqual(exit_code, 0)
+        self.assertIn(str(path), out)
+
+    def test_missing_file_is_not_detected_and_names_the_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = Path(tmp) / "does-not-exist.md"
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_native_step_dispatch("plan:post", str(missing_path))
+        self.assertEqual(exit_code, 0)
+        self.assertIn(str(missing_path), captured.getvalue())
+
+    def test_unreadable_file_is_not_detected_and_names_the_path(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workflow_path = Path(tmp) / "workflow.md"
+            workflow_path.write_bytes(b"\xff\xfe not valid utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_native_step_dispatch("plan:post", str(workflow_path))
+        self.assertEqual(exit_code, 0)
+        self.assertIn(str(workflow_path), captured.getvalue())
+
+    def test_region_ends_at_heading_before_a_later_step_arm_is_not_detected(self):
+        """Failing to find the arm because it lives past the region boundary
+        must not be a failure to dispatch."""
+        text = (
+            "## 13e. Post-Planning Gap Analysis (plan:post capability gate dispatch)\n\n"
+            "```bash\n"
+            "PLAN_POST_HOOKS_JSON=$(gsd_run loop render-hooks plan:post --raw)\n"
+            "```\n\n"
+            "Only gate content in this region, no step arm here.\n\n"
+            "## 14. Present Final Status\n\n"
+            'For each entry where `kind == "step"`: this arm is out of region.\n'
+        )
+        exit_code, _, _ = self._probe("plan:post", text)
+        self.assertEqual(exit_code, 0)
+
+    def test_unmapped_point_is_not_detected_without_reading_any_file(self):
+        exit_code = sync.check_native_step_dispatch("execute:wave:pre", "/nonexistent/x.md")
+        self.assertEqual(exit_code, 0)
+
+    def test_no_anchor_in_file_is_not_detected(self):
+        text = "## Some Heading\n\nNo render-hooks call anywhere in this fixture.\n"
+        exit_code, _, _ = self._probe("plan:post", text)
+        self.assertEqual(exit_code, 0)
+
+
+class TestNativeStepDispatchProbeAgainstInstalledTree(unittest.TestCase):
+    """17-02 Task 1 acceptance: on THIS machine's real installed gsd-core
+    1.11.0 workflow files, both gated points must classify as not-detected --
+    the installed tree predates PR #3687. Skips (does not fail) on a machine
+    with no installed gsd-core workflow files, the same guard
+    `_gsd_tools_path`-dependent tests already use."""
+
+    def test_plan_post_not_detected_on_installed_tree(self):
+        workflow_path = _installed_workflow_path("plan-phase.md")
+        if not workflow_path.exists():
+            self.skipTest(f"{workflow_path} not present on this machine")
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            exit_code = sync.check_native_step_dispatch("plan:post")
+        self.assertEqual(exit_code, 0)
+        self.assertIn(str(workflow_path), captured.getvalue())
+
+    def test_verify_post_not_detected_on_installed_tree(self):
+        workflow_path = _installed_workflow_path("verify-work.md")
+        if not workflow_path.exists():
+            self.skipTest(f"{workflow_path} not present on this machine")
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            exit_code = sync.check_native_step_dispatch("verify:post")
+        self.assertEqual(exit_code, 0)
+        self.assertIn(str(workflow_path), captured.getvalue())
+
+
+class TestLifecycleDispatchNativeGate(unittest.TestCase):
+    """17-02 Task 1: lifecycle_dispatch's plan:post branch stands down when
+    check_native_step_dispatch reports the point is now dispatched natively
+    (gsd-core PR #3687), and behaves exactly as before when it is not."""
+
+    def test_plan_post_skips_create_issues_when_native_dispatch_detected(self):
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp), plan_text=plan)
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(
+                    sync, "check_native_step_dispatch", return_value=1
+                ) as probe, mock.patch.object(sync, "create_issues") as create:
+                    captured, errs = io.StringIO(), io.StringIO()
+                    with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(errs):
+                        exit_code = sync.lifecycle_dispatch("plan:post")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        create.assert_not_called()
+        probe.assert_called_once_with("plan:post")
+        self.assertNotEqual(errs.getvalue(), "")
+
+    def test_plan_post_dispatches_as_today_when_native_dispatch_not_detected(self):
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp), plan_text=plan)
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
+                     mock.patch.object(sync, "create_issues", return_value=0) as create:
+                    exit_code = sync.lifecycle_dispatch("plan:post")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        create.assert_called_once_with(str(phase_dir / "07-01-PLAN.md"), allow_strip=False)
+
+
 if __name__ == "__main__":
     unittest.main()
