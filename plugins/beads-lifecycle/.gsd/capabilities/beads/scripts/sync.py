@@ -824,6 +824,14 @@ def lifecycle_dispatch(point):
         elif point == "execute:wave:post":
             reconcile_stale_closed(str(phase_dir))
         elif point == "verify:post":
+            # 17-02 Task 2: same native-dispatch gate as plan:post above.
+            if check_native_step_dispatch("verify:post"):
+                print(
+                    "lifecycle-dispatch verify:post: gsd-core now dispatches this point "
+                    "natively (PR #3687) -- skipped",
+                    file=sys.stderr,
+                )
+                return 0
             regenerate_beads_md(str(phase_dir))
     except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
         print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})")
