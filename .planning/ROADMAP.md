@@ -327,7 +327,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 17-04-PLAN.md — one table-driven patch reader behind one collapsed CLI verb, with the missing coverage landing before the merge (TRUTH-02)
+- [x] 17-04-PLAN.md — one table-driven patch reader behind one collapsed CLI verb, with the missing coverage landing before the merge (TRUTH-02)
 
 | Plan | Requirement | bd | Priority | Why here in the order |
 |---|---|---|---|---|
@@ -368,7 +368,7 @@ must re-prove the two-tree identity and test-count guards before the next begins
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 17. Config/Code Truth | 3/4 | In Progress|  |
+| 17. Config/Code Truth | 4/4 | In Progress|  |
 
 ## Coverage
 
