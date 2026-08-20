@@ -34,6 +34,16 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   authoritative`, or `mirror`). Never an error; never writes to the project's config.
 - **Resolves the 0.3.1 Known-issue below**: `beads.sync_mode` is no longer declared-but-dead.
 
+### Breaking
+- **The two prior single-target patch-check CLI verbs are retired, replaced by one verb:
+  `check-patch <ship-md|execute-plan> [--path]`.** D-08: a hard break, no alias window --
+  every caller (`beads-recall/SKILL.md`, `beads-status/SKILL.md`, `GSD-CORE-PATCH.md`) was
+  updated in this same release. **This is a subprocess/CLI interface change only** -- the
+  Python helper functions `check_shipmd_patch` and `check_execute_plan_patch` are retained
+  under their existing names as thin wrappers over the new `check_patch(target, path)`
+  reader, and both in-file call sites (`lifecycle_dispatch`'s `plan:pre` pair,
+  `create_issues`'s `strip_task_bodies` re-gate) are unaffected (TRUTH-02).
+
 ## 0.3.1
 
 ### Fixed

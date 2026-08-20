@@ -69,8 +69,8 @@ read only the installed workflow files, never `bd`). Run both, alongside each ot
 second joins the first, it does not replace it:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py check-shipmd-patch
-python3 .gsd/capabilities/beads/scripts/sync.py check-execute-plan-patch
+python3 .gsd/capabilities/beads/scripts/sync.py check-patch ship-md
+python3 .gsd/capabilities/beads/scripts/sync.py check-patch execute-plan
 ```
 
 If either output contains the "⚠" warning line, surface it to the user verbatim -- never swallow
@@ -117,6 +117,6 @@ notice `bd unavailable -- sync skipped`.
 5. DO NOT skip Step 3.5 or swallow either of its "⚠" warnings -- it is the only patch-loss
    *detector* in this capability for both the `ship.md` patch (Step 2d in `beads-status` is
    confirmation-only, see Step 3.5's own note) and the `execute-plan.md` patch (which has no
-   `beads-status` counterpart at all -- `check-execute-plan-patch` is deliberately NOT wired at
+   `beads-status` counterpart at all -- `check-patch execute-plan` is deliberately NOT wired at
    `ship:pre`, see `GSD-CORE-PATCH.md` Patch 2). A future editor merging or trimming steps must
    not remove either check from this step.

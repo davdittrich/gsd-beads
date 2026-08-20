@@ -143,7 +143,7 @@ notice). Otherwise this branch is a no-op -- print nothing.
 This step always runs at `ship:pre`, independent of whether Step 2c did anything. Run:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py check-shipmd-patch
+python3 .gsd/capabilities/beads/scripts/sync.py check-patch ship-md
 ```
 
 If its output contains the "⚠" warning line, surface it to the user verbatim -- never swallow it

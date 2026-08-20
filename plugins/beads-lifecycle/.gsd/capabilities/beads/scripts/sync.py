@@ -127,6 +127,57 @@ SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->"
 # check_execute_plan_patch does a plain substring check against this, never
 # a regex, same discipline as SHIP_MD_PATCH_MARKER immediately above.
 EXECUTE_PLAN_PATCH_MARKER = "<!-- gsd-beads-patch:execute-plan-bd-task-read v1 -->"
+# 17-04 Task 3 (D-08/D-10): the table `check_patch` walks -- a plain dict of
+# literals keyed by target name (this module's existing small-fixed-variant
+# idiom, LIFECYCLE_DISPATCH_POINTS below; no registry/decorator/class). Each
+# entry's own `version` matters: the two markers are independently versioned
+# (v2 vs v1), so one shared field would let a bump to one silently apply to
+# both. The `*_msg` fields are the exact pre-merge message templates.
+PATCH_CHECKS = {
+    "ship-md": {
+        "default_path_parts": ("gsd-core", "workflows", "ship.md"),
+        "marker": SHIP_MD_PATCH_MARKER,
+        "version": "v2",
+        "filename": "ship.md",
+        "not_found_msg": (
+            "{filename} not found at {path} -- cannot verify the local ship:pre dispatch "
+            "patch (only this runtime home was probed; other runtime homes such as "
+            "CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
+        ),
+        "could_not_read_msg": (
+            "{filename} at {path} could not be read ({exc}) -- cannot verify the "
+            "local ship:pre dispatch patch"
+        ),
+        "present_msg": "{filename} ship:pre step-dispatch patch: present ({version}) at {path}",
+        "missing_msg": (
+            "⚠ {filename}'s ship:pre generic STEP dispatch patch (beads, {version}) is "
+            "missing at {path} -- the ship_override step will not fire. The two ship:pre "
+            "GATES are unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR "
+            "#3608). Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
+        ),
+    },
+    "execute-plan": {
+        "default_path_parts": ("gsd-core", "workflows", "execute-plan.md"),
+        "marker": EXECUTE_PLAN_PATCH_MARKER,
+        "version": "v1",
+        "filename": "execute-plan.md",
+        "not_found_msg": (
+            "{filename} not found at {path} -- cannot verify the local bd-task-read "
+            "patch (only this runtime home was probed; other runtime homes such "
+            "as CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
+        ),
+        "could_not_read_msg": (
+            "{filename} at {path} could not be read ({exc}) -- cannot "
+            "verify the local bd-task-read patch"
+        ),
+        "present_msg": "{filename} bd-task-read patch: present ({version}) at {path}",
+        "missing_msg": (
+            "⚠ {filename}'s bd-task-read patch (beads) is missing at {path} -- "
+            "gsd-executor will not read task content from bd. "
+            "Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
+        ),
+    },
+}
 # gh-2: the lifecycle points `lifecycle_dispatch` handles -- every `steps[]`
 # entry in capability.json EXCEPT `ship:pre`, which already dispatches
 # natively through this capability's own ship.md patch. Order is the
@@ -2232,135 +2283,60 @@ def ship_override(phase_dir_arg):
     return 0 if git_ok else 1
 
 
-def check_shipmd_patch(ship_md_path_override=None):
-    """D-05 gap-closure diagnostic (03-03 Task 2): report whether the local
-    `ship.md` patch (GSD-CORE-PATCH.md) is present in the installed,
-    machine-local `ship.md` -- a future gsd-core update or capability
-    reinstall can silently overwrite that file and drop the patch with no
-    error. Called from two independent points (CR-01): `beads-status`
-    SKILL.md's Step 2d confirms the patch is still intact immediately before
-    a ship attempt (`ship:pre`), but that call site is itself only reachable
-    through the dispatch loop the patch installs -- if the patch is lost,
-    Step 2d never runs either. `beads-recall` SKILL.md's Step 3.5 is the
-    call site that actually detects loss: it runs at `plan:pre`, dispatched
-    by gsd-core's own native generic step-dispatch loop, independent of
-    ship.md's patched dispatch loop entirely. Read-only: never edits
-    ship.md itself.
-
-    WR-03: only the Claude runtime home (`CLAUDE_CONFIG_DIR`, default
-    `~/.claude`) is probed -- ship.md's own multi-runtime resolution
-    (`CODEX_HOME`, `CURSOR_CONFIG_DIR`, etc.) is not replicated here, since
-    GSD-CORE-PATCH.md's patch itself is scoped to the Claude runtime only.
-    Every message below names the exact path checked so a report never
-    reads as "no ship.md patch exists anywhere" when only one of several
-    possible install locations was probed.
+def check_patch(target, path_override=None):
+    """17-04 Task 3 (TRUTH-02): the one reader PATCH_CHECKS parameterizes,
+    replacing check_shipmd_patch's and check_execute_plan_patch's identical
+    bodies. Preserves the three-case return contract (not-found /
+    could-not-read / marker present-or-missing), the `CLAUDE_CONFIG_DIR`
+    idiom, and naming the exact path probed in every message (WR-03).
+    Read-only. Total by construction (T-17-04-02): both checks run inside
+    `lifecycle_dispatch`'s one `try/except` alongside `beads_recall`, so an
+    unrecognized `target` fails open like an unreadable file rather than
+    raising -- but names the unknown target so the two cases stay separable.
     """
-    if ship_md_path_override:
-        ship_md_path = Path(ship_md_path_override)
+    entry = PATCH_CHECKS.get(target)
+    if entry is None:
+        known = ", ".join(sorted(PATCH_CHECKS))
+        print(f"unknown patch-check target '{target}' -- expected one of: {known}")
+        return 1
+    if path_override:
+        path = Path(path_override)
     else:
-        ship_md_path = (
-            Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
-            / "gsd-core"
-            / "workflows"
-            / "ship.md"
-        )
-    if not ship_md_path.exists():
-        print(
-            f"ship.md not found at {ship_md_path} -- cannot verify the local ship:pre dispatch "
-            "patch (only this runtime home was probed; other runtime homes such as CODEX_HOME "
-            "or CURSOR_CONFIG_DIR were not checked)"
-        )
+        path = Path(
+            os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))
+        ).joinpath(*entry["default_path_parts"])
+    if not path.exists():
+        print(entry["not_found_msg"].format(filename=entry["filename"], path=path))
         return 1
-    # WR-02: match check_execute_plan_patch's guard -- a permission error,
-    # mid-write race, or non-UTF-8 byte sequence in this machine-local file
-    # must degrade to the same "cannot verify" outcome as the missing-file
-    # case above, not raise (every other filesystem read in this module that
-    # touches artifact-adjacent or externally-editable content is similarly
-    # guarded, e.g. collect_all_task_files, resolve_milestone_epic).
+    # WR-02/CR-02: degrade to "cannot verify" rather than raise -- an
+    # uncaught exception here would abort create_issues before
+    # plan_path.write_text runs (execute-plan target).
     try:
-        text = ship_md_path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        print(
-            f"ship.md at {ship_md_path} could not be read ({exc}) -- cannot verify the "
-            "local ship:pre dispatch patch"
-        )
+        print(entry["could_not_read_msg"].format(filename=entry["filename"], path=path, exc=exc))
         return 1
-    if SHIP_MD_PATCH_MARKER in text:
-        print(f"ship.md ship:pre step-dispatch patch: present (v2) at {ship_md_path}")
-        return 0
-    print(
-        f"⚠ ship.md's ship:pre generic STEP dispatch patch (beads, v2) is missing at "
-        f"{ship_md_path} -- the ship_override step will not fire. The two ship:pre GATES are "
-        "unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR #3608). "
-        "Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
-    )
-    return 1
+    present = entry["marker"] in text
+    fmt = entry["present_msg"] if present else entry["missing_msg"]
+    print(fmt.format(filename=entry["filename"], path=path, version=entry["version"]))
+    return 0 if present else 1
+
+
+def check_shipmd_patch(ship_md_path_override=None):
+    """Thin wrapper over check_patch (17-04 Task 3, D-08) -- retained under
+    this exact name so the four existing test mocks and both in-file call
+    sites (beads-status Step 2d, beads-recall Step 3.5) keep working
+    unedited; D-08's CLI collapse is scoped to the public verb, not this
+    Python name (ROADMAP Criterion 5)."""
+    return check_patch("ship-md", ship_md_path_override)
 
 
 def check_execute_plan_patch(execute_plan_path_override=None):
-    """D-05 gap-closure diagnostic (16-03 Task 1): report whether the
-    machine-local `execute-plan.md` bd-task-read patch (GSD-CORE-PATCH.md)
-    is present -- clone of check_shipmd_patch's structure immediately above,
-    targeting gsd-core's `execute-plan.md` instead of `ship.md`. Read-only:
-    never edits the target.
-
-    Independence requirement: this detector must be dispatched from a
-    lifecycle point gsd-core reaches natively, never from inside the patch
-    it checks -- a detector reachable only through its own patch can confirm
-    an intact patch but can never detect a lost one, the exact flaw
-    GSD-CORE-PATCH.md's CR-01 note records for the ship.md patch. Plan
-    16-04 wires the dispatch at `plan:pre`; this docstring is what tells a
-    future editor why it must stay there.
-
-    WR-03: only the Claude runtime home (`CLAUDE_CONFIG_DIR`, default
-    `~/.claude`) is probed -- other runtime homes (`CODEX_HOME`,
-    `CURSOR_CONFIG_DIR`, etc.) are not replicated here, since the patch
-    itself is scoped to the Claude runtime only. Every message below names
-    the exact path checked so a report never reads as "no patch exists
-    anywhere" when only one of several possible install locations was
-    probed.
-    """
-    if execute_plan_path_override:
-        execute_plan_path = Path(execute_plan_path_override)
-    else:
-        execute_plan_path = (
-            Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
-            / "gsd-core"
-            / "workflows"
-            / "execute-plan.md"
-        )
-    if not execute_plan_path.exists():
-        print(
-            f"execute-plan.md not found at {execute_plan_path} -- cannot verify the local "
-            "bd-task-read patch (only this runtime home was probed; other runtime homes such "
-            "as CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
-        )
-        return 1
-    # CR-02/WR-02: create_issues calls this on every run with at least one
-    # newly-created task -- a permission error, a mid-write race, or a
-    # non-UTF-8 byte sequence in this machine-local file must degrade to the
-    # same "cannot verify" outcome as the missing-file case above, never
-    # propagate. An uncaught exception here would abort create_issues before
-    # plan_path.write_text runs, leaving already-created bd issues'
-    # <beads-id> never written back to PLAN.md (risking duplicate issues on
-    # the next sync retry).
-    try:
-        text = execute_plan_path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        print(
-            f"execute-plan.md at {execute_plan_path} could not be read ({exc}) -- cannot "
-            "verify the local bd-task-read patch"
-        )
-        return 1
-    if EXECUTE_PLAN_PATCH_MARKER in text:
-        print(f"execute-plan.md bd-task-read patch: present (v1) at {execute_plan_path}")
-        return 0
-    print(
-        f"⚠ execute-plan.md's bd-task-read patch (beads) is missing at {execute_plan_path} -- "
-        "gsd-executor will not read task content from bd. "
-        "Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
-    )
-    return 1
+    """Thin wrapper over check_patch (17-04 Task 3, D-08) -- retained under
+    this exact name for the same reason as check_shipmd_patch above; also
+    gates `strip_task_bodies` via `check_execute_plan_patch() == 0` in
+    create_issues, which must keep working unedited."""
+    return check_patch("execute-plan", execute_plan_path_override)
 
 
 def check_native_step_dispatch(point, workflow_path_override=None):
@@ -2523,16 +2499,17 @@ def main(argv=None):
         help="Record a beads.ship_gate=false bypass via a git trailer plus a best-effort bd comment (D-05)",
     )
     ship_override_p.add_argument("phase_dir")
-    check_shipmd_patch_p = sub.add_parser(
-        "check-shipmd-patch",
-        help="Report whether the local ship.md ship:pre dispatch patch (GSD-CORE-PATCH.md) is present",
+    # 17-04 Task 3 (D-08): one verb reaches both patch-check targets,
+    # replacing the two prior single-target verbs and their per-target
+    # `--*-path` flags. Hard break, no alias window (D-08 rated one-way;
+    # every caller updated in this same commit).
+    check_patch_p = sub.add_parser(
+        "check-patch",
+        help="Report whether a local GSD-CORE-PATCH.md patch is present at its target "
+        "(ship-md or execute-plan)",
     )
-    check_shipmd_patch_p.add_argument("--ship-md-path", default=None)
-    check_execute_plan_patch_p = sub.add_parser(
-        "check-execute-plan-patch",
-        help="Report whether the local execute-plan.md bd-task-read patch (GSD-CORE-PATCH.md) is present",
-    )
-    check_execute_plan_patch_p.add_argument("--execute-plan-path", default=None)
+    check_patch_p.add_argument("target", choices=sorted(PATCH_CHECKS))
+    check_patch_p.add_argument("--path", default=None)
     lifecycle_p = sub.add_parser(
         "lifecycle-dispatch",
         help="Run the beads operation a lifecycle point declares (gh-2); entered from the "
@@ -2579,10 +2556,8 @@ def main(argv=None):
         return render_wave_status_block(args.phase_dir, args.plan_ids)
     if args.command == "ship-override":
         return ship_override(args.phase_dir)
-    if args.command == "check-shipmd-patch":
-        return check_shipmd_patch(args.ship_md_path)
-    if args.command == "check-execute-plan-patch":
-        return check_execute_plan_patch(args.execute_plan_path)
+    if args.command == "check-patch":
+        return check_patch(args.target, args.path)
     if args.command == "lifecycle-dispatch":
         return lifecycle_dispatch(args.point)
     if args.command == "migrate-todos":
