@@ -317,7 +317,7 @@ Plans:
 
 **Wave 3** *(blocked on Wave 2 completion)*
 
-- [ ] 17-03-PLAN.md — `beads.sync_mode` narrowed to values that do something, the D-04 migration notice, and the full doc sweep in the same commit (TRUTH-01)
+- [x] 17-03-PLAN.md — `beads.sync_mode` narrowed to values that do something, the D-04 migration notice, and the full doc sweep in the same commit (TRUTH-01)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
@@ -362,7 +362,7 @@ must re-prove the two-tree identity and test-count guards before the next begins
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 17. Config/Code Truth | 2/4 | In Progress|  |
+| 17. Config/Code Truth | 3/4 | In Progress|  |
 
 ## Coverage
 
