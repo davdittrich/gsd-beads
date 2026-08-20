@@ -5030,6 +5030,14 @@ class TestSyncModeDeclarationParity(unittest.TestCase):
                 f"TestCreateIssuesCliSyncModeGate.{method_name}",
             )
 
+    def test_sync_module_constant_matches_capability_json(self):
+        # gsd-beads-u67.12: capability.json's declared array and sync.py's
+        # runtime SYNC_MODE_VALUES frozenset must agree, or an edit to one
+        # without the other goes undetected until an unrelated arm test
+        # happens to fail.
+        declared = frozenset(self._sync_mode_config()["values"])
+        self.assertEqual(declared, sync.SYNC_MODE_VALUES)
+
 
 class TestSyncModeAdjacencyAndEncoding(unittest.TestCase):
     """17-03 Task 1: comparison against the mirror value (main()'s
