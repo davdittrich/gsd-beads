@@ -4,6 +4,24 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
 
 ## 0.4.0
 
+### Added
+- **`check_native_step_dispatch(point, workflow_path_override=None)` — a region-scoped probe that
+  detects when gsd-core starts natively dispatching `kind == "step"` hooks, so this capability's
+  own hook can stand down instead of double-dispatching.** Two module constants back it:
+  `NATIVE_STEP_DISPATCH_WORKFLOW_FILES` (the lifecycle-point-to-installed-workflow-filename map)
+  and `NATIVE_STEP_DISPATCH_REGION_LINES` (the 120-line region bound the probe scopes its search
+  to, anchored on the point's own `render-hooks <point> --raw` call). `lifecycle_dispatch` now
+  gates its `plan:post` and `verify:post` branches on this probe, standing down rather than
+  double-dispatching alongside gsd-core's own native loop once the upstream change ships.
+  `execute:wave:pre` and `execute:wave:post` are deliberately NOT gated — no upstream work covers
+  either point — and `plan:pre` is likewise ungated. The probe is region-scoped rather than a
+  whole-file scan because a whole-file `kind == "step"` grep is a verified false positive on both
+  shipped 1.11.0 workflow files, and a false native-dispatch verdict would make the hook stand
+  down and silently miss the sync — the one failure direction the design forbids. Every miss
+  reports not-detected and degrades to the working double dispatch instead. Detects
+  [open-gsd/gsd-core#3687](https://github.com/open-gsd/gsd-core/pull/3687), merged to `next` on
+  2026-08-19 and unreleased at the time of writing (TRUTH-03).
+
 ### Fixed
 - **A decimal-numbered phase (`1.5`, `01.5`, `10.1`, `11.1` — the form `/gsd-phase --insert`
   produces) failed silently at every beads lifecycle point.** `PLAN_FILE_RE` never matched a
@@ -33,6 +51,16 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   gate passes — and giving the one-command remedy (`gsd-tools config-set beads.sync_mode
   authoritative`, or `mirror`). Never an error; never writes to the project's config.
 - **Resolves the 0.3.1 Known-issue below**: `beads.sync_mode` is no longer declared-but-dead.
+- **All four previously-unmarked `PATCH_CHECKS` problem-report templates now carry the same
+  leading `⚠ ` marker the `missing_msg` templates already used** — `not_found_msg` and
+  `could_not_read_msg`, for both the `ship-md` and `execute-plan` targets. Both consuming skills
+  (`beads-recall`, `beads-status`) now key their surfacing rule off `check-patch`'s exit code (0
+  present, non-zero absent) or the absence of `present` in its output, so a future template that
+  forgets the marker is a cosmetic miss rather than a silent one.
+- **`GSD-CORE-PATCH.md` now names `verify-reapply-patches.cjs` and the `check-patch` verb as the
+  two-part path for confirming a machine-local patch reapply**, and records that the two runtime
+  homes (`$HOME/.claude`, `$HOME/.codex`) are separately templated, so neither a patched file nor
+  a backup may be copied across them.
 
 ### Breaking
 - **The two prior single-target patch-check CLI verbs are retired, replaced by one verb:
@@ -67,16 +95,15 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   plugin loaded. A locale-pinned bash-builtin pre-filter now rejects the common case before any
   spawn: **13.00 ms → 0.91 ms** per non-matching call. `LC_ALL=C` matters because PostToolUse
   payloads carry the tool's full output — on a 4 MB payload, UTF-8 pattern matching alone cost
-  ~34 ms. Also merged two JSON parses into one. Separately, the hook's own timeout is set
-  explicitly to 120 s — a deliberate reduction from Claude Code's 600 s default hook timeout,
-  bounding the hook's own worst-case blocking time; this is not itself a throughput
-  optimization and does not belong under this heading's ms/call numbers above.
+  ~34 ms. Also merged two JSON parses into one.
 
 ### Changed
 - `read_epic_per` and `read_beads_enabled` now share one `read_beads_config` reader; each
   shipped default is written down once, beside the key it belongs to.
 - Dropped the `--phase-dir` flag and `phase_dir_override` parameter from `lifecycle-dispatch` —
   nothing but a test ever used them.
+- **The hook's own timeout is set explicitly to 120 s** — a deliberate reduction from Claude
+  Code's 600 s default hook timeout, bounding the hook's own worst-case blocking time.
 
 ### Known issues (pre-existing, now tracked)
 - **`beads.sync_mode` is declared in `capability.json` and read by no code.** `mirror` and `off`
