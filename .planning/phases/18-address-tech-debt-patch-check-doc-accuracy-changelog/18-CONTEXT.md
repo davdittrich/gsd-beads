@@ -90,12 +90,31 @@ are locked into this phase's scope:
   resolvable-but-withdrawn artifact, not an active-risk fix.
   — **Reversibility:** one-way — `release.yml` fires on **any** `v*.*.*` push, so recreating the
   tag later would trigger a brand-new release action, not a clean undo of the deletion.
-- **D-08 (item #4 — stale local ship.md v1 patch):** Refresh `~/.claude/gsd-local-patches/` to
-  match the live v2 `ship.md` patch (`966315a`) and update its `backup-meta.json`'s `from_version`
-  field — do not delete the backup. Also name the reapply-verification mechanism in
-  `GSD-CORE-PATCH.md`, which currently references it nowhere and reads as if manual reapplication
-  is the only path (this was the fix's own stated follow-up in the ROADMAP item text).
-  — **Reversibility:** reversible — local machine file, not shared/tracked state.
+- **D-08 (item #4 — local gsd-core patches, REVISED during plan-phase 18 discovery):**
+  Originally scoped from ROADMAP.md as "stale local ship.md v1 patch, refresh to v2." Live
+  discovery during this plan-phase run's `beads-recall` dispatch (`sync.py check-patch ship-md` /
+  `check-patch execute-plan`, 2026-08-20) found the real state is worse: **both patches are
+  entirely absent from the live installed workflow files**, not merely stale.
+  `grep -c "beads\|SHIP_MD_PATCH" ~/.codex/gsd-core/workflows/ship.md` and the same grep against
+  `~/.claude/gsd-core/workflows/ship.md` both return 0; `execute-plan.md` in both homes is
+  similarly clean. All four files (plus `~/.claude/gsd-local-patches/backup-meta.json`) carry an
+  `11:15` timestamp from this session's start — an automatic gsd-core update wiped the patches on
+  both runtime homes before this discussion began. Revised scope:
+  1. Reapply Patch 1 (`ship:pre` generic gate/step dispatch) and Patch 2 (bd task-content read
+     path) verbatim, per `GSD-CORE-PATCH.md`'s "Patch Content (verbatim)" sections and insertion
+     anchors, to **both** `~/.codex/gsd-core/workflows/{ship,execute-plan}.md` **and**
+     `~/.claude/gsd-core/workflows/{ship,execute-plan}.md` — both homes are live and both are
+     wiped, not just one.
+  2. Refresh `~/.claude/gsd-local-patches/` to match the reapplied v2 `ship.md` patch and update
+     `backup-meta.json`'s `from_version` field — do not delete the backup.
+  3. Name the reapply-verification mechanism (`verify-reapply-patches.cjs` + `check-patch`) in
+     `GSD-CORE-PATCH.md`, which currently references it nowhere and reads as if manual
+     reapplication is the only path (the fix's own stated follow-up in the ROADMAP item text).
+  4. After reapplying, re-run `sync.py check-patch ship-md` / `check-patch execute-plan` on both
+     homes as the task's acceptance check — must exit 0 with no `⚠` line.
+  — **Reversibility:** reversible — local machine files, not shared/tracked state. But **urgency
+  is real**: until reapplied, `ship_override` won't fire at `ship:pre` and `gsd-executor` won't
+  read task content from `bd` on either runtime home, right now, for any phase — not just Phase 18.
 
 ### the agent's Discretion
 - Exact wording of the WR-01 docstring rewrite and the WR-01 pinning comment — content direction
