@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.3
-milestone_name: Config/Code Truth (Phase 17) — IN PROGRESS
+milestone_name: Config/Code Truth (Phases 17-18) — FEATURE-COMPLETE
 current_phase: 18
 status: completed
-stopped_at: Phase 18 complete — all phases complete
+stopped_at: Phase 18 complete — v1.3 feature-complete, awaiting /gsd-complete-milestone
 last_updated: "2026-08-20T11:24:56.886Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 18 complete
@@ -21,11 +21,11 @@ progress:
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-08-19)
+See: .planning/PROJECT.md (updated 2026-08-20)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 18 — Address tech debt: patch-check doc accuracy + CHANGELOG
+**Current focus:** v1.3 milestone (Phases 17-18) feature-complete — awaiting `/gsd-complete-milestone v1.3`
 
 ## Current Position
 
@@ -34,7 +34,7 @@ Plan: Not started
 Status: All phases complete
 Last activity: 2026-08-20 — Phase 18 complete
 
-Progress: [█████░░░░░] 50% (4/4 plans)
+Progress: [████████████████████] 8/8 plans (100%)
 
 **Plan order is argued, not incidental** (full reasoning in ROADMAP.md Phase 17): TRUTH-04 is a P1
 correctness bug that fails *silently* and it unblocks `/gsd-phase --insert` — the escape hatch this
@@ -176,6 +176,9 @@ Phase 17 edits the exact surfaces these rows describe:
 - [Phase ?]: [Phase 16, plan 03]: strip_task_bodies turns a newly-created auto/tracer task block into name+beads-id+files+pointer, gated on check_execute_plan_patch()==0 and scoped to task_updates (this run's created ids only) -- checkpoint:* blocks and pre-existing tasks stay byte-identical (D-01/D-03/D-07)
 - [Phase ?]: Second machine-local gsd-core patch (execute-plan.md bd task-read) installed under the same N2-exception discipline as ship.md; filed upstream as open-gsd/gsd-core#3646 with an explicit revert condition
 - [Phase ?]: Filed open-gsd/gsd-core#3647 (capability lifecycle-dispatch reliability finding) as a distinct-but-related report alongside pre-existing #3606, rather than adopting it as a duplicate
+- **[Phase 18, plan 18-02]** Checkpoint `v1.3.0` tag deletion answered live by user (2026-08-20): **option-a** — deleted from `origin` and locally. `v1.3.1` untouched, no `release.yml` run fired.
+- **[Phase 18, plan 18-02]** `reconcile_stale_closed`'s bd backstop only reaches `<beads-id>`-linked plan-task issues, not standalone problem reports — filed as follow-up `gsd-beads-72u`, out of Phase 18 scope by design.
+- **[Phase 18, orchestrator]** Worktree isolation does not carry `.beads/` (untracked) — `bd` calls inside an isolated executor worktree must be pinned with `-C <main-repo-root>` to reach the real issue database; `git` ref ops are unaffected (shared `.git` store).
 
 ### Pending Todos
 
@@ -214,15 +217,13 @@ None yet.
   corresponds to it; this project's own `reconcile-stale-closed` backstop already covers the local
   symptom regardless of upstream disposition.
 
-- **[release hygiene, must clear at ship]** Four items, all mechanical checks in the ship task, all
-  detailed in ROADMAP.md Phase 17 → *Ship-step checks*: (1) `main` is ahead of `v1.3.1` with
-  `966315a`'s behavioral `SHIP_MD_PATCH_MARKER` v1→v2 change and no version bump or CHANGELOG
-  entry, while marketplace installs resolve from the branch; (2) CHANGELOG 0.3.1 mis-files the
-  120 s hook timeout under Performance when it is a *reduction* from the 600 s default; (3) the
-  withdrawn `v1.3.0` tag still resolves and `release.yml` fires on any `v*.*.*` push, so it cannot
-  simply be moved; (4) `~/.claude/gsd-local-patches/` holds a stale v1 ship.md patch from
-  `from_version: 1.10.0` and `verify-reapply-patches.cjs` exits 1 — on the next `/gsd-update
-  --reapply` the v1 gate loop is a live candidate for reinstatement, silently undoing `966315a`.
+- **[RESOLVED 2026-08-20, Phase 18]** Release hygiene — all four items closed: (1) `plugin.json`
+  bumped to `1.4.0`, CHANGELOG 0.4.0 now documents TRUTH-03; (2) CHANGELOG 0.3.1's 120s hook
+  timeout refiled from Performance to Changed; (3) withdrawn `v1.3.0` tag deleted from `origin`
+  and locally (18-02, option-a), `v1.3.1` untouched, no `release.yml` run fired; (4) both
+  machine-local gsd-core patches (`ship.md` v2, `execute-plan.md` v1) reapplied and verified live
+  on both `~/.claude` and `~/.codex` runtime homes (18-01) — `check-patch` exits 0 on all 4
+  file×home combos, full suite green at 252 tests.
 
 - **[v1.1 formality, carried forward]** Phase 12's work is done and pushed but the v1.1 milestone
   was never formally closed via `/gsd-complete-milestone` (user decision, 2026-08-18) — its
@@ -252,6 +253,7 @@ None yet.
 ### Roadmap Evolution
 
 - Phase 18 added: Address tech debt: patch-check doc accuracy + CHANGELOG
+- Phase 18 complete 2026-08-20 (4/4 plans) — v1.3 milestone (Phases 17-18) now fully feature-complete
 
 ## Deferred Items
 
@@ -266,32 +268,25 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-20T09:11:23.111Z
-Stopped at: Phase 18 complete — all phases complete
-All 4 plans executed and verified (TRUTH-01..04, 246/246 tests green, deep code review clean of
-blockers, phase verification 4/4). Plan 17-04's checkpoint:decision (CLI verb collapse, D-08) was
-confirmed live by the user (option-a, recommended shape).
-Resume file: .planning/phases/18-address-tech-debt-patch-check-doc-accuracy-changelog/18-CONTEXT.md
+Last session: 2026-08-20T11:27:44.000Z
+Stopped at: Phase 18 complete — v1.3 milestone (Phases 17-18) feature-complete, ready to plan next
+All 4 plans executed and verified (9/9 must-haves, 252/252 tests green, deep code review clean of
+blockers — 0 critical, 1 warning, 2 info). Plan 18-02's checkpoint:decision (withdrawn `v1.3.0` tag
+deletion, D-07) was confirmed live by the user (option-a, delete from origin + local).
+Resume file: None
 
 ## Operator Next Steps
 
-- Security enforcement is on (`workflow.security_enforcement`) and no `17-SECURITY.md` exists yet
-  — run `/gsd-secure-phase 17` before shipping.
+- Security enforcement is on (`workflow.security_enforcement`) and neither `17-SECURITY.md` nor
+  `18-SECURITY.md` exists yet — run `/gsd-secure-phase 17` and `/gsd-secure-phase 18` before
+  shipping (advisory at execute-phase, not blocking; surfaced here as it will gate ship).
 
-- Before tagging: re-run the upstream check on #3687's release status (informational only — the
-  hook now self-adapts either way) and clear the four release-hygiene items above (main-ahead-of-
-  v1.3.1 marker bump, CHANGELOG 0.3.1 miscategorization, withdrawn-tag/release.yml collision,
-  stale local ship.md v1 patch).
+- The 5 non-blocking WARNING findings from `17-REVIEW.md` and the 1 from `18-REVIEW.md` remain
+  open (all doc/test-truth gaps, none functional). Consider `/gsd-code-review 17 --fix` and/or
+  `/gsd-code-review 18 --fix`, or a follow-up quick task.
 
-- 5 non-blocking WARNING findings from `17-REVIEW.md` remain open (doc/test truth gaps — a docstring
-  claiming stderr-only output that's actually stdout, missing `⚠` markers on two unreadable-file
-  messages, an incomplete CHANGELOG 0.4.0 entry, a missing `SYNC_MODE_VALUES`/`capability.json`
-  parity test, and a latent fence-tracking false-positive path). None block shipping; consider
-  `/gsd-code-review 17 --fix` or a follow-up quick task.
+- Follow-up bd issue `gsd-beads-72u` filed by Phase 18 (reconcile_stale_closed cannot reach
+  standalone problem-report issues) is open and unscheduled — not a v1.3 blocker.
 
-- REQUIREMENTS.md's TRUTH-01 traceability row was originally left at `[ ]` by plan 17-03's own
-  commit (an omission caught by the phase verifier) — corrected by this phase's `phase.complete`
-  call; no further action needed.
-
-- Once ready: `/gsd-complete-milestone v1.3` — Phase 17 is the milestone's only phase, so
-  completing it closes v1.3 (no other active workstreams).
+- Once ready: `/gsd-complete-milestone v1.3` — Phases 17 and 18 are both complete, no other
+  active workstreams block the close.
