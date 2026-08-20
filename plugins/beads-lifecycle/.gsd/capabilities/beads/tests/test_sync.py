@@ -4456,6 +4456,30 @@ class TestNativeStepDispatchProbe(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn(str(path), out)
 
+    def test_shipped_1_11_0_verify_work_shape_is_not_detected(self):
+        """17-02 Task 2: the second false-positive source -- verify-work.md's
+        own verify:post region already carries a `kind == "step"` mention,
+        qualified to `ref.skill == "secure-phase"`. A naive whole-file scan
+        for the bare `kind == "step"` substring WOULD match here (the
+        qualifier lives on the same line but a naive scan ignores that) --
+        documenting the exact false positive region scoping prevents."""
+        text = (
+            "```bash\n"
+            "VERIFY_POST_HOOKS_JSON=$(gsd_run loop render-hooks verify:post --raw)\n"
+            "```\n\n"
+            "Resolve active step hooks from `VERIFY_POST_HOOKS_JSON` where "
+            '`kind == "step"` and `ref.skill == "secure-phase"`.\n'
+        )
+        naive_whole_file_match = bool(re.search(r'kind\s*==\s*"step"', text))
+        self.assertTrue(
+            naive_whole_file_match,
+            "fixture must reproduce the exact false-positive shape",
+        )
+
+        exit_code, out, path = self._probe("verify:post", text)
+        self.assertEqual(exit_code, 0)
+        self.assertIn(str(path), out)
+
     def test_missing_file_is_not_detected_and_names_the_path(self):
         with tempfile.TemporaryDirectory() as tmp:
             missing_path = Path(tmp) / "does-not-exist.md"
@@ -4529,9 +4553,11 @@ class TestNativeStepDispatchProbeAgainstInstalledTree(unittest.TestCase):
 
 
 class TestLifecycleDispatchNativeGate(unittest.TestCase):
-    """17-02 Task 1: lifecycle_dispatch's plan:post branch stands down when
-    check_native_step_dispatch reports the point is now dispatched natively
-    (gsd-core PR #3687), and behaves exactly as before when it is not."""
+    """17-02 Task 1/2: lifecycle_dispatch's plan:post and verify:post
+    branches stand down when check_native_step_dispatch reports the point is
+    now dispatched natively (gsd-core PR #3687), and behave exactly as
+    before when it is not. plan:pre/execute:wave:pre/execute:wave:post
+    dispatch unconditionally -- no upstream work covers them anywhere."""
 
     def test_plan_post_skips_create_issues_when_native_dispatch_detected(self):
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
@@ -4567,6 +4593,124 @@ class TestLifecycleDispatchNativeGate(unittest.TestCase):
                 os.chdir(prev)
         self.assertEqual(exit_code, 0)
         create.assert_called_once_with(str(phase_dir / "07-01-PLAN.md"), allow_strip=False)
+
+    def test_verify_post_skips_regenerate_when_native_dispatch_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(
+                    sync, "check_native_step_dispatch", return_value=1
+                ) as probe, mock.patch.object(sync, "regenerate_beads_md") as regen:
+                    captured, errs = io.StringIO(), io.StringIO()
+                    with contextlib.redirect_stdout(captured), contextlib.redirect_stderr(errs):
+                        exit_code = sync.lifecycle_dispatch("verify:post")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        regen.assert_not_called()
+        probe.assert_called_once_with("verify:post")
+        self.assertNotEqual(errs.getvalue(), "")
+
+    def test_verify_post_dispatches_as_today_when_native_dispatch_not_detected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp))
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
+                     mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regen:
+                    exit_code = sync.lifecycle_dispatch("verify:post")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        regen.assert_called_once_with(str(phase_dir))
+
+    def test_plan_pre_dispatches_regardless_of_probe_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp))
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=1), \
+                     mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
+                     mock.patch.object(sync, "check_shipmd_patch", return_value=0), \
+                     mock.patch.object(sync, "check_execute_plan_patch", return_value=0):
+                    exit_code = sync.lifecycle_dispatch("plan:pre")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        recall.assert_called_once_with(str(phase_dir))
+
+    def test_execute_wave_pre_dispatches_regardless_of_probe_result(self):
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp), plan_text=plan)
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=1), \
+                     mock.patch.object(sync, "render_wave_status_block", return_value=0) as render:
+                    exit_code = sync.lifecycle_dispatch("execute:wave:pre")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        render.assert_called_once_with(str(phase_dir), ["07-01"])
+
+    def test_execute_wave_post_dispatches_regardless_of_probe_result(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp))
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=1), \
+                     mock.patch.object(sync, "reconcile_stale_closed", return_value=0) as rec:
+                    exit_code = sync.lifecycle_dispatch("execute:wave:post")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        rec.assert_called_once_with(str(phase_dir))
+
+    def test_lifecycle_dispatch_returns_zero_for_every_point_when_probe_raises(self):
+        """17-02 Task 2 acceptance: the probe is called from inside
+        lifecycle_dispatch's existing outer try/except -- a raise there must
+        degrade to the same onError:"skip" contract every other verb
+        failure already honours, for all five points, not just the two
+        gated ones."""
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        for point in sync.LIFECYCLE_DISPATCH_POINTS:
+            with self.subTest(point=point):
+                with tempfile.TemporaryDirectory() as tmp:
+                    _lifecycle_workspace(Path(tmp), plan_text=plan)
+                    prev = Path.cwd()
+                    os.chdir(tmp)
+                    try:
+                        with mock.patch.object(
+                            sync,
+                            "check_native_step_dispatch",
+                            side_effect=RuntimeError("probe exploded"),
+                        ):
+                            captured = io.StringIO()
+                            with contextlib.redirect_stdout(captured):
+                                exit_code = sync.lifecycle_dispatch(point)
+                    finally:
+                        os.chdir(prev)
+                self.assertEqual(exit_code, 0)
+
+
+class TestLifecycleDispatchPointsAgreeWithHook(unittest.TestCase):
+    """17-02 Task 2: LIFECYCLE_DISPATCH_POINTS' module comment declares the
+    hook's own embedded POINTS list must mirror this one. This plan changes
+    dispatch behavior without changing the list -- pin the invariant while
+    the file is open."""
+
+    def test_five_points_same_order_in_both_places(self):
+        hook_text = TestLifecycleDispatchHook.HOOK.read_text(encoding="utf-8")
+        match = re.search(r"POINTS\s*=\s*\((.*?)\)", hook_text)
+        self.assertIsNotNone(match, "POINTS tuple not found in lifecycle-dispatch.sh")
+        hook_points = tuple(re.findall(r'"([^"]+)"', match.group(1)))
+        self.assertEqual(sync.LIFECYCLE_DISPATCH_POINTS, hook_points)
 
 
 if __name__ == "__main__":
