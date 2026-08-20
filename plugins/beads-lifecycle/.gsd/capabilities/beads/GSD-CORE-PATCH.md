@@ -240,3 +240,62 @@ reinstall strips the patch, paste this block back in at the anchor above.
      A task whose opening-tag type begins with `checkpoint:` NEVER takes this branch — its options, pros/cons, reversibility ratings and resume-signal stay in PLAN.md and are read from there, unchanged, because that structure is interactive and does not compress into a description read at execute time. Plan-level sections — `<objective>`, `<context>`, `<interfaces>`, `<threat_model>`, `<verification>`, `<success_criteria>` — are ALWAYS read from PLAN.md; `load_prompt`'s `cat` is unchanged by this patch.
 <!-- /gsd-beads-patch:execute-plan-bd-task-read v1 -->
 ````
+
+## Probe (not a patch): native `kind == "step"` dispatch detection (PR #3687)
+
+**Target files (read-only):** `$HOME/.claude/gsd-core/workflows/plan-phase.md` and
+`$HOME/.claude/gsd-core/workflows/verify-work.md` — machine-local, shared across every gsd-core
+project on this machine. Unlike Patches 1 and 2 above, this mechanism never edits either file; it
+only reads them. There is no marker to insert and nothing to reapply after an update.
+
+### Why this exists
+
+**open-gsd/gsd-core#3687** (<https://github.com/open-gsd/gsd-core/pull/3687>) merged to `next` on
+2026-08-19T20:41:28Z — 6h50m after the v1.11.0 release cut, so it is unreleased today and lands at
+the next cut. It adds native generic `kind == "step"` dispatch at **`plan:post`** and
+**`verify:post`** only. Once that release ships, `lifecycle_dispatch`'s existing unconditional
+dispatch at those two points would double-dispatch alongside gsd-core's own native loop, and
+(before 17-02 Task 3's D-06 wiring) risked silently bypassing the hook's deliberate
+`allow_strip=False` protection at `plan:post` if the native path were ever reached with a weaker
+principal than the one it actually uses. `sync.py`'s `check_native_step_dispatch(point,
+workflow_path_override=None)` closes the double-dispatch half: it reads the installed workflow
+file the point maps onto, scopes its search to that point's own `render-hooks <point> --raw`
+region (never a whole-file scan — see below), and reports whether a generic, unqualified `kind ==
+"step"` arm already exists there.
+
+**`execute:wave:pre` and `execute:wave:post` are deliberately NOT gated by this probe and never
+will be by this same mechanism.** No upstream work — released, merged, or in an open PR anywhere —
+covers either point. Gating them would risk disabling the hook's only working dispatch path there
+with nothing behind it. `plan:pre` is likewise ungated: PR #3687 does not touch it.
+
+**Why region-scoped, not whole-file.** A whole-file `kind == "step"` grep is a *verified* false
+positive on both shipped 1.11.0 workflow files: `plan-phase.md` carries three such mentions
+outside the `plan:post` region (the plan:pre generic dispatch contract, the auto-chain UI step
+branch, and the intel step read), and `verify-work.md`'s own `verify:post` region already carries
+one, qualified to `ref.skill == "secure-phase"`. A whole-file scan would misreport "native dispatch
+present" on an install that has none of it at `plan:post`/`verify:post`, causing the hook to stand
+down and the sync to be silently missed — the one failure direction D-05 forbids. The probe
+therefore anchors on the point's own `render-hooks <point> --raw` call, scopes to the region ending
+at the earlier of the next non-fenced level-two heading or 120 lines past the anchor (fence
+awareness matters: `verify-work.md` prints heading-shaped lines inside fenced output templates),
+and excludes any `kind == "step"` line that also carries a `capId ==` or `ref.skill ==` qualifier
+on the same line.
+
+### Fail-open contract
+
+Every miss — an unmapped point, a missing workflow file, an unreadable workflow file, no anchor
+found, or no qualifying line in the region — returns not-detected (0), which degrades to today's
+working double dispatch: the only acceptable failure direction. `check_native_step_dispatch` never
+raises; a raise from inside it (a stubbed test double, or an unforeseen filesystem error) is still
+caught by `lifecycle_dispatch`'s own outer `except Exception`, so the hook keeps its
+`onError: "skip"` contract regardless.
+
+### Revert condition
+
+When `check_native_step_dispatch` reports detected on a **released** gsd-core for **both**
+`plan:post` and `verify:post`, the corresponding gate branches in `lifecycle_dispatch` (and this
+probe function, `check_native_step_dispatch`, and its `NATIVE_STEP_DISPATCH_WORKFLOW_FILES`
+mapping) can be retired. The hook itself cannot be deleted while `execute:wave:pre` and
+`execute:wave:post` remain uncovered by any upstream mechanism — retiring the probe only removes
+the now-redundant double-dispatch guard at the two points PR #3687 covers, not the hook's other
+three dispatch points.

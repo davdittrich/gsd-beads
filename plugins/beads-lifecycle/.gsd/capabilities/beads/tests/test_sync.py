@@ -4415,7 +4415,7 @@ class TestNativeStepDispatchProbe(unittest.TestCase):
             workflow_path = Path(tmp) / "workflow.md"
             workflow_path.write_text(text, encoding="utf-8")
             captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
+            with contextlib.redirect_stderr(captured):
                 exit_code = sync.check_native_step_dispatch(point, str(workflow_path))
             return exit_code, captured.getvalue(), workflow_path
 
@@ -4460,7 +4460,7 @@ class TestNativeStepDispatchProbe(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             missing_path = Path(tmp) / "does-not-exist.md"
             captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
+            with contextlib.redirect_stderr(captured):
                 exit_code = sync.check_native_step_dispatch("plan:post", str(missing_path))
         self.assertEqual(exit_code, 0)
         self.assertIn(str(missing_path), captured.getvalue())
@@ -4470,7 +4470,7 @@ class TestNativeStepDispatchProbe(unittest.TestCase):
             workflow_path = Path(tmp) / "workflow.md"
             workflow_path.write_bytes(b"\xff\xfe not valid utf-8")
             captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
+            with contextlib.redirect_stderr(captured):
                 exit_code = sync.check_native_step_dispatch("plan:post", str(workflow_path))
         self.assertEqual(exit_code, 0)
         self.assertIn(str(workflow_path), captured.getvalue())
@@ -4512,7 +4512,7 @@ class TestNativeStepDispatchProbeAgainstInstalledTree(unittest.TestCase):
         if not workflow_path.exists():
             self.skipTest(f"{workflow_path} not present on this machine")
         captured = io.StringIO()
-        with contextlib.redirect_stdout(captured):
+        with contextlib.redirect_stderr(captured):
             exit_code = sync.check_native_step_dispatch("plan:post")
         self.assertEqual(exit_code, 0)
         self.assertIn(str(workflow_path), captured.getvalue())
@@ -4522,7 +4522,7 @@ class TestNativeStepDispatchProbeAgainstInstalledTree(unittest.TestCase):
         if not workflow_path.exists():
             self.skipTest(f"{workflow_path} not present on this machine")
         captured = io.StringIO()
-        with contextlib.redirect_stdout(captured):
+        with contextlib.redirect_stderr(captured):
             exit_code = sync.check_native_step_dispatch("verify:post")
         self.assertEqual(exit_code, 0)
         self.assertIn(str(workflow_path), captured.getvalue())

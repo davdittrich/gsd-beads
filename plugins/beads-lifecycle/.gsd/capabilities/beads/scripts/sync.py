@@ -139,6 +139,21 @@ LIFECYCLE_DISPATCH_POINTS = (
     "execute:wave:post",
     "verify:post",
 )
+# 17-02 Task 1 (D-05): gsd-core PR #3687 (merged to `next` 2026-08-19,
+# unreleased as of 1.11.0) adds native generic `kind == "step"` dispatch at
+# these two points only -- `check_native_step_dispatch` probes the installed
+# workflow file each maps onto, scoped to the point's own
+# `render-hooks <point> --raw` region so it does not false-positive on the
+# unrelated `kind == "step"`/`kind == "gate"` mentions both shipped 1.11.0
+# files carry outside that region. `execute:wave:pre`/`execute:wave:post`
+# are deliberately absent -- no upstream work covers them anywhere.
+NATIVE_STEP_DISPATCH_WORKFLOW_FILES = {
+    "plan:post": "plan-phase.md",
+    "verify:post": "verify-work.md",
+}
+NATIVE_STEP_DISPATCH_REGION_LINES = 120
+_GENERIC_STEP_KIND_RE = re.compile(r'\bkind\s*==\s*"step"')
+_STEP_QUALIFIER_RE = re.compile(r'\b(?:capId\s*==|ref\.skill\s*==)')
 # B13/D-08: on-demand `status` with no phase_dir argument resolves the
 # current/last-active phase from STATE.md's frontmatter -- single-token
 # style matching BEADS_EPIC_RE.
@@ -782,6 +797,18 @@ def lifecycle_dispatch(point):
             check_shipmd_patch()
             check_execute_plan_patch()
         elif point == "plan:post":
+            # 17-02 Task 1 (D-05): gsd-core PR #3687 adds native generic
+            # kind == "step" dispatch here -- stand down rather than
+            # double-dispatch once it is detected on the installed
+            # workflow file. execute:wave:pre/execute:wave:post are
+            # deliberately NOT gated: no upstream work covers them anywhere.
+            if check_native_step_dispatch("plan:post"):
+                print(
+                    "lifecycle-dispatch plan:post: gsd-core now dispatches this point "
+                    "natively (PR #3687) -- skipped",
+                    file=sys.stderr,
+                )
+                return 0
             plans = discover_plan_files(phase_dir)
             if not plans:
                 # stderr for the same reason as the unresolved-phase skip above.
@@ -2220,6 +2247,127 @@ def check_execute_plan_patch(execute_plan_path_override=None):
         "Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
     )
     return 1
+
+
+def check_native_step_dispatch(point, workflow_path_override=None):
+    """D-05 diagnostic (17-02 Task 1): report whether the installed gsd-core
+    workflow file now dispatches `kind == "step"` hooks natively at this
+    lifecycle point -- gsd-core PR #3687 (merged to `next` 2026-08-19,
+    unreleased as of the installed 1.11.0), which `lifecycle_dispatch` needs
+    to know so it can stand down at `plan:post`/`verify:post` rather than
+    double-dispatch alongside gsd-core's own native loop.
+
+    Opposite polarity from check_shipmd_patch/check_execute_plan_patch just
+    above: those ask "is our local patch still here" (missing is bad); this
+    asks "does upstream now do this natively" (present means the hook is
+    redundant here). Kept a SEPARATE function rather than a shared table
+    with those two for exactly that reason -- sharing one table would
+    produce a misleading unified pass/fail semantic.
+
+    Region-scoped, not whole-file: a whole-file `kind == "step"` grep is a
+    verified false positive on both shipped 1.11.0 workflow files --
+    `plan-phase.md` carries three unrelated occurrences outside the
+    `plan:post` region (the plan:pre generic contract, the auto-chain UI
+    branch, the intel step read) and `verify-work.md`'s own `verify:post`
+    region already carries one qualified to `ref.skill == "secure-phase"`.
+    The region is anchored on the point's own literal
+    `render-hooks <point> --raw` call and ends at the earlier of the next
+    non-fenced level-two heading or `NATIVE_STEP_DISPATCH_REGION_LINES`
+    lines past the anchor -- fence awareness matters because
+    `verify-work.md` prints heading-shaped lines inside fenced output
+    templates, which would otherwise terminate the region far too early.
+
+    Every miss -- unmapped point, missing file, unreadable file, no anchor,
+    no qualifying line in the region -- returns 0 (not detected), which
+    degrades to today's working double dispatch: the only acceptable
+    failure direction (D-05). Never raises.
+
+    WR-03: only the Claude runtime home (`CLAUDE_CONFIG_DIR`, default
+    `~/.claude`) is probed, matching the two patch checkers above; every
+    message names the exact path checked. Unlike those two (which print to
+    stdout, since their only caller today is plan:pre, an already-active
+    dispatch point), this probe's own diagnostics print to stderr: it is
+    called unconditionally at the top of the plan:post/verify:post
+    branches, before either knows whether there is anything to do, and
+    stdout is what a PostToolUse hook promotes into Claude's context -- a
+    benign "not detected, continuing as normal" diagnostic must not turn a
+    silent no-op (e.g. no PLAN.md in the phase) into per-call noise there.
+    """
+    filename = NATIVE_STEP_DISPATCH_WORKFLOW_FILES.get(point)
+    if filename is None:
+        return 0
+    if workflow_path_override:
+        workflow_path = Path(workflow_path_override)
+    else:
+        workflow_path = (
+            Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+            / "gsd-core"
+            / "workflows"
+            / filename
+        )
+    if not workflow_path.exists():
+        print(
+            f"native-step-dispatch probe ({point}): {workflow_path} not found -- "
+            "assuming not detected, lifecycle-dispatch keeps dispatching",
+            file=sys.stderr,
+        )
+        return 0
+    try:
+        text = workflow_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        print(
+            f"native-step-dispatch probe ({point}): {workflow_path} could not be read "
+            f"({exc}) -- assuming not detected, lifecycle-dispatch keeps dispatching",
+            file=sys.stderr,
+        )
+        return 0
+
+    anchor_literal = f"render-hooks {point} --raw"
+    lines = text.splitlines()
+    anchor_idx = next((i for i, line in enumerate(lines) if anchor_literal in line), None)
+    if anchor_idx is None:
+        print(
+            f"native-step-dispatch probe ({point}): no '{anchor_literal}' anchor found in "
+            f"{workflow_path} -- assuming not detected, lifecycle-dispatch keeps dispatching",
+            file=sys.stderr,
+        )
+        return 0
+
+    # Fence parity carries across the anchor: the anchor line itself commonly
+    # sits inside a ```bash ... ``` block opened BEFORE it (the shipped
+    # shape), so the closing fence line immediately after the anchor must
+    # not be mistaken for an opening one.
+    in_fence = False
+    for i in range(anchor_idx):
+        if lines[i].strip().startswith("```"):
+            in_fence = not in_fence
+
+    region_limit = min(anchor_idx + 1 + NATIVE_STEP_DISPATCH_REGION_LINES, len(lines))
+    region_end = region_limit
+    for i in range(anchor_idx + 1, region_limit):
+        line = lines[i]
+        if line.strip().startswith("```"):
+            in_fence = not in_fence
+            continue
+        if not in_fence and re.match(r"^##\s", line):
+            region_end = i
+            break
+
+    for line in lines[anchor_idx:region_end]:
+        if _GENERIC_STEP_KIND_RE.search(line) and not _STEP_QUALIFIER_RE.search(line):
+            print(
+                f"native-step-dispatch probe ({point}): detected at {workflow_path} -- "
+                "lifecycle-dispatch standing down for this point",
+                file=sys.stderr,
+            )
+            return 1
+
+    print(
+        f"native-step-dispatch probe ({point}): not detected at {workflow_path} -- "
+        "lifecycle-dispatch continues dispatching",
+        file=sys.stderr,
+    )
+    return 0
 
 
 def main(argv=None):
