@@ -194,6 +194,8 @@ None yet.
 
 ### Blockers/Concerns
 
+- **[NEW 2026-08-19] `pr-workflow` sync-point dispatch degraded (execute:wave:post, phase 17 wave 1).** `capability.json` lists `pr-workflow.enabled: true`, but only the `beads` capability is actually vendored under `.gsd/capabilities/` in this repo — `pr_status.py` does not exist. The `onError: skip` contract absorbed it (no phase impact), but the config/vendoring mismatch is real: either disable `pr-workflow` in `.planning/config.json` or vendor the capability.
+
 - **[RESOLVED 2026-08-19] [open-gsd/gsd-core#3646](https://github.com/open-gsd/gsd-core/issues/3646)
   — `check_execute_plan_patch` is NOT scheduled for deletion.** The prior standing worry was *"if
   #3646 merges, `check_execute_plan_patch` is scheduled for deletion — re-check before planning
