@@ -19,7 +19,7 @@ gsd-core 1.11.0 made reachable.
 
 ### Config Truth
 
-- [ ] **TRUTH-01**: Every value `capability.json` declares for `beads.sync_mode` has an
+- [x] **TRUTH-01**: Every value `capability.json` declares for `beads.sync_mode` has an
   observable effect, or is not declared. Today `authoritative | mirror | off` are declared and
   **no code reads the key at all** — `mirror` and `off` silently do nothing, and README describes
   the key as controlling "who owns task status and content", which no code enforces. Closing this
@@ -157,7 +157,7 @@ Deferred, tracked, not in this roadmap.
 
 | Requirement | Phase | Plan | bd | Status |
 |-------------|-------|------|-----|--------|
-| TRUTH-01 | Phase 17 | 17-03 | `gsd-beads-v43` (P1) | Pending |
+| TRUTH-01 | Phase 17 | 17-03 | `gsd-beads-v43` (P1) | Complete |
 | TRUTH-02 | Phase 17 | 17-04 | `gsd-beads-t7a` (P3) | Complete |
 | TRUTH-03 | Phase 17 | 17-02 | `gsd-beads-he1` (P1) | Complete |
 | TRUTH-04 | Phase 17 | 17-01 | `gsd-beads-bzl` (P1) | Complete |

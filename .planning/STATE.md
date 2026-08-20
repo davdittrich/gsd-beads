@@ -3,19 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Config/Code Truth (Phase 17) — IN PROGRESS
 current_phase: 17
-current_phase_name: Config/Code Truth
-status: executing
-stopped_at: Phase 17 context gathered
-last_updated: "2026-08-19T23:41:19.813Z"
+status: completed
+stopped_at: Phase 17 complete — all phases complete
+last_updated: "2026-08-20T02:08:48.892Z"
 last_activity: 2026-08-20
-last_activity_desc: Phase 17 execution started
-state_head: e96820adc02419cc9f9e8f3607868e80a8e619ed
+last_activity_desc: Phase 17 complete
+state_head: 1ce69d216fb72e41c530085d9e832697a72b7e24
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 4
-  completed_plans: 0
-  percent: 0
+  completed_plans: 4
+  percent: 100
 ---
 
 # Project State
@@ -32,11 +31,11 @@ code actually does.
 
 ## Current Position
 
-Phase: 17 (Config/Code Truth) — EXECUTING
-Plan: 1 of 4
+Phase: 17
+Plan: Not started
 17-04 → TRUTH-02)
-Status: Executing Phase 17
-Last activity: 2026-08-20 — Phase 17 execution started
+Status: All phases complete
+Last activity: 2026-08-20 — Phase 17 complete
 
 Progress: [░░░░░░░░░░] 0% (0/4 plans)
 
@@ -172,13 +171,6 @@ Phase 17 edits the exact surfaces these rows describe:
   actually removed in quick-task 260818-h2h, by `git rm -r`, in the same commit that scoped the
   `beads-lifecycle` plugin source to `plugins/beads-lifecycle/`.
 
-- [Phase 14]: pr_status rollup extends D-01's precedence to gh's actual bucket vocabulary (skipping->passing, cancel->failing alongside fail), flagged per RESEARCH Pitfall 6 rather than silently reinterpreting D-01
-- [Phase 14]: un-ignored .gsd/capabilities/pr-workflow/ in .gitignore, same one-line pattern Phase 13 established for markdown-linting
-- [Phase 14]: the -t . unittest-discover verify-command defect (dotted-module-name incompatible with the hidden .gsd/ dir) was inherited from Phase 13's plan-doc shape and fixed at the plan-doc level for 14-01/14-02/14-03-PLAN.md (commit f31e6f4), mirroring Phase 13's own fix -- no code change, verification behavior unaffected
-- [Phase 14]: verify_post's live gh calls wrapped in a single try/except catching only TimeoutExpired/OSError/JSONDecodeError, leaving check_buckets' RuntimeError (unrelated gh pr checks stderr) uncaught on purpose
-- [Phase 14]: ship_post_notice() never reads PR.md -- PRW-03's no-open-PR answer is always a live gh pr list re-probe, never a possibly-stale generated artifact
-- [Phase 14]: re-consented pr-workflow capability (capability install --scope project --yes) before trusting any live dispatch this session -- 14-01/14-02 both edited files inside the bundle after the original consent, silently deactivating it until re-installed
-- [Phase 14]: Phase 14 complete -- all four requirements (PRW-01..04) and all five ROADMAP Success Criteria closed with live-cycle evidence in 14-GATE-SMOKE-TEST.md, not unit assertions alone
 - [Phase ?]: [Phase 16, plan 01]: Edited plugins/beads-lifecycle/.gsd/capabilities/beads/ (the git-tracked plugin source) instead of the plan-specified .gsd/capabilities/beads/, which is a gitignored runtime-install mirror silently re-synced from the tracked source
 - [Phase ?]: [Phase 16, plan 01]: get_milestone_bullet fails open (returns empty string on a miss) unlike its get_phase_header model, since resolve_milestone_epic must stay fail-open per B6/D-08
 - [Phase ?]: [Phase 16, plan 02]: reconcile_stale_closed composes existing _resolve_completed_task_ids + filter_open_ids as a phase-wide idempotent close backstop for D-08, dispatched at verify:post before regenerate-beads-md
@@ -276,7 +268,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-19T22:16:15.554Z
-Stopped at: Phase 17 context gathered
+Stopped at: Phase 17 complete — all phases complete
 4 plans, after a research phase that ran late and invalidated part of the original premise
 (gsd-core 1.10.0 → 1.11.0; upstream PR #3687 merged unreleased). Baselines re-verified; three
 `sync.py` line numbers corrected; the #3646 deletion worry resolved as "not deleting".

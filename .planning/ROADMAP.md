@@ -47,7 +47,7 @@
 
 ### v1.3 Config/Code Truth (Phase 17) — IN PROGRESS
 
-- [ ] **Phase 17: Config/Code Truth** - Every declared config value has an observable effect, decimal phases stop failing silently, the hook survives the upstream release that natively covers two of its five dispatch points, and the two patch-check clones become one reader
+- [x] **Phase 17: Config/Code Truth** - Every declared config value has an observable effect, decimal phases stop failing silently, the hook survives the upstream release that natively covers two of its five dispatch points, and the two patch-check clones become one reader (completed 2026-08-20)
 
 ## Phase Details
 
@@ -368,7 +368,7 @@ must re-prove the two-tree identity and test-count guards before the next begins
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 17. Config/Code Truth | 4/4 | In Progress|  |
+| 17. Config/Code Truth | 4/4 | Complete    | 2026-08-20 |
 
 ## Coverage
 
