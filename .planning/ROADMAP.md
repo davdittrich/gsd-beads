@@ -5,7 +5,7 @@
 - ✅ **v1.0 milestone** — Phases 1-4 (shipped 2026-08-16) — `.planning/milestones/v1.0-ROADMAP.md`
 - ✅ **v1.1 Publish & Document** — Phases 5-12 (shipped 2026-08-18) — `.planning/milestones/v1.1-phases/`
 - ✅ **v1.2 New Capability Plugins** — Phases 13-16 (shipped 2026-08-19) — `.planning/milestones/v1.2-ROADMAP.md`
-- 🔨 **v1.3 Config/Code Truth** — Phase 17 (in progress, started 2026-08-19)
+- 🔨 **v1.3 Config/Code Truth** — Phases 17-18 (feature-complete 2026-08-20, started 2026-08-19) — awaiting `/gsd-complete-milestone v1.3`
 
 ## Phases
 
@@ -45,9 +45,10 @@
 
 </details>
 
-### v1.3 Config/Code Truth (Phase 17) — IN PROGRESS
+### v1.3 Config/Code Truth (Phases 17-18) — FEATURE-COMPLETE, AWAITING MILESTONE CLOSE
 
 - [x] **Phase 17: Config/Code Truth** - Every declared config value has an observable effect, decimal phases stop failing silently, the hook survives the upstream release that natively covers two of its five dispatch points, and the two patch-check clones become one reader (completed 2026-08-20)
+- [x] **Phase 18: Address tech debt: patch-check doc accuracy + CHANGELOG** - Every claim this capability makes about itself is true again: patch-check docstring/messages match the code, CHANGELOG documents all four of Phase 17's requirements, both version declarations match `main`, the withdrawn `v1.3.0` tag is gone, the four already-shipped bd issues are closed, and both machine-local gsd-core patches are live again (completed 2026-08-20)
 
 ## Phase Details
 

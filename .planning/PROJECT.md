@@ -122,18 +122,23 @@ task-state bookkeeping survives in `.planning/`.
 
 ## Current State
 
-Phase 17 (v1.3's only phase) complete 2026-08-20 — all 4 requirements (TRUTH-01..04) shipped, 4/4
-plans, deep code review clean of blockers (5 non-blocking doc/test-truth warnings), phase
-verification passed 4/4 against live-executed checks. v1.3 milestone is feature-complete;
+Phase 18 (v1.3's tech-debt cleanup phase, audit-sourced, no REQUIREMENTS.md ID) complete
+2026-08-20 — 4/4 plans, deep code review clean of blockers (0 critical, 1 warning, 2 info),
+phase verification passed 9/9 against live-executed checks. Both machine-local gsd-core patches
+restored on both runtime homes, four stale Phase 17 bd issues closed, withdrawn `v1.3.0` tag
+deleted from `origin` and locally (checkpoint answered `option-a`), CHANGELOG/`plugin.json`
+accuracy gaps closed. v1.3 milestone (Phases 17-18) is now fully feature-complete;
 `/gsd-complete-milestone v1.3` not yet run.
 
-## Current Milestone: v1.3 Config/Code Truth — Phase 17 complete, ready to close
+## Current Milestone: v1.3 Config/Code Truth — Phases 17-18 complete, ready to close
 
-**Status:** All target features shipped (Phase 17, 2026-08-20). Awaiting `/gsd-complete-milestone
-v1.3` to formally archive.
+**Status:** All target features shipped (Phase 17, 2026-08-20) plus tech-debt cleanup (Phase 18,
+2026-08-20). Awaiting `/gsd-complete-milestone v1.3` to formally archive.
 
 **Goal:** Every config key this capability declares is one the code actually reads, and the
-patch-checker duplication the gh-2 post-release review flagged is gone.
+patch-checker duplication the gh-2 post-release review flagged is gone. (Phase 18 extended this:
+every claim the capability makes about itself — docstrings, patch-check messages, CHANGELOG,
+version declarations — is also true again.)
 
 **Target features:**
 - `beads.sync_mode` stops being a declared-but-dead config surface — either the enum becomes
@@ -299,6 +304,9 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 | `get-available-resources` dropped from v1.2's originally-scoped three plugins, replaced by Phase 16 (beads issue content parity) | Discuss-phase (2026-08-19) surfaced that every synced `bd` issue was title-only (no description/acceptance criteria), a gap discovered mid-milestone and judged higher-priority than the third planned plugin — beads is this project's own core dependency, not a new capability, so fixing it compounds | `get-available-resources` moved to Out of Scope (deferred, not invalidated); Phase 16 shipped in its place (D-01..D-08, 4/4 plans) |
 | Phase 16 chose full inversion (task content lives in `bd`, `PLAN.md` becomes a pointer) over a minimal one-shot `--description` write | Discuss-phase resolved two competing proposals surfaced 2026-08-18; full inversion closes the drift-forever problem a one-shot write would leave open (D-01) | Shipped Phase 16 — write path (16-01), read path (16-03/16-04), `gsd-executor` patch filed upstream (open-gsd/gsd-core#3646). One gap: no real stripped `PLAN.md` has run through a live `gsd-executor` session yet in this repo, so branch-trigger conditions are UAT-verified live against real `bd`, not full end-to-end |
 | Phase 17 (17-04) D-08: collapse `check_shipmd_patch`/`check_execute_plan_patch`'s two CLI verbs into one, hard break, no alias window | A published-plugin CLI contract change with no external callers (confirmed by grep before the plan was written) — the checkpoint existed to confirm the source-artifact conflict (ROADMAP Criterion 4 said both verbs survive; CONTEXT.md D-08 said collapse) and the verb shape, not to re-litigate whether to collapse | User confirmed live via `AskUserQuestion` mid-execution (2026-08-20): option-a, recommended shape (`check-patch <target> [--path]`). ROADMAP Criterion 4 amended in the same commit to record D-08 supersession; zero surviving references to either retired verb; 246/246 tests green |
+| Phase 18 (18-02) D-07: delete the withdrawn `v1.3.0` git tag from `origin` and locally, one-way (a later re-tag would publish a new GitHub Release, not restore this one) | `release.yml` triggers only on tag *push*, not deletion, so nothing fires either way; the tag was a resolvable public pointer to a commit with a data-loss bug, no release/changelog/doc referenced it | User confirmed live via `AskUserQuestion` mid-execution (2026-08-20): option-a, delete from both `origin` and local. Verified after: `git ls-remote --tags origin` shows no `v1.3.0`, `v1.3.1` untouched, no `release.yml` run fired |
+| `execute:wave:post`'s `reconcile_stale_closed` bd backstop only reaches issues linked via a PLAN.md `<beads-id>` — a standalone problem-report issue a phase resolves as a side effect has no automated closure path | Discovered live in Phase 18 (18-02 Task 1): four Phase-17-era stale bd issues (`gsd-beads-he1/bzl/v43/t7a`) sat open despite being fixed, because they were standalone reports (created 2026-08-19), not `<beads-id>`-linked plan tasks | Closed manually with identity verification (`bd show` matched each against its shipping plan) rather than left as ambient drift; mechanism gap filed as follow-up `gsd-beads-72u`, out of Phase 18's scope by design (defect found during work gets a ticket, not scope creep) |
+| Worktree isolation (`git worktree add`) does not carry untracked state — `.beads/`'s live issue database is invisible inside an isolated executor worktree | Discovered live in Phase 18 (18-02 dispatch): a `bd close` run inside the worktree would have operated on an absent/stale local copy instead of the real project database, silently no-op'ing every issue closure | Orchestrator pinned every `bd` invocation in that dispatch to `-C <main-repo-root>` so it always targets the real database regardless of worktree cwd; `git` ref operations (tag push/delete) were unaffected since worktrees share the same `.git` object/ref store |
 
 ## Evolution
 
