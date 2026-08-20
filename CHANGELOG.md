@@ -2,6 +2,17 @@
 
 Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`.
 
+## 0.4.0
+
+### Fixed
+- **A decimal-numbered phase (`1.5`, `01.5`, `10.1`, `11.1` — the form `/gsd-phase --insert`
+  produces) failed silently at every beads lifecycle point.** `PLAN_FILE_RE` never matched a
+  `NN.N-NN-PLAN.md` filename, `get_phase_header`/`extract_phase_mentions` raised `ValueError` from
+  `int("01.5")`, and `_resolve_default_phase_dir`'s bare `.zfill(2)` was a no-op on an
+  already-3-character unpadded token (`"1.5"`), so it never matched an `01.5-` directory. Fixed
+  with two string-only helpers, `phase_regex_token` and `phase_dir_prefix` — no `int()`/`float()`/
+  `Decimal()` conversion of a phase number survives on the fixed path (TRUTH-04).
+
 ## 0.3.1
 
 ### Fixed
