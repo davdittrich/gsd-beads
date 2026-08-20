@@ -4030,20 +4030,24 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             finally:
                 os.chdir(prev)
 
-    def test_plan_pre_runs_recall_then_both_patch_detectors(self):
+    def test_plan_pre_runs_recall_then_all_three_diagnostics(self):
         """The patch-loss detector documented as beads-recall SKILL.md Step 3.5.
         It was wired at plan:pre to be independent of the ship.md patch it
         checks -- but plan:pre was itself one of the dead points, so it shared
-        the failure mode of the thing it protects."""
+        the failure mode of the thing it protects. 17-03 Task 2 adds a third
+        diagnostic, check_sync_mode_value, dispatched alongside the two patch
+        checks."""
         with self._in_workspace() as phase_dir:
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
                  mock.patch.object(sync, "check_shipmd_patch", return_value=0) as ship, \
-                 mock.patch.object(sync, "check_execute_plan_patch", return_value=0) as ep:
+                 mock.patch.object(sync, "check_execute_plan_patch", return_value=0) as ep, \
+                 mock.patch.object(sync, "check_sync_mode_value", return_value=0) as sm:
                 exit_code = sync.lifecycle_dispatch("plan:pre")
         self.assertEqual(exit_code, 0)
         recall.assert_called_once_with(str(phase_dir))
         ship.assert_called_once()
         ep.assert_called_once()
+        sm.assert_called_once()
 
     def test_plan_post_syncs_every_plan_in_the_phase(self):
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
@@ -4904,6 +4908,209 @@ class TestLifecycleDispatchNeverConsultsSyncMode(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("<action>", written)
         self.assertNotIn(sync.TASK_POINTER_PREFIX, written)
+
+
+class TestCheckSyncModeValue(unittest.TestCase):
+    """17-03 Task 2 (D-04 Case 2): check_sync_mode_value is a read-only,
+    never-raises stdout notice for a beads.sync_mode value outside the
+    declared enum -- the D-04 migration answer for a project that already
+    wrote a retired or otherwise invalid value into .planning/config.json."""
+
+    def _notice_for(self, beads_payload):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            planning_dir = project_root / ".planning"
+            planning_dir.mkdir()
+            if beads_payload is not None:
+                (planning_dir / "config.json").write_text(
+                    json.dumps({"beads": beads_payload}), encoding="utf-8"
+                )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_sync_mode_value(project_root)
+        return exit_code, captured.getvalue()
+
+    def test_absent_config_file_is_silent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            (project_root / ".planning").mkdir()
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_sync_mode_value(project_root)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured.getvalue(), "")
+
+    def test_absent_beads_object_is_silent(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            planning_dir = project_root / ".planning"
+            planning_dir.mkdir()
+            (planning_dir / "config.json").write_text(
+                json.dumps({"workflow": {"auto_advance": True}}), encoding="utf-8"
+            )
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.check_sync_mode_value(project_root)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(captured.getvalue(), "")
+
+    def test_absent_key_is_silent(self):
+        exit_code, out = self._notice_for({"enabled": True})
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(out, "")
+
+    def test_declared_authoritative_value_is_silent(self):
+        exit_code, out = self._notice_for({"sync_mode": "authoritative"})
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(out, "")
+
+    def test_declared_mirror_value_is_silent(self):
+        exit_code, out = self._notice_for({"sync_mode": "mirror"})
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(out, "")
+
+    def test_retired_value_produces_one_notice_naming_it(self):
+        exit_code, out = self._notice_for({"sync_mode": "off"})
+        self.assertEqual(exit_code, 0)
+        lines = out.splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn("'off'", lines[0])
+
+    def test_empty_string_produces_a_notice(self):
+        _, out = self._notice_for({"sync_mode": ""})
+        self.assertNotEqual(out, "")
+
+    def test_case_variant_produces_a_notice(self):
+        _, out = self._notice_for({"sync_mode": "Mirror"})
+        self.assertIn("'Mirror'", out)
+
+    def test_whitespace_variant_produces_a_notice(self):
+        _, out = self._notice_for({"sync_mode": " mirror "})
+        self.assertNotEqual(out, "")
+
+    def test_non_string_value_produces_a_notice(self):
+        """codex MEDIUM (BINDING, 17-REVIEWS.md): a present-but-wrong-typed
+        key is exactly as invisible to the user as a present-but-wrong-
+        string one, and it is the same authoring mistake."""
+        exit_code, out = self._notice_for({"sync_mode": True})
+        self.assertEqual(exit_code, 0)
+        self.assertNotEqual(out, "")
+
+    def test_newline_bearing_value_yields_a_single_line_notice(self):
+        exit_code, out = self._notice_for({"sync_mode": "off\nrm -rf /"})
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(out.splitlines()), 1)
+
+    def test_notice_states_authoritative_default_still_applies_and_may_strip(self):
+        """codex MEDIUM (BINDING): the notice must say execution continues
+        under the shipped authoritative behavior and that task bodies may
+        therefore still be stripped once the read-path patch gate passes,
+        not merely "value not recognized"."""
+        _, out = self._notice_for({"sync_mode": "off"})
+        self.assertIn("authoritative default applies", out)
+        self.assertIn("stripped", out)
+
+    def test_notice_names_the_remedy_command(self):
+        _, out = self._notice_for({"sync_mode": "off"})
+        self.assertIn("config-set beads.sync_mode", out)
+
+    def test_two_consecutive_dispatches_produce_the_same_single_notice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            planning_dir = project_root / ".planning"
+            planning_dir.mkdir()
+            (planning_dir / "config.json").write_text(
+                json.dumps({"beads": {"sync_mode": "off"}}), encoding="utf-8"
+            )
+            captured_first, captured_second = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(captured_first):
+                sync.check_sync_mode_value(project_root)
+            with contextlib.redirect_stdout(captured_second):
+                sync.check_sync_mode_value(project_root)
+        self.assertEqual(captured_first.getvalue(), captured_second.getvalue())
+        self.assertEqual(len(captured_first.getvalue().splitlines()), 1)
+
+    def test_absent_key_vs_wrong_typed_key_produce_different_stdout(self):
+        """BINDING new AC (17-REVIEWS.md, both cross-AI reviewers):
+        read_beads_config's isinstance(value, type(default)) wrong-type
+        guard collapses "key absent" and "key present, wrong type" into the
+        identical effective default -- this asserts check_sync_mode_value
+        tells the two states apart via a raw membership test even though
+        read_sync_mode cannot."""
+        with tempfile.TemporaryDirectory() as tmp_absent:
+            absent_root = Path(tmp_absent)
+            (absent_root / ".planning").mkdir()
+            (absent_root / ".planning" / "config.json").write_text(
+                json.dumps({"beads": {}}), encoding="utf-8"
+            )
+            captured_absent = io.StringIO()
+            with contextlib.redirect_stdout(captured_absent):
+                sync.check_sync_mode_value(absent_root)
+
+        with tempfile.TemporaryDirectory() as tmp_wrong_type:
+            wrong_type_root = Path(tmp_wrong_type)
+            (wrong_type_root / ".planning").mkdir()
+            (wrong_type_root / ".planning" / "config.json").write_text(
+                json.dumps({"beads": {"sync_mode": True}}), encoding="utf-8"
+            )
+            captured_wrong_type = io.StringIO()
+            with contextlib.redirect_stdout(captured_wrong_type):
+                sync.check_sync_mode_value(wrong_type_root)
+
+        # Both resolve to the identical effective value via read_sync_mode...
+        self.assertEqual(
+            sync.read_sync_mode(absent_root), sync.read_sync_mode(wrong_type_root)
+        )
+        # ...but check_sync_mode_value tells them apart: silence vs. one notice.
+        self.assertEqual(captured_absent.getvalue(), "")
+        self.assertNotEqual(captured_wrong_type.getvalue(), "")
+
+    def test_never_raises_and_returns_zero_when_config_is_malformed_json(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            (project_root / ".planning").mkdir()
+            (project_root / ".planning" / "config.json").write_text(
+                "{not json", encoding="utf-8"
+            )
+            exit_code = sync.check_sync_mode_value(project_root)
+        self.assertEqual(exit_code, 0)
+
+    def test_no_config_write_path_exists(self):
+        """Behavioral mirror of the source assertion: a call against a
+        project holding the retired value must not modify config.json."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            (project_root / ".planning").mkdir()
+            config_path = project_root / ".planning" / "config.json"
+            original = json.dumps({"beads": {"sync_mode": "off"}})
+            config_path.write_text(original, encoding="utf-8")
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                sync.check_sync_mode_value(project_root)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), original)
+
+    def test_lifecycle_dispatch_plan_pre_calls_it_and_stays_fail_open_on_raise(self):
+        """Fail-open assertion: lifecycle_dispatch('plan:pre') still returns
+        0 and still writes BEADS-RECALL.md when check_sync_mode_value
+        raises -- the outer try/except Exception around the whole plan:pre
+        branch cannot let a failure here take out beads_recall, which runs
+        first."""
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = _make_beads_recall_bd_side_effect("[]\n")
+            with tempfile.TemporaryDirectory() as tmp:
+                phase_dir = _lifecycle_workspace(Path(tmp))
+                prev = Path.cwd()
+                os.chdir(tmp)
+                try:
+                    with mock.patch.object(
+                        sync, "check_sync_mode_value", side_effect=RuntimeError("boom")
+                    ):
+                        exit_code = sync.lifecycle_dispatch("plan:pre")
+                finally:
+                    os.chdir(prev)
+                recall_files = list(phase_dir.glob("*BEADS-RECALL.md"))
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(len(recall_files), 1)
 
 
 if __name__ == "__main__":
