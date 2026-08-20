@@ -3,18 +3,19 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Config/Code Truth (Phase 17) — IN PROGRESS
 current_phase: 17
+current_phase_name: complete — last phase in milestone v1.3
 status: completed
-stopped_at: Phase 17 complete — all phases complete
-last_updated: "2026-08-20T02:08:48.892Z"
+stopped_at: Phase 18 context gathered
+last_updated: "2026-08-20T09:11:23.130Z"
 last_activity: 2026-08-20
 last_activity_desc: Phase 17 complete
-state_head: 1ce69d216fb72e41c530085d9e832697a72b7e24
+state_head: 186dcd0a0bd6304b386ac1d15d23e2af1194630a
 progress:
-  total_phases: 1
+  total_phases: 2
   completed_phases: 1
   total_plans: 4
   completed_plans: 4
-  percent: 100
+  percent: 50
 ---
 
 # Project State
@@ -249,6 +250,10 @@ None yet.
 | 260819-e7a | Revise README.md with a full gsd-beads configuration reference section | 2026-08-19 | 640ccc3 | | [260819-e7a](./quick/260819-e7a-revise-readme-md-with-a-full-gsd-beads-c/) |
 | 260819-k4p | Fix gh-2: dispatch the four lifecycle hooks gsd-core never reached (capability 0.3.0 / plugin 1.3.0) | 2026-08-19 | 62162d4 | Verified | [260819-k4p](./quick/260819-k4p-fix-gsd-beads-2-lifecycle-hook-dispatch/) |
 
+### Roadmap Evolution
+
+- Phase 18 added: Address tech debt: patch-check doc accuracy + CHANGELOG
+
 ## Deferred Items
 
 | Category | Item | Status | Deferred At |
@@ -262,12 +267,12 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-20T02:20:00.000Z
-Stopped at: Phase 17 complete, milestone v1.3 feature-complete — ready for /gsd-complete-milestone v1.3
+Last session: 2026-08-20T09:11:23.111Z
+Stopped at: Phase 18 context gathered
 All 4 plans executed and verified (TRUTH-01..04, 246/246 tests green, deep code review clean of
 blockers, phase verification 4/4). Plan 17-04's checkpoint:decision (CLI verb collapse, D-08) was
 confirmed live by the user (option-a, recommended shape).
-Resume file: None
+Resume file: .planning/phases/18-address-tech-debt-patch-check-doc-accuracy-changelog/18-CONTEXT.md
 
 ## Operator Next Steps
 
