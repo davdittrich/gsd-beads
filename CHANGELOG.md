@@ -95,16 +95,15 @@ Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/cap
   plugin loaded. A locale-pinned bash-builtin pre-filter now rejects the common case before any
   spawn: **13.00 ms → 0.91 ms** per non-matching call. `LC_ALL=C` matters because PostToolUse
   payloads carry the tool's full output — on a 4 MB payload, UTF-8 pattern matching alone cost
-  ~34 ms. Also merged two JSON parses into one. Separately, the hook's own timeout is set
-  explicitly to 120 s — a deliberate reduction from Claude Code's 600 s default hook timeout,
-  bounding the hook's own worst-case blocking time; this is not itself a throughput
-  optimization and does not belong under this heading's ms/call numbers above.
+  ~34 ms. Also merged two JSON parses into one.
 
 ### Changed
 - `read_epic_per` and `read_beads_enabled` now share one `read_beads_config` reader; each
   shipped default is written down once, beside the key it belongs to.
 - Dropped the `--phase-dir` flag and `phase_dir_override` parameter from `lifecycle-dispatch` —
   nothing but a test ever used them.
+- **The hook's own timeout is set explicitly to 120 s** — a deliberate reduction from Claude
+  Code's 600 s default hook timeout, bounding the hook's own worst-case blocking time.
 
 ### Known issues (pre-existing, now tracked)
 - **`beads.sync_mode` is declared in `capability.json` and read by no code.** `mirror` and `off`
