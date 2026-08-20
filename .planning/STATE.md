@@ -3,19 +3,18 @@ gsd_state_version: 1.0
 milestone: v1.3
 milestone_name: Config/Code Truth (Phase 17) — IN PROGRESS
 current_phase: 18
-current_phase_name: address-tech-debt-patch-check-doc-accuracy-changelog
-status: executing
-stopped_at: Phase 18 context gathered
-last_updated: "2026-08-20T10:24:43.273Z"
+status: completed
+stopped_at: Phase 18 complete — all phases complete
+last_updated: "2026-08-20T11:24:56.886Z"
 last_activity: 2026-08-20
-last_activity_desc: Phase 17 complete
-state_head: d863d721d31539711f2737e85c4e78d229a1f953
+last_activity_desc: Phase 18 complete
+state_head: 258cda685c0014da0d1f4962555657baa6051ca8
 progress:
   total_phases: 2
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 4
-  percent: 50
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
@@ -26,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-19)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** v1.3 milestone complete (Phase 17 shipped) — awaiting `/gsd-complete-milestone v1.3`
+**Current focus:** Phase 18 — Address tech debt: patch-check doc accuracy + CHANGELOG
 
 ## Current Position
 
-Phase: 18 (address-tech-debt-patch-check-doc-accuracy-changelog) — READY TO EXECUTE
-Plan: All 4 plans complete (17-01 → TRUTH-04, 17-02 → TRUTH-03, 17-03 → TRUTH-01, 17-04 → TRUTH-02)
-Status: Ready to execute
-Last activity: 2026-08-20 — Phase 17 complete
+Phase: 18
+Plan: Not started
+Status: All phases complete
+Last activity: 2026-08-20 — Phase 18 complete
 
 Progress: [█████░░░░░] 50% (4/4 plans)
 
@@ -268,7 +267,7 @@ None yet.
 ## Session Continuity
 
 Last session: 2026-08-20T09:11:23.111Z
-Stopped at: Phase 18 context gathered
+Stopped at: Phase 18 complete — all phases complete
 All 4 plans executed and verified (TRUTH-01..04, 246/246 tests green, deep code review clean of
 blockers, phase verification 4/4). Plan 17-04's checkpoint:decision (CLI verb collapse, D-08) was
 confirmed live by the user (option-a, recommended shape).
