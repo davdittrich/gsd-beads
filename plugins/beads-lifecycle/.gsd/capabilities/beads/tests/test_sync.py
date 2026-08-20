@@ -3274,19 +3274,16 @@ class TestCheckShipmdPatch(unittest.TestCase):
 
     def test_cli_routes_through_main_and_returns_function_exit_code(self):
         """D-09: mirrors TestCheckExecutePlanPatch's CLI-level test,
-        target-swapped -- a repo-wide search for the ship-md flag spelling
-        returned zero matches in tests/test_sync.py before this task.
-        Written against today's verb spelling (check-shipmd-patch,
-        --ship-md-path); Task 3 updates this to the collapsed verb as a
-        visible diff."""
+        target-swapped. 17-04 Task 3: updated to the collapsed `check-patch`
+        verb (positional target, --path override) as a visible diff -- the
+        message and version assertions this class's siblings pin stay
+        byte-identical; only the verb spelling changed."""
         with tempfile.TemporaryDirectory() as tmp:
             ship_md = Path(tmp) / "ship.md"
             ship_md.write_text(f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                exit_code = sync.main(
-                    ["check-shipmd-patch", "--ship-md-path", str(ship_md)]
-                )
+                exit_code = sync.main(["check-patch", "ship-md", "--path", str(ship_md)])
 
         self.assertEqual(exit_code, 0)
         self.assertIn("present", captured.getvalue())
@@ -3359,6 +3356,8 @@ class TestCheckExecutePlanPatch(unittest.TestCase):
             self.assertEqual(execute_plan_md.read_text(encoding="utf-8"), original)
 
     def test_cli_routes_through_main_and_returns_function_exit_code(self):
+        """17-04 Task 3: updated to the collapsed `check-patch` verb (verb
+        spelling only -- see the ship-md sibling test's docstring)."""
         with tempfile.TemporaryDirectory() as tmp:
             execute_plan_md = Path(tmp) / "execute-plan.md"
             execute_plan_md.write_text(
@@ -3367,7 +3366,7 @@ class TestCheckExecutePlanPatch(unittest.TestCase):
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
                 exit_code = sync.main(
-                    ["check-execute-plan-patch", "--execute-plan-path", str(execute_plan_md)]
+                    ["check-patch", "execute-plan", "--path", str(execute_plan_md)]
                 )
 
         self.assertEqual(exit_code, 0)
@@ -3446,6 +3445,52 @@ class TestPatchChecksTable(unittest.TestCase):
                 sync.check_execute_plan_patch(str(execute_plan_md))
         out = captured.getvalue()
         self.assertIn("gsd-executor will not read task content from bd", out)
+
+    # -- 17-04 Task 3: the merged PATCH_CHECKS table's own invariants --
+
+    def test_table_has_exactly_two_entries_with_distinct_keys(self):
+        self.assertEqual(len(sync.PATCH_CHECKS), 2)
+        self.assertEqual(len(set(sync.PATCH_CHECKS)), 2)
+        self.assertIn("ship-md", sync.PATCH_CHECKS)
+        self.assertIn("execute-plan", sync.PATCH_CHECKS)
+
+    def test_both_wrapper_names_still_callable(self):
+        """Criterion 5: the two Python function names survive the CLI
+        collapse as thin wrappers -- the four existing test mocks and both
+        in-file call sites bind to these names, not to the table or the
+        shared reader."""
+        self.assertTrue(callable(sync.check_shipmd_patch))
+        self.assertTrue(callable(sync.check_execute_plan_patch))
+
+    def test_unrecognized_table_key_is_fail_open_and_does_not_raise(self):
+        """BINDING codex MEDIUM: totality is required (both checks share
+        lifecycle_dispatch's one try/except with beads_recall), but an
+        unknown key's message must be distinguishable from the genuinely
+        unreadable-file case, not just silently absorbed."""
+        captured = io.StringIO()
+        with contextlib.redirect_stdout(captured):
+            exit_code = sync.check_patch("no-such-target")
+        self.assertEqual(exit_code, 1)
+        unknown_key_message = captured.getvalue()
+        self.assertIn("no-such-target", unknown_key_message)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            missing_path = Path(tmp) / "does-not-exist" / "ship.md"
+            captured2 = io.StringIO()
+            with contextlib.redirect_stdout(captured2):
+                sync.check_patch("ship-md", str(missing_path))
+        self.assertNotEqual(unknown_key_message, captured2.getvalue())
+
+    def test_retired_verbs_are_gone_from_the_cli(self):
+        """Caller assertion: sync.main raises SystemExit (argparse's
+        usage-error path) for either retired verb rather than routing to a
+        function -- the collapse actually removed the old subparsers, it did
+        not just add a new one alongside them."""
+        with contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                sync.main(["check-shipmd-patch", "--ship-md-path", "/tmp/x"])
+            with self.assertRaises(SystemExit):
+                sync.main(["check-execute-plan-patch", "--execute-plan-path", "/tmp/x"])
 
 
 def _write_todo_pending_workspace(tmp_path, with_state=True):
@@ -4154,6 +4199,42 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
         ship.assert_called_once()
         ep.assert_called_once()
         sm.assert_called_once()
+
+    def test_plan_pre_prints_ship_report_before_execute_report_unmocked(self):
+        """17-04 Task 3 behavior assertion: against the real merged reader
+        (beads_recall and check_sync_mode_value mocked out, the two patch
+        checks left real), the ship-md report still prints before the
+        execute-plan report -- the merge did not reorder or blend the two
+        targets' output."""
+        with tempfile.TemporaryDirectory() as tmp:
+            runtime_home = Path(tmp) / "runtime"
+            workflows = runtime_home / "gsd-core" / "workflows"
+            workflows.mkdir(parents=True)
+            (workflows / "ship.md").write_text(
+                f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8"
+            )
+            (workflows / "execute-plan.md").write_text(
+                f"{sync.EXECUTE_PLAN_PATCH_MARKER}\n", encoding="utf-8"
+            )
+            workspace = Path(tmp) / "ws"
+            workspace.mkdir()
+            _lifecycle_workspace(workspace)
+            prev = Path.cwd()
+            os.chdir(str(workspace))
+            captured = io.StringIO()
+            try:
+                with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(runtime_home)}), \
+                     mock.patch.object(sync, "beads_recall", return_value=0), \
+                     mock.patch.object(sync, "check_sync_mode_value", return_value=0):
+                    with contextlib.redirect_stdout(captured):
+                        exit_code = sync.lifecycle_dispatch("plan:pre")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        out = captured.getvalue()
+        ship_idx = out.index("ship.md ship:pre step-dispatch patch: present (v2)")
+        exec_idx = out.index("execute-plan.md bd-task-read patch: present (v1)")
+        self.assertLess(ship_idx, exec_idx)
 
     def test_plan_post_syncs_every_plan_in_the_phase(self):
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
