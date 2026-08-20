@@ -4718,6 +4718,30 @@ class TestNativeStepDispatchProbe(unittest.TestCase):
         exit_code, _, _ = self._probe("plan:post", text)
         self.assertEqual(exit_code, 0)
 
+    def test_generic_step_arm_inside_fenced_doc_example_in_region_is_not_a_false_positive(self):
+        # gsd-beads-u67.13: a kind=="step" line inside a FENCED documentation
+        # example within the region must not be mistaken for a live arm --
+        # only in_fence is toggled correctly across the fence boundaries
+        # would this line be excluded from detection.
+        text = (
+            "## 13e. Post-Planning Gap Analysis (plan:post capability gate dispatch)\n\n"
+            "```bash\n"
+            "PLAN_POST_HOOKS_JSON=$(gsd_run loop render-hooks plan:post --raw)\n"
+            "```\n\n"
+            "Example dispatch shape shown for documentation purposes only:\n\n"
+            "```yaml\n"
+            'kind == "step"\n'
+            "```\n\n"
+            "## 14. Present Final Status\n"
+        )
+        exit_code, out, path = self._probe("plan:post", text)
+        self.assertEqual(
+            exit_code,
+            0,
+            'a kind == "step" line inside a fenced doc example must not '
+            "false-positive as a live dispatch arm",
+        )
+
 
 class TestNativeStepDispatchProbeAgainstInstalledTree(unittest.TestCase):
     """17-02 Task 1 acceptance: on THIS machine's real installed gsd-core

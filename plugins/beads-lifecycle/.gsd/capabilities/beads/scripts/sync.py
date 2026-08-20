@@ -2432,19 +2432,20 @@ def check_native_step_dispatch(point, workflow_path_override=None):
         if lines[i].strip().startswith("```"):
             in_fence = not in_fence
 
+    # gsd-beads-u67.13: fence state must carry through the SAME pass that
+    # finds the region boundary and matches the step arm -- computing
+    # region_end in one loop then re-matching over the sliced lines in a
+    # second, fence-blind loop let a kind=="step" line inside a fenced doc
+    # example (prose, not live dispatch text) false-positive as detected.
     region_limit = min(anchor_idx + 1 + NATIVE_STEP_DISPATCH_REGION_LINES, len(lines))
-    region_end = region_limit
-    for i in range(anchor_idx + 1, region_limit):
+    for i in range(anchor_idx, region_limit):
         line = lines[i]
         if line.strip().startswith("```"):
             in_fence = not in_fence
             continue
-        if not in_fence and re.match(r"^##\s", line):
-            region_end = i
+        if not in_fence and i > anchor_idx and re.match(r"^##\s", line):
             break
-
-    for line in lines[anchor_idx:region_end]:
-        if _GENERIC_STEP_KIND_RE.search(line) and not _STEP_QUALIFIER_RE.search(line):
+        if not in_fence and _GENERIC_STEP_KIND_RE.search(line) and not _STEP_QUALIFIER_RE.search(line):
             print(
                 f"native-step-dispatch probe ({point}): detected at {workflow_path} -- "
                 "lifecycle-dispatch standing down for this point",
