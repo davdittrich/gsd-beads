@@ -80,10 +80,24 @@ task-state bookkeeping survives in `.planning/`.
   instructions from `bd show <beads-id> --json`, hard-halting when bd can't answer; a
   phase-wide `reconcile-stale-closed` backstop closes issues left open by per-wave dispatch —
   Phase 16
+- ✓ **TRUTH-04**: Decimal-numbered phases (`01.5`, `10.1`) resolve at `plan:pre`/`plan:post` and
+  through `_resolve_default_phase_dir` — `phase_regex_token`/`phase_dir_prefix` replace numeric
+  conversion at all four break sites — Phase 17
+- ✓ **TRUTH-03**: `lifecycle-dispatch` hook stands down correctly once gsd-core ships native
+  `plan:post`/`verify:post` step dispatch (upstream PR #3687) — `check_native_step_dispatch`
+  gates on live probing, not version guessing; `allow_strip` stays permanently `False` on the
+  hook path — Phase 17
+- ✓ **TRUTH-01**: `beads.sync_mode` narrowed to `["authoritative", "mirror"]`, both values now
+  behaviorally distinct; a project holding the retired `off` value gets one `plan:pre` notice,
+  never a silent no-op or a config write — Phase 17
+- ✓ **TRUTH-02**: `check_shipmd_patch`/`check_execute_plan_patch` collapsed into one
+  `PATCH_CHECKS`-table reader (`check_patch`) and one CLI verb (`check-patch <target> [--path]`)
+  — a deliberate one-way hard break (D-08, user-confirmed live via checkpoint), ROADMAP Criterion
+  4 amended to record the supersession — Phase 17
 
 ### Active
 
-(v1.3 requirements pending definition — see Step 9 of `/gsd-core:new-milestone`)
+(v1.4 requirements pending definition — see Step 9 of `/gsd-core:new-milestone`)
 
 ### Out of Scope
 
@@ -108,13 +122,15 @@ task-state bookkeeping survives in `.planning/`.
 
 ## Current State
 
-Shipped v1.2 (New Capability Plugins) 2026-08-19. `markdown-linting` and `pr-workflow` are both
-public, independently installable Claude Code plugins with their `ship:pre` gates re-proven live
-from the marketplace-installed copy. Every `bd create` now writes a real description and
-acceptance criteria instead of a title-only stub, and `gsd-executor` reads `auto`/`tracer` task
-instructions from `bd show`, not `PLAN.md`.
+Phase 17 (v1.3's only phase) complete 2026-08-20 — all 4 requirements (TRUTH-01..04) shipped, 4/4
+plans, deep code review clean of blockers (5 non-blocking doc/test-truth warnings), phase
+verification passed 4/4 against live-executed checks. v1.3 milestone is feature-complete;
+`/gsd-complete-milestone v1.3` not yet run.
 
-## Current Milestone: v1.3 Config/Code Truth
+## Current Milestone: v1.3 Config/Code Truth — Phase 17 complete, ready to close
+
+**Status:** All target features shipped (Phase 17, 2026-08-20). Awaiting `/gsd-complete-milestone
+v1.3` to formally archive.
 
 **Goal:** Every config key this capability declares is one the code actually reads, and the
 patch-checker duplication the gh-2 post-release review flagged is gone.
@@ -282,6 +298,7 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 | Two new hard requirements (PUB-11 SKILL.md parity, PUB-12 gsd-tailored PRIME.md) surfaced during Phase 8 UAT, after `v1.1.0` had already shipped | User explicitly ruled these hard requirements for v1.1, not deferred ideas — despite the public release already existing | Added to REQUIREMENTS.md, new Phase 9 (Beads Content Depth) created via `gsd_run phase add`; Phase 9 must complete before v1.1 is considered done, followed by a `v1.1.1` patch release replacing the public `v1.1.0` archive |
 | `get-available-resources` dropped from v1.2's originally-scoped three plugins, replaced by Phase 16 (beads issue content parity) | Discuss-phase (2026-08-19) surfaced that every synced `bd` issue was title-only (no description/acceptance criteria), a gap discovered mid-milestone and judged higher-priority than the third planned plugin — beads is this project's own core dependency, not a new capability, so fixing it compounds | `get-available-resources` moved to Out of Scope (deferred, not invalidated); Phase 16 shipped in its place (D-01..D-08, 4/4 plans) |
 | Phase 16 chose full inversion (task content lives in `bd`, `PLAN.md` becomes a pointer) over a minimal one-shot `--description` write | Discuss-phase resolved two competing proposals surfaced 2026-08-18; full inversion closes the drift-forever problem a one-shot write would leave open (D-01) | Shipped Phase 16 — write path (16-01), read path (16-03/16-04), `gsd-executor` patch filed upstream (open-gsd/gsd-core#3646). One gap: no real stripped `PLAN.md` has run through a live `gsd-executor` session yet in this repo, so branch-trigger conditions are UAT-verified live against real `bd`, not full end-to-end |
+| Phase 17 (17-04) D-08: collapse `check_shipmd_patch`/`check_execute_plan_patch`'s two CLI verbs into one, hard break, no alias window | A published-plugin CLI contract change with no external callers (confirmed by grep before the plan was written) — the checkpoint existed to confirm the source-artifact conflict (ROADMAP Criterion 4 said both verbs survive; CONTEXT.md D-08 said collapse) and the verb shape, not to re-litigate whether to collapse | User confirmed live via `AskUserQuestion` mid-execution (2026-08-20): option-a, recommended shape (`check-patch <target> [--path]`). ROADMAP Criterion 4 amended in the same commit to record D-08 supersession; zero surviving references to either retired verb; 246/246 tests green |
 
 ## Evolution
 
@@ -320,7 +337,12 @@ gap carried forward: Phase 16's `gsd-executor` bd-read patch is UAT-verified liv
 `bd` but not yet exercised end-to-end against a real stripped `PLAN.md` in this repo.
 
 ---
-*Last updated: 2026-08-19 — v1.2 milestone (New Capability Plugins) shipped: Phase 16 (beads
+*Last updated: 2026-08-20 — Phase 17 (v1.3's only phase, Config/Code Truth) complete:
+TRUTH-01..04 moved to Validated. Deep code review clean of blockers; phase verification passed
+4/4 against live-executed checks. Milestone v1.3 is feature-complete, `/gsd-complete-milestone
+v1.3` not yet run. See Current State / Current Milestone above.*
+
+*Previously: 2026-08-19 — v1.2 milestone (New Capability Plugins) shipped: Phase 16 (beads
 issue content parity) complete, `get-available-resources` moved to Out of Scope (deferred), MDL/PRW
 requirements and Phase 16's D-01..D-08 moved to Validated. See Current State / Next Milestone Goals
 above.*

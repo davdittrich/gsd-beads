@@ -25,19 +25,16 @@ See: .planning/PROJECT.md (updated 2026-08-19)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 17 — Config/Code Truth
-enum, five lifecycle dispatch points, a phase-number format, two patch markers) matches what its
-code actually does.
+**Current focus:** v1.3 milestone complete (Phase 17 shipped) — awaiting `/gsd-complete-milestone v1.3`
 
 ## Current Position
 
-Phase: 17
-Plan: Not started
-17-04 → TRUTH-02)
+Phase: 17 (complete — last phase in milestone v1.3)
+Plan: All 4 plans complete (17-01 → TRUTH-04, 17-02 → TRUTH-03, 17-03 → TRUTH-01, 17-04 → TRUTH-02)
 Status: All phases complete
 Last activity: 2026-08-20 — Phase 17 complete
 
-Progress: [░░░░░░░░░░] 0% (0/4 plans)
+Progress: [████████████████████] 100% (4/4 plans)
 
 **Plan order is argued, not incidental** (full reasoning in ROADMAP.md Phase 17): TRUTH-04 is a P1
 correctness bug that fails *silently* and it unblocks `/gsd-phase --insert` — the escape hatch this
@@ -202,16 +199,14 @@ None yet.
   not touch `ship.md`, `ship:pre` is still gate-only on `next`, and no upstream issue tracks the
   remaining half.
 
-- **[NEW, time-boxed] [open-gsd/gsd-core#3687](https://github.com/open-gsd/gsd-core/pull/3687)
-  merged to `next` 2026-08-19T20:41:28Z — 6h50m after the v1.11.0 release cut, so it is unreleased
-  and lands at the next cut.** It adds native generic `kind == "step"` dispatch at `plan:post` and
-  `verify:post` (verified in the `next` tree, not just the PR prose). It does **not** add step
-  dispatch at `execute:wave:pre`, `execute:wave:post`, or `ship:pre`. Consequence: two of the
-  hook's five `POINTS` become redundant on release, risking double dispatch *and* a silent bypass
-  of `allow_strip=False`. Owned by TRUTH-03 / plan 17-02 / `gsd-beads-he1`. **The hook must not be
-  deleted** — `execute:wave:pre` and `execute:wave:post` have no upstream fix anywhere. Re-run the
-  upstream check immediately before this milestone ships; `next` moved 3 commits in the 7 hours
-  before the research pass, and the single most important finding landed inside that window.
+- **[RESOLVED 2026-08-20, plan 17-02] [open-gsd/gsd-core#3687](https://github.com/open-gsd/gsd-core/pull/3687)**
+  — merged to `next` 2026-08-19T20:41:28Z, still unreleased as of Phase 17 completion. `check_native_step_dispatch`
+  now gates the hook's `plan:post`/`verify:post` branches on live probing of the installed gsd-core workflow
+  files, not a version guess — correct today (1.11.0, no native dispatch, both correctly report not-detected,
+  live-verified) and correct the moment #3687 releases. `allow_strip` stays a literal `False` on the hook path
+  regardless. The hook itself was NOT deleted — `execute:wave:pre`/`execute:wave:post` still have no upstream
+  fix. Re-run the upstream release check before shipping v1.3, as a final confirmation, not because the code
+  depends on the outcome.
 
 - **[open-gsd/gsd-core#3647](https://github.com/open-gsd/gsd-core/issues/3647)** filed as a
   framework-level observation (capability lifecycle-dispatch steps intermittently skipped). Open,
@@ -267,25 +262,32 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-08-19T22:16:15.554Z
-Stopped at: Phase 17 complete — all phases complete
-4 plans, after a research phase that ran late and invalidated part of the original premise
-(gsd-core 1.10.0 → 1.11.0; upstream PR #3687 merged unreleased). Baselines re-verified; three
-`sync.py` line numbers corrected; the #3646 deletion worry resolved as "not deleting".
-Resume file: .planning/phases/17-config-code-truth/17-CONTEXT.md
+Last session: 2026-08-20T02:20:00.000Z
+Stopped at: Phase 17 complete, milestone v1.3 feature-complete — ready for /gsd-complete-milestone v1.3
+All 4 plans executed and verified (TRUTH-01..04, 246/246 tests green, deep code review clean of
+blockers, phase verification 4/4). Plan 17-04's checkpoint:decision (CLI verb collapse, D-08) was
+confirmed live by the user (option-a, recommended shape).
+Resume file: None
 
 ## Operator Next Steps
 
-- `/gsd-plan-phase 17` — four plans, executed sequentially in the roadmap's stated order
-  (17-01 TRUTH-04 → 17-02 TRUTH-03 → 17-03 TRUTH-01 → 17-04 TRUTH-02). Every plan goes through
-  plan-check and the verifier; **no quick path this milestone.**
+- Security enforcement is on (`workflow.security_enforcement`) and no `17-SECURITY.md` exists yet
+  — run `/gsd-secure-phase 17` before shipping.
 
-- 17-01 must carry the `capability.json` 0.3.1 → 0.4.0 bump, because it is the first commit to
-  touch `sync.py` and the runtime mirror does not re-sync on an equal version.
+- Before tagging: re-run the upstream check on #3687's release status (informational only — the
+  hook now self-adapts either way) and clear the four release-hygiene items above (main-ahead-of-
+  v1.3.1 marker bump, CHANGELOG 0.3.1 miscategorization, withdrawn-tag/release.yml collision,
+  stale local ship.md v1 patch).
 
-- 17-03's plan must carry the Alternatives Considered table and the migration answer for existing
-  `"sync_mode": "mirror"` / `"off"` projects, and must resolve the disagreement between
-  ARCHITECTURE.md (narrow), FEATURES.md (drop) and PITFALLS.md C1 (narrow, on observability).
+- 5 non-blocking WARNING findings from `17-REVIEW.md` remain open (doc/test truth gaps — a docstring
+  claiming stderr-only output that's actually stdout, missing `⚠` markers on two unreadable-file
+  messages, an incomplete CHANGELOG 0.4.0 entry, a missing `SYNC_MODE_VALUES`/`capability.json`
+  parity test, and a latent fence-tracking false-positive path). None block shipping; consider
+  `/gsd-code-review 17 --fix` or a follow-up quick task.
 
-- Before the milestone ships, re-run the upstream check on #3687's release status and clear all
-  four release-hygiene items.
+- REQUIREMENTS.md's TRUTH-01 traceability row was originally left at `[ ]` by plan 17-03's own
+  commit (an omission caught by the phase verifier) — corrected by this phase's `phase.complete`
+  call; no further action needed.
+
+- Once ready: `/gsd-complete-milestone v1.3` — Phase 17 is the milestone's only phase, so
+  completing it closes v1.3 (no other active workstreams).
