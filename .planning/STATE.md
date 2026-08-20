@@ -1,9 +1,9 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.3
-milestone_name: Config/Code Truth (Phases 17-18) — FEATURE-COMPLETE, AWAITING MILESTONE CLOSE
+milestone_name: Config/Code Truth (Phases 17-18) — SHIPPED 2026-08-20
 status: Awaiting next milestone
-stopped_at: Phase 18 complete — v1.3 feature-complete, awaiting /gsd-complete-milestone
+stopped_at: v1.3 archived — ready to plan next milestone
 last_updated: "2026-08-20T12:24:42.504Z"
 last_activity: 2026-08-20
 last_activity_desc: Milestone v1.3 completed and archived
@@ -25,7 +25,7 @@ See: .planning/PROJECT.md (updated 2026-08-20)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero
 duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** v1.3 milestone (Phases 17-18) feature-complete — awaiting `/gsd-complete-milestone v1.3`
+**Current focus:** Planning next milestone (`/gsd-core:new-milestone`)
 
 ## Current Position
 
@@ -86,64 +86,10 @@ Full v1.0/v1.1 per-plan history: `.planning/STATE-ARCHIVE.md`.
 
 ### Decisions
 
-Full decision log lives in PROJECT.md's Key Decisions table. Carried forward into v1.3 because
-Phase 17 edits the exact surfaces these rows describe:
-
-- **[v1.3, open]** TRUTH-01's direction is deliberately undecided at roadmap time. The plan must
-  produce an Alternatives Considered table (narrow declaration+docs / implement `mirror` and `off`
-  / drop the key) and must answer what happens to a project that already set
-  `"sync_mode": "mirror"` or `"off"`. **The three research documents disagree, and the plan must
-  resolve that rather than average it:** ARCHITECTURE.md recommends (a) narrow, FEATURES.md
-  recommends (c) drop, PITFALLS.md C1 argues (a) over (c) on the grounds that dropping produces
-  *zero* observable output for an existing user. Precedent for option (b): 0.3.1 already collapsed
-  `read_epic_per` + `read_beads_enabled` into one `read_beads_config` reader, and `beads.epic_per`
-  is the ecosystem's only working imperatively-read enum.
-
-- **[v1.3, corrected]** `config-set` **does** validate enum values on write —
-  `config-set beads.sync_mode bogus` → `Error: Invalid beads.sync_mode 'bogus'. Valid values: …`,
-  value not stored. The earlier research claim that it validates only key existence was FALSE and
-  was corrected by the orchestrator. The **read** path validates nothing: a hand-written value is
-  returned verbatim forever, and gsd-core's unknown-key warning never descends into a namespace.
-
-- **[v1.3, grounding]** `.gsd/capabilities/beads/` is a gitignored runtime mirror
-  (`.gitignore:41`); the git-tracked source is `plugins/beads-lifecycle/.gsd/capabilities/beads/`
-  (17 files). Phase 16 plan 01 edited the wrong one and it was caught in review. Compounding
-  hazard found this pass: `capability update beads` reports `"status": "upgraded"` for a
-  `0.3.1 → 0.3.1` no-op and copies **nothing**, and `.gsd-capabilities.json` pins
-  `"integrity": ""`. Hence the precondition on every `sync.py` plan — bump `capability.json` to
-  0.4.0 in the *first* such commit, then re-run `capability update`, then `diff -q` both trees.
-
-  (upstream open-gsd/gsd-core#3559 filed, merge status unconfirmed). Any new gate must verify the
-  patch marker is present and prove itself live via `gsd_run check predicate` before being trusted.
-
-  post-consent edit silently deactivates the capability with no error. Re-consent after every edit.
-
-  re-grants on drift; vendored into each plugin's `session-start.sh`.
-
-  resolves its script path via `git rev-parse --show-toplevel`, not `${CLAUDE_PLUGIN_ROOT}`.
-
-  stage-outside-tree → fix-relocation-paths → `gh repo create` + push → fresh-clone-verify sequence.
-
-  URLs (commit `f706179`) — GitHub shorthand clones over SSH and breaks on SSH-keyless machines.
-
-  `gsd-beads` in the same commit that repaired the orphaned `ci.yml` / `release.yml` references —
-  was found false during quick-task 260818-h2h: `git log --follow` showed no deletion commit ever
-  existed for `.gsd/capabilities/{ponytail,sota-numerics}`, only their Phase 10/11 authoring
-  commits (`932cf34`, `246dfbc`). Whatever Phase 12 removed, it was not these two paths. They were
-  actually removed in quick-task 260818-h2h, by `git rm -r`, in the same commit that scoped the
-  `beads-lifecycle` plugin source to `plugins/beads-lifecycle/`.
-
-- [Phase ?]: [Phase 16, plan 01]: Edited plugins/beads-lifecycle/.gsd/capabilities/beads/ (the git-tracked plugin source) instead of the plan-specified .gsd/capabilities/beads/, which is a gitignored runtime-install mirror silently re-synced from the tracked source
-- [Phase ?]: [Phase 16, plan 01]: get_milestone_bullet fails open (returns empty string on a miss) unlike its get_phase_header model, since resolve_milestone_epic must stay fail-open per B6/D-08
-- [Phase ?]: [Phase 16, plan 02]: reconcile_stale_closed composes existing _resolve_completed_task_ids + filter_open_ids as a phase-wide idempotent close backstop for D-08, dispatched at verify:post before regenerate-beads-md
-- [Phase ?]: [Phase 16, plan 02]: closed the four stale Phase 14 issues (gsd-beads-bu0.3-.6) live via the new reconcile-stale-closed subcommand, proving the backstop on real data
-- [Phase ?]: [Phase 16, plan 03]: check_execute_plan_patch clones check_shipmd_patch's exact detector shape for the machine-local execute-plan.md bd-task-read patch (D-05) — **this clone is exactly what TRUTH-02 collapses in Phase 17, plan 17-04**
-- [Phase ?]: [Phase 16, plan 03]: strip_task_bodies turns a newly-created auto/tracer task block into name+beads-id+files+pointer, gated on check_execute_plan_patch()==0 and scoped to task_updates (this run's created ids only) -- checkpoint:* blocks and pre-existing tasks stay byte-identical (D-01/D-03/D-07)
-- [Phase ?]: Second machine-local gsd-core patch (execute-plan.md bd task-read) installed under the same N2-exception discipline as ship.md; filed upstream as open-gsd/gsd-core#3646 with an explicit revert condition
-- [Phase ?]: Filed open-gsd/gsd-core#3647 (capability lifecycle-dispatch reliability finding) as a distinct-but-related report alongside pre-existing #3606, rather than adopting it as a duplicate
-- **[Phase 18, plan 18-02]** Checkpoint `v1.3.0` tag deletion answered live by user (2026-08-20): **option-a** — deleted from `origin` and locally. `v1.3.1` untouched, no `release.yml` run fired.
-- **[Phase 18, plan 18-02]** `reconcile_stale_closed`'s bd backstop only reaches `<beads-id>`-linked plan-task issues, not standalone problem reports — filed as follow-up `gsd-beads-72u`, out of Phase 18 scope by design.
-- **[Phase 18, orchestrator]** Worktree isolation does not carry `.beads/` (untracked) — `bd` calls inside an isolated executor worktree must be pinned with `-C <main-repo-root>` to reach the real issue database; `git` ref ops are unaffected (shared `.git` store).
+Full decision log lives in PROJECT.md's Key Decisions table. v1.3's decisions (TRUTH-01's
+narrow-vs-drop resolution, the `v1.3.0` tag-deletion checkpoint, the worktree/`.beads/` gap and its
+`-C <main-repo-root>` mitigation) are recorded there and in `.planning/RETROSPECTIVE.md`'s v1.3
+section — cleared from here now that the milestone is archived.
 
 ### Pending Todos
 
@@ -153,42 +99,21 @@ None yet.
 
 - **[NEW 2026-08-19] `pr-workflow` sync-point dispatch degraded (execute:wave:post, phase 17 wave 1).** `capability.json` lists `pr-workflow.enabled: true`, but only the `beads` capability is actually vendored under `.gsd/capabilities/` in this repo — `pr_status.py` does not exist. The `onError: skip` contract absorbed it (no phase impact), but the config/vendoring mismatch is real: either disable `pr-workflow` in `.planning/config.json` or vendor the capability.
 
-- **[RESOLVED 2026-08-19] [open-gsd/gsd-core#3646](https://github.com/open-gsd/gsd-core/issues/3646)
-  — `check_execute_plan_patch` is NOT scheduled for deletion.** The prior standing worry was *"if
-  #3646 merges, `check_execute_plan_patch` is scheduled for deletion — re-check before planning
-  17-02."* Re-checked live: **#3646 is OPEN**, labelled `approved-feature`, with **no PR**, and the
-  maintainer's triage verdict (trek-e, 2026-08-19) attaches an explicit blocking condition —
-  *"Either resolution moves to a code-side seam in the executor's plan-reading path, or this work
-  sequences behind a fix to the dispatch-reliability family (#3606, #3647)."* #3606 is fixed
-  (PR #3687); **#3647 is open with no PR.** Condition 1 additionally requires an ADR to land first.
-  **Therefore Patch 2 and `check_execute_plan_patch` persist through v1.3 and beyond**, and the
-  TRUTH-02 merge (now plan 17-04) is safe: it collapses duplication *between* two checkers that
-  both have a future, not one on death row. Patch 1 (`ship.md` v2) is likewise safe — #3687 does
-  not touch `ship.md`, `ship:pre` is still gate-only on `next`, and no upstream issue tracks the
-  remaining half.
-
-- **[RESOLVED 2026-08-20, plan 17-02] [open-gsd/gsd-core#3687](https://github.com/open-gsd/gsd-core/pull/3687)**
-  — merged to `next` 2026-08-19T20:41:28Z, still unreleased as of Phase 17 completion. `check_native_step_dispatch`
-  now gates the hook's `plan:post`/`verify:post` branches on live probing of the installed gsd-core workflow
-  files, not a version guess — correct today (1.11.0, no native dispatch, both correctly report not-detected,
-  live-verified) and correct the moment #3687 releases. `allow_strip` stays a literal `False` on the hook path
-  regardless. The hook itself was NOT deleted — `execute:wave:pre`/`execute:wave:post` still have no upstream
-  fix. Re-run the upstream release check before shipping v1.3, as a final confirmation, not because the code
-  depends on the outcome.
-
 - **[open-gsd/gsd-core#3647](https://github.com/open-gsd/gsd-core/issues/3647)** filed as a
   framework-level observation (capability lifecycle-dispatch steps intermittently skipped). Open,
-  labelled `bug` / `ready-for-human`, no PR. It now also gates #3646 (above). No local patch
-  corresponds to it; this project's own `reconcile-stale-closed` backstop already covers the local
-  symptom regardless of upstream disposition.
+  labelled `bug` / `ready-for-human`, no PR. It also gates open-gsd/gsd-core#3646 (unrelated to
+  this project's own patches, which are unaffected either way — see PROJECT.md Key Decisions). No
+  local patch corresponds to it; this project's own `reconcile-stale-closed` backstop already
+  covers the local symptom regardless of upstream disposition.
 
-- **[RESOLVED 2026-08-20, Phase 18]** Release hygiene — all four items closed: (1) `plugin.json`
-  bumped to `1.4.0`, CHANGELOG 0.4.0 now documents TRUTH-03; (2) CHANGELOG 0.3.1's 120s hook
-  timeout refiled from Performance to Changed; (3) withdrawn `v1.3.0` tag deleted from `origin`
-  and locally (18-02, option-a), `v1.3.1` untouched, no `release.yml` run fired; (4) both
-  machine-local gsd-core patches (`ship.md` v2, `execute-plan.md` v1) reapplied and verified live
-  on both `~/.claude` and `~/.codex` runtime homes (18-01) — `check-patch` exits 0 on all 4
-  file×home combos, full suite green at 252 tests.
+- **[NEW 2026-08-20, this session]** `gsd-write-guard.js` is registered as a hook from two
+  locations (`~/.claude/hooks/` and `~/.claude/plugins/marketplaces/gsd-core/hooks/`) on this
+  machine. Its documented single-use `.gsd-allow-shrink` sentinel escape hatch is defeated by the
+  duplication — the first hook instance consumes the sentinel, the second always finds it gone and
+  blocks. Worked around this session via Edit instead of Write; the underlying duplicate
+  registration is still present and will trip the same escape hatch again for any future
+  milestone-close ROADMAP.md rewrite. Worth deduplicating the hook registration or fixing the
+  sentinel to tolerate multiple consumers.
 
 - **[v1.1 formality, carried forward]** Phase 12's work is done and pushed but the v1.1 milestone
   was never formally closed via `/gsd-complete-milestone` (user decision, 2026-08-18) — its
@@ -220,6 +145,8 @@ None yet.
 
 - Phase 18 added: Address tech debt: patch-check doc accuracy + CHANGELOG
 - Phase 18 complete 2026-08-20 (4/4 plans) — v1.3 milestone (Phases 17-18) now fully feature-complete
+- v1.3 milestone archived 2026-08-20 — ROADMAP.md collapsed to summary, full detail at
+  `.planning/milestones/v1.3-ROADMAP.md`
 
 ## Deferred Items
 
