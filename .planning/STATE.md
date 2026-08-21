@@ -32,7 +32,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 Phase: Milestone v1.3 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-20 - Completed quick task 260820-wdk: work on https://github.com/davdittrich/ponytail-everywhere/issues/1#issuecomment-5361696575
+Last activity: 2026-08-21 - Completed quick task 260821-rcp: verify whether gsd-core issue 3715 can be replicated from maintainer comment 5372430413
 
 ## Performance Metrics
 
@@ -141,6 +141,7 @@ None yet.
 | 260819-k4p | Fix gh-2: dispatch the four lifecycle hooks gsd-core never reached (capability 0.3.0 / plugin 1.3.0) | 2026-08-19 | 62162d4 | Verified | [260819-k4p](./quick/260819-k4p-fix-gsd-beads-2-lifecycle-hook-dispatch/) |
 | 260820-j6g | Fix gsd-beads-72u: extend reconcile_stale_closed to also close standalone problem-report bd issues via opt-in SUMMARY.md `resolves_issues:` frontmatter marker | 2026-08-20 | ed027be | | [260820-j6g](./quick/260820-j6g-extend-reconcile-stale-closed-to-also-cl/) |
 | 260820-wdk | work on https://github.com/davdittrich/ponytail-everywhere/issues/1#issuecomment-5361696575 | 2026-08-20 | 65db0ad | | [260820-wdk-work-on-https-github-com-davdittrich-pon](./quick/260820-wdk-work-on-https-github-com-davdittrich-pon/) |
+| 260821-rcp | Verify whether gsd-core issue 3715 can be replicated from maintainer comment 5372430413 | 2026-08-21 | — | Verified | [260821-rcp](./quick/260821-rcp-verify-whether-gsd-core-issue-3715-can-b/) |
 
 ### Roadmap Evolution
 
