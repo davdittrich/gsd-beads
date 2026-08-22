@@ -32,7 +32,7 @@ duplicated task-state bookkeeping survives in `.planning/`.
 Phase: Milestone v1.3 complete
 Plan: —
 Status: Awaiting next milestone
-Last activity: 2026-08-21 - Completed quick task 260821-rcp: verify whether gsd-core issue 3715 can be replicated from maintainer comment 5372430413
+Last activity: 2026-08-23 - Completed quick task 260823-0dz: fix direct Beads skill sync.py resolution
 
 ## Performance Metrics
 
@@ -142,6 +142,7 @@ None yet.
 | 260820-j6g | Fix gsd-beads-72u: extend reconcile_stale_closed to also close standalone problem-report bd issues via opt-in SUMMARY.md `resolves_issues:` frontmatter marker | 2026-08-20 | ed027be | | [260820-j6g](./quick/260820-j6g-extend-reconcile-stale-closed-to-also-cl/) |
 | 260820-wdk | work on https://github.com/davdittrich/ponytail-everywhere/issues/1#issuecomment-5361696575 | 2026-08-20 | 65db0ad | | [260820-wdk-work-on-https-github-com-davdittrich-pon](./quick/260820-wdk-work-on-https-github-com-davdittrich-pon/) |
 | 260821-rcp | Verify whether gsd-core issue 3715 can be replicated from maintainer comment 5372430413 | 2026-08-21 | — | Verified | [260821-rcp](./quick/260821-rcp-verify-whether-gsd-core-issue-3715-can-b/) |
+| 260823-0dz | Fix direct Beads skills to resolve sync.py across project, global, and plugin installs | 2026-08-23 | dbb1ffd | Verified | [260823-0dz](./quick/260823-0dz-https-github-com-davdittrich-gsd-beads-i/) |
 
 ### Roadmap Evolution
 
