@@ -51,7 +51,19 @@ absent, failing, or locked, `sync.py` prints the one required notice line, appen
 Run one Bash call passing the phase directory:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py beads-recall <phase directory>
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" beads-recall <phase directory>
 ```
 
 This scans every open, non-epic bd issue and matches it against this phase's expected scope by
@@ -69,8 +81,20 @@ read only the installed workflow files, never `bd`). Run both, alongside each ot
 second joins the first, it does not replace it:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py check-patch ship-md
-python3 .gsd/capabilities/beads/scripts/sync.py check-patch execute-plan
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" check-patch ship-md
+python3 "$SYNC_PY" check-patch execute-plan
 ```
 
 If either command exits non-zero, or its output does not contain the string "present", surface

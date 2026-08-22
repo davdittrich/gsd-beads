@@ -51,7 +51,19 @@ check here.
 Run the sync script via Bash against the PLAN.md path taken from `$ARGUMENTS`:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py create-issues <PLAN.md path>
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" create-issues <PLAN.md path>
 ```
 
 This is a single-call dispatch -- the script parses every `<task>` block in the plan, resolves or

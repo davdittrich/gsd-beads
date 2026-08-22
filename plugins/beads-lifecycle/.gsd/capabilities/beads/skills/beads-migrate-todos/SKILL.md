@@ -50,7 +50,19 @@ Run the migration script via Bash. This subcommand takes no arguments -- it reso
 project's `.planning/todos/pending/` directory itself:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py migrate-todos
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" migrate-todos
 ```
 
 Every parseable `.planning/todos/pending/*.md` file becomes one mapped `bd create` issue

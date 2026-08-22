@@ -76,7 +76,19 @@ skill, not a dispatch from gsd-core's own `steps[]` loop): follow **Step 2e** be
 Run one Bash call passing the phase directory and **every** plan id in the wave at once:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py wave-status-block <phase directory> <plan id> [<plan id> ...]
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" wave-status-block <phase directory> <plan id> [<plan id> ...]
 ```
 
 This single call regenerates `BEADS.md` from a live `bd` query first (D-05..D-08's frontmatter/
@@ -100,8 +112,20 @@ Run two Bash calls, **in this order**, both passing only the phase directory -- 
 wave/plan-id list at this lifecycle point:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py reconcile-stale-closed <phase directory>
-python3 .gsd/capabilities/beads/scripts/sync.py regenerate-beads-md <phase directory>
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" reconcile-stale-closed <phase directory>
+python3 "$SYNC_PY" regenerate-beads-md <phase directory>
 ```
 
 **Ordering matters and is not incidental**: `reconcile-stale-closed` must run first. It is the
@@ -168,7 +192,19 @@ Read `{padded_phase}-BEADS.md`'s `blocking_open`/`diverged` frontmatter fields a
 (`blocking_open > 0` **or** `diverged > 0`), run:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py ship-override <phase directory>
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" ship-override <phase directory>
 ```
 
 and report its printed summary (the recorded git trailer, and the bd comment outcome or B6 skip
@@ -179,7 +215,19 @@ notice). Otherwise this branch is a no-op -- print nothing.
 This step always runs at `ship:pre`, independent of whether Step 2c did anything. Run:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py check-patch ship-md
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" check-patch ship-md
 ```
 
 If the command exits non-zero, or its output does not contain the string "present", surface that
@@ -197,7 +245,19 @@ Resolve `phase_dir` from `$ARGUMENTS` when a phase directory (or phase number) w
 would duplicate `_resolve_default_phase_dir`'s logic in a second place.
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py status [phase directory]
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" status [phase directory]
 ```
 
 Print its stdout verbatim, including both orphan sections ("Issues with no matching plan task" and
@@ -244,7 +304,19 @@ absent, failing, or locked, `sync.py` prints the one required notice line, appen
 Run one Bash call passing the phase directory and **every** plan id in the wave at once:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py close-wave <phase directory> <plan id> [<plan id> ...]
+SYNC_PY=""
+for candidate in \
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi
+python3 "$SYNC_PY" close-wave <phase directory> <plan id> [<plan id> ...]
 ```
 
 This is a single-call dispatch -- the script resolves each plan id's `PLAN.md` inside the phase

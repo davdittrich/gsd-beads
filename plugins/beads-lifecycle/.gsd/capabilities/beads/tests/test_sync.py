@@ -8,6 +8,7 @@ import io
 import json
 import re
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -5633,6 +5634,198 @@ class TestCheckSyncModeValue(unittest.TestCase):
                 recall_files = list(phase_dir.glob("*BEADS-RECALL.md"))
         self.assertEqual(exit_code, 0)
         self.assertEqual(len(recall_files), 1)
+
+
+class TestDirectSkillSyncResolver(unittest.TestCase):
+    """Direct skills must select sync.py exactly as lifecycle dispatch does."""
+
+    ROOT = Path(__file__).resolve().parents[4]
+    RELATIVE_SYNC = ".gsd/capabilities/beads/scripts/sync.py"
+    DIAGNOSTIC = "gsd-beads: sync.py not found in project, global, or plugin capability roots"
+    RESOLVER = '''SYNC_PY=""
+for candidate in \\
+  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \\
+  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \\
+  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+do
+  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
+done
+if [ -z "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+  exit 1
+fi'''
+    RAW_FENCES = (
+        ("beads-sync:create-issues", "beads-sync/SKILL.md", ("create-issues <PLAN.md path>",)),
+        ("beads-recall:recall", "beads-recall/SKILL.md", ("beads-recall <phase directory>",)),
+        ("beads-recall:patch-checks", "beads-recall/SKILL.md", ("check-patch ship-md", "check-patch execute-plan")),
+        ("beads-migrate-todos:migrate", "beads-migrate-todos/SKILL.md", ("migrate-todos",)),
+        ("beads-status:wave-status", "beads-status/SKILL.md", ("wave-status-block <phase directory> <plan id> [<plan id> ...]",)),
+        ("beads-status:reconcile-regenerate", "beads-status/SKILL.md", ("reconcile-stale-closed <phase directory>", "regenerate-beads-md <phase directory>")),
+        ("beads-status:ship-override", "beads-status/SKILL.md", ("ship-override <phase directory>",)),
+        ("beads-status:patch-check", "beads-status/SKILL.md", ("check-patch ship-md",)),
+        ("beads-status:status", "beads-status/SKILL.md", ("status [phase directory]",)),
+        ("beads-status:close-wave", "beads-status/SKILL.md", ("close-wave <phase directory> <plan id> [<plan id> ...]",)),
+    )
+    PLACEHOLDERS = {
+        "<PLAN.md path>", "<phase directory>", "<plan id>",
+        "[<plan id> ...]", "[phase directory]",
+    }
+
+    def _skill_path(self, relative):
+        return self.ROOT / ".gsd/capabilities/beads/skills" / relative
+
+    def _direct_fences(self):
+        prefix = r'(?:\.gsd/capabilities/beads/scripts/sync\.py|"\$SYNC_PY")'
+        direct = []
+        for relative in dict.fromkeys(relative for _, relative, _ in self.RAW_FENCES):
+            path = self._skill_path(relative)
+            text = path.read_text(encoding="utf-8")
+            for raw in re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL):
+                tails = tuple(re.findall(rf'^python3 {prefix}(?: (.*))?$', raw, re.MULTILINE))
+                if tails:
+                    direct.append((path, raw, tails))
+        return direct
+
+    def _selected_fences(self):
+        expected = [
+            (name, self._skill_path(relative), tails)
+            for name, relative, tails in self.RAW_FENCES
+        ]
+        selected = {}
+        for path, raw, tails in self._direct_fences():
+            matches = [item for item in expected if item[1] == path and item[2] == tails]
+            self.assertEqual(
+                len(matches), 1,
+                f"unmatched or duplicate direct-sync fence in {path}: {tails}",
+            )
+            name = matches[0][0]
+            self.assertNotIn(name, selected, f"duplicate direct-sync fence: {name}")
+            selected[name] = raw
+        self.assertEqual(set(selected), {name for name, _, _ in expected})
+        return selected
+
+    def _assert_raw_contract(self):
+        selected = self._selected_fences()
+        for name, _, tails in self.RAW_FENCES:
+            raw = selected[name]
+            self.assertEqual(raw.count(self.RESOLVER), 1, f"{name} resolver differs")
+            actual = tuple(re.findall(r'^python3 "\$SYNC_PY"(?: (.*))?$', raw, re.MULTILINE))
+            self.assertEqual(actual, tails, f"{name} command tail changed")
+        return selected
+
+    def _derive(self, raw, values, status_phase=True):
+        discovered = set(re.findall(r"<[^>]+>|\[[^\]]+\]", "\n".join(
+            re.findall(r'^python3 "\$SYNC_PY"(?: (.*))?$', raw, re.MULTILINE)
+        )))
+        self.assertTrue(discovered <= self.PLACEHOLDERS, discovered - self.PLACEHOLDERS)
+        derived = raw
+        if not status_phase:
+            derived = derived.replace(" [phase directory]", "")
+        for token in ("[<plan id> ...]", "<PLAN.md path>", "<phase directory>", "<plan id>", "[phase directory]"):
+            if token in derived:
+                self.assertIn(token, values)
+                derived = derived.replace(token, shlex.quote(values[token]))
+        command_tails = "\n".join(
+            re.findall(r'^python3 "\$SYNC_PY"(?: (.*))?$', derived, re.MULTILINE)
+        )
+        self.assertFalse(re.search(r"<[^>]+>|\[[^\]]+\]", command_tails))
+        return derived
+
+    def _write_spy(self, root):
+        path = root / self.RELATIVE_SYNC
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "import json, os, sys\n"
+            "with open(os.environ['SPY_LOG'], 'a', encoding='utf-8') as log:\n"
+            "    log.write(json.dumps([__file__, sys.argv[1:]]) + '\\n')\n",
+            encoding="utf-8",
+        )
+        return path.resolve()
+
+    def _run_all(self, selected, env, values, status_phase=True):
+        results = []
+        for name, _, _ in self.RAW_FENCES:
+            phase_options = (True, False) if name == "beads-status:status" else (status_phase,)
+            for include_phase in phase_options:
+                results.append(subprocess.run(
+                    ["bash", "-c", self._derive(selected[name], values, include_phase)],
+                    cwd=env["UNRELATED_CWD"], env=env, capture_output=True, text=True, timeout=15,
+                ))
+        return results
+
+    def test_raw_fences_require_one_canonical_resolver_before_execution(self):
+        self._assert_raw_contract()
+
+    def test_resolution_precedence_argv_and_failure_boundary(self):
+        selected = self._assert_raw_contract()
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project, global_root, plugin = (base / "project root", base / "global root", base / "plugin root")
+            unrelated = base / "unrelated cwd"
+            unrelated.mkdir()
+            spy_log = base / "spy.jsonl"
+            plan, phase = base / "PLAN path.md", base / "phase directory"
+            values = {
+                "<PLAN.md path>": str(plan), "<phase directory>": str(phase),
+                "<plan id>": "01", "[<plan id> ...]": "02",
+                "[phase directory]": str(phase),
+            }
+            base_env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project), GSD_HOME=str(global_root), HOME=str(base / "home root"), CLAUDE_PLUGIN_ROOT=str(plugin), SPY_LOG=str(spy_log), UNRELATED_CWD=str(unrelated))
+            expected_argv = []
+            for name, _, _ in self.RAW_FENCES:
+                options = (True, False) if name == "beads-status:status" else (True,)
+                for include_phase in options:
+                    suffixes = re.findall(
+                        r'^python3 "\$SYNC_PY"(?: (.*))?$',
+                        self._derive(selected[name], values, include_phase),
+                        re.MULTILINE,
+                    )
+                    expected_argv.extend(shlex.split(suffix or "") for suffix in suffixes)
+            for root in (project, global_root, plugin):
+                self._write_spy(root)
+            results = self._run_all(selected, base_env, values)
+            self.assertTrue(all(result.returncode == 0 for result in results), results)
+            calls = [json.loads(line) for line in spy_log.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(len(calls), len(expected_argv))
+            self.assertTrue(all(call[0] == str((project / self.RELATIVE_SYNC).resolve()) for call in calls))
+            self.assertEqual([call[1] for call in calls], expected_argv)
+
+            spy_log.unlink()
+            (project / self.RELATIVE_SYNC).unlink()
+            results = self._run_all(selected, base_env, values)
+            self.assertTrue(all(result.returncode == 0 for result in results), results)
+            calls = [json.loads(line) for line in spy_log.read_text(encoding="utf-8").splitlines()]
+            self.assertTrue(all(call[0] == str((global_root / self.RELATIVE_SYNC).resolve()) for call in calls))
+
+            spy_log.unlink()
+            (global_root / self.RELATIVE_SYNC).unlink()
+            home_sync = self._write_spy(base / "home root")
+            for gsd_home in (None, ""):
+                spy_log.unlink(missing_ok=True)
+                env = dict(base_env)
+                if gsd_home is None:
+                    env.pop("GSD_HOME")
+                else:
+                    env["GSD_HOME"] = gsd_home
+                results = self._run_all(selected, env, values)
+                self.assertTrue(all(result.returncode == 0 for result in results), results)
+                calls = [json.loads(line) for line in spy_log.read_text(encoding="utf-8").splitlines()]
+                self.assertTrue(all(call[0] == str(home_sync) for call in calls))
+
+            spy_log.unlink()
+            home_sync.unlink()
+            results = self._run_all(selected, base_env, values)
+            self.assertTrue(all(result.returncode == 0 for result in results), results)
+            calls = [json.loads(line) for line in spy_log.read_text(encoding="utf-8").splitlines()]
+            self.assertTrue(all(call[0] == str((plugin / self.RELATIVE_SYNC).resolve()) for call in calls))
+
+            spy_log.unlink()
+            (plugin / self.RELATIVE_SYNC).unlink()
+            (project / self.RELATIVE_SYNC).mkdir(parents=True)
+            results = self._run_all(selected, base_env, values)
+            self.assertTrue(all(result.returncode != 0 for result in results), results)
+            self.assertTrue(all(result.stderr == self.DIAGNOSTIC + "\n" for result in results))
+            self.assertFalse(spy_log.exists())
 
 
 if __name__ == "__main__":
