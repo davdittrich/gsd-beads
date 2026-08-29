@@ -6411,6 +6411,102 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
         ship.assert_called_once()
         sm.assert_called_once()
 
+    def test_explicit_phase_dir_overrides_state_current_phase(self):
+        """A caller planning a non-current phase must be able to name it.
+
+        STATE.md remains authoritative only for the no-argument fallback; an
+        explicit phase directory is the lifecycle call's task-local authority.
+        """
+        with self._in_workspace() as state_phase_dir:
+            requested_phase_dir = state_phase_dir.parent / "08-requested"
+            requested_phase_dir.mkdir()
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
+                 mock.patch.object(sync, "check_shipmd_patch", return_value=0), \
+                 mock.patch.object(sync, "check_sync_mode_value", return_value=0):
+                exit_code = sync.lifecycle_dispatch(
+                    "plan:pre", str(requested_phase_dir)
+                )
+        self.assertEqual(exit_code, 0)
+        recall.assert_called_once_with(str(requested_phase_dir))
+
+    def test_explicit_phase_dir_rejects_escape_without_dispatch(self):
+        with self._in_workspace() as state_phase_dir:
+            escaped_dir = state_phase_dir.parents[2]
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall:
+                exit_code = sync.lifecycle_dispatch("plan:pre", str(escaped_dir))
+        self.assertEqual(exit_code, 0)
+        recall.assert_not_called()
+
+    def test_explicit_phase_dir_rejects_nonexistent_and_symlink_escape(self):
+        with self._in_workspace() as state_phase_dir:
+            phases_root = state_phase_dir.parent
+            outside = phases_root.parents[1]
+            escaped_link = phases_root / "08-escaped-link"
+            escaped_link.symlink_to(outside, target_is_directory=True)
+            invalid = (
+                phases_root / "08-missing",
+                escaped_link,
+                phases_root / "08-requested" / ".." / ".." / "etc",
+            )
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall:
+                for phase_dir in invalid:
+                    with self.subTest(phase_dir=phase_dir):
+                        exit_code = sync.lifecycle_dispatch("plan:pre", str(phase_dir))
+                        self.assertEqual(exit_code, 0)
+        recall.assert_not_called()
+
+    def test_explicit_relative_and_absolute_phase_dirs_resolve_identically(self):
+        with self._in_workspace() as state_phase_dir:
+            requested_phase_dir = state_phase_dir.parent / "08-requested"
+            requested_phase_dir.mkdir()
+            relative = requested_phase_dir.relative_to(state_phase_dir.parents[2])
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
+                 mock.patch.object(sync, "check_shipmd_patch", return_value=0), \
+                 mock.patch.object(sync, "check_sync_mode_value", return_value=0):
+                for phase_dir in (str(relative), str(requested_phase_dir)):
+                    with self.subTest(phase_dir=phase_dir):
+                        self.assertEqual(sync.lifecycle_dispatch("plan:pre", phase_dir), 0)
+        self.assertEqual(
+            recall.call_args_list,
+            [mock.call(str(requested_phase_dir)), mock.call(str(requested_phase_dir))],
+        )
+
+    def test_explicit_phase_dir_routes_every_point_to_requested_phase(self):
+        plan = '---\nphase: 08-requested\n---\n<task type="auto"><name>t</name></task>\n'
+        with self._in_workspace() as state_phase_dir:
+            requested_phase_dir = state_phase_dir.parent / "08-requested"
+            requested_phase_dir.mkdir()
+            requested_plan = requested_phase_dir / "08-01-PLAN.md"
+            requested_plan.write_text(plan, encoding="utf-8")
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
+                 mock.patch.object(sync, "check_shipmd_patch", return_value=0), \
+                 mock.patch.object(sync, "check_sync_mode_value", return_value=0), \
+                 mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
+                 mock.patch.object(sync, "create_issues", return_value=0) as create, \
+                 mock.patch.object(sync, "render_wave_status_block", return_value=0) as render, \
+                 mock.patch.object(sync, "reconcile_stale_closed", return_value=0) as reconcile, \
+                 mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regenerate:
+                for point in sync.LIFECYCLE_DISPATCH_POINTS:
+                    with self.subTest(point=point):
+                        self.assertEqual(
+                            sync.lifecycle_dispatch(point, str(requested_phase_dir)), 0
+                        )
+        recall.assert_called_once_with(str(requested_phase_dir))
+        create.assert_called_once_with(str(requested_plan), allow_strip=False)
+        render.assert_called_once_with(str(requested_phase_dir), ["08-01"])
+        reconcile.assert_called_once_with(str(requested_phase_dir))
+        regenerate.assert_called_once_with(str(requested_phase_dir))
+
+    def test_lifecycle_dispatch_cli_accepts_explicit_phase_dir(self):
+        with mock.patch.object(sync, "lifecycle_dispatch", return_value=0) as dispatch:
+            exit_code = sync.main(
+                ["lifecycle-dispatch", "plan:pre", "/project/.planning/phases/08-demo"]
+            )
+        self.assertEqual(exit_code, 0)
+        dispatch.assert_called_once_with(
+            "plan:pre", "/project/.planning/phases/08-demo"
+        )
+
     def test_plan_post_syncs_every_plan_in_the_phase(self):
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
         with self._in_workspace(plan_text=plan) as phase_dir:

@@ -1146,18 +1146,20 @@ def phase_dir_prefix(phase_num):
     return integer_part.zfill(2) + sep + frac_part
 
 
-def lifecycle_dispatch(point):
+def lifecycle_dispatch(point, phase_dir_arg=None):
     """gh-2: run the beads operation a lifecycle point declares, entered from
     the plugin's `PostToolUse` hook rather than from gsd-core's workflow prose.
     Why the hook exists at all is documented once, in
     `hooks/lifecycle-dispatch.sh`'s header.
 
     Each point maps onto an existing verb, all of them derivable from
-    `phase_dir` alone -- deliberate, since the render-hooks call carries no
-    wave plan-id list. `execute:wave:post` therefore uses the phase-wide
-    idempotent `reconcile_stale_closed` backstop (D-08) rather than
-    `close_wave`, and `execute:wave:pre` renders a phase-wide (superset,
-    never lossy) `<beads_status>` block.
+    `phase_dir` alone. An explicit task-local phase wins over STATE.md; the
+    STATE.md current phase remains the backward-compatible fallback. Explicit
+    input is confined to one direct child of `.planning/phases` before any
+    verb can run. `execute:wave:post` uses the phase-wide idempotent
+    `reconcile_stale_closed` backstop (D-08) rather than `close_wave`, and
+    `execute:wave:pre` renders a phase-wide (superset, never lossy)
+    `<beads_status>` block.
 
     `plan:post` passes `allow_strip=False`: the hook's trigger is a substring
     of a shell command, so a spurious fire is always possible, and the one
@@ -1181,7 +1183,30 @@ def lifecycle_dispatch(point):
         return 0
     if not read_beads_enabled(project_root):
         return 0
-    phase_dir = _resolve_default_phase_dir(project_root)
+    if phase_dir_arg is None:
+        phase_dir = _resolve_default_phase_dir(project_root)
+    else:
+        try:
+            phases_root = confined(project_root, ".planning", "phases")
+            supplied = Path(phase_dir_arg)
+            if not supplied.is_absolute():
+                supplied = (
+                    phases_root / supplied
+                    if len(supplied.parts) == 1
+                    else project_root / supplied
+                )
+            phase_dir = supplied.resolve()
+            if phase_dir.parent != phases_root or not phase_dir.is_dir():
+                raise ValueError(
+                    f"phase directory must be a direct child of {phases_root}"
+                )
+        except (OSError, RuntimeError, ValueError) as exc:
+            print(
+                f"lifecycle-dispatch {point}: invalid explicit phase directory "
+                f"({exc}) -- skipped",
+                file=sys.stderr,
+            )
+            return 0
     if phase_dir is None or not phase_dir.is_dir():
         # stderr, not stdout: a repository between milestones has no
         # `.planning/phases/` at all, so this fires on every render-hooks call
@@ -3248,6 +3273,12 @@ def main(argv=None):
     # unrecognised point, and this verb's whole contract is that it never
     # returns non-zero (every hook it serves is `onError: "skip"`).
     lifecycle_p.add_argument("point")
+    lifecycle_p.add_argument(
+        "phase_dir",
+        nargs="?",
+        default=None,
+        help="Explicit phase directory; confined beneath the project .planning/phases root",
+    )
     sub.add_parser(
         "migrate-todos",
         help="One-shot migration of .planning/todos/pending/ entries into bd issues (B12)",
@@ -3290,7 +3321,7 @@ def main(argv=None):
     if args.command == "check-patch":
         return check_patch(args.target, args.path)
     if args.command == "lifecycle-dispatch":
-        return lifecycle_dispatch(args.point)
+        return lifecycle_dispatch(args.point, args.phase_dir)
     if args.command == "migrate-todos":
         project_root = find_project_root(Path.cwd())
         pending_dir = confined(project_root, ".planning", "todos", "pending")
