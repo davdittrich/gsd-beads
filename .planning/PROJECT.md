@@ -13,6 +13,15 @@ substrate for gsd's plan → execute → verify → ship lifecycle: gsd's markdo
 gsd's lifecycle writes to and reads from `bd` exclusively for task state; zero duplicated
 task-state bookkeeping survives in `.planning/`.
 
+## Current Milestone: v1.4 Native Task Content Resolution
+
+**Goal:** Replace the machine-local executor task-content patch with gsd-core's native resolver seam while preserving authoritative Beads task semantics and hard-failure behavior.
+
+**Target features:**
+- Register a `taskContentResolver` that invokes the existing Python 3 `sync.py` CLI and emits gsd-core's required single-object JSON contract from live `bd show` data.
+- Idempotently backfill native `tracker-id` identity for legacy `auto` and `tracer` plan tasks without changing checkpoint task behavior.
+- Remove Patch 2 only after public-boundary, legacy-plan, malformed-output, unavailable-`bd`, and real end-to-end resolution checks pass; preserve Patch 1 unchanged.
+
 ## Requirements
 
 ### Validated
@@ -356,10 +365,7 @@ gap carried forward: Phase 16's `gsd-executor` bd-read patch is UAT-verified liv
 `bd` but not yet exercised end-to-end against a real stripped `PLAN.md` in this repo.
 
 ---
-*Last updated: 2026-08-20 — Phase 17 (v1.3's only phase, Config/Code Truth) complete:
-TRUTH-01..04 moved to Validated. Deep code review clean of blockers; phase verification passed
-4/4 against live-executed checks. Milestone v1.3 is feature-complete, `/gsd-complete-milestone
-v1.3` not yet run. See Current State / Current Milestone above.*
+*Last updated: 2026-08-30 — Milestone v1.4 Native Task Content Resolution started. Scope is GitHub issue #6 only; the approved mechanism reuses the existing stdlib-only `sync.py` CLI as the schema adapter for gsd-core's native `taskContentResolver` seam.*
 
 *Previously: 2026-08-19 — v1.2 milestone (New Capability Plugins) shipped: Phase 16 (beads
 issue content parity) complete, `get-available-resources` moved to Out of Scope (deferred), MDL/PRW

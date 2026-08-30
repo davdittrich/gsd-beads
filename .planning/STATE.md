@@ -1,20 +1,16 @@
 ---
 gsd_state_version: 1.0
-milestone: v1.3
-milestone_name: Config/Code Truth (Phases 17-18) — SHIPPED 2026-08-20
-status: Awaiting next milestone
-stopped_at: v1.3 archived — ready to plan next milestone
-last_updated: "2026-08-20T12:24:42.504Z"
-last_activity: 2026-08-20
-last_activity_desc: Milestone v1.3 completed and archived
-state_head: 8f2ec3d5e489e5726b989a676ee5a95e32c217d8
+milestone: v1.4
+milestone_name: Native Task Content Resolution
+status: planning
+last_updated: "2026-08-30T20:02:39.133Z"
+last_activity: 2026-08-30
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
-current_phase: 18
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -29,10 +25,10 @@ duplicated task-state bookkeeping survives in `.planning/`.
 
 ## Current Position
 
-Phase: Milestone v1.3 complete
+Phase: Not started (defining requirements)
 Plan: —
-Status: Awaiting next milestone
-Last activity: 2026-08-23 - Completed quick task 260823-otk: execute ponytail-everywhere issue #4
+Status: Defining requirements
+Last activity: 2026-08-30 — Milestone v1.4 started
 
 ## Performance Metrics
 
