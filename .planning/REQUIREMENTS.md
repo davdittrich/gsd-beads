@@ -66,19 +66,19 @@ in this milestone.
 
 | Requirement | Phase | Plan | Beads | Status |
 |---|---|---|---|---|
-| RES-01 | TBD | TBD | TBD | Pending |
-| RES-02 | TBD | TBD | TBD | Pending |
-| RES-03 | TBD | TBD | TBD | Pending |
-| ID-01 | TBD | TBD | TBD | Pending |
-| ID-02 | TBD | TBD | TBD | Pending |
-| CUT-01 | TBD | TBD | TBD | Pending |
-| CUT-02 | TBD | TBD | TBD | Pending |
+| RES-01 | Phase 19 | TBD | TBD | Pending |
+| RES-02 | Phase 19 | TBD | TBD | Pending |
+| RES-03 | Phase 19 | TBD | TBD | Pending |
+| ID-01 | Phase 20 | TBD | TBD | Pending |
+| ID-02 | Phase 20 | TBD | TBD | Pending |
+| CUT-01 | Phase 21 | TBD | TBD | Pending |
+| CUT-02 | Phase 21 | TBD | TBD | Pending |
 
 **Coverage:**
 
 - v1.4 requirements: 7 total
-- Mapped to phases: 0
-- Unmapped: 7
+- Mapped to phases: 7
+- Unmapped: 0
 
 ---
 
