@@ -15,12 +15,21 @@ task-state bookkeeping survives in `.planning/`.
 
 ## Current Milestone: v1.4 Native Task Content Resolution
 
-**Goal:** Replace the machine-local executor task-content patch with gsd-core's native resolver seam while preserving authoritative Beads task semantics and hard-failure behavior.
+**Goal:** Replace the machine-local executor task-content patch with gsd-core's
+native resolver seam while preserving authoritative Beads task semantics and
+hard-failure behavior.
 
 **Target features:**
-- Register a `taskContentResolver` that invokes the existing Python 3 `sync.py` CLI and emits gsd-core's required single-object JSON contract from live `bd show` data.
-- Idempotently backfill native `tracker-id` identity for legacy `auto` and `tracer` plan tasks without changing checkpoint task behavior.
-- Remove Patch 2 only after public-boundary, legacy-plan, malformed-output, unavailable-`bd`, and real end-to-end resolution checks pass; preserve Patch 1 unchanged.
+
+- Register a `taskContentResolver` whose Python stdlib bootstrap resolves the
+  globally installed `sync.py` through `GSD_HOME`/`Path.home()`, then `os.execv`s
+  its resolver verb with the Beads id as a separate argv element; emit gsd-core's
+  required single-object JSON contract from live `bd show` data.
+- Idempotently backfill native `tracker-id` identity for legacy `auto` and
+  `tracer` plan tasks without changing checkpoint task behavior.
+- Remove Patch 2 only after public-boundary, legacy-plan, malformed-output,
+  unavailable-`bd`, and real end-to-end resolution checks pass; preserve Patch 1
+  unchanged.
 
 ## Requirements
 
@@ -327,6 +336,7 @@ last synced from `PLAN.md`, not an ongoing two-way merge.
 | Phase 18 (18-02) D-07: delete the withdrawn `v1.3.0` git tag from `origin` and locally, one-way (a later re-tag would publish a new GitHub Release, not restore this one) | `release.yml` triggers only on tag *push*, not deletion, so nothing fires either way; the tag was a resolvable public pointer to a commit with a data-loss bug, no release/changelog/doc referenced it | User confirmed live via `AskUserQuestion` mid-execution (2026-08-20): option-a, delete from both `origin` and local. Verified after: `git ls-remote --tags origin` shows no `v1.3.0`, `v1.3.1` untouched, no `release.yml` run fired |
 | `execute:wave:post`'s `reconcile_stale_closed` bd backstop only reaches issues linked via a PLAN.md `<beads-id>` — a standalone problem-report issue a phase resolves as a side effect has no automated closure path | Discovered live in Phase 18 (18-02 Task 1): four Phase-17-era stale bd issues (`gsd-beads-he1/bzl/v43/t7a`) sat open despite being fixed, because they were standalone reports (created 2026-08-19), not `<beads-id>`-linked plan tasks | Closed manually with identity verification (`bd show` matched each against its shipping plan) rather than left as ambient drift; mechanism gap filed as follow-up `gsd-beads-72u`, out of Phase 18's scope by design (defect found during work gets a ticket, not scope creep) |
 | Worktree isolation (`git worktree add`) does not carry untracked state — `.beads/`'s live issue database is invisible inside an isolated executor worktree | Discovered live in Phase 18 (18-02 dispatch): a `bd close` run inside the worktree would have operated on an absent/stale local copy instead of the real project database, silently no-op'ing every issue closure | Orchestrator pinned every `bd` invocation in that dispatch to `-C <main-repo-root>` so it always targets the real database regardless of worktree cwd; `git` ref operations (tag push/delete) were unaffected since worktrees share the same `.git` object/ref store |
+| v1.4 resolver invocation uses a Python stdlib bootstrap, not a PATH shim or new gsd-core path primitive | The documented plugin install already auto-installs the capability under `GSD_HOME`/the user home; `python3 -c` can resolve that owned path and `os.execv` `sync.py` without cwd assumptions, unmanaged executable state, new dependencies, or shell interpolation. Direct `bd` remains schema-incompatible and a PATH shim would add install/update/uninstall ownership. | User approved 2026-08-30 after scientific-critical-thinking and Ponytail alternatives audit; live locator probe passed from a non-root cwd. |
 
 ## Evolution
 
@@ -365,7 +375,11 @@ gap carried forward: Phase 16's `gsd-executor` bd-read patch is UAT-verified liv
 `bd` but not yet exercised end-to-end against a real stripped `PLAN.md` in this repo.
 
 ---
-*Last updated: 2026-08-30 — Milestone v1.4 Native Task Content Resolution started. Scope is GitHub issue #6 only; the approved mechanism reuses the existing stdlib-only `sync.py` CLI as the schema adapter for gsd-core's native `taskContentResolver` seam.*
+
+*Last updated: 2026-08-30 — Milestone v1.4 Native Task Content Resolution
+started. Scope is GitHub issue #6 only; the approved mechanism uses a Python
+stdlib bootstrap to locate and `os.execv` the globally installed `sync.py`
+schema adapter, with no PATH shim or gsd-core capability-root dependency.*
 
 *Previously: 2026-08-19 — v1.2 milestone (New Capability Plugins) shipped: Phase 16 (beads
 issue content parity) complete, `get-available-resources` moved to Out of Scope (deferred), MDL/PRW
