@@ -91,19 +91,19 @@ and migration behavior remain version-sensitive.
 
 **Roadmap owner:** Phase 1 — hard-halt implementation; Phase 2 — migration boundary tests.
 
-### Pitfall 6: Resolving against the wrong Beads database because runtime cwd/PATH differs
+### Pitfall 6: Resolving against the wrong Beads database or adapter because runtime cwd/PATH differs
 
 **What goes wrong:** The native resolver inherits the GSD process environment. It may run in an executor worktree, from an installed capability copy, or with a different `PATH`; `bd` then finds no database, a different database, or a binary incompatible with the project schema.
 
-**Why it happens:** GSD invokes a bounded argv command but does not add a resolver-specific cwd. Beads’ database discovery and historical schema migrations are environment-dependent; project worktrees do not carry untracked `.beads/` state.
+**Why it happens:** GSD invokes a bounded argv command but does not add a resolver-specific cwd. Beads’ database discovery and historical schema migrations are environment-dependent; project worktrees do not carry untracked `.beads/` state. A bare PATH shim would add a second, unmanaged installation surface whose owner, update, uninstall, collision, and PATH precedence are all ambiguous.
 
 **Consequences:** False hard halts, or worse, a valid response for an issue in the wrong repository. A `bd` upgrade can also fail due to migration policy even though adapter code is correct.
 
-**Warning signs:** `bd show` succeeds in an interactive shell but fails under `task resolve-content`; issue prefixes differ; `bd version` or `bd doctor` differs across hosts; a worktree resolver has no `.beads/` database.
+**Warning signs:** `bd show` succeeds in an interactive shell but fails under `task resolve-content`; issue prefixes differ; `bd version` or `bd doctor` differs across hosts; a worktree resolver has no `.beads/` database; a same-named PATH shim wins on one host but not another.
 
-**Prevention:** Resolve project root once, run the adapter with an explicit repository/database policy, and include non-secret diagnostics for resolved root, `bd version`, and failure class. Pin test invocations to the actual main repository when validating live state; use `bd`’s documented upgrade/bootstrap/migration procedure rather than storage edits.
+**Prevention:** Use the simplest scope-complete stdlib bootstrap: the manifest invokes `python3 -c` with the tracker id as a separate argv token; the bootstrap locates the globally installed `sync.py` under ${GSD_HOME} when set, otherwise under `Path.home()`, then uses `os.execv` to invoke that exact script with the separate issue id. If the script is absent, emit a diagnostic and exit non-zero. Do not install or discover a PATH shim: it has unmanaged ownership, update/uninstall, collision, and PATH-precedence surfaces. Capability-root support is not a v1.4 blocker. Resolve the project root once, keep an explicit repository/database policy, and include non-secret root, `bd version`, and failure-class diagnostics. Pin live validation to the main repository and use Beads’ documented upgrade/bootstrap/migration procedure rather than storage edits.
 
-**Detection:** Exercise resolver from the main checkout and an isolated worktree, with `bd` missing and with a controlled incompatible/migrating database; each must fail visibly and never query an unintended database. [93/100]
+**Detection:** Exercise the bootstrap from the main checkout and an isolated worktree; test both ${GSD_HOME} and `Path.home()` lookup paths, a missing script (non-zero plus diagnostic), missing `bd`, and a controlled incompatible/migrating database. Require installed-byte parity between the located script and source. Each failure must remain visible and must never query an unintended database. [96/100]
 
 **Roadmap owner:** Phase 1 — invocation contract; Phase 3 — live installed-path validation.
 
@@ -193,7 +193,7 @@ and migration behavior remain version-sensitive.
 | Native adapter | JSON envelope, scalar/array coercion, Markdown headings | Single-object schema adapter with adversarial fixtures; stdout-only JSON |
 | Legacy migration | Broad regex writes and checkpoint corruption | Parsed eligibility rule, dual identity during migration, second-run byte identity |
 | Hard-failure contract | Empty result conflated with failure | Assert native non-zero exits for all resolver defects |
-| Installed validation | cwd/PATH/database/schema drift | Main-checkout and worktree probes plus `bd version`/doctor diagnostics |
+| Installed validation | cwd/PATH/database/schema drift or PATH-shim collision | Stdlib `python3 -c` bootstrap via ${GSD_HOME}/home path, `os.execv`, and source/installed byte parity |
 | Patch retirement | Source/runtime divergence or Patch 1 removal | Independent marker searches and installed-byte parity manifest |
 
 ## Sources

@@ -37,22 +37,54 @@ binaries).
 
 ## Required Resolver Mechanism
 
-Declare one `taskContentResolver` on the `beads` feature capability and point
-it at a new narrow subcommand of the existing stdlib `sync.py` adapter. Its
-invocation must use a literal argv slot for `{{id}}`, a positive timeout no
-greater than 120,000 ms, and return exactly one JSON object with at least a
-non-blank `description`; optional supported fields are `verify`,
+Declare one `taskContentResolver` on the `beads` feature capability. Use
+`binary: "python3"` and an `args` array of `"-c"`, a stdlib-only locator
+program, and `"{{id}}"` as a separate final argv element. The locator must
+resolve exactly. The `-c` value is one newline-delimited Python source string
+whose content is:
+
+```python
+import os
+import sys
+from pathlib import Path
+
+p = Path(os.environ.get("GSD_HOME") or Path.home()) / \
+    ".gsd/capabilities/beads/scripts/sync.py"
+os.execv(sys.executable, [
+    sys.executable,
+    str(p),
+    "resolve-task-content",
+    sys.argv[1],
+])
+```
+
+Set `timeoutMs` to 10,000. The effective declaration is therefore
+`python3 -c <source-above> {{id}}`, with `{{id}}` still one distinct element in
+the manifest's `args` array.
+
+This keeps `{{id}}` an isolated argv token throughout gsd-core expansion and
+the Python bootstrap. The adapter must return exactly one JSON object with at
+least a non-blank `description`; optional supported fields are `verify`,
 `acceptance_criteria`, `read_first`, and `done`.
 
 The adapter must invoke `bd show <id> --json`, require exactly one object with
 the requested id, map its structured fields, write JSON only to stdout, and
 exit non-zero for an absent/ambiguous result, `bd` failure, invalid JSON, or
 unusable content. That preserves core's hard-halt behavior; it must not fall
-back to stripped or legacy `PLAN.md` prose. The execution plan must prove the
-script path remains valid after capability installation: the resolver contract
-exposes only static `binary`/`args` plus `{{id}}`, not a documented
-capability-directory placeholder. **This is a phase-implementation gate, not a
-reason to introduce a second adapter.**
+back to stripped or legacy `PLAN.md` prose. The bootstrap provides the required
+installed-capability path without a source-tree-relative assumption.
+
+Live proof, run from non-root cwd
+`/home/dd/projects/gsd-beads/plugins/beads-lifecycle` on 2026-08-30:
+
+```text
+locator=/home/dd/.gsd/capabilities/beads/scripts/sync.py
+is_file=True
+```
+
+The broader upstream improvement—a documented capability-root placeholder in
+the resolver contract—is deferred. It is useful generalization work, not a
+blocker for this fixed, runtime-owned `GSD_HOME` locator.
 
 ## Alternatives Considered
 
@@ -62,11 +94,14 @@ after contract correctness; an invalid direct call cannot win.
 
 | Rank | Category | Option | Performance | Lines / simplicity | Ecosystem support | Maintenance | Decision |
 |---:|---|---|---|---|---|---|---|
-| 1 | Adapter | Extend existing stdlib `sync.py` | One Python process plus one `bd` read; adequate for one task | Small incremental subcommand; reuses `run_bd`, parsing, and error conventions | Uses installed Python and official `bd --json` boundary | One owner for all Beads protocol translation | **Choose.** |
-| 2 | Adapter | New standalone Python resolver module/script | Same process cost | Duplicates invocation, validation, and path rules | No added dependency | Two parsers can drift | Reject: no capability gained. |
-| 3 | Adapter | New Node/TypeScript resolver | Comparable or worse cold-start cost; still spawns `bd` | New program, build/test surface, and JSON bridge | Node is present with gsd-core but is not this capability's existing adapter runtime | Cross-language duplication and release coupling | Reject: no measurable benefit. |
-| 4 | Manifest | Invoke `bd show {{id}} --json` directly | Fastest possible subprocess chain | One manifest declaration | Official CLI command, but output is an array | Low only if it worked | Reject: gsd-core requires a plain JSON object and treats the Beads array as malformed output. |
-| 5 | Dependency | Add an SDK/schema library (`pydantic`, a Beads client, or `jq`) | No material gain | More dependency and packaging work | Unneeded for one typed object | Dependency/version/security upkeep | Reject: violates the project’s stdlib-only constraint. |
+| 1 | Bootstrap + adapter | `python3 -c` locator then existing stdlib `sync.py` | One Python bootstrap, one adapter, one `bd` read; adequate for one task | No new file; locator is a static manifest value and reuses `run_bd`, parsing, and error conventions | Uses installed Python and official `bd --json` boundary | One owner for all Beads protocol translation | **Choose.** |
+| 2 | Path | Project-relative `plugins/.../scripts/sync.py` | Same process cost | Short in a source checkout | Does not describe an installed capability | Breaks from another project cwd, runtime, or installed copy | Reject: source-tree-only paths are too narrow. |
+| 3 | Executable | Add a PATH shim for `sync.py` | Similar or faster startup only if separately installed | Requires a wrapper and install plumbing | No existing resolver executable; live `sync.py` mode is 0644 | Must manage install, update, uninstall, PATH precedence, and name collisions | Reject: larger lifecycle surface for no capability gain. |
+| 4 | Adapter | New standalone Python resolver module/script | Same process cost | Duplicates invocation, validation, and path rules | No added dependency | Two parsers can drift | Reject: no capability gained. |
+| 5 | Adapter | New Node/TypeScript resolver | Comparable or worse cold-start cost; still spawns `bd` | New program, build/test surface, and JSON bridge | Node is present with gsd-core but is not this capability's existing adapter runtime | Cross-language duplication and release coupling | Reject: no measurable benefit. |
+| 6 | Manifest | Invoke `bd show {{id}} --json` directly | Fastest possible subprocess chain | One manifest declaration | Official CLI command, but output is an array | Low only if it worked | Reject: gsd-core requires a plain JSON object and treats the Beads array as malformed output. |
+| 7 | Upstream | Add a capability-root invocation placeholder to gsd-core | Potentially removes the bootstrap later | More core design, validation, and compatibility work | General ecosystem improvement | New upstream dependency and release coordination | Defer: beneficial, but not a v1.4 blocker. |
+| 8 | Dependency | Add an SDK/schema library (`pydantic`, a Beads client, or `jq`) | No material gain | More dependency and packaging work | Unneeded for one typed object | Dependency/version/security upkeep | Reject: violates the project’s stdlib-only constraint. |
 
 ## Ponytail Ladder Review
 
@@ -75,8 +110,9 @@ after contract correctness; an invalid direct call cannot win.
 3. **Stdlib:** Sufficient for argv execution and JSON mapping.
 4. **New dependency:** Not justified.
 
-Result: extend the existing adapter by the smallest resolver-only command; do
-not construct an abstraction, SDK wrapper, or fallback layer.
+Result: use the `python3 -c` stdlib locator and extend the existing adapter by
+the smallest resolver-only command. Do not construct a PATH shim, abstraction,
+SDK wrapper, or fallback layer.
 
 ## Critical Contract and Live Constraints
 
@@ -86,6 +122,8 @@ not construct an abstraction, SDK wrapper, or fallback layer.
 | Core finds a task by exact `tracker-id`, then hard-fails resolver ambiguity, command failure, timeout, and malformed/non-object stdout. | Add identity only to executable `auto`/`tracer` tasks and treat adapter errors as non-zero exits. Do not provide a PLAN fallback. | 95/100 |
 | Live `bd show gsd-beads-xy2 --json` (v1.2.2) returned a one-element JSON array containing `id`, `description`, and `acceptance_criteria`. | The adapter—not the manifest—must unwrap and validate the row before emitting the core object. | 100/100 |
 | Current `sync.py` reads/writes `<beads-id>` and already routes all `bd` commands through `run_bd`; it has no resolver CLI yet. | Add one narrowly scoped subcommand rather than alter lifecycle commands or issue ownership semantics. | 95/100 |
+| From non-root cwd, the prescribed locator resolved `/home/dd/.gsd/capabilities/beads/scripts/sync.py` and `is_file=True`. | The declared bootstrap reaches the globally installed capability without relying on the project checkout path. | 100/100 |
+| The installed script is mode 0644 and neither `beads-resolve-task-content` nor `beads-sync` is on `PATH`. | Do not invent an executable shim and its install/update/uninstall/collision lifecycle. | 100/100 |
 
 ## Installation
 
@@ -102,12 +140,11 @@ node /home/dd/.codex/gsd-core/bin/gsd-tools.cjs runtime-identity \\
 ## Evidence Appraisal
 
 The central claim—native core resolution plus the existing stdlib adapter—is
-**strong with a phase-specific installation-path condition**. The installed
-gsd-core source directly establishes the resolver contract and failure
-semantics, and the live CLI establishes the Beads output shape. The main
-uncertainty is not an alternative framework: it is proving a stable
-installed-capability path for the static resolver declaration. A source-tree-
-only invocation would be a false success.
+**strong**. The installed gsd-core source directly establishes the resolver
+contract and failure semantics, the live CLI establishes the Beads output
+shape, and the non-root locator proof establishes the chosen static invocation
+path. A source-tree-only invocation would be a false success; the approved
+`GSD_HOME` bootstrap avoids it.
 
 Competing explanations considered:
 
@@ -116,6 +153,9 @@ Competing explanations considered:
 - A fresh Node/Python adapter could make packaging look cleaner, but it
   duplicates the existing trusted boundary without improving the required
   output or failure behavior.
+- A PATH shim could hide the capability location, but no suitable executable
+  exists today and the shim would create unmanaged lifecycle and collision
+  risks that the stdlib locator does not have.
 
 ## Sources
 
@@ -132,3 +172,7 @@ Competing explanations considered:
 - Existing capability [manifest](/home/dd/projects/gsd-beads/plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json:1)
   and [sync adapter](/home/dd/projects/gsd-beads/plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:300).
   Direct code match confidence: 95/100.
+- Live locator proof and mode/PATH inspection, run 2026-08-30 from
+  `plugins/beads-lifecycle`: installed target exists; `sync.py` mode is 0644;
+  no `beads-resolve-task-content` or `beads-sync` executable is present.
+  Direct observation confidence: 100/100.

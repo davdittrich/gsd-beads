@@ -12,7 +12,10 @@ Use gsd-core's native `taskContentResolver` seam. Extend the existing,
 stdlib-only `sync.py` CLI with one narrow resolver subcommand; do not add a
 second executable, cache, or task-content store. Its manifest declaration
 invokes this adapter, which maps live `bd show <id> --json` data to gsd-core's
-single-object resolver schema.
+single-object resolver schema. The manifest launches a cwd-independent Python
+bootstrap that locates the global auto-installed copy at
+`$GSD_HOME/.gsd/capabilities/beads/scripts/sync.py` (or
+`Path.home()/.gsd/capabilities/beads/scripts/sync.py`), then `os.execv`s it.
 
 ```text
 PLAN.md <task type="auto|tracer" tracker-id="beads:<id>">
@@ -39,7 +42,7 @@ the remaining Beads id verbatim. **Confidence: 98.**
 
 | Component | Responsibility | Communicates With | Contract / confidence |
 |---|---|---|---|
-| `capability.json` | Declare `trackerPrefix: "beads"`, bounded adapter argv, and retain lifecycle steps/gates. | GSD capability loader/validator | Feature-role only; `args` contains `{{id}}`; `timeoutMs` is positive and ≤120000. HIGH 99. |
+| `capability.json` | Declare `trackerPrefix: "beads"`, a global-install bootstrap argv, and retain lifecycle steps/gates. | GSD capability loader/validator | Feature-role only; `args` contains `{{id}}`; bootstrap derives `$GSD_HOME` or `Path.home()`; `timeoutMs` is positive and ≤120000. HIGH 99. |
 | `sync.py create-issues` | Create/resolve Beads issues and backfill plan identity. | `PLAN.md`, `bd` | Add routing id only to auto/tracer; leave checkpoint tasks untouched. HIGH 95. |
 | `sync.py` resolver command | Read one live issue and emit exactly one mapped JSON object. | `bd show --json`, stdout/stderr | Current `main()` has no resolver command: it must be added; a manifest-only change cannot work. HIGH 99. |
 | gsd-core task router | Exact `tracker-id` lookup, resolver selection, bounded process call, output mapping. | Parser, installed capability registry, adapter CLI | Empty description is unresolved; failure modes are hard halts. HIGH 99. |
@@ -55,9 +58,11 @@ the remaining Beads id verbatim. **Confidence: 98.**
 2. gsd-core parses the `tracker-id` verbatim, finds the task by its exact value,
    locates the one matching installed resolver, and substitutes the id token in
    the resolver's argv. **Confidence: 99.**
-3. The adapter invokes `bd show <id> --json`, parses live output, and emits
-   `description`, optional `verify`, `acceptance_criteria`, `read_first`, and
-   `done`. **Confidence: 95.**
+3. `python3 -c` locates the global auto-installed `sync.py` from `GSD_HOME`
+   or `Path.home()`, then `os.execv`s it with the Beads id as a separate argv
+   item. The adapter invokes `bd show <id> --json`, parses live output, and
+   emits `description`, optional `verify`, `acceptance_criteria`, `read_first`,
+   and `done`. **Confidence: 95.**
 4. A non-empty `description` resolves task content. Empty/missing description
    is the legitimate pre-migration boundary (`resolved:false`, reason `empty`),
    leaving inline content available to legacy plans. **Confidence: 96.**
@@ -75,14 +80,28 @@ stdout. **Confidence: 93.**
 
 ### Pattern 1: Thin in-place adapter (Ponytail ladder, rung 2)
 
-**What:** Add the resolver verb to `sync.py`, reusing its current `run_bd`,
-standard-library JSON, and capability-relative executable path.
+**What:** Add the resolver verb to `sync.py` and declare `python3 -c` as the
+resolver. The exact bootstrap is:
+
+```python
+import os, sys
+from pathlib import Path
+root = Path(os.environ.get("GSD_HOME", Path.home()))
+script = root / ".gsd" / "capabilities" / "beads" / "scripts" / "sync.py"
+os.execv(sys.executable, [sys.executable, str(script), "resolve-content", sys.argv[1]])
+```
+
+The manifest passes `{{id}}` after the `-c` program, so it becomes
+`sys.argv[1]`, an independent argv item rather than part of script selection.
 
 **When:** For every native resolver call.
 
-**Why:** This module already owns Beads issue creation, live `bd show --json`
-reads, and plan rewriting. A wrapper/new dependency duplicates the mapping risk
-and adds an invocation boundary. **Confidence: 96.**
+**Why:** This reuses the existing global auto-install invariant, is independent
+of cwd, adds no PATH state, and keeps one Python implementation of the schema
+adapter. A PATH shim, capability-root lookup, wrapper, or dependency adds a
+second discovery mechanism without closing a requirement. Keep an installed-copy
+hash/parity proof as the cutover gate; PATH shim and upstream capability-root
+support are not implementation dependencies. **Confidence: 98.**
 
 ```json
 {
@@ -112,7 +131,7 @@ would mutate its distinct control-flow contract. **Confidence: 99.**
 | Manifest | Validator accepts Beads' resolver and rejects duplicate prefix. |
 | Sync writer | New and legacy auto/tracer tasks gain one `tracker-id`; checkpoints are byte-identical; rerun changes nothing. |
 | Adapter | Fake `bd` proves field mapping; unavailable `bd`, unknown id, and malformed data exit non-zero with no JSON stdout. |
-| Native seam | Real plan + `task resolve-content --raw` returns `resolved:true` and non-empty content. |
+| Native seam | Global installed-copy parity/hash proof passes; then a real plan + `task resolve-content --raw` returns `resolved:true` and non-empty content. |
 | Legacy plan | A `<beads-id>`-only plan retains established execution behavior; no resolver is selected without `tracker-id`. |
 | Patch boundary | No Patch 2 marker or wiring remains; Patch 1 v2 still applies and verifies. |
 
@@ -163,7 +182,8 @@ dispatch; Patch 2 is only the old executor read path.
 
 ## Dependency Order
 
-1. Add and validator-prove the resolver declaration plus adapter CLI contract.
+1. Add and validator-prove the resolver declaration plus global-bootstrap
+   adapter contract; prove installed-copy parity/hash.
 2. Implement/test idempotent tracker-id backfill, preserving `<beads-id>` and
    checkpoint behavior.
 3. Prove the public boundary: adapter mappings/failures, native hard halts,
