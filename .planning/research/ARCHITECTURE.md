@@ -1,312 +1,221 @@
-# Capability Config Architecture — research for milestone v1.3
+# Architecture Patterns: v1.4 Native Task Content Resolution
 
-**Question:** How does capability config actually work in gsd-core, and what does that imply for
-`beads.sync_mode` — a declared enum that no code reads?
+**Project:** gsd-beads
+**Domain:** GSD capability overlay integrating Beads task content
+**Researched:** 2026-08-30
+**Overall confidence:** HIGH for current local/runtime contracts;
+MEDIUM for upstream documentation.
 
-**Verified against:** installed gsd-core **1.11.0** (`~/.claude/gsd-core/VERSION`), plus the shipped
-marketplace tree at `~/.claude/plugins/marketplaces/gsd-core/`, plus one live upstream doc fetch.
-Every mechanism claim below carries a `file:line` or a URL. Claims tagged **(inferred)** are not
-directly executed code.
+## Recommended Architecture
 
-**Bottom line:** a capability's `config` block is a *schema + default + write-time validator*. It is
-**not** a delivery channel — the value never reaches a `step` hook. `beads.sync_mode` therefore has
-no wiring to be "finished"; it has a declaration to be corrected. Recommendation: **(a) narrow the
-declaration to `["authoritative"]`**. Migration for an existing `"mirror"`/`"off"` is a no-op on
-disk plus one release-note line, because gsd-core performs **zero read-time validation**.
+Use gsd-core's native `taskContentResolver` seam. Extend the existing,
+stdlib-only `sync.py` CLI with one narrow resolver subcommand; do not add a
+second executable, cache, or task-content store. Its manifest declaration
+invokes this adapter, which maps live `bd show <id> --json` data to gsd-core's
+single-object resolver schema.
 
----
-
-## 1. What the `config` block actually does — three things, none of them "hand the value to a hook"
-
-### 1.1 It federates the key into the composed registry `configSchema`
-
-`capability-loader.cjs:440` reads the first-party `configSchema` and merges accepted overlay
-capabilities into it. Verified live on this project — the composed schema carries all four beads
-keys with `owner: "beads"`:
-
-```
-beads.sync_mode {"owner":"beads","type":"enum","default":"authoritative",
-                 "values":["authoritative","mirror","off"], "description":"…"}
-```
-(executed: `loadRegistry({includeInstalled:true, cwd:'/home/dd/projects/gsd-beads'})`)
-
-Consequence: `isValidConfigKey` (`config-schema.cjs:44-48, 63-67`) accepts `beads.sync_mode` as a
-settable key. **Confidence 98.**
-
-### 1.2 It supplies the level-4 default in the config precedence walk
-
-`capability-activation.cjs:71-103` — `resolveConfigKey(dotKey, {config, cwd, registry})`:
-
-| Level | Source | Line |
-|---|---|---|
-| 1 | `loadConfig(cwd)` result, guarded nested lookup | `capability-activation.cjs:74-76` |
-| 2 | `planningDir(cwd)/config.json` raw read | `:79, 81-83` |
-| 3 | `planningRoot(cwd)/config.json` raw read (only if path differs) | `:80, 84-88` |
-| 4 | `registry.configSchema[dotKey].default` | `:90-100` |
-| 5 | absent → `{found:false}` | `:102` |
-
-Verified empirically: with no `beads.sync_mode` on disk, `gsd-tools config-get beads.sync_mode`
-returns `authoritative` — i.e. level 4 fires and the key reports as live even when unset.
-**Confidence 98.**
-
-### 1.3 It backs **write-time** enum enforcement in `config-set`
-
-`config.cjs:805-813` — generic capability-registry validation, added by upstream #1628:
-
-```js
-const capDef = getCapabilityConfigSchema(cwd)[kp];
-if (capDef && typeof capDef.type === 'string') {
-  switch (capDef.type) {
-    case 'enum':
-      if (Array.isArray(capDef.values))
-        assertEnumValue(parsedValue, val, capDef.values.map(String), kp);
+```text
+PLAN.md <task type="auto|tracer" tracker-id="beads:<id>">
+        │                     ▲
+        │ sync/backfill        │ task resolve-content --task-id beads:<id>
+        ▼                     │
+sync.py create-issues ────────┴── gsd-core router
+        │                          │ resolves installed beads capability
+        │ bd create/show            ▼
+        ▼                    sync.py resolver <id>
+live Beads issue ────────────────► bd show <id> --json
+                                     │
+                                     ▼
+             {description, verify, acceptance_criteria, read_first, done}
 ```
 
-Executed in this repo (and reverted — `git status --porcelain .planning/config.json` is clean):
+`tracker-id` is routing identity, not a replacement for `<beads-id>`.
+Keep both: existing lifecycle status/dependency/closure functions read
+`<beads-id>`, whereas native gsd-core content resolution reads the exact
+`tracker-id` attribute. The resolver splits only on the first colon and passes
+the remaining Beads id verbatim. **Confidence: 98.**
 
-```
-$ gsd-tools config-set beads.sync_mode mirror   → beads.sync_mode=mirror   (accepted, written)
-$ gsd-tools config-set beads.sync_mode bogus    → Error: Invalid beads.sync_mode 'bogus'.
-                                                   Valid values: authoritative, mirror, off
-```
+### Component Boundaries
 
-So today gsd-core **actively invites** the user to set `mirror`, then silently ignores it.
-**Confidence 99.**
+| Component | Responsibility | Communicates With | Contract / confidence |
+|---|---|---|---|
+| `capability.json` | Declare `trackerPrefix: "beads"`, bounded adapter argv, and retain lifecycle steps/gates. | GSD capability loader/validator | Feature-role only; `args` contains `{{id}}`; `timeoutMs` is positive and ≤120000. HIGH 99. |
+| `sync.py create-issues` | Create/resolve Beads issues and backfill plan identity. | `PLAN.md`, `bd` | Add routing id only to auto/tracer; leave checkpoint tasks untouched. HIGH 95. |
+| `sync.py` resolver command | Read one live issue and emit exactly one mapped JSON object. | `bd show --json`, stdout/stderr | Current `main()` has no resolver command: it must be added; a manifest-only change cannot work. HIGH 99. |
+| gsd-core task router | Exact `tracker-id` lookup, resolver selection, bounded process call, output mapping. | Parser, installed capability registry, adapter CLI | Empty description is unresolved; failure modes are hard halts. HIGH 99. |
+| `GSD-CORE-PATCH.md` | Own only remaining machine-local ship-pre patch. | installed `ship.md`, `check-patch` | Retire all Patch 2 code/docs/wiring; retain independent Patch 1 v2. HIGH 97. |
 
-**That is the entire contract.** There is no fourth thing. The declaration does not cause the value
-to be passed anywhere.
+### Data Flow
 
----
+1. `create-issues` resolves a task's existing `<beads-id>` or creates the
+   issue, then writes `tracker-id="beads:<issue-id>"` for eligible tasks.
+   It must backfill already-synced tasks: current `rewrite_plan()` only receives
+   updates for newly created issues, so the migration requires a separate,
+   idempotent identity write set. **Confidence: 98.**
+2. gsd-core parses the `tracker-id` verbatim, finds the task by its exact value,
+   locates the one matching installed resolver, and substitutes the id token in
+   the resolver's argv. **Confidence: 99.**
+3. The adapter invokes `bd show <id> --json`, parses live output, and emits
+   `description`, optional `verify`, `acceptance_criteria`, `read_first`, and
+   `done`. **Confidence: 95.**
+4. A non-empty `description` resolves task content. Empty/missing description
+   is the legitimate pre-migration boundary (`resolved:false`, reason `empty`),
+   leaving inline content available to legacy plans. **Confidence: 96.**
+5. Non-zero exit, timeout, malformed/non-object JSON, or duplicate resolver
+   prefix is a hard halt: never synthesize `resolved:false` and never fall back
+   silently. **Confidence: 99.**
 
-## 2. `configValues` reaches **contributions only** — never steps, never gates
+Treat `tracker-id` and Beads stdout/stderr as untrusted input. Pass the id only
+as one argv element, parse JSON before mapping, keep stdout strictly
+machine-readable, and emit concise stderr diagnostics. The native runtime
+sanitizes diagnostic rendering; the adapter must not bypass it with prose on
+stdout. **Confidence: 93.**
 
-`loop-resolver.cjs:175-192` defines `resolveConfigValues(hook)`, which maps a hook's declared
-`configValues: { alias: "dotted.key" }` through `resolveConfigKey` and returns raw (uncoerced)
-values. It is called at exactly **one** site:
+## Patterns to Follow
 
-- `loop-resolver.cjs:244` — inside the **contributions** loop, attached at `:258-259`.
+### Pattern 1: Thin in-place adapter (Ponytail ladder, rung 2)
 
-The steps loop (`:196-226`) and the gates loop (`:265-287`) never call it. A step hook's emitted
-shape is fixed at `:212-225`: `capId, kind, ref, fragment, when, produces, consumes, onError`.
-The `when` string is echoed **verbatim as a string** (`:207, 217`) — not resolved, not evaluated in
-the payload. **Confidence 99.**
+**What:** Add the resolver verb to `sync.py`, reusing its current `run_bd`,
+standard-library JSON, and capability-relative executable path.
 
-### The one first-party consumer, end to end
+**When:** For every native resolver call.
 
-Producer — `capability-registry.cjs:3436-3446` (security capability, `plan:pre` contribution):
+**Why:** This module already owns Beads issue creation, live `bd show --json`
+reads, and plan rewriting. A wrapper/new dependency duplicates the mapping risk
+and adds an invocation boundary. **Confidence: 96.**
 
 ```json
-"configValues": {
-  "security_asvs_level": "workflow.security_asvs_level",
-  "security_block_on": "workflow.security_block_on"
+{
+  "description": "required non-empty action to resolve",
+  "verify": "optional verification",
+  "acceptance_criteria": ["optional criterion"],
+  "read_first": ["optional path"],
+  "done": "optional completion condition"
 }
 ```
 
-Consumer — `workflows/plan-phase.md:418`:
+### Pattern 2: Forward-compatible dual identity
 
-> Read `SECURITY_ASVS` from the active hook's `configValues.security_asvs_level` (default: `1`) …
-> These values are resolved by the capability registry from user config using the same four-level
-> precedence as hook activation — **no inline `config-get` is needed.**
+**What:** Preserve `<beads-id>` while adding `tracker-id` only to auto/tracer
+opening tags.
 
-That last clause is the design intent stated in gsd-core's own prose: `configValues` exists so a
-consumer does **not** re-read config. It is available only to contributions. **Confidence 97.**
+**When:** New-task sync and legacy backfill.
 
-### Live proof for beads
+**Why:** Current status, dependency, close-wave, and reconciliation paths read
+`<beads-id>`. gsd-core explicitly makes checkpoint `trackerId` null; adding one
+would mutate its distinct control-flow contract. **Confidence: 99.**
 
-`gsd-tools loop render-hooks plan:post --raw`, run in this repo:
+### Pattern 3: Public-boundary tests before Patch 2 retirement
 
-```json
-{ "capId": "beads", "kind": "step", "ref": {"skill":"beads-sync"},
-  "when": "beads.enabled", "produces":["PLAN.md"], "consumes":["PLAN.md"], "onError":"skip" }
-```
+| Boundary | Required proof |
+|---|---|
+| Manifest | Validator accepts Beads' resolver and rejects duplicate prefix. |
+| Sync writer | New and legacy auto/tracer tasks gain one `tracker-id`; checkpoints are byte-identical; rerun changes nothing. |
+| Adapter | Fake `bd` proves field mapping; unavailable `bd`, unknown id, and malformed data exit non-zero with no JSON stdout. |
+| Native seam | Real plan + `task resolve-content --raw` returns `resolved:true` and non-empty content. |
+| Legacy plan | A `<beads-id>`-only plan retains established execution behavior; no resolver is selected without `tracker-id`. |
+| Patch boundary | No Patch 2 marker or wiring remains; Patch 1 v2 still applies and verifies. |
 
-No `configValues` field, and no mechanism to add one — beads' six hooks are all `steps` (five) and
-`gates` (two), plus one `contribution` at `plan:pre` (`capability.json:141-155`). Only that single
-`plan:pre` recall contribution could ever carry `configValues`, and `beads-sync` (the only place
-`sync_mode` would matter) is a **step**. **Confidence 96.**
+Current gsd-core public tests characterize exact tracker-id lookup, non-empty and
+empty descriptions, non-zero exit, timeout, malformed output, first-colon
+splitting, and no stdout `resolved:false` on hard failure. Mirror those outcomes
+at the Beads boundary rather than relying on helper-only tests. **Confidence: 98.**
 
----
+## Anti-Patterns to Avoid
 
-## 3. How `when:` is evaluated — boolean coercion, so it cannot express an enum
+### Direct `bd` manifest invocation
 
-`loop-resolver.cjs:126-135` → `_resolveActivationValue(when, config, cwd, registry)` →
-`capability-activation.cjs:104-107`:
+**What:** Declare `bd` directly as the resolver binary.
 
-```js
-function _resolveActivationValue(dotKey, config, cwd, registry) {
-    const r = resolveConfigKey(dotKey, { config, cwd, registry });
-    return r.found ? Boolean(r.value) : false;   // ← Boolean coercion
-}
-```
+**Why bad:** gsd-core expects `description`, `acceptance_criteria`,
+`read_first`, and `done`; Beads uses a different issue shape. This can resolve
+empty or silently lose fields.
 
-`when` takes a **dotted key only** — no operators, no comparison, no expression grammar. Confirmed
-by the manifest reference: *"Dotted config key; the step is active only when the key is truthy"*
-(`docs/reference/capability-manifest.md:83`, `:97`, `:110`).
+**Instead:** Keep `sync.py` as the thin schema adapter. **Confidence: 95.**
 
-**Hard consequence:** `when: "beads.sync_mode"` would be truthy for **all three** values, including
-the string `"off"` (a non-empty string coerces to `true`). An enum key is structurally unusable as a
-`when`. **Confidence 99.**
+### Backfilling only newly created issues
 
-### The `config-equals` gate predicate does not exist in 1.11.0
+**What:** Reuse the existing `task_updates` list unchanged.
 
-`capability-manifest.md:117` lists `"config-equals"` among predicate kinds. The shipped evaluator
-disagrees — `gate-predicate-evaluator.cjs:37`:
+**Why bad:** It contains only tasks whose issues were created in that run;
+valid existing `<beads-id>` tasks would never receive `tracker-id`.
 
-```js
-const EVALUATOR_KINDS = Object.freeze(['command-exit-zero', 'artifact-frontmatter-equals']);
-```
+**Instead:** Derive a distinct eligible backfill set. **Confidence: 99.**
 
-An unknown kind throws (`:188-190`). So `config-equals` is **documented but unimplemented**. There
-is currently **no declarative way anywhere in gsd-core to branch on a config value's content** —
-only on its truthiness. **Confidence 97.**
+### Softening resolver failure
 
-### Therefore: a capability must re-read config itself
+**What:** Return an empty object or read stripped PLAN content after `bd` fails.
 
-That is exactly what beads already does — `scripts/sync.py:641-676`, `read_beads_config()` reads
-`.planning/config.json` fresh on every call, with the docstring stating why:
+**Why bad:** It violates native hard-halt semantics and breaks the
+authoritative-content guarantee.
 
-> entering from a harness hook bypasses both the SKILL.md Step 1 config gate **and the capability
-> registry that evaluates each hook's `when`**.
+**Instead:** Adapter failure exits non-zero; only a successful, empty
+description takes the documented legacy boundary. **Confidence: 99.**
 
-This is not a workaround. For a step-based capability it is the **only** available mechanism, and
-first-party capabilities do the same (see §6). **Confidence 95.**
+### Removing both local patches
 
----
+**What:** Treat Patch 1 and Patch 2 as one migration unit.
 
-## 4. Read-time validation: **none**
+**Why bad:** Patch 1 v2 provides an independent `ship:pre` generic step
+dispatch; Patch 2 is only the old executor read path.
 
-`resolveConfigKey` returns the raw on-disk value with no membership check
-(`capability-activation.cjs:71-103`). Verified empirically in a scratch project whose
-`.planning/config.json` contained a stale out-of-enum value **and** an entirely undeclared key:
+**Instead:** Retire Patch 2 only. **Confidence: 99.**
 
-| Read | On disk | Result |
-|---|---|---|
-| `config-get beads.sync_mode` | `"mirror"` | `mirror` — returned, no warning |
-| `config-get beads.bogus_key` (undeclared) | `"zzz"` | `zzz` — returned, no warning |
-| `config-get totally.unknown` (undeclared namespace) | `"yes"` | `yes` — returned, no warning |
+## Dependency Order
 
-The health rule that validates config values,
-`bin/lib/health-diagnostic-rules/config-validation.cjs`, checks exactly two hardcoded **central**
-keys — `model_profile` (`:103`) and `git.branching_strategy` (`:153`). It performs no
-capability-schema enum check and no orphan-key detection. A repo-wide grep for orphan/unknown-key
-detection hits only `config.cjs` and `config-loader.cjs`, both on the **write** path.
+1. Add and validator-prove the resolver declaration plus adapter CLI contract.
+2. Implement/test idempotent tracker-id backfill, preserving `<beads-id>` and
+   checkpoint behavior.
+3. Prove the public boundary: adapter mappings/failures, native hard halts,
+   legacy-plan behavior, and one real resolution.
+4. Remove Patch 2 and every Patch-2-specific detector/apply/document reference.
+5. Re-prove Patch 1, then update release docs in the same change.
 
-**Answer to Q4:** an unknown or out-of-enum value is **rejected at `config-set`, passed through
-silently on every read**. Nothing warns; nothing errors; nothing strips it. **Confidence 97.**
+This order prevents removal of the only working read path before the native path
+has evidence. **Confidence: 99.**
 
----
+## Unchanged Components
 
-## 5. Deprecation / migration path for a capability config key: **undocumented and unimplemented**
+`beads.enabled`, `beads.sync_mode`, epic resolution, dependency edges,
+close-wave, `reconcile-stale-closed`, BEADS.md generation, lifecycle dispatch,
+ship gates, and Patch 1's ship-pre dispatch are outside the migration. The only
+plan-format addition is `tracker-id` on eligible task opening tags.
+**Confidence: 96.**
 
-- Upstream `docs/reference/capability-manifest.md` (live fetch, raw.githubusercontent.com/open-gsd/
-  gsd-core/main): **no** deprecation, removal, or enum-narrowing policy for federated `config` keys.
-  The page *does* document a deprecation lifecycle where one exists (`reviewerCli` "survived one
-  release (1.9.0 → 1.10.0) as a derived legacy alias"), so the omission is real, not an oversight of
-  the fetch. **Confidence 90.**
-- `~/.claude/gsd-core/references/` — no capability-config deprecation reference. The only migration
-  prose is for a **central** key: `planning-config.md:397`, `depth` → `granularity`, "automatically
-  migrated … and persisted back to disk."
-- The migration machinery exists but is **central-schema only**: `cmdMigrateConfig`
-  (`config.cjs:1121-1141`) delegates to `configuration.cjs migrateOnDisk()`, which applies "all four
-  legacy-key migrations" — a fixed first-party list. There is no capability-supplied migration hook
-  and no `installer-migrations/` entry for a capability config key (`010` entries `000`–`009` are
-  install-surface migrations only). **Confidence 92.**
-- gsd-core's own stated house rule on removal, `capability-validator.cjs:1719-1726`: unknown fields
-  **WARN, never error**, because an error "would hard-break an out-of-tree descriptor … with no
-  deprecation window — the exact mistake #2801's own alias removal spent a full release avoiding."
+## Scalability Considerations
 
-**The available migration lever** is `config-set <key> null`, the documented "clear" action which
-*deletes* the key rather than persisting `null` (`config.cjs:684-700`). Verified:
-`config-set beads.sync_mode null` → `beads.sync_mode unset`, key removed from disk.
+| Concern | At 100 users | At 10K users | At 1M users |
+|---|---|---|---|
+| Resolver lookup | One bounded local `bd show`; no new service. | Same; measure latency before changing timeout. | Out of scope; protocol stays stable if Beads becomes remote. |
+| Plan rewrite | One-file idempotent backfill per sync. | Same; no global migration scan. | Needs separate migration design. |
+| Failure visibility | Hard halt with concise diagnostic. | Same. | Add telemetry only if operational evidence requires it. |
 
----
+## Evidence Appraisal and Open Risk
 
-## 6. Is declared-but-unread config common in first-party gsd-core? **No — zero cases.**
+**Central claim:** native resolution can replace Patch 2 safely. **Assessment:
+Strong.** Installed 1.12.0 router/resolver source, current gsd-core tests/docs,
+the live manifest, and ticket requirements agree on the load-bearing contracts.
 
-Scanned all **62** first-party `configSchema` keys against: `"when"` references in
-`capability-registry.cjs`, `configValues` blocks, and the full text of gsd-core workflows,
-references, contexts, templates, `bin/lib/*.cjs`, `bin/shared/*`, plus the entire marketplace tree
-(skills, commands, docs, scripts, capability manifests).
+**Rejected alternative:** “manifest-only change.” **Invalid.** Current `sync.py`
+has no resolver subcommand, while raw `bd` output is not gsd-core's mapped
+schema. **Confidence: 99.**
 
-**Result: 0 of 62 unreferenced.**
+**Execution research flag:** verify the real current Beads acceptance field
+before coding. Repository comments name `acceptance_criteria`; the current
+upstream resolver guide illustrates `acceptance`. Normalize the observed live
+shape deliberately and lock it with a test—do not guess. **Confidence: 70.**
 
-An intermediate scan restricted to the `~/.claude/gsd-core/` runtime tree flagged 11 keys
-(8 × `mempalace.*`, 3 × `external_job.*`). All 11 are read — by the capability's **own** artifacts
-outside the runtime tree:
+## Sources
 
-- `mempalace.memory_mode` etc. → `~/.claude/skills/gsd-mempalace-recall/SKILL.md`,
-  `gsd-mempalace-capture/SKILL.md`
-- `external_job.artifact_dir` etc. → `marketplaces/gsd-core/scripts/slurm-adapter.cjs`
-
-That is precisely the `sync.py:read_beads_config` pattern — **first-party capabilities read their own
-federated keys from their own skill/script, not from the loop envelope.** This corroborates §3.
-**Confidence 88** (scan is text-matching over a large corpus; a dynamically-composed key string
-would be missed).
-
-`beads.sync_mode` is, on this project's composed registry, the **only** key nothing reads. It is an
-anomaly, not a sanctioned pattern. **Confidence 90.**
-
-One adjacent precedent worth noting for tone: `mempalace.memory_mode` ships three enum values and its
-doc entry openly states "Cross-mode migration of existing `.planning/graphs/` into the palace is a
-separate, not-yet-implemented concern" (`docs/CONFIGURATION.md:739`). Partial enum support is
-survivable upstream **when the doc says so**. `beads.sync_mode` does the opposite — its description
-claims the reserved values are "reserved for later phases" while `config-set` accepts them as valid
-today. **Confidence 85.**
-
----
-
-## 7. Decision input for the planner
-
-### Cost of each option
-
-| Option | Work | Residual risk |
-|---|---|---|
-| **(a) Narrow to `["authoritative"]` + doc** | 1-line `values` edit in `capability.json`; description rewrite; release note. No code. | None mechanical. Users who set `mirror` get a *new* `config-set` rejection — which is the desired signal. |
-| **(b) Implement `mirror` / `off`** | Cannot use `when` (§3 — enum is untypeable as a `when`). Cannot use `configValues` (§2 — `beads-sync` is a step). Requires a new `read_beads_config(root,"sync_mode","authoritative")` accessor plus three behavioral branches in `sync.py` and a semantic definition of what `mirror` *means* for a bd database. Plus tests for each mode. | Large; and `off` overlaps `beads.enabled=false`, which already exists (`capability.json:27-31`) and already gates all six hooks. **`off` is a duplicate of an implemented key.** |
-| **(c) Drop the key** | Remove from `capability.json`. | `config-set beads.sync_mode …` then fails with `Unknown config key` — a *worse* message than an enum rejection, and it loses the record that the semantics ("bd is authoritative after first sync", D-01) are a deliberate decision. That semantic is real and documented in `sync.py:1300-1302`; deleting the key deletes its only user-visible statement. |
-
-**Cheapest-correct: (a).** It costs one JSON edit, it turns the currently-silent failure into an
-explicit `config-set` rejection naming the one valid value, and it preserves the D-01 semantic
-statement. Option (b) buys behavior nobody asked for and duplicates `beads.enabled`. Option (c)
-throws away a correct piece of documentation to fix a wrong one.
-
-### Migration answer for a project that already set `"mirror"` or `"off"`
-
-**Nothing breaks, and nothing needs to run.** Grounded in §4:
-
-1. The stale value stays on disk and every read path (`resolveConfigKey`, `config-get`,
-   `sync.py:read_beads_config`) returns it without validation or warning
-   (`capability-activation.cjs:71-103`; empirically confirmed).
-2. Because nothing reads `sync_mode`, the stale value has never had an effect and will not acquire
-   one. Behavior after narrowing is byte-identical to behavior before.
-3. The only observable change: a *future* `gsd-tools config-set beads.sync_mode mirror` now fails
-   with `Invalid beads.sync_mode 'mirror'. Valid values: authoritative` (`config.cjs:805-813`).
-4. Optional cleanup, if a release note wants to offer one — `gsd-tools config-set beads.sync_mode
-   null` deletes the key (`config.cjs:684-700`, verified). **Do not** ship an automated migration:
-   there is no capability-migration hook (§5), and writing one would be new machinery for a no-op.
-
-**Ship the migration as one release-note sentence, not as code.** Confidence 93.
-
-### Correctness note that belongs in the same commit
-
-`capability.json:40`'s description currently asserts `mirror`/`off` are "reserved for later phases"
-while `config-set` accepts them as valid *now*. Whichever option is chosen, that sentence is the
-false claim doing the actual damage — the enum `values` array is documented upstream as the
-**"Exhaustive list of permitted string values"** (`capability-manifest.md`, `config` table), not as
-a roadmap.
-
----
-
-## Confidence summary
-
-| Finding | Confidence | Basis |
-|---|---|---|
-| `config` block = schema + level-4 default + `config-set` validator, nothing more | 98 | `capability-loader.cjs:440`, `capability-activation.cjs:71-103`, `config.cjs:805-813`; executed |
-| `configValues` reaches contributions only, never steps/gates | 99 | `loop-resolver.cjs:244` (sole call site) + live `render-hooks plan:post` |
-| `when:` is boolean-coerced; enums are untypeable as `when` | 99 | `capability-activation.cjs:104-107` |
-| `config-equals` predicate documented but not implemented | 97 | `gate-predicate-evaluator.cjs:37` vs `capability-manifest.md:117` |
-| Zero read-time validation of config values | 97 | executed 3-case scratch test + `config-validation.cjs:103,153` |
-| No documented deprecation/migration path for capability config keys | 90 | live upstream fetch + `references/` grep + `config.cjs:1121` scope |
-| 0 of 62 first-party keys declared-but-unread | 88 | text scan of gsd-core + full marketplace tree |
-| Capabilities re-read their own keys from their own scripts (first-party norm) | 88 | mempalace SKILL.md, `slurm-adapter.cjs`; matches `sync.py:641` (inferred pattern) |
-| Migration for stale `mirror`/`off` is a documentation no-op | 93 | follows from read-time-validation finding |
+- [gsd-core resolver capability guide](https://github.com/open-gsd/gsd-core/blob/next/docs/how-to/develop-a-task-content-resolver-capability.md)
+  — MEDIUM web confidence; cross-checked with installed 1.12.0 source.
+- [gsd-core capability manifest reference](https://github.com/open-gsd/gsd-core/blob/next/docs/reference/capability-manifest.md)
+  — MEDIUM web confidence; cross-checked locally.
+- [Beads README](https://github.com/gastownhall/beads/blob/main/README.md)
+  and [FAQ](https://github.com/gastownhall/beads/blob/main/docs/FAQ.md)
+  — MEDIUM web confidence.
+- Installed `task-content-resolution.cjs`, `task-command-router.cjs`,
+  `plan-document.cjs`, and `capability-validator.cjs` from gsd-core
+  — HIGH live-runtime confidence.
+- Local gsd-core resolver docs/tests plus local Beads manifest, `sync.py`,
+  `GSD-CORE-PATCH.md`, and ticket `gsd-beads-xy2` — HIGH confidence.
