@@ -1403,6 +1403,29 @@ class TestTaskContentResolverManifest(unittest.TestCase):
             readme_prose,
         )
 
+    def test_prime_matches_readme_dispatch_ownership(self):
+        root = self.CAPABILITY_PATH.parents[5]
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        prime = (
+            root / "plugins/beads-lifecycle/.agents/skills/beads/PRIME.md"
+        ).read_text(encoding="utf-8")
+        for document in (readme, prime):
+            prose = " ".join(document.split())
+            self.assertIn(
+                "gsd-core dispatches `plan:post` and `verify:post` steps natively",
+                prose,
+            )
+            self.assertIn(
+                "`plan:pre`, `execute:wave:pre`, and `execute:wave:post`",
+                prose,
+            )
+            self.assertIn("`ship:pre`", prose)
+        self.assertIn(
+            "On a runtime without `PostToolUse`, `plan:post` and `verify:post` "
+            "still dispatch natively",
+            " ".join(prime.split()),
+        )
+
 
 class TestCheckpointTaskDescription(unittest.TestCase):
     """CR-01: _checkpoint_task_description(task) renders a checkpoint task's
