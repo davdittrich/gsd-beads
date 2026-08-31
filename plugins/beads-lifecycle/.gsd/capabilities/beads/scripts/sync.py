@@ -363,7 +363,8 @@ def parse_plan(path):
         opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
         attributes, attributes_valid = _scan_task_attributes(opening_tag)
         name_m = NAME_RE.search(block)
-        id_m = BEADS_ID_RE.search(block)
+        id_matches = list(BEADS_ID_RE.finditer(block))
+        beads_ids = [match.group(1).strip() for match in id_matches]
         files_m = FILES_RE.search(block)
         type_attributes = [attribute for attribute in attributes if attribute[0] == "type"]
         tracker_attributes = [
@@ -399,7 +400,8 @@ def parse_plan(path):
             {
                 "name": name_m.group(1).strip() if name_m else "",
                 "name_end": m.start() + (name_m.end() if name_m else 0),
-                "beads_id": id_m.group(1).strip() if id_m else None,
+                "beads_id": beads_ids[0] if beads_ids else None,
+                "beads_ids": beads_ids,
                 "files": files,
                 "type": type_attributes[0][1] if len(type_attributes) == 1 else "",
                 "type_attribute_count": len(type_attributes),
@@ -1886,6 +1888,13 @@ def create_issues(plan_arg, allow_strip=True):
             print(
                 f"native tracker identity preflight failed for task {task['name']!r}: "
                 "task opening attributes are malformed or duplicated",
+                file=sys.stderr,
+            )
+            return 1
+        if len(task["beads_ids"]) > 1:
+            print(
+                f"native tracker identity preflight failed for task {task['name']!r}: "
+                "duplicate beads-id elements",
                 file=sys.stderr,
             )
             return 1

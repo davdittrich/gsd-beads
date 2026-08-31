@@ -2435,6 +2435,41 @@ class TestIdentityBinding(unittest.TestCase):
                 mock_run.assert_not_called()
                 self.assertEqual(self._write_calls(path_open), [])
 
+    def test_duplicate_legacy_authority_fails_before_bd_or_write(self):
+        base = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        cases = {
+            "same-value": base.replace(
+                "  <beads-id>tracer-f5x.1</beads-id>",
+                "  <beads-id>tracer-f5x.1</beads-id>\n"
+                "  <beads-id>tracer-f5x.1</beads-id>",
+                1,
+            ),
+            "conflicting-values": base.replace(
+                "  <beads-id>tracer-f5x.1</beads-id>",
+                "  <beads-id>tracer-f5x.1</beads-id>\n"
+                "  <beads-id>tracer-f5x.2</beads-id>",
+                1,
+            ),
+        }
+
+        for label, plan_text in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    before = plan_copy.read_bytes()
+                    with mock.patch.object(sync, "run_bd") as mock_run:
+                        with self._plan_open_spy() as path_open:
+                            captured = io.StringIO()
+                            with contextlib.redirect_stderr(captured):
+                                exit_code = sync.create_issues(str(plan_copy))
+                    after = plan_copy.read_bytes()
+
+                self.assertNotEqual(exit_code, 0)
+                self.assertIn("beads-id", captured.getvalue())
+                self.assertEqual(after, before)
+                mock_run.assert_not_called()
+                self.assertEqual(self._write_calls(path_open), [])
+
     def test_quote_aware_task_and_attribute_boundaries(self):
         base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
         base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1).replace(
