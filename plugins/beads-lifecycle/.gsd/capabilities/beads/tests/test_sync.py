@@ -1425,8 +1425,6 @@ class TestTaskContentResolverManifest(unittest.TestCase):
             "still dispatch natively",
             " ".join(prime.split()),
         )
-
-
 class TestCheckpointTaskDescription(unittest.TestCase):
     """CR-01: _checkpoint_task_description(task) renders a checkpoint task's
     decision/human-verify fields, mirroring _task_description's "## section,
@@ -2931,6 +2929,34 @@ class TestCloseWave(unittest.TestCase):
     ids, never once per task -- close_wave must batch-close every completed
     task's issue across every plan in that list in one dispatch."""
 
+    @mock.patch.object(sync, "run_bd")
+    @mock.patch.object(sync, "bd_available")
+    def test_invalid_completed_authority_fails_before_bd_availability_or_close(
+        self, mock_bd_available, mock_run
+    ):
+        base = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+        cases = {
+            "unclosed-quoted-opening": base.replace(
+                '<task type="auto">', '<task type="auto>', 1
+            ),
+        }
+
+        for label, plan_text in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    phase_dir = _write_wave_workspace(
+                        Path(tmp), [("01-04", plan_text, True)]
+                    )
+                    captured = io.StringIO()
+                    with contextlib.redirect_stderr(captured):
+                        exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+                self.assertNotEqual(exit_code, 0)
+                self.assertIn("completed-task authority", captured.getvalue())
+
+        mock_bd_available.assert_not_called()
+        mock_run.assert_not_called()
+
     @mock.patch("subprocess.run")
     def test_two_plan_wave_two_completed_tasks_each_closes_four_ids_in_one_call(
         self, mock_run
@@ -3060,6 +3086,34 @@ class TestReconcileStaleClosed(unittest.TestCase):
     """D-08: a phase-wide, idempotent close backstop -- closes every
     task-complete-but-bd-open issue across every plan in phase_dir, not just
     the plan ids one wave's close-wave dispatch was given."""
+
+    @mock.patch.object(sync, "run_bd")
+    @mock.patch.object(sync, "bd_available")
+    def test_invalid_completed_authority_fails_before_bd_availability_or_close(
+        self, mock_bd_available, mock_run
+    ):
+        base = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+        cases = {
+            "unclosed-quoted-opening": base.replace(
+                '<task type="auto">', '<task type="auto>', 1
+            ),
+        }
+
+        for label, plan_text in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    phase_dir = _write_wave_workspace(
+                        Path(tmp), [("01-04", plan_text, True)]
+                    )
+                    captured = io.StringIO()
+                    with contextlib.redirect_stderr(captured):
+                        exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+                self.assertNotEqual(exit_code, 0)
+                self.assertIn("completed-task authority", captured.getvalue())
+
+        mock_bd_available.assert_not_called()
+        mock_run.assert_not_called()
 
     @mock.patch("subprocess.run")
     def test_two_completed_plans_closes_four_ids_in_one_call(self, mock_run):

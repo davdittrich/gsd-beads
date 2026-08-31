@@ -1687,6 +1687,15 @@ def _compute_diverged(rows, ordinal_map, completed_ids):
     return diverged_count, task_status_by_id
 
 
+def _completed_task_authority_error(task):
+    """Return why a parsed completed task cannot safely authorize a bd close."""
+    if not task["attributes_valid"] or task["type_attribute_count"] > 1:
+        return "task opening attributes are malformed or duplicated"
+    if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
+        return f"unsafe beads-id {task['beads_id']!r}"
+    return None
+
+
 def find_completed_task_ids(phase_dir, plan_id):
     """Return (task_ids, skipped_count) for one plan in a wave.
 
@@ -1706,6 +1715,12 @@ def find_completed_task_ids(phase_dir, plan_id):
     ids = []
     skipped = 0
     for task in tasks:
+        authority_error = _completed_task_authority_error(task)
+        if authority_error:
+            raise ValueError(
+                f"completed-task authority invalid in {plan_path.name} "
+                f"for task {task['name']!r}: {authority_error}"
+            )
         if task["beads_id"]:
             ids.append(task["beads_id"])
         else:
@@ -1745,10 +1760,25 @@ def filter_open_ids(ids):
 
 
 def close_wave(phase_dir_arg, plan_ids):
+    phase_dir = Path(phase_dir_arg).resolve()
+
+    all_ids = []
+    skipped_total = 0
+    plan_counts = []
+    try:
+        for plan_id in plan_ids:
+            ids, skipped = find_completed_task_ids(phase_dir, plan_id)
+            all_ids.extend(ids)
+            skipped_total += skipped
+            plan_counts.append((plan_id, len(ids)))
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"close-wave: {exc}", file=sys.stderr)
+        return 1
+
     if not bd_available():
         print(NOTICE)
         try:
-            project_root = find_project_root(Path(phase_dir_arg).resolve())
+            project_root = find_project_root(phase_dir)
         except ValueError:
             project_root = None
         if project_root is not None:
@@ -1757,17 +1787,6 @@ def close_wave(phase_dir_arg, plan_ids):
                 "bd unavailable -- beads-status close-wave skipped (B6/D-08)",
             )
         return 0
-
-    phase_dir = Path(phase_dir_arg).resolve()
-
-    all_ids = []
-    skipped_total = 0
-    plan_counts = []
-    for plan_id in plan_ids:
-        ids, skipped = find_completed_task_ids(phase_dir, plan_id)
-        all_ids.extend(ids)
-        skipped_total += skipped
-        plan_counts.append((plan_id, len(ids)))
 
     # De-duplicate while preserving order, in case the same task id is
     # somehow named twice across the wave's plans.
@@ -1795,10 +1814,23 @@ def reconcile_stale_closed(phase_dir_arg):
     given. A repeat call over an already-reconciled phase issues zero `bd
     close` calls, because filter_open_ids re-queries bd's live status before
     closing (B5)."""
+    phase_dir = Path(phase_dir_arg).resolve()
+    plan_ids = discover_plan_files(phase_dir)
+    completed_ids = set()
+    skipped_total = 0
+    try:
+        for plan_id in plan_ids:
+            ids, skipped = find_completed_task_ids(phase_dir, plan_id)
+            completed_ids.update(ids)
+            skipped_total += skipped
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        print(f"reconcile-stale-closed: {exc}", file=sys.stderr)
+        return 1
+
     if not bd_available():
         print(NOTICE)
         try:
-            project_root = find_project_root(Path(phase_dir_arg).resolve())
+            project_root = find_project_root(phase_dir)
         except ValueError:
             project_root = None
         if project_root is not None:
@@ -1808,15 +1840,7 @@ def reconcile_stale_closed(phase_dir_arg):
             )
         return 0
 
-    phase_dir = Path(phase_dir_arg).resolve()
-
-    plan_ids = discover_plan_files(phase_dir)
-    skipped_total = 0
-    for plan_id in plan_ids:
-        _, skipped = find_completed_task_ids(phase_dir, plan_id)
-        skipped_total += skipped
-
-    completed_ids = sorted(_resolve_completed_task_ids(phase_dir))
+    completed_ids = sorted(completed_ids)
     to_close = filter_open_ids(completed_ids)
 
     if to_close:
