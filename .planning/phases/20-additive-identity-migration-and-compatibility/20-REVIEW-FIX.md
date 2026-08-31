@@ -1,10 +1,10 @@
 ---
 phase: 20-additive-identity-migration-and-compatibility
-fixed_at: 2026-08-31T21:26:00+02:00
+fixed_at: 2026-08-31T22:03:49+02:00
 review_path: .planning/phases/20-additive-identity-migration-and-compatibility/20-REVIEW.md
-iteration: 1
-findings_in_scope: 3
-fixed: 3
+iteration: 2
+findings_in_scope: 4
+fixed: 4
 skipped: 0
 status: all_fixed
 ---
@@ -13,45 +13,52 @@ status: all_fixed
 
 ## Fixed Issues
 
-### CR-01: Migration projected unvalidated and unverified Beads identities
+### CR-01: Late authority failure left an earlier created issue unbound
 
 **Files modified:**
 
 - `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py`
 - `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py`
 
-**Commits:** `c1d37a0`, `cf73aa4`  
-**Applied fix:** Reused the Phase 19 safe-ID grammar and exact
-`bd show --json` envelope contract before native projection. Unsafe stored IDs
-never reach `bd`; mismatched or malformed authority and unsafe create output
-leave plan bytes unchanged. Legacy live-authority mocks now return the exact
-requested issue ID.
+**Commit:** `722c1f5`  
+**Applied fix:** Every bound task is now read-only validated before epic or task
+creation. Verified results are reused during mutation. A two-task public-boundary
+test proves malformed later authority yields zero creates, zero writes, and
+unchanged plan bytes.
 
-### CR-02: Migration rewrote unrelated CRLF bytes
-
-**Files modified:**
-
-- `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py`
-- `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py`
-
-**Commit:** `280bb0b`  
-**Applied fix:** Read and write plans with newline translation disabled, made
-frontmatter parsing accept CRLF, and preserved the document's newline sequence
-when inserting frontmatter. A raw-byte regression proves that only the two
-expected identity attributes change, with one audited write.
-
-### CR-03: Preflight accepted non-exact tracker identity syntax
+### CR-02: Prefixed task type was treated as exact
 
 **Files modified:**
 
 - `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py`
 - `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py`
 
-**Commit:** `4fe77b0`  
-**Applied fix:** Exact `tracker-id` recognition is now case-sensitive and
-whitespace-delimited, retains the raw value, and separately detects tracker-like
-attributes. Prefixed names, case variants, padded values, duplicates, conflicts,
-and authority-free markers fail before Beads mutation or plan write.
+**Commit:** `256a623`  
+**Applied fix:** Task type matching is whitespace-delimited, case-sensitive, and
+restricted to the opening tag. `data-type`, `TYPE`, missing, partial, checkpoint,
+and unknown types remain byte-identical.
+
+### CR-03: No-write tests spied an obsolete writer
+
+**File modified:**
+`plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py`  
+**Commit:** `4da6708`  
+**Applied fix:** Negative and no-op controls now reuse one `Path.open` spy and
+assert zero mode-`w` calls. The positive control proves the same spy observes
+exactly one write.
+
+### CR-04: Sync documentation contradicted runtime behavior
+
+**Files modified:**
+
+- `plugins/beads-lifecycle/.gsd/capabilities/beads/skills/beads-sync/SKILL.md`
+- `plugins/beads-lifecycle/.agents/skills/beads/PRIME.md`
+
+**Commit:** `a10b3be`  
+**Applied fix:** Both operator documents now state that `<beads-id>` remains
+authoritative, bound IDs are verified before mutation, exact `auto` and `tracer`
+tasks receive deterministic native identity, and excluded task types remain
+unchanged.
 
 ## Skipped Issues
 
@@ -63,13 +70,14 @@ None.
 TMPDIR=/run/user/1000/codex-scratch-01a0583c-f3f3-76e2-98c3-a0d64094c310 \
 PYTHONDONTWRITEBYTECODE=1 \
 python3 -m unittest discover -s tests -t tests
-Ran 287 tests in 8.867s
+Ran 288 tests in 8.614s
 OK
 ```
 
-The compliant run used only the mandated session scratch directory.
+`py_compile` and `git diff --check` also passed. The test run used only the
+mandated session scratch directory.
 
 ---
 
-_Fixed: 2026-08-31T21:26:00+02:00_  
-_Iteration: 1_
+_Fixed: 2026-08-31T22:03:49+02:00_  
+_Iteration: 2_
