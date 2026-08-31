@@ -1384,14 +1384,23 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         root = self.CAPABILITY_PATH.parents[5]
         changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
         readme = (root / "README.md").read_text(encoding="utf-8")
+        readme_prose = " ".join(readme.split())
         self.assertIn("## 0.5.0", changelog)
         self.assertIn("taskContentResolver", changelog)
         self.assertIn("description, read_first, verify, acceptance_criteria, and done", readme)
         self.assertIn("fails closed with no PLAN.md fallback", readme)
-        self.assertIn("inert until Phase 20 adds tracker-id", readme)
+        self.assertIn(
+            'Phase 20 now projects exact `auto` and `tracer` tasks as '
+            '`tracker-id="beads:<id>"` in tracked source',
+            readme_prose,
+        )
+        self.assertIn(
+            "an installed presence alone is still not cutover or byte-parity evidence",
+            readme_prose,
+        )
         self.assertIn(
             "Phase 21 owns exact tracked, project-installed, and global-installed byte parity, installed cutover, and Patch 2 retirement",
-            readme,
+            readme_prose,
         )
 
 
