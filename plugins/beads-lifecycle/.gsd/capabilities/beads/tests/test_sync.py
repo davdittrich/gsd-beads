@@ -1283,6 +1283,44 @@ class TestResolveTaskContent(unittest.TestCase):
                 self.assertLessEqual(len(err), 2000)
 
 
+class TestTaskContentResolverManifest(unittest.TestCase):
+    """Tracked native resolver declaration stays inert until a later identity phase."""
+
+    CAPABILITY_PATH = Path(__file__).resolve().parent.parent / "capability.json"
+
+    def _manifest(self):
+        return json.loads(self.CAPABILITY_PATH.read_text(encoding="utf-8"))
+
+    def test_single_native_resolver_has_exact_invocation_contract(self):
+        manifest = self._manifest()
+        resolver = manifest["taskContentResolver"]
+        self.assertEqual(manifest["version"], "0.5.0")
+        self.assertEqual(resolver["trackerPrefix"], "beads")
+        self.assertEqual(resolver["invoke"]["binary"], "python3")
+        self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
+        self.assertEqual(resolver["invoke"]["timeoutMs"], 10000)
+        self.assertEqual(resolver["invoke"]["args"].count("{{id}}"), 1)
+        self.assertLess(8 * 1000, resolver["invoke"]["timeoutMs"])
+        bootstrap = resolver["invoke"]["args"][1]
+        self.assertNotIn("\\n", bootstrap)
+        self.assertIn("os.execv(sys.executable", bootstrap)
+        self.assertIn('"resolve-task-content", sys.argv[1]', bootstrap)
+
+    def test_release_docs_keep_source_availability_distinct_from_cutover(self):
+        root = self.CAPABILITY_PATH.parents[5]
+        changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn("## 0.5.0", changelog)
+        self.assertIn("taskContentResolver", changelog)
+        self.assertIn("description, read_first, verify, acceptance_criteria, and done", readme)
+        self.assertIn("fails closed with no PLAN.md fallback", readme)
+        self.assertIn("inert until Phase 20 adds tracker-id", readme)
+        self.assertIn(
+            "Phase 21 owns exact tracked, project-installed, and global-installed byte parity, installed cutover, and Patch 2 retirement",
+            readme,
+        )
+
+
 class TestCheckpointTaskDescription(unittest.TestCase):
     """CR-01: _checkpoint_task_description(task) renders a checkpoint task's
     decision/human-verify fields, mirroring _task_description's "## section,
