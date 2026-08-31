@@ -1229,6 +1229,37 @@ class TestResolveTaskContent(unittest.TestCase):
         code, out, err, _ = self._invoke(side_effect=OSError("bd unavailable"))
         self._assert_failure(code, out, err, "bd unavailable")
 
+    def test_malformed_read_first_fails_closed_at_public_main(self):
+        result = subprocess.CompletedProcess(
+            ["bd"],
+            0,
+            stdout=json.dumps(
+                [self._row(description="Leading prose.\n\n## Read First\nsrc/a.py\n")]
+            ),
+            stderr="",
+        )
+        code, out, err, _ = self._invoke(result)
+        self._assert_failure(code, out, err, "invalid read first")
+
+    def test_blank_description_fails_closed_at_public_main(self):
+        result = subprocess.CompletedProcess(
+            ["bd"], 0, stdout=json.dumps([self._row(description="")]), stderr=""
+        )
+        code, out, err, _ = self._invoke(result)
+        self._assert_failure(code, out, err, "invalid description")
+
+    def test_extracted_only_description_fails_closed_at_public_main(self):
+        description = (
+            "## Read First\n- src/a.py\n\n"
+            "## Verify\npython3 -m unittest\n\n"
+            "## Done\nAdapter resolves content.\n"
+        )
+        result = subprocess.CompletedProcess(
+            ["bd"], 0, stdout=json.dumps([self._row(description=description)]), stderr=""
+        )
+        code, out, err, _ = self._invoke(result)
+        self._assert_failure(code, out, err, "invalid description")
+
     def test_round_trip_emits_exact_five_key_json_and_typed_lists(self):
         result = subprocess.CompletedProcess(
             ["bd"], 0, stdout=json.dumps([self._row()]), stderr=""
