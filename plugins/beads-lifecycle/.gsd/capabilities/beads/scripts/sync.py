@@ -1877,6 +1877,13 @@ def create_issues(plan_arg, allow_strip=True):
     # RuntimeError raised by resolve_epic/resolve_issue below is exactly
     # that case: degrade to the same fail-open notice, not a crash.
     try:
+        verified_tasks = {}
+        for i, task in enumerate(tasks, start=1):
+            if task["beads_id"]:
+                verified_tasks[i] = resolve_issue(
+                    task, "", ordinal_prefix, i
+                )
+
         epic_id, epic_created, stale_epic_id = resolve_epic(
             frontmatter, roadmap_path, phase_num, plan_path.parent, project_root, objective
         )
@@ -1892,7 +1899,12 @@ def create_issues(plan_arg, allow_strip=True):
         task_ids = []
         divergences = []
         for i, task in enumerate(tasks, start=1):
-            issue_id, created, divergent = resolve_issue(task, epic_id, ordinal_prefix, i)
+            if i in verified_tasks:
+                issue_id, created, divergent = verified_tasks[i]
+            else:
+                issue_id, created, divergent = resolve_issue(
+                    task, epic_id, ordinal_prefix, i
+                )
             if created:
                 created_count += 1
                 task_updates.append((task["name_end"], issue_id))

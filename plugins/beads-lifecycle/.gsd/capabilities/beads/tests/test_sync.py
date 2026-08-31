@@ -2126,6 +2126,55 @@ class TestIdentityBinding(unittest.TestCase):
                 self.assertEqual(after, before)
                 self.assertNotIn(b"tracker-id", after)
 
+    def test_late_invalid_authority_prevents_every_create_and_write(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1).replace(
+            "</tasks>",
+            """<task type="auto">
+  <name>Task 2: Already bound</name>
+  <beads-id>mock-e1.2</beads-id>
+  <action>Keep authority exact.</action>
+</task>
+
+</tasks>""",
+            1,
+        )
+        fallback = _make_bd_side_effect()
+
+        def invalid_late_show(argv, **kwargs):
+            if argv[:3] == ["bd", "show", "mock-e1.2"]:
+                return _completed(0, stdout="{")
+            return fallback(argv, **kwargs)
+
+        real_open = Path.open
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            before = plan_copy.read_bytes()
+            with mock.patch.object(
+                sync, "run_bd", side_effect=invalid_late_show
+            ) as mock_run:
+                with mock.patch.object(sync, "append_state_blocker"):
+                    with mock.patch.object(
+                        Path, "open", autospec=True, side_effect=real_open
+                    ) as path_open:
+                        exit_code = sync.create_issues(
+                            str(plan_copy), allow_strip=False
+                        )
+            after = plan_copy.read_bytes()
+
+        create_calls = [
+            call.args[0]
+            for call in mock_run.call_args_list
+            if call.args[0][:2] == ["bd", "create"]
+        ]
+        write_calls = [
+            call for call in path_open.call_args_list if call.args[1] == "w"
+        ]
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(create_calls, [])
+        self.assertEqual(write_calls, [])
+        self.assertEqual(after, before)
+
     def test_unsafe_create_output_is_never_projected(self):
         base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
         plan_text = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
