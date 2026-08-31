@@ -1203,12 +1203,31 @@ class TestResolveTaskContent(unittest.TestCase):
         row.update(overrides)
         return row
 
-    def _invoke(self, result):
+    def _invoke(self, result=None, *, side_effect=None):
         out, err = io.StringIO(), io.StringIO()
-        with mock.patch.object(sync, "run_bd", return_value=result) as run, \
-             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        with mock.patch.object(
+            sync, "run_bd", return_value=result, side_effect=side_effect
+        ) as run, contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
             code = sync.main(["resolve-task-content", self.ISSUE_ID])
         return code, out.getvalue(), err.getvalue(), run
+
+    def _assert_failure(self, code, out, err, token):
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out, "")
+        self.assertNotIn("Implement the adapter.", out)
+        self.assertIn(token, err)
+        self.assertEqual(err.count("\n"), 1)
+        self.assertLessEqual(len(err), 2000)
+
+    def test_timeout_fails_closed_at_public_main(self):
+        code, out, err, _ = self._invoke(
+            side_effect=subprocess.TimeoutExpired(["bd"], 8)
+        )
+        self._assert_failure(code, out, err, "bd timeout")
+
+    def test_unavailable_bd_fails_closed_at_public_main(self):
+        code, out, err, _ = self._invoke(side_effect=OSError("bd unavailable"))
+        self._assert_failure(code, out, err, "bd unavailable")
 
     def test_round_trip_emits_exact_five_key_json_and_typed_lists(self):
         result = subprocess.CompletedProcess(
