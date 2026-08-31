@@ -63,7 +63,7 @@ TRACKER_ID_RE = re.compile(
 # a real executed PLAN.md, 16-RESEARCH.md Priority 3). Matched against the
 # whole plan text, not a TASK_RE block, unlike every regex above.
 OBJECTIVE_RE = re.compile(r"<objective>(.*?)</objective>", re.DOTALL)
-FRONTMATTER_RE = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
+FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.DOTALL)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
 # WR-04: the inline-bracket form above requires the value on the same line
@@ -307,7 +307,8 @@ def parse_plan(path):
     Anchors on `<name>...</name>` inside each `<task ...>...</task>` block --
     real PLAN.md files carry no markdown task heading to anchor on instead.
     """
-    text = Path(path).read_text(encoding="utf-8")
+    with Path(path).open("r", encoding="utf-8", newline="") as plan_file:
+        text = plan_file.read()
     fm_match = FRONTMATTER_RE.match(text)
     frontmatter = fm_match.group(1) if fm_match else ""
     tasks = []
@@ -1472,7 +1473,8 @@ def rewrite_plan(text, epic_id, epic_created, task_updates, native_updates):
     if epic_created:
         fm_match = FRONTMATTER_RE.match(text)
         insert_pos = fm_match.start(1)
-        text = text[:insert_pos] + f"beads_epic: {epic_id}\n" + text[insert_pos:]
+        newline = "\r\n" if text.startswith("---\r\n") else "\n"
+        text = text[:insert_pos] + f"beads_epic: {epic_id}{newline}" + text[insert_pos:]
     return text
 
 
@@ -1920,7 +1922,8 @@ def create_issues(plan_arg, allow_strip=True):
                     "leaving task content in PLAN.md (D-05: verify the patch before "
                     "trusting the strip)"
                 )
-        plan_path.write_text(new_text, encoding="utf-8")
+        with plan_path.open("w", encoding="utf-8", newline="") as plan_file:
+            plan_file.write(new_text)
 
     orphan_result = run_bd(["bd", "list", "--parent", epic_id, "--all", "--json"])
     if orphan_result.returncode == 0:

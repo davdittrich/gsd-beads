@@ -1718,6 +1718,36 @@ class TestIdentityBinding(unittest.TestCase):
             [],
         )
 
+    def test_existing_bound_crlf_plan_preserves_all_unrelated_bytes(self):
+        plan_text = (FIXTURES_DIR / "plan-synced.md").read_bytes().replace(
+            b"\n", b"\r\n"
+        )
+        plan_text = plan_text.replace(
+            b'<task type="auto">\r\n  <name>Task 2:',
+            b'<task type="tracer">\r\n  <name>Task 2:',
+        )
+        expected = plan_text.replace(
+            b'<task type="auto">',
+            b'<task type="auto" tracker-id="beads:tracer-f5x.1">',
+            1,
+        ).replace(
+            b'<task type="tracer">',
+            b'<task type="tracer" tracker-id="beads:tracer-f5x.2">',
+            1,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), "")
+            plan_copy.write_bytes(plan_text)
+            with mock.patch.object(
+                sync, "run_bd", side_effect=_make_bd_side_effect()
+            ):
+                exit_code = sync.create_issues(str(plan_copy))
+            actual = plan_copy.read_bytes()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(actual, expected)
+
     def test_already_canonical_bound_tasks_are_byte_and_write_noops(self):
         plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
         canonical = plan_text.replace(
@@ -1860,7 +1890,7 @@ class TestIdentityBinding(unittest.TestCase):
     def test_newly_created_auto_and_tracer_gain_both_identities_in_one_write(self):
         base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
         base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
-        real_write_text = Path.write_text
+        real_open = Path.open
 
         for task_type in ("auto", "tracer"):
             with self.subTest(task_type=task_type):
@@ -1882,11 +1912,8 @@ class TestIdentityBinding(unittest.TestCase):
                         sync, "run_bd", side_effect=_make_bd_side_effect()
                     ) as mock_run:
                         with mock.patch.object(
-                            Path,
-                            "write_text",
-                            autospec=True,
-                            side_effect=real_write_text,
-                        ) as write_text:
+                            Path, "open", autospec=True, side_effect=real_open
+                        ) as path_open:
                             exit_code = sync.create_issues(
                                 str(plan_copy), allow_strip=False
                             )
@@ -1900,7 +1927,10 @@ class TestIdentityBinding(unittest.TestCase):
                 ]
                 self.assertEqual(exit_code, 0)
                 self.assertEqual(actual, expected)
-                write_text.assert_called_once()
+                write_calls = [
+                    call for call in path_open.call_args_list if call.args[1] == "w"
+                ]
+                self.assertEqual(len(write_calls), 1)
                 self.assertEqual(len(task_creates), 1)
                 self.assertEqual(task_creates[0][-5:], ["--type", "task", "--parent", "mock-e1", "--silent"])
 
