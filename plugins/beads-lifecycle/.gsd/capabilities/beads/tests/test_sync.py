@@ -1178,6 +1178,111 @@ class TestTaskDescription(unittest.TestCase):
         self.assertNotIn("acceptance", description.lower())
 
 
+class TestResolveTaskContent(unittest.TestCase):
+    """Phase 19 public CLI boundary for one live Beads task."""
+
+    ISSUE_ID = "native-19"
+
+    def _row(self, **overrides):
+        task = _minimal_task(
+            read_first="src/a.py, src/a.py",
+            precondition="environment is ready",
+            behavior="keep behavior",
+            action="Implement the adapter.",
+            verify="python3 -m unittest\npython3 -m py_compile sync.py",
+            done="Adapter resolves content.",
+            files=["scripts/sync.py"],
+        )
+        row = {
+            "id": self.ISSUE_ID,
+            "description": "Leading prose.\n\n" + sync._task_description(task)
+            + "\n## Unknown\nKeep this authored section.\n"
+            + "\n## Acceptance Criteria\nRetained prose.\n",
+            "acceptance_criteria": "- first\r\n\n* second\n- first",
+        }
+        row.update(overrides)
+        return row
+
+    def _invoke(self, result):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sync, "run_bd", return_value=result) as run, \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = sync.main(["resolve-task-content", self.ISSUE_ID])
+        return code, out.getvalue(), err.getvalue(), run
+
+    def test_round_trip_emits_exact_five_key_json_and_typed_lists(self):
+        result = subprocess.CompletedProcess(
+            ["bd"], 0, stdout=json.dumps([self._row()]), stderr=""
+        )
+        code, out, err, run = self._invoke(result)
+        self.assertEqual(code, 0)
+        self.assertEqual(err, "")
+        self.assertEqual(run.call_args.args[0], ["bd", "show", self.ISSUE_ID, "--json"])
+        self.assertEqual(run.call_args.kwargs["timeout"], 8)
+        self.assertLess(8 * 1000, 10000)
+        body = json.loads(out)
+        self.assertEqual(
+            set(body),
+            {"description", "read_first", "verify", "acceptance_criteria", "done"},
+        )
+        self.assertEqual(body["read_first"], ["src/a.py", "src/a.py"])
+        self.assertEqual(body["acceptance_criteria"], ["first", "second", "first"])
+        self.assertIsInstance(body["read_first"], list)
+        self.assertIsInstance(body["acceptance_criteria"], list)
+        self.assertEqual(body["verify"], "python3 -m unittest\npython3 -m py_compile sync.py")
+        self.assertEqual(body["done"], "Adapter resolves content.")
+        self.assertIn("Leading prose.", body["description"])
+        self.assertIn("## Unknown", body["description"])
+        self.assertNotIn("## Read First", body["description"])
+        self.assertNotIn("## Verify", body["description"])
+        self.assertNotIn("## Done", body["description"])
+
+    def test_versioned_data_envelope_succeeds(self):
+        result = subprocess.CompletedProcess(
+            ["bd"], 0, stdout=json.dumps({"data": [self._row()]}), stderr=""
+        )
+        code, out, err, _ = self._invoke(result)
+        self.assertEqual((code, err), (0, ""))
+        self.assertEqual(json.loads(out)["read_first"], ["src/a.py", "src/a.py"])
+
+    def test_zero_exit_error_envelope_fails_closed(self):
+        result = subprocess.CompletedProcess(
+            ["bd"], 0, stdout=json.dumps({"error": "not found"}), stderr=""
+        )
+        code, out, err, _ = self._invoke(result)
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out, "")
+        self.assertIn("invalid envelope", err)
+        self.assertLessEqual(len(err), 2000)
+
+    def test_invalid_id_fails_without_subprocess(self):
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(sync, "run_bd") as run, \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = sync.main(["resolve-task-content", "../bad"])
+        self.assertNotEqual(code, 0)
+        self.assertEqual(out.getvalue(), "")
+        self.assertIn("invalid id", err.getvalue())
+        run.assert_not_called()
+
+    def test_failure_arms_remain_individual_and_fail_closed(self):
+        cases = (
+            ("nonzero", subprocess.CompletedProcess(["bd"], 1, stdout="", stderr="no"), "bd failed"),
+            ("bad-json", subprocess.CompletedProcess(["bd"], 0, stdout="{", stderr=""), "invalid json"),
+            ("row-count", subprocess.CompletedProcess(["bd"], 0, stdout="[]", stderr=""), "invalid envelope"),
+            ("wrong-id", subprocess.CompletedProcess(["bd"], 0, stdout=json.dumps([self._row(id="other")]), stderr=""), "id mismatch"),
+            ("wrong-criteria", subprocess.CompletedProcess(["bd"], 0, stdout=json.dumps([self._row(acceptance_criteria={})]), stderr=""), "invalid acceptance"),
+            ("duplicate-heading", subprocess.CompletedProcess(["bd"], 0, stdout=json.dumps([self._row(description=self._row()["description"] + "\n## Done\nAgain")]), stderr=""), "duplicate heading"),
+        )
+        for name, result, token in cases:
+            with self.subTest(name=name):
+                code, out, err, _ = self._invoke(result)
+                self.assertNotEqual(code, 0)
+                self.assertEqual(out, "")
+                self.assertIn(token, err)
+                self.assertLessEqual(len(err), 2000)
+
+
 class TestCheckpointTaskDescription(unittest.TestCase):
     """CR-01: _checkpoint_task_description(task) renders a checkpoint task's
     decision/human-verify fields, mirroring _task_description's "## section,
