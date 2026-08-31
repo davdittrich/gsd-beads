@@ -2251,7 +2251,7 @@ class TestIdempotency(unittest.TestCase):
                     ),
                 )
             if argv[:2] == ["bd", "show"]:
-                return _completed(0, stdout="{}\n")
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
             if argv[:2] == ["bd", "close"]:
                 return _completed(0)
             if argv[:3] == ["bd", "dep", "add"]:
@@ -2286,7 +2286,7 @@ class TestIdempotency(unittest.TestCase):
                     ),
                 )
             if argv[:2] == ["bd", "show"]:
-                return _completed(0, stdout="{}\n")
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
             if argv[:3] == ["bd", "dep", "add"]:
                 return _completed(0)
             return _completed(1, stderr=f"unexpected bd invocation: {argv}")
@@ -2308,7 +2308,7 @@ class TestIdempotency(unittest.TestCase):
             if argv[:2] == ["bd", "show"] and argv[2] == "tracer-f5x.1":
                 return _completed(1, stderr="no issue found matching tracer-f5x.1")
             if argv[:2] == ["bd", "show"]:
-                return _completed(0, stdout="{}\n")
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
             if argv[:2] == ["bd", "list"]:
                 return _completed(0, stdout="[]\n")
             if argv[:3] == ["bd", "dep", "add"]:
@@ -2341,7 +2341,7 @@ class TestIdempotency(unittest.TestCase):
             if argv[:2] == ["bd", "show"] and argv[2] == "tracer-f5x":
                 return _completed(1, stderr="no issue found matching tracer-f5x")
             if argv[:2] == ["bd", "show"]:
-                return _completed(0, stdout="{}\n")
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
             if argv[:2] == ["bd", "list"]:
                 return _completed(0, stdout="[]\n")
             if argv[:2] == ["bd", "create"]:
@@ -2443,7 +2443,7 @@ Plan B: same shared epic as plan A, one task not yet synced.
 
         def _side_effect(argv, **kwargs):
             if argv[:2] == ["bd", "show"]:
-                return _completed(0, stdout="{}\n")
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
             if argv[:2] == ["bd", "create"] and "--type" in argv:
                 if argv[argv.index("--type") + 1] == "task":
                     return _completed(0, stdout="shared-epic-01.2\n")
