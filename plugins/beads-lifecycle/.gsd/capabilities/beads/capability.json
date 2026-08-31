@@ -1,7 +1,15 @@
 {
   "id": "beads",
   "role": "feature",
-  "version": "0.4.0",
+  "version": "0.5.0",
+  "taskContentResolver": {
+    "trackerPrefix": "beads",
+    "invoke": {
+      "binary": "python3",
+      "args": ["-c", "import os,sys;from pathlib import Path;root=Path(os.environ.get('GSD_HOME',str(Path.home())));script=root/'.gsd'/'capabilities'/'beads'/'scripts'/'sync.py';os.execv(sys.executable,[sys.executable,str(script),\"resolve-task-content\", sys.argv[1]])", "{{id}}"],
+      "timeoutMs": 10000
+    }
+  },
   "title": "Beads issue tracking",
   "description": "Beads is the task substrate: gsd plan tasks exist as beads issues, their status lives in beads.",
   "tier": "full",
