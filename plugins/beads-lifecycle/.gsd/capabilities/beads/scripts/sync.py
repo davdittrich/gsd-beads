@@ -54,7 +54,6 @@ RESUME_SIGNAL_RE = re.compile(r"<resume-signal>(.*?)</resume-signal>", re.DOTALL
 # than a tag body -- run it against a TASK_RE match's whole block
 # (m.group(0)), same way NAME_RE.search(block) etc. already run (D-03).
 TASK_OPEN_TAG_RE = re.compile(_TASK_OPEN_PATTERN)
-TASK_TYPE_RE = re.compile(r'(?<=\s)type="([^"]*)"')
 # 16-01 Task 2 (D-06): <objective> is plan-level only -- it appears exactly
 # once per PLAN.md, before <tasks>, and never inside an individual <task>
 # block (verified against gsd-core's canonical phase-prompt.md template and
@@ -1574,8 +1573,15 @@ def strip_task_bodies(text, stripped_ids):
     matches = list(TASK_RE.finditer(text))
     for m in reversed(matches):
         block = m.group(0)
-        type_m = TASK_TYPE_RE.search(block)
-        task_type = type_m.group(1).strip() if type_m else None
+        opening_tag_m = TASK_OPEN_TAG_RE.match(block)
+        opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
+        attributes, attributes_valid = _scan_task_attributes(opening_tag)
+        type_attributes = [attribute for attribute in attributes if attribute[0] == "type"]
+        task_type = (
+            type_attributes[0][1]
+            if attributes_valid and len(type_attributes) == 1
+            else None
+        )
         if task_type not in ("auto", "tracer"):
             continue
         id_m = BEADS_ID_RE.search(block)

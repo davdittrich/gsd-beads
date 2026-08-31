@@ -876,7 +876,7 @@ TestStripTaskBodies.
   <name>Task 6: No type attribute at all</name>
   <beads-id>fixture-6</beads-id>
   <files>src/example.py</files>
-  <action>Untyped task body -- must never be treated as auto.</action>
+  <action>Literal type="auto" text -- must never classify this task.</action>
   <verify>python3 -m py_compile src/example.py</verify>
   <done>Done.</done>
 </task>
@@ -1031,6 +1031,30 @@ class TestCreateIssuesStripGate(unittest.TestCase):
         mock_check.assert_called()
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
         self.assertNotIn("<action>", written)
+        self.assertIn("<beads-id>", written)
+
+    @mock.patch("sync.check_execute_plan_patch")
+    @mock.patch("subprocess.run")
+    def test_patch_present_preserves_untyped_body_with_type_text(
+        self, mock_run, mock_check
+    ):
+        mock_run.side_effect = _make_bd_side_effect()
+        mock_check.return_value = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+            plan_text = plan_text.replace('<task type="auto">', "<task>", 1).replace(
+                "<action>Implement the thing.</action>",
+                '<action>Keep literal type="auto" text.</action>',
+                1,
+            )
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            exit_code = sync.create_issues(str(plan_copy))
+            written = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        mock_check.assert_called()
+        self.assertNotIn(sync.TASK_POINTER_PREFIX, written)
+        self.assertIn('<action>Keep literal type="auto" text.</action>', written)
         self.assertIn("<beads-id>", written)
 
     @mock.patch("sync.check_execute_plan_patch")
