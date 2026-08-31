@@ -71,8 +71,10 @@ gsd-core's own lifecycle commands drive `bd` state directly:
 4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
    refuse to ship while `blocking_open` or `diverged` is non-zero.
 
-Steps 1–3 run from a `PostToolUse` hook the plugin installs; step 4 runs from gsd-core itself.
-That split is not cosmetic — see [How the lifecycle steps get dispatched](#how-the-lifecycle-steps-get-dispatched).
+gsd-core dispatches `plan:post` and `verify:post` natively. The plugin's `PostToolUse`
+compatibility hook handles `plan:pre`, `execute:wave:pre`, and `execute:wave:post`;
+the installed gsd-core patch handles `ship:pre`. See
+[How the lifecycle steps get dispatched](#how-the-lifecycle-steps-get-dispatched).
 
 The bare `bd` CLI still works as a manual escape hatch for inspecting or driving the same
 issues by hand between lifecycle steps:
@@ -88,7 +90,7 @@ See `AGENTS.md` in this repo for the full command reference.
 ### How the lifecycle steps get dispatched
 
 `capability.json` declares six `kind: "step"` hooks, one per lifecycle
-point. Current gsd-core dispatches `plan:post` and `verify:post` steps
+point. gsd-core dispatches `plan:post` and `verify:post` steps
 natively. The compatibility dispatcher probes the installed workflow files at
 those two points and stands down when native dispatch is present, preventing
 duplicate `bd` mutations.
@@ -107,7 +109,7 @@ The equivalent manual invocation, for a runtime with no `PostToolUse` support or
 point by hand:
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py lifecycle-dispatch plan:post
+python3 .gsd/capabilities/beads/scripts/sync.py lifecycle-dispatch plan:pre
 ```
 
 Valid points are `plan:pre`, `plan:post`, `execute:wave:pre`, `execute:wave:post` and
@@ -222,14 +224,14 @@ claude plugin uninstall beads-lifecycle@gsd-beads -y
   call fails, and every gsd lifecycle step that reads live `bd` state degrades to a no-op
   with a visible notice instead of crashing — beads support is fail-open by design, not a
   hard dependency.
-- **Five of the six lifecycle points are dispatched by a Claude Code `PostToolUse` hook, not by
-  gsd-core.** gsd-core has no generic `kind: "step"` dispatch at those points (see [How the
-  lifecycle steps get dispatched](#how-the-lifecycle-steps-get-dispatched)). On a runtime with no
-  `PostToolUse` support, those five points stay undispatched and only `ship:pre` runs — drive the
-  rest with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre` `<beads_status>` block is
-  phase-wide rather than wave-scoped for the same reason: the hook's trigger carries no wave
-  plan-id list. That is a superset of the wave's issues, so no ticket pointer is lost, just less
-  narrowly scoped.
+- **Lifecycle dispatch uses three mechanisms.** gsd-core natively dispatches `plan:post` and
+  `verify:post`; the installed patch dispatches `ship:pre`; the Claude Code `PostToolUse`
+  compatibility hook dispatches `plan:pre`, `execute:wave:pre`, and `execute:wave:post`. On a
+  runtime without `PostToolUse`, the native and patched points still run; drive the three
+  compatibility points with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre`
+  `<beads_status>` block is phase-wide because the compatibility trigger carries no wave plan-id
+  list. That is a superset of the wave's issues, so no ticket pointer is lost, just less narrowly
+  scoped.
 - **This repository's own beads backend is Dolt-only.** There is no `.beads/issues.jsonl`
   passive export file in this repo at all — not merely a stale one. Dolt is the sole store;
   `bd dolt push`/`pull` is the sync path.

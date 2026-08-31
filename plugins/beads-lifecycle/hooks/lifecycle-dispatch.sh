@@ -1,13 +1,10 @@
 #!/usr/bin/env bash
-# gh-2: dispatch this capability's lifecycle steps from a PostToolUse hook.
+# gh-2: compatibility-dispatch this capability's non-native lifecycle steps.
 #
-# gsd-core 1.10.0 declares six `kind: "step"` hooks in capability.json and
-# reaches exactly one (`ship:pre`, via GSD-CORE-PATCH.md). At the other five it
-# renders the hook JSON and discards every step entry -- silently, since every
-# hook is `onError: "skip"`. What it still does at all five is run
-# `gsd_run loop render-hooks <point> --raw`, so this hook keys on that call and
-# runs the operation itself. The trigger is one gsd-core must keep making for
-# its own hook system to work, so a gsd-core update cannot strip it.
+# gsd-core dispatches `plan:post` and `verify:post` natively. This PostToolUse
+# hook handles `plan:pre`, `execute:wave:pre`, and `execute:wave:post` by
+# matching their `gsd_run loop render-hooks <point> --raw` calls. The installed
+# GSD-CORE-PATCH.md step-dispatch patch handles `ship:pre`.
 #
 # Wired as `matcher: "Bash"`, so this runs after EVERY Bash tool call in every
 # session, and the payload carries the tool's full output -- megabytes, at

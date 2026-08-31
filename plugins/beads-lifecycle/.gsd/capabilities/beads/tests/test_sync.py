@@ -1409,6 +1409,9 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         prime = (
             root / "plugins/beads-lifecycle/.agents/skills/beads/PRIME.md"
         ).read_text(encoding="utf-8")
+        lifecycle_hook = (
+            root / "plugins/beads-lifecycle/hooks/lifecycle-dispatch.sh"
+        ).read_text(encoding="utf-8")
         for document in (readme, prime):
             prose = " ".join(document.split())
             self.assertIn(
@@ -1425,6 +1428,26 @@ class TestTaskContentResolverManifest(unittest.TestCase):
             "still dispatch natively",
             " ".join(prime.split()),
         )
+        readme_prose = " ".join(readme.split())
+        hook_prose = " ".join(lifecycle_hook.split())
+        self.assertIn(
+            "gsd-core dispatches `plan:post` and `verify:post` natively",
+            hook_prose,
+        )
+        self.assertIn(
+            "`plan:pre`, `execute:wave:pre`, and `execute:wave:post`",
+            hook_prose,
+        )
+        self.assertIn("`ship:pre`", hook_prose)
+        self.assertNotIn("Steps 1–3 run from a `PostToolUse` hook", readme_prose)
+        self.assertNotIn("Current gsd-core dispatches", readme_prose)
+        self.assertNotIn("Five of the six lifecycle points", readme_prose)
+        self.assertNotIn("gsd-core has no generic `kind: \"step\"` dispatch", readme_prose)
+        self.assertNotIn("gsd-core 1.10.0", hook_prose)
+        self.assertNotIn("reaches exactly one (`ship:pre`", hook_prose)
+        self.assertNotIn("At the other five", hook_prose)
+
+
 class TestCheckpointTaskDescription(unittest.TestCase):
     """CR-01: _checkpoint_task_description(task) renders a checkpoint task's
     decision/human-verify fields, mirroring _task_description's "## section,
