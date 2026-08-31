@@ -2227,6 +2227,14 @@ class TestIdentityBinding(unittest.TestCase):
             "  <name>Task 6: Unknown type</name>\n"
             "  <beads-id>mock-e1.6</beads-id>\n"
             "</task>",
+            '<task data-type="auto">\n'
+            "  <name>Task 7: Prefixed type</name>\n"
+            "  <beads-id>mock-e1.7</beads-id>\n"
+            "</task>",
+            '<task TYPE="auto">\n'
+            "  <name>Task 8: Case variant type</name>\n"
+            "  <beads-id>mock-e1.8</beads-id>\n"
+            "</task>",
         )
         plan_text = plan_text.replace(
             "</tasks>", "\n\n" + "\n\n".join(excluded) + "\n\n</tasks>", 1

@@ -52,7 +52,7 @@ RESUME_SIGNAL_RE = re.compile(r"<resume-signal>(.*?)</resume-signal>", re.DOTALL
 # TASK_TYPE_RE is the only regex here that reads an XML *attribute* rather
 # than a tag body -- run it against a TASK_RE match's whole block
 # (m.group(0)), same way NAME_RE.search(block) etc. already run (D-03).
-TASK_TYPE_RE = re.compile(r'<task\b[^>]*\btype="([^"]*)"')
+TASK_TYPE_RE = re.compile(r'(?<=\s)type="([^"]*)"')
 TASK_OPEN_TAG_RE = re.compile(r"<task\b[^>]*>")
 TRACKER_ID_RE = re.compile(
     r'''(?<=\s)tracker-id\s*=\s*(?:"([^"]*)"|'([^']*)')'''
@@ -323,7 +323,7 @@ def parse_plan(path):
         name_m = NAME_RE.search(block)
         id_m = BEADS_ID_RE.search(block)
         files_m = FILES_RE.search(block)
-        type_m = TASK_TYPE_RE.search(block)
+        type_m = TASK_TYPE_RE.search(opening_tag)
         tracker_ids = [
             next(group for group in tracker_m.groups() if group is not None)
             for tracker_m in TRACKER_ID_RE.finditer(opening_tag)
