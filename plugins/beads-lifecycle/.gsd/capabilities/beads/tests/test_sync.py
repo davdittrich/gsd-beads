@@ -1832,6 +1832,16 @@ class TestIdentityBinding(unittest.TestCase):
                 '<task type="auto" tracker-id=" beads:tracer-f5x.1 ">',
                 1,
             ),
+            "duplicate-type": base.replace(
+                '<task type="auto">',
+                '<task type="auto" type="tracer">',
+                1,
+            ),
+            "unquoted-type": base.replace(
+                '<task type="auto">',
+                '<task type=auto>',
+                1,
+            ),
         }
 
         for label, plan_text in cases.items():
@@ -2253,6 +2263,63 @@ class TestIdentityBinding(unittest.TestCase):
             '<task type="auto" tracker-id="beads:mock-e1.1">', actual
         )
         self.assertIn("  <beads-id>mock-e1.1</beads-id>", actual)
+
+    def test_quote_aware_task_and_attribute_boundaries(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1).replace(
+            "  <name>Task 1: Do the thing</name>",
+            "  <name>Task 1: Do the thing</name>\n"
+            "  <beads-id>mock-e1.1</beads-id>",
+            1,
+        )
+        quoted_type = base.replace(
+            '<task type="auto">', '<task note=\' type="auto"\'>'
+        )
+        quoted_tracker = base.replace(
+            '<task type="auto">',
+            '<task type="auto" note=\' tracker-id="beads:mock-e1.1"\'>',
+        )
+        task_extra = base.replace(
+            '<task type="auto">', '<task-extra type="auto">'
+        )
+        quoted_greater_than = base.replace(
+            '<task type="auto">', '<task type="auto" note="x > y">'
+        )
+        cases = {
+            "quoted-type": (quoted_type, quoted_type),
+            "quoted-tracker": (
+                quoted_tracker,
+                quoted_tracker.replace(
+                    '<task type="auto" '
+                    'note=\' tracker-id="beads:mock-e1.1"\'>',
+                    '<task type="auto" tracker-id="beads:mock-e1.1" '
+                    'note=\' tracker-id="beads:mock-e1.1"\'>',
+                    1,
+                ),
+            ),
+            "task-extra": (task_extra, task_extra),
+            "quoted-greater-than": (
+                quoted_greater_than,
+                quoted_greater_than.replace(
+                    '<task type="auto" note="x > y">',
+                    '<task type="auto" tracker-id="beads:mock-e1.1" note="x > y">',
+                    1,
+                ),
+            ),
+        }
+
+        for label, (plan_text, expected) in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    with mock.patch.object(
+                        sync, "run_bd", side_effect=_make_bd_side_effect()
+                    ):
+                        exit_code = sync.create_issues(str(plan_copy))
+                    actual = plan_copy.read_text(encoding="utf-8")
+
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(actual, expected)
 
 
 class TestIdempotency(unittest.TestCase):

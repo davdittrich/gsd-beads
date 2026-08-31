@@ -23,7 +23,8 @@ GIT_TIMEOUT = 15  # seconds; bounded timeout on every git subprocess call (ship_
 NOTICE = "bd unavailable -- sync skipped"
 BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 
-TASK_RE = re.compile(r"<task\b[^>]*>.*?</task>", re.DOTALL)
+_TASK_OPEN_PATTERN = r'''<task(?=[\s>])(?:"[^"]*"|'[^']*'|[^'">])*>'''
+TASK_RE = re.compile(_TASK_OPEN_PATTERN + r".*?</task>", re.DOTALL)
 NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
 BEADS_ID_RE = re.compile(r"<beads-id>(.*?)</beads-id>", re.DOTALL)
 FILES_RE = re.compile(r"<files>(.*?)</files>", re.DOTALL)
@@ -52,15 +53,8 @@ RESUME_SIGNAL_RE = re.compile(r"<resume-signal>(.*?)</resume-signal>", re.DOTALL
 # TASK_TYPE_RE is the only regex here that reads an XML *attribute* rather
 # than a tag body -- run it against a TASK_RE match's whole block
 # (m.group(0)), same way NAME_RE.search(block) etc. already run (D-03).
+TASK_OPEN_TAG_RE = re.compile(_TASK_OPEN_PATTERN)
 TASK_TYPE_RE = re.compile(r'(?<=\s)type="([^"]*)"')
-TASK_OPEN_TAG_RE = re.compile(r"<task\b[^>]*>")
-TRACKER_ID_RE = re.compile(
-    r'''(?<=\s)tracker-id\s*=\s*(?:"([^"]*)"|'([^']*)')'''
-)
-TRACKER_ID_LIKE_RE = re.compile(
-    r'''(?<=\s)([^\s=]*tracker-id)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
-    re.IGNORECASE,
-)
 # 16-01 Task 2 (D-06): <objective> is plan-level only -- it appears exactly
 # once per PLAN.md, before <tasks>, and never inside an individual <task>
 # block (verified against gsd-core's canonical phase-prompt.md template and
@@ -305,6 +299,51 @@ def confined(root, *parts):
     return candidate
 
 
+def _scan_task_attributes(opening_tag):
+    """Return quote-aware ``(name, value, start, end)`` task attributes."""
+    if not opening_tag.startswith("<task"):
+        return [], False
+
+    attributes = []
+    i = len("<task")
+    limit = len(opening_tag)
+    delimiters = " \t\r\n=/>"
+    while i < limit:
+        while i < limit and opening_tag[i].isspace():
+            i += 1
+        if i < limit and opening_tag[i] == ">":
+            return attributes, True
+        if opening_tag.startswith("/>", i):
+            return attributes, True
+
+        name_start = i
+        while i < limit and opening_tag[i] not in delimiters:
+            i += 1
+        if i == name_start:
+            return attributes, False
+        name = opening_tag[name_start:i]
+        while i < limit and opening_tag[i].isspace():
+            i += 1
+        if i >= limit or opening_tag[i] != "=":
+            return attributes, False
+        i += 1
+        while i < limit and opening_tag[i].isspace():
+            i += 1
+        if i >= limit or opening_tag[i] not in ('"', "'"):
+            return attributes, False
+        quote = opening_tag[i]
+        value_start = i + 1
+        value_end = opening_tag.find(quote, value_start)
+        if value_end == -1:
+            return attributes, False
+        attributes.append(
+            (name, opening_tag[value_start:value_end], name_start, value_end + 1)
+        )
+        i = value_end + 1
+
+    return attributes, False
+
+
 def parse_plan(path):
     """Return (full_text, frontmatter_body, [task dict, ...]).
 
@@ -320,16 +359,19 @@ def parse_plan(path):
         block = m.group(0)
         opening_tag_m = TASK_OPEN_TAG_RE.match(block)
         opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
+        attributes, attributes_valid = _scan_task_attributes(opening_tag)
         name_m = NAME_RE.search(block)
         id_m = BEADS_ID_RE.search(block)
         files_m = FILES_RE.search(block)
-        type_m = TASK_TYPE_RE.search(opening_tag)
-        tracker_ids = [
-            next(group for group in tracker_m.groups() if group is not None)
-            for tracker_m in TRACKER_ID_RE.finditer(opening_tag)
+        type_attributes = [attribute for attribute in attributes if attribute[0] == "type"]
+        tracker_attributes = [
+            attribute for attribute in attributes if attribute[0] == "tracker-id"
         ]
+        tracker_ids = [attribute[1] for attribute in tracker_attributes]
         tracker_id_candidates = [
-            tracker_m.group(0) for tracker_m in TRACKER_ID_LIKE_RE.finditer(opening_tag)
+            attribute
+            for attribute in attributes
+            if attribute[0].lower().endswith("tracker-id")
         ]
         read_first_m = READ_FIRST_RE.search(block)
         precondition_m = PRECONDITION_RE.search(block)
@@ -356,10 +398,16 @@ def parse_plan(path):
                 "name_end": m.start() + (name_m.end() if name_m else 0),
                 "beads_id": id_m.group(1).strip() if id_m else None,
                 "files": files,
-                "type": type_m.group(1).strip() if type_m else "",
+                "type": type_attributes[0][1] if len(type_attributes) == 1 else "",
+                "type_attribute_count": len(type_attributes),
+                "attributes_valid": attributes_valid,
                 "tracker_ids": tracker_ids,
                 "tracker_id_candidates": tracker_id_candidates,
-                "tracker_insert": m.start() + type_m.end() if type_m else None,
+                "tracker_insert": (
+                    m.start() + type_attributes[0][3]
+                    if len(type_attributes) == 1
+                    else None
+                ),
                 "read_first": read_first_m.group(1).strip() if read_first_m else "",
                 "precondition": precondition_m.group(1).strip() if precondition_m else None,
                 "behavior": behavior_m.group(1).strip() if behavior_m else "",
@@ -1815,6 +1863,13 @@ def create_issues(plan_arg, allow_strip=True):
     objective = objective_m.group(1).strip() if objective_m else ""
 
     for task in tasks:
+        if not task["attributes_valid"] or task["type_attribute_count"] > 1:
+            print(
+                f"native tracker identity preflight failed for task {task['name']!r}: "
+                "task opening attributes are malformed or duplicated",
+                file=sys.stderr,
+            )
+            return 1
         if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
             print(
                 f"native tracker identity preflight failed for task {task['name']!r}: "
