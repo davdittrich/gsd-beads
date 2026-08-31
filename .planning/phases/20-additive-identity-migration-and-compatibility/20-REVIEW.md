@@ -1,119 +1,127 @@
 ---
 phase: 20-additive-identity-migration-and-compatibility
-reviewed: 2026-08-31T17:28:39Z
+reviewed: 2026-08-31T19:42:31Z
 depth: deep
 files_reviewed: 2
 files_reviewed_list:
   - plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py
   - plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py
 findings:
-  critical: 3
+  critical: 4
   warning: 0
   info: 0
-  total: 3
+  total: 4
 status: issues_found
 ---
 
 # Phase 20: Code Review Report
 
-**Reviewed:** 2026-08-31T17:28:39Z  
-**Depth:** deep  
-**Files Reviewed:** 2  
+**Reviewed:** 2026-08-31T19:42:31Z
+**Depth:** deep
+**Files Reviewed:** 2
 **Status:** issues_found
 
 ## Summary
 
-Phase 20 must not ship. The additive splice is small and correctly orders offsets, but the migration path does not enforce the Phase 19 resolver's identity-validation boundary, text-mode I/O changes unrelated line-ending bytes, and the attribute scanner accepts lexical forms that the locked exact-attribute contract rejects. The supplied negative and byte-preservation tests cannot detect the first two failures.
+Phase 20 must not ship. The three earlier findings were repaired at their direct sites: unsafe IDs and malformed/mismatched `bd show` payloads are rejected, CRLF bytes survive the migration writer, and non-exact `tracker-id` spellings fail preflight. The fresh cross-task and lexical review nevertheless found four blockers: authority validation can still occur after an earlier issue was created, the type scanner treats `data-type="auto"` as an exact executable type, the no-write tests spy on a writer the implementation no longer calls, and the shipped sync skill still documents the pre-Phase-20 behavior.
+
+The requested aggregate `20-PLAN.md` and `20-SUMMARY.md` do not exist in the live phase directory. This review used `20-01-PLAN.md` and `20-01-SUMMARY.md`.
 
 ## Full-context evidence
 
-The review inspected the complete changed modules and traced these production paths:
+- Traced `parse_plan -> create_issues -> resolve_issue -> rewrite_plan -> Path.open("w")`, all named-field `parse_plan` consumers, preflight, epic/task mutation, divergence, stripping, orphan/dependency handling, the direct CLI, and `lifecycle_dispatch("plan:post")`.
+- Traced `capability.json` `taskContentResolver` -> installed gsd-core `parsePlanDocument`/`tagAttribute` -> `resolveTaskContent` -> `sync.py resolve-task-content` through active `/home/dd/projects/gsd-core/gsd-core/bin/gsd_run`.
+- Inspected the full identity/idempotence/fail-open/parser tests, fixtures, capability metadata, lifecycle hook/manifest, sync skill, PRIME, patch docs, CI, and fix commits `c1d37a0`, `cf73aa4`, `280bb0b`, `4fe77b0`.
+- Outside-repository scratch verification: `py_compile` passed; `TestIdentityBinding` passed 14/14; the full suite passed 287/287 in 9.168s; `git diff --check` passed.
+- Public-boundary harness reproduced `data_type={exit:0,migrated:true}` and `partial_mutation={exit:0,task_creates:1,plan_unchanged:true}`.
 
-- `parse_plan -> create_issues -> resolve_issue -> rewrite_plan -> Path.write_text`, including preflight, descending-offset insertion, task-body stripping, dependency updates, orphan reconciliation, and both the direct `create-issues` CLI and `plan:post` lifecycle dispatch.
-- Every production `parse_plan` consumer plus its direct test consumer. Existing callers consume named task keys; the additive keys do not break an exact-dict contract.
-- The Phase 19 native consumer path: `capability.json` `taskContentResolver` -> installed gsd-core `parsePlanDocument` -> tracker routing -> `sync.py resolve-task-content` -> `resolve_task_content`.
-- Related identity, idempotence, exclusion, parser-compatibility, failure, lifecycle, dependency, and orphan tests; `plan-synced.md` and `plan-single.md` fixtures; capability/config metadata; Beads sync/status documentation; and `.github/workflows/ci.yml` conventions.
-
-Ponytail lens: the chosen reuse of the existing parser/resolver/writer seam, Python standard library, and one descending splice list is the minimum mechanism. There is no new dependency, abstraction, or speculative pipeline to remove. The blockers below are trust-boundary and byte-contract defects; simplifying away their validation would make the implementation less correct, not more minimal.
+Ponytail lens: reuse of the existing parser/resolver/writer seam, stdlib, and installed parser is minimal. Fixes should stay in that seam; no serializer, second migrator, cache, registry, dependency, or writer abstraction is justified.
 
 ## Narrative Findings (AI reviewer)
 
 ## Critical Issues
 
-### CR-01: Migration projects unvalidated and unverified Beads identities
+### CR-01: A later authority failure leaves an earlier created issue unbound
 
-**Classification:** BLOCKER  
-**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:1366-1370,1389-1392,1847-1857`; `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py:81-85,1940-1953`  
-**Issue:** The migration trusts any existing identity whenever `bd show` exits zero and trusts task-create stdout verbatim:
-
-```python
-if task["beads_id"]:
-    check = run_bd(["bd", "show", task["beads_id"], "--json"])
-    if check.returncode != 0:
-        return task["beads_id"], False, True
-    return task["beads_id"], False, False
-```
+**Classification:** BLOCKER
+**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:1375-1396,1894-1914`; `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py:2094-2127`
+**Issue:** Authority validation is interleaved with mutation:
 
 ```python
-return result.stdout.strip(), True, False
+for i, task in enumerate(tasks, start=1):
+    issue_id, created, divergent = resolve_issue(task, epic_id, ordinal_prefix, i)
+    if created:
+        task_updates.append((task["name_end"], issue_id))
 ```
 
-That is weaker than the actual Phase 19 consumer, which first requires `SAFE_BD_ID_RE.fullmatch(issue_id)` and then validates JSON shape and `row.get("id") != issue_id` at lines 575-600. `create_issues` nevertheless queues every non-divergent value for `tracker-id` at lines 1852-1857. An existing `<beads-id>bad id</beads-id>` was therefore projected as `tracker-id="beads:bad id"` when the mock returned zero, while `resolve_task_content("bad id")` rejected it as `invalid id`. A real `bd show --help --json` also exits zero, so `<beads-id>--help</beads-id>` is interpreted as a CLI option and is treated as live authority by this path.
+A malformed later `bd show` raises at lines 1382-1396, but the handler discards `task_updates`, returns 0, and never binds the prior create:
 
-The test double reinforces the gap: successful `bd show` returns only `"{}\n"` at lines 81-82, a response the Phase 19 resolver rejects. The purported malformed arm changes two factors at once: lines 1940-1953 change the ID to `bad id` *and* force `bd show` to return nonzero. It therefore proves stale lookup behavior, not malformed-ID rejection when the command exits zero.
+```python
+except RuntimeError as exc:
+    print(NOTICE)
+    append_state_blocker(...)
+    return 0
+```
 
-**Fix:** Before any `bd show` call or native update, require the same `SAFE_BD_ID_RE.fullmatch` used by `resolve_task_content`. Validate successful `bd show --json` output as one record whose `id` exactly equals the requested ID. Apply the same grammar check to `bd create --silent` stdout before inserting either identity. Fail closed with no plan write on any invalid shape, mismatch, or unsafe value. Split the stale and malformed tests: keep a valid exact successful response constant in the malformed arm, assert an unsafe ID never reaches `run_bd`, and add invalid-JSON, mismatched-ID, and unsafe-create-output cases.
+A two-task public-boundary run created task 1, then received malformed JSON for bound task 2: `task_creates=1`, `plan_unchanged=true`, `exit=0`. The next run can create a duplicate. The one-task test at lines 2094-2127 cannot expose the ordering failure.
+
+**Fix:** Before `resolve_epic` or any create, read-only validate every existing task ID and exact `bd show --json` row. Retain verified results locally and let `resolve_issue` consume them. Add a two-task test with an unbound first task and malformed/mismatched bound second task; require zero creates, zero writes, and unchanged bytes.
 
 **Confidence:** 100/100.
 
-### CR-02: The migration rewrites unrelated CRLF bytes
+### CR-02: `data-type="auto"` is treated as an exact executable type
 
-**Classification:** BLOCKER  
-**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:310,1872-1895`; `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py:134-149,1685-1710`  
-**Issue:** The code reads and writes the whole plan in text mode:
-
-```python
-text = Path(path).read_text(encoding="utf-8")
-```
+**Classification:** BLOCKER
+**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:52-55,319-362,1825-1826,1899-1904`; `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py:2155-2201`
+**Issue:** The regex is not attribute-token delimited:
 
 ```python
-plan_path.write_text(new_text, encoding="utf-8")
+TASK_TYPE_RE = re.compile(r'<task\b[^>]*\btype="([^"]*)"')
 ```
 
-Python's text read performs universal-newline conversion. Once Phase 20 adds a missing native identity and reaches the write, every CRLF in the document is serialized as LF, despite `rewrite_plan` itself making only local string splices. An isolated CRLF plan containing nine CRLF sequences reproduced `before_crlf=9`, `after_crlf=0`, and `unrelated_bytes_preserved=False` after a successful existing-bound migration. This violates the locked local-splice/raw-byte contract and can create a whole-file diff unrelated to identity migration.
+`\btype` matches the suffix of `data-type`. A one-factor public-boundary run rewrote `<task data-type="auto">` as `<task data-type="auto" tracker-id="beads:tracer-f5x.1">`. This violates the exact allow-list and missing/partial/unknown byte-preservation contract. Existing tests cover missing `type`, `type="aut"`, and `type="manual"`, but not prefixed or case-variant names.
 
-The test helper writes fixtures through `plan_copy.write_text(plan_text, encoding="utf-8")` at line 149, while the migration assertion compares `read_text` results at lines 1685-1710. Both normalize line endings, so the test cannot observe this data change. The byte assertion at lines 1735-1745 covers only the already-canonical no-write path.
-
-**Fix:** Preserve newline bytes on the mutation path, minimally by opening with `newline=""` for both read and write (or by using a byte-preserving decode/splice/encode path) while retaining the existing descending offsets. Add a CRLF existing-bound fixture or construct CRLF bytes directly, invoke `create_issues`, and compare raw bytes against the original plus only the expected attribute insertion.
+**Fix:** Match a whitespace-delimited, case-sensitive type on `opening_tag`, e.g. `re.compile(r'(?<=\s)type="([^"]*)"')`, and derive the insertion offset from that exact match. Add `data-type="auto"`, `TYPE="auto"`, and missing-exact-type public controls; each must stay byte-identical with no native identity.
 
 **Confidence:** 100/100.
 
-### CR-03: Preflight does not recognize only exact `tracker-id` attributes or exact values
+### CR-03: No-write tests spy on an API production no longer calls
 
-**Classification:** BLOCKER  
-**File:** `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:57-59,322-325,1786-1813`  
-**Issue:** The scanner is deliberately broader than the locked lexical contract:
-
-```python
-TRACKER_ID_RE = re.compile(
-    r'''\btracker-id\s*=\s*(?:"([^"]*)"|'([^']*)')''', re.IGNORECASE
-)
-```
-
-and then normalizes the captured value:
+**Classification:** BLOCKER
+**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:1942-1943`; `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py:1763-1775,1827-1845,1957-1978,2000-2069`
+**Issue:** Production writes via:
 
 ```python
-next(group for group in tracker_m.groups() if group is not None).strip()
+with plan_path.open("w", encoding="utf-8", newline="") as plan_file:
+    plan_file.write(new_text)
 ```
 
-`\btracker-id` matches the suffix of `data-tracker-id`; an isolated parse confirmed that `<task type="auto" data-tracker-id="beads:issue-1">` produces `['beads:issue-1']`. `re.IGNORECASE` also accepts a differently cased name, and `.strip()` makes `tracker-id=" beads:issue-1 "` compare equal to the expected canonical value at lines 1806-1807. In each single-attribute case, preflight treats a non-exact representation as canonical and suppresses insertion of the required exact `tracker-id="beads:<id>"`. With both a prefixed attribute and a real attribute, it can instead report a false duplicate and halt.
+Six canonical/conflict/idempotence/stale/unavailable/failing controls still patch `Path.write_text` and assert it was not called. Those assertions cannot observe a rewrite. Byte equality detects changed output, not an identical truncate-and-rewrite, so the explicit no-write contract is unproved despite 287/287 green. This is a non-waivable TDD audit failure.
 
-**Fix:** Match an exact, case-sensitive `tracker-id` attribute token delimited by opening-tag whitespace, retain the raw value for exact comparison, and do not strip it. Add public-boundary tests for `data-tracker-id`, case variants, and leading/trailing value whitespace; each must fail preflight without a write or Beads mutation rather than count as canonical.
+**Fix:** Reuse the positive test's existing `Path.open` spy with the real method as `side_effect`; filter mode `"w"` calls and assert none in each negative/no-op arm. Retain a positive control proving the same spy observes exactly one write.
+
+**Confidence:** 100/100.
+
+### CR-04: Shipped sync documentation contradicts Phase 20 behavior
+
+**Classification:** BLOCKER
+**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/skills/beads-sync/SKILL.md:68-72`; `plugins/beads-lifecycle/.agents/skills/beads/PRIME.md:24-28`; `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:1375-1397,1894-1904`
+**Issue:** The skill says the synchronizer skips tasks already carrying `<beads-id>` and writes only `beads_epic` plus `<beads-id>`:
+
+```markdown
+resolves or creates one beads issue per task (skipping any task that
+already carries a `<beads-id>`), and rewrites the plan file in place with the resolved
+`beads_epic` frontmatter key and per-task `<beads-id>` elements.
+```
+
+Source now validates already-bound tasks and adds `tracker-id="beads:<id>"` for exact eligible tasks. `PRIME.md` also omits the new `plan:post` projection. These are executable operator/agent instructions; source/document divergence is non-waivable.
+
+**Fix:** Update both documents in the same fix commit: `<beads-id>` remains authoritative; bound tasks are verified, not skipped; exact auto/tracer tasks gain deterministic `tracker-id`; checkpoints/unknown types remain unchanged. Verify the wording against source.
 
 **Confidence:** 100/100.
 
 ---
 
-_Reviewed: 2026-08-31T17:28:39Z_  
-_Reviewer: gsd-code-reviewer_  
+_Reviewed: 2026-08-31T19:42:31Z_
+_Reviewer: gsd-code-reviewer_
 _Depth: deep_
