@@ -87,25 +87,21 @@ See `AGENTS.md` in this repo for the full command reference.
 
 ### How the lifecycle steps get dispatched
 
-`capability.json` declares six `kind: "step"` hooks, one per lifecycle point. gsd-core reaches
-exactly one of them on its own — `ship:pre`, and only because this capability patches a generic
-**step** dispatch loop into the installed `ship.md`. (The `ship:pre` **gate** half of that patch
-was retired at v1.3.2: gsd-core 1.11.0 dispatches every capability's declared `ship:pre` gate
-natively, via issue `#3559` / PR `#3608`.) At the other five points, gsd-core — 1.11.0
-included — resolves the hook JSON and then discards every `kind: "step"` entry: `plan:post` and `execute:wave:post` dispatch
-`kind == "gate"` entries only, `execute:wave:pre` checks solely for a *contribution*,
-`verify:post` hardcodes `ref.skill == "secure-phase"`, and `plan:pre`'s generic step contract
-sits behind an auto-chain + frontend-detection branch that a manual `/gsd:plan-phase` never
-enters. Every hook is `onError: skip`, so before v0.3.0 that miss was silent: a phase could plan
-and execute end-to-end with zero `bd` issues and nothing reporting it
-([#2](https://github.com/davdittrich/gsd-beads/issues/2)).
+`capability.json` declares six `kind: "step"` hooks, one per lifecycle
+point. Current gsd-core dispatches `plan:post` and `verify:post` steps
+natively. The compatibility dispatcher probes the installed workflow files at
+those two points and stands down when native dispatch is present, preventing
+duplicate `bd` mutations.
 
-What gsd-core does still do at each of those five points is run
-`gsd_run loop render-hooks <point> --raw`. The plugin ships a `PostToolUse` hook
-(`hooks/lifecycle-dispatch.sh`) that matches exactly that Bash call and runs the point's
-operation itself, returning any output through `hookSpecificOutput.additionalContext`. The
-trigger is a call gsd-core must keep making for its own hook system to work at all, so unlike a
-patched workflow file this cannot be silently dropped by a gsd-core update.
+The remaining compatibility points enter through
+`gsd_run loop render-hooks <point> --raw`. The plugin's `PostToolUse` hook
+(`hooks/lifecycle-dispatch.sh`) matches that Bash call and runs the declared
+operation for `plan:pre`, `execute:wave:pre`, and `execute:wave:post`.
+`ship:pre` remains covered by this capability's installed `ship.md`
+step-dispatch patch. Every hook is `onError: skip`; before v0.3.0 the missing
+compatibility dispatch was silent, so a phase could plan and execute end-to-end
+with zero `bd` issues and nothing reporting it
+([#2](https://github.com/davdittrich/gsd-beads/issues/2)).
 
 The equivalent manual invocation, for a runtime with no `PostToolUse` support or for driving a
 point by hand:

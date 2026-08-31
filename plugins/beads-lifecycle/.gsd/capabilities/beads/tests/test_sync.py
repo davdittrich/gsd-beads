@@ -4481,7 +4481,8 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             prev = Path.cwd()
             os.chdir(tmp)
             try:
-                yield phase_dir
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=0):
+                    yield phase_dir
             finally:
                 os.chdir(prev)
 
@@ -4603,7 +4604,8 @@ class TestLifecycleDispatchFailOpen(unittest.TestCase):
         prev = Path.cwd()
         os.chdir(tmp)
         try:
-            with mock.patch.object(sync, "beads_recall") as recall, \
+            with mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
+                 mock.patch.object(sync, "beads_recall") as recall, \
                  mock.patch.object(sync, "create_issues") as create, \
                  mock.patch.object(sync, "render_wave_status_block") as render, \
                  mock.patch.object(sync, "reconcile_stale_closed") as rec, \
@@ -4668,9 +4670,10 @@ class TestLifecycleDispatchFailOpen(unittest.TestCase):
             prev = Path.cwd()
             os.chdir(tmp)
             try:
-                with mock.patch.object(
-                    sync, "regenerate_beads_md", side_effect=RuntimeError("bd exploded")
-                ):
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
+                     mock.patch.object(
+                         sync, "regenerate_beads_md", side_effect=RuntimeError("bd exploded")
+                     ):
                     captured = io.StringIO()
                     with contextlib.redirect_stdout(captured):
                         exit_code = sync.lifecycle_dispatch("verify:post")
@@ -4699,7 +4702,8 @@ class TestLifecycleDispatchEndToEnd(unittest.TestCase):
             os.chdir(tmp)
             try:
                 captured = io.StringIO()
-                with contextlib.redirect_stdout(captured):
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
+                     contextlib.redirect_stdout(captured):
                     exit_code = sync.lifecycle_dispatch("plan:post")
             finally:
                 os.chdir(prev)
@@ -4799,8 +4803,7 @@ class TestLifecycleDispatchHook(unittest.TestCase):
                 self.assertEqual(result.stdout, "", f"dispatched on: {command}")
 
     def test_real_gsd_core_call_shapes_still_dispatch(self):
-        """The narrowing above must not cost a true positive. These are the
-        forms gsd-core actually emits, across every shim the resolver picks."""
+        """The hook must recognize real call shapes, then let native dispatch win."""
         real = [
             "PLAN_POST_HOOKS_JSON=$(gsd_run loop render-hooks plan:post --raw)",
             "gsd_run loop render-hooks plan:post --raw",
@@ -4808,19 +4811,17 @@ class TestLifecycleDispatchHook(unittest.TestCase):
             "H=$(node ~/.claude/gsd-core/bin/gsd-tools.cjs loop render-hooks plan:post --raw)",
             "cd /tmp && gsd_run loop render-hooks plan:post --raw",
         ]
-        # A plan must exist: with none, plan:post reports on stderr and the
-        # hook is right to stay silent, which would pass this test vacuously.
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
         with tempfile.TemporaryDirectory() as tmp:
             _lifecycle_workspace(Path(tmp), plan_text=plan)
             for command in real:
                 result = self._run(command, Path(tmp))
                 self.assertEqual(result.returncode, 0, command)
-                payload = json.loads(result.stdout or "{}")
+                self.assertEqual(result.stdout, "", command)
                 self.assertIn(
-                    "plan:post",
-                    payload.get("hookSpecificOutput", {}).get("additionalContext", ""),
-                    f"failed to dispatch on: {command}",
+                    "native-step-dispatch probe (plan:post): detected",
+                    result.stderr,
+                    f"failed to recognize and stand down on: {command}",
                 )
 
     def test_non_matching_command_produces_no_output(self):
@@ -5044,31 +5045,27 @@ class TestNativeStepDispatchProbe(unittest.TestCase):
 
 
 class TestNativeStepDispatchProbeAgainstInstalledTree(unittest.TestCase):
-    """17-02 Task 1 acceptance: on THIS machine's real installed gsd-core
-    1.11.0 workflow files, both gated points must classify as not-detected --
-    the installed tree predates PR #3687. Skips (does not fail) on a machine
-    with no installed gsd-core workflow files, the same guard
-    `_gsd_tools_path`-dependent tests already use."""
+    """The probe must classify the current installed workflow tree."""
 
-    def test_plan_post_not_detected_on_installed_tree(self):
+    def test_plan_post_detected_on_installed_tree(self):
         workflow_path = _installed_workflow_path("plan-phase.md")
-        if not workflow_path.exists():
-            self.skipTest(f"{workflow_path} not present on this machine")
+        self.assertTrue(workflow_path.exists(), f"{workflow_path} not present on this machine")
         captured = io.StringIO()
         with contextlib.redirect_stderr(captured):
             exit_code = sync.check_native_step_dispatch("plan:post")
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(exit_code, 1)
         self.assertIn(str(workflow_path), captured.getvalue())
+        self.assertIn("detected", captured.getvalue())
 
-    def test_verify_post_not_detected_on_installed_tree(self):
+    def test_verify_post_detected_on_installed_tree(self):
         workflow_path = _installed_workflow_path("verify-work.md")
-        if not workflow_path.exists():
-            self.skipTest(f"{workflow_path} not present on this machine")
+        self.assertTrue(workflow_path.exists(), f"{workflow_path} not present on this machine")
         captured = io.StringIO()
         with contextlib.redirect_stderr(captured):
             exit_code = sync.check_native_step_dispatch("verify:post")
-        self.assertEqual(exit_code, 0)
+        self.assertEqual(exit_code, 1)
         self.assertIn(str(workflow_path), captured.getvalue())
+        self.assertIn("detected", captured.getvalue())
 
 
 class TestLifecycleDispatchNativeGate(unittest.TestCase):
@@ -5424,7 +5421,8 @@ class TestLifecycleDispatchNeverConsultsSyncMode(unittest.TestCase):
             prev = Path.cwd()
             os.chdir(tmp)
             try:
-                exit_code = sync.lifecycle_dispatch("plan:post")
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=0):
+                    exit_code = sync.lifecycle_dispatch("plan:post")
             finally:
                 os.chdir(prev)
             written = (phase_dir / "07-01-PLAN.md").read_text(encoding="utf-8")
