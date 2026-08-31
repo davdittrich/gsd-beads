@@ -308,12 +308,15 @@ def _scan_task_attributes(opening_tag):
     limit = len(opening_tag)
     delimiters = " \t\r\n=/>"
     while i < limit:
+        separator_start = i
         while i < limit and opening_tag[i].isspace():
             i += 1
         if i < limit and opening_tag[i] == ">":
             return attributes, True
         if opening_tag.startswith("/>", i):
-            return attributes, True
+            return attributes, False
+        if i == separator_start:
+            return attributes, False
 
         name_start = i
         while i < limit and opening_tag[i] not in delimiters:
