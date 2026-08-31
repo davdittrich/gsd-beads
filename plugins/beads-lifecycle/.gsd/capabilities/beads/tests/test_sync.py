@@ -1646,6 +1646,18 @@ class TestDependencyMapping(unittest.TestCase):
 
 
 class TestIdentityBinding(unittest.TestCase):
+    @staticmethod
+    def _plan_open_spy():
+        return mock.patch.object(
+            Path, "open", autospec=True, side_effect=Path.open
+        )
+
+    @staticmethod
+    def _write_calls(path_open):
+        return [
+            call for call in path_open.call_args_list if call.args[1] == "w"
+        ]
+
     """B4: a task carrying <beads-id> is never re-created; renaming the task
     title still resolves to the same id and creates nothing."""
 
@@ -1766,13 +1778,13 @@ class TestIdentityBinding(unittest.TestCase):
             with mock.patch.object(
                 sync, "run_bd", side_effect=_make_bd_side_effect()
             ) as mock_run:
-                with mock.patch.object(Path, "write_text", autospec=True) as write_text:
+                with self._plan_open_spy() as path_open:
                     exit_code = sync.create_issues(str(plan_copy))
             after = plan_copy.read_bytes()
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(after, before)
-        write_text.assert_not_called()
+        self.assertEqual(self._write_calls(path_open), [])
         self.assertEqual(
             [
                 call.args[0]
@@ -1830,9 +1842,7 @@ class TestIdentityBinding(unittest.TestCase):
                     with mock.patch.object(
                         sync, "run_bd", side_effect=_make_bd_side_effect()
                     ) as mock_run:
-                        with mock.patch.object(
-                            Path, "write_text", autospec=True
-                        ) as write_text:
+                        with self._plan_open_spy() as path_open:
                             captured = io.StringIO()
                             with contextlib.redirect_stderr(captured):
                                 exit_code = sync.create_issues(str(plan_copy))
@@ -1842,7 +1852,7 @@ class TestIdentityBinding(unittest.TestCase):
                 self.assertIn("native tracker identity", captured.getvalue())
                 self.assertEqual(after, before)
                 self.assertEqual(mock_run.call_args_list, [])
-                write_text.assert_not_called()
+                self.assertEqual(self._write_calls(path_open), [])
 
     def test_installed_parser_reads_migrated_identity_and_checkpoint_null(self):
         plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
@@ -1905,8 +1915,6 @@ class TestIdentityBinding(unittest.TestCase):
     def test_newly_created_auto_and_tracer_gain_both_identities_in_one_write(self):
         base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
         base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
-        real_open = Path.open
-
         for task_type in ("auto", "tracer"):
             with self.subTest(task_type=task_type):
                 plan_text = base.replace('<task type="auto">', f'<task type="{task_type}">')
@@ -1926,9 +1934,7 @@ class TestIdentityBinding(unittest.TestCase):
                     with mock.patch.object(
                         sync, "run_bd", side_effect=_make_bd_side_effect()
                     ) as mock_run:
-                        with mock.patch.object(
-                            Path, "open", autospec=True, side_effect=real_open
-                        ) as path_open:
+                        with self._plan_open_spy() as path_open:
                             exit_code = sync.create_issues(
                                 str(plan_copy), allow_strip=False
                             )
@@ -1942,10 +1948,7 @@ class TestIdentityBinding(unittest.TestCase):
                 ]
                 self.assertEqual(exit_code, 0)
                 self.assertEqual(actual, expected)
-                write_calls = [
-                    call for call in path_open.call_args_list if call.args[1] == "w"
-                ]
-                self.assertEqual(len(write_calls), 1)
+                self.assertEqual(len(self._write_calls(path_open)), 1)
                 self.assertEqual(len(task_creates), 1)
                 self.assertEqual(task_creates[0][-5:], ["--type", "task", "--parent", "mock-e1", "--silent"])
 
@@ -1960,7 +1963,7 @@ class TestIdentityBinding(unittest.TestCase):
                 first_exit = sync.create_issues(str(plan_copy), allow_strip=False)
                 before_second = plan_copy.read_bytes()
                 first_call_count = len(mock_run.call_args_list)
-                with mock.patch.object(Path, "write_text", autospec=True) as write_text:
+                with self._plan_open_spy() as path_open:
                     second_exit = sync.create_issues(str(plan_copy), allow_strip=False)
                 after_second = plan_copy.read_bytes()
 
@@ -1975,7 +1978,7 @@ class TestIdentityBinding(unittest.TestCase):
         self.assertEqual(first_exit, 0)
         self.assertEqual(second_exit, 0)
         self.assertEqual(second_mutations, [])
-        write_text.assert_not_called()
+        self.assertEqual(self._write_calls(path_open), [])
         self.assertEqual(after_second, before_second)
 
     def test_stale_malformed_unavailable_and_failing_authority_never_migrates(self):
@@ -2003,16 +2006,14 @@ class TestIdentityBinding(unittest.TestCase):
                     with mock.patch.object(
                         sync, "run_bd", side_effect=stale_side_effect
                     ) as mock_run:
-                        with mock.patch.object(
-                            Path, "write_text", autospec=True
-                        ) as write_text:
+                        with self._plan_open_spy() as path_open:
                             exit_code = sync.create_issues(str(plan_copy))
                     after = plan_copy.read_bytes()
 
                 self.assertEqual(exit_code, 0)
                 self.assertEqual(after, before)
                 self.assertNotIn(b"tracker-id", after)
-                write_text.assert_not_called()
+                self.assertEqual(self._write_calls(path_open), [])
                 self.assertEqual(
                     [
                         call.args[0]
@@ -2029,9 +2030,7 @@ class TestIdentityBinding(unittest.TestCase):
                 with mock.patch.object(sync, "bd_available", return_value=False):
                     with mock.patch.object(sync, "run_bd") as mock_run:
                         with mock.patch.object(sync, "append_state_blocker"):
-                            with mock.patch.object(
-                                Path, "write_text", autospec=True
-                            ) as write_text:
+                            with self._plan_open_spy() as path_open:
                                 exit_code = sync.create_issues(str(plan_copy))
                 after = plan_copy.read_bytes()
 
@@ -2039,7 +2038,7 @@ class TestIdentityBinding(unittest.TestCase):
             self.assertEqual(after, before)
             self.assertNotIn(b"tracker-id", after)
             mock_run.assert_not_called()
-            write_text.assert_not_called()
+            self.assertEqual(self._write_calls(path_open), [])
 
         with self.subTest(label="failing"):
             fallback = _make_bd_side_effect()
@@ -2057,16 +2056,14 @@ class TestIdentityBinding(unittest.TestCase):
                     sync, "run_bd", side_effect=failing_side_effect
                 ):
                     with mock.patch.object(sync, "append_state_blocker"):
-                        with mock.patch.object(
-                            Path, "write_text", autospec=True
-                        ) as write_text:
+                        with self._plan_open_spy() as path_open:
                             exit_code = sync.create_issues(str(plan_copy))
                 after = plan_copy.read_bytes()
 
             self.assertEqual(exit_code, 0)
             self.assertEqual(after, before)
             self.assertNotIn(b"tracker-id", after)
-            write_text.assert_not_called()
+            self.assertEqual(self._write_calls(path_open), [])
 
     def test_unsafe_existing_identity_fails_before_bd(self):
         base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
