@@ -1682,6 +1682,395 @@ class TestIdentityBinding(unittest.TestCase):
         self.assertEqual(len(create_calls), 0)
         self.assertIn("<beads-id>tracer-f5x.1</beads-id>", new_text)
 
+    def test_existing_bound_auto_and_tracer_gain_exact_native_identity_bytes(self):
+        plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace(
+            '<task type="auto">\n  <name>Task 2:',
+            '<task type="tracer">\n  <name>Task 2:',
+        )
+        expected = plan_text.replace(
+            '<task type="auto">',
+            '<task type="auto" tracker-id="beads:tracer-f5x.1">',
+            1,
+        ).replace(
+            '<task type="tracer">',
+            '<task type="tracer" tracker-id="beads:tracer-f5x.2">',
+            1,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch.object(
+                sync, "run_bd", side_effect=_make_bd_side_effect()
+            ) as mock_run:
+                exit_code = sync.create_issues(str(plan_copy))
+            actual = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual.count("<beads-id>"), 2)
+        self.assertEqual(
+            [
+                call.args[0]
+                for call in mock_run.call_args_list
+                if call.args[0][:2] == ["bd", "create"]
+            ],
+            [],
+        )
+
+    def test_already_canonical_bound_tasks_are_byte_and_write_noops(self):
+        plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        canonical = plan_text.replace(
+            '<task type="auto">',
+            '<task type="auto" tracker-id="beads:tracer-f5x.1">',
+            1,
+        ).replace(
+            '<task type="auto">',
+            '<task type="auto" tracker-id="beads:tracer-f5x.2">',
+            1,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), canonical)
+            before = plan_copy.read_bytes()
+            with mock.patch.object(
+                sync, "run_bd", side_effect=_make_bd_side_effect()
+            ) as mock_run:
+                with mock.patch.object(Path, "write_text", autospec=True) as write_text:
+                    exit_code = sync.create_issues(str(plan_copy))
+            after = plan_copy.read_bytes()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(after, before)
+        write_text.assert_not_called()
+        self.assertEqual(
+            [
+                call.args[0]
+                for call in mock_run.call_args_list
+                if call.args[0][:2] == ["bd", "create"]
+            ],
+            [],
+        )
+
+    def test_conflicting_duplicate_and_authority_free_native_identity_fail_preflight(self):
+        base = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        cases = {
+            "wrong-value": base.replace(
+                '<task type="auto">',
+                '<task type="auto" tracker-id="beads:wrong">',
+                1,
+            ),
+            "duplicate": base.replace(
+                '<task type="auto">',
+                '<task type="auto" tracker-id="beads:tracer-f5x.1" '
+                'tracker-id="beads:tracer-f5x.1">',
+                1,
+            ),
+            "authority-free": base.replace(
+                '<task type="auto">',
+                '<task type="auto" tracker-id="beads:tracer-f5x.1">',
+                1,
+            ).replace(
+                "  <beads-id>tracer-f5x.1</beads-id>\n",
+                "",
+                1,
+            ),
+        }
+
+        for label, plan_text in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    before = plan_copy.read_bytes()
+                    with mock.patch.object(
+                        sync, "run_bd", side_effect=_make_bd_side_effect()
+                    ) as mock_run:
+                        with mock.patch.object(
+                            Path, "write_text", autospec=True
+                        ) as write_text:
+                            captured = io.StringIO()
+                            with contextlib.redirect_stderr(captured):
+                                exit_code = sync.create_issues(str(plan_copy))
+                    after = plan_copy.read_bytes()
+
+                self.assertNotEqual(exit_code, 0)
+                self.assertIn("native tracker identity", captured.getvalue())
+                self.assertEqual(after, before)
+                self.assertEqual(mock_run.call_args_list, [])
+                write_text.assert_not_called()
+
+    def test_installed_parser_reads_migrated_identity_and_checkpoint_null(self):
+        plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace(
+            "</tasks>",
+            '<task type="checkpoint:human-verify" tracker-id="beads:ignored">\n'
+            "  <what-built>Proof</what-built>\n"
+            "</task>\n\n</tasks>",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch.object(sync, "run_bd", side_effect=_make_bd_side_effect()):
+                exit_code = sync.create_issues(str(plan_copy))
+
+            launcher_result = subprocess.run(
+                ["bash", "-lc", "command -v gsd_run"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(launcher_result.returncode, 0, launcher_result.stderr)
+            launcher_lines = [
+                line.strip() for line in launcher_result.stdout.splitlines() if line.strip()
+            ]
+            self.assertEqual(len(launcher_lines), 1)
+            launcher = Path(launcher_lines[0])
+            self.assertTrue(launcher.is_absolute())
+
+            canonical_result = subprocess.run(
+                ["readlink", "-f", "--", str(launcher)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(canonical_result.returncode, 0, canonical_result.stderr)
+            canonical = Path(canonical_result.stdout.strip())
+            parser_path = canonical.parent / "lib" / "plan-document.cjs"
+            self.assertTrue(parser_path.is_file())
+            self.assertTrue(os.access(parser_path, os.R_OK))
+
+            node_program = (
+                "const fs=require('fs');"
+                "const mod=require(process.argv[1]);"
+                "if(typeof mod.parsePlanDocument!=='function')process.exit(2);"
+                "const doc=mod.parsePlanDocument(fs.readFileSync(process.argv[2],'utf8'));"
+                "if(doc.tasks[0].trackerId!=='beads:tracer-f5x.1')process.exit(3);"
+                "if(doc.tasks[2].trackerId!==null)process.exit(4);"
+            )
+            parser_result = subprocess.run(
+                ["node", "-e", node_program, str(parser_path), str(plan_copy)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parser_result.returncode, 0, parser_result.stderr)
+
+    def test_newly_created_auto_and_tracer_gain_both_identities_in_one_write(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
+        real_write_text = Path.write_text
+
+        for task_type in ("auto", "tracer"):
+            with self.subTest(task_type=task_type):
+                plan_text = base.replace('<task type="auto">', f'<task type="{task_type}">')
+                expected = plan_text.replace(
+                    f'<task type="{task_type}">',
+                    f'<task type="{task_type}" tracker-id="beads:mock-e1.1">',
+                    1,
+                ).replace(
+                    "  <name>Task 1: Do the thing</name>",
+                    "  <name>Task 1: Do the thing</name>\n"
+                    "  <beads-id>mock-e1.1</beads-id>",
+                    1,
+                )
+
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    with mock.patch.object(
+                        sync, "run_bd", side_effect=_make_bd_side_effect()
+                    ) as mock_run:
+                        with mock.patch.object(
+                            Path,
+                            "write_text",
+                            autospec=True,
+                            side_effect=real_write_text,
+                        ) as write_text:
+                            exit_code = sync.create_issues(
+                                str(plan_copy), allow_strip=False
+                            )
+                    actual = plan_copy.read_text(encoding="utf-8")
+
+                task_creates = [
+                    call.args[0]
+                    for call in mock_run.call_args_list
+                    if call.args[0][:2] == ["bd", "create"]
+                    and call.args[0][call.args[0].index("--type") + 1] == "task"
+                ]
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(actual, expected)
+                write_text.assert_called_once()
+                self.assertEqual(len(task_creates), 1)
+                self.assertEqual(task_creates[0][-5:], ["--type", "task", "--parent", "mock-e1", "--silent"])
+
+    def test_newly_created_identity_second_pass_is_byte_create_update_write_noop(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
+        side_effect = _make_bd_side_effect()
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch.object(sync, "run_bd", side_effect=side_effect) as mock_run:
+                first_exit = sync.create_issues(str(plan_copy), allow_strip=False)
+                before_second = plan_copy.read_bytes()
+                first_call_count = len(mock_run.call_args_list)
+                with mock.patch.object(Path, "write_text", autospec=True) as write_text:
+                    second_exit = sync.create_issues(str(plan_copy), allow_strip=False)
+                after_second = plan_copy.read_bytes()
+
+        second_argvs = [
+            call.args[0] for call in mock_run.call_args_list[first_call_count:]
+        ]
+        second_mutations = [
+            argv
+            for argv in second_argvs
+            if len(argv) > 1 and argv[1] in ("create", "update")
+        ]
+        self.assertEqual(first_exit, 0)
+        self.assertEqual(second_exit, 0)
+        self.assertEqual(second_mutations, [])
+        write_text.assert_not_called()
+        self.assertEqual(after_second, before_second)
+
+    def test_stale_malformed_unavailable_and_failing_authority_never_migrates(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
+
+        for label, issue_id in (("stale", "stale-e1.1"), ("malformed", "bad id")):
+            with self.subTest(label=label):
+                plan_text = base.replace(
+                    "  <name>Task 1: Do the thing</name>",
+                    "  <name>Task 1: Do the thing</name>\n"
+                    f"  <beads-id>{issue_id}</beads-id>",
+                    1,
+                )
+                fallback = _make_bd_side_effect()
+
+                def stale_side_effect(argv, **kwargs):
+                    if argv[:3] == ["bd", "show", issue_id]:
+                        return _completed(1, stderr="not found")
+                    return fallback(argv, **kwargs)
+
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    before = plan_copy.read_bytes()
+                    with mock.patch.object(
+                        sync, "run_bd", side_effect=stale_side_effect
+                    ) as mock_run:
+                        with mock.patch.object(
+                            Path, "write_text", autospec=True
+                        ) as write_text:
+                            exit_code = sync.create_issues(str(plan_copy))
+                    after = plan_copy.read_bytes()
+
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(after, before)
+                self.assertNotIn(b"tracker-id", after)
+                write_text.assert_not_called()
+                self.assertEqual(
+                    [
+                        call.args[0]
+                        for call in mock_run.call_args_list
+                        if call.args[0][:2] == ["bd", "create"]
+                    ],
+                    [],
+                )
+
+        with self.subTest(label="unavailable"):
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_copy = _write_plan_workspace(Path(tmp), base, with_state=True)
+                before = plan_copy.read_bytes()
+                with mock.patch.object(sync, "bd_available", return_value=False):
+                    with mock.patch.object(sync, "run_bd") as mock_run:
+                        with mock.patch.object(sync, "append_state_blocker"):
+                            with mock.patch.object(
+                                Path, "write_text", autospec=True
+                            ) as write_text:
+                                exit_code = sync.create_issues(str(plan_copy))
+                after = plan_copy.read_bytes()
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(after, before)
+            self.assertNotIn(b"tracker-id", after)
+            mock_run.assert_not_called()
+            write_text.assert_not_called()
+
+        with self.subTest(label="failing"):
+            fallback = _make_bd_side_effect()
+
+            def failing_side_effect(argv, **kwargs):
+                if argv[:2] == ["bd", "create"] and "--type" in argv:
+                    if argv[argv.index("--type") + 1] == "task":
+                        return _completed(1, stderr="database locked")
+                return fallback(argv, **kwargs)
+
+            with tempfile.TemporaryDirectory() as tmp:
+                plan_copy = _write_plan_workspace(Path(tmp), base, with_state=True)
+                before = plan_copy.read_bytes()
+                with mock.patch.object(
+                    sync, "run_bd", side_effect=failing_side_effect
+                ):
+                    with mock.patch.object(sync, "append_state_blocker"):
+                        with mock.patch.object(
+                            Path, "write_text", autospec=True
+                        ) as write_text:
+                            exit_code = sync.create_issues(str(plan_copy))
+                after = plan_copy.read_bytes()
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(after, before)
+            self.assertNotIn(b"tracker-id", after)
+            write_text.assert_not_called()
+
+    def test_checkpoint_missing_partial_and_unknown_blocks_stay_exact_beside_migration(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
+        excluded = (
+            '<task type="checkpoint:decision" gate="blocking">\n'
+            "  <name>Task 2: Decide</name>\n"
+            "  <beads-id>mock-e1.2</beads-id>\n"
+            "  <decision>Choose.</decision>\n"
+            "</task>",
+            '<task type="checkpoint:human-verify">\n'
+            "  <name>Task 3: Verify</name>\n"
+            "  <beads-id>mock-e1.3</beads-id>\n"
+            "  <what-built>Proof.</what-built>\n"
+            "</task>",
+            "<task>\n"
+            "  <name>Task 4: Missing type</name>\n"
+            "  <beads-id>mock-e1.4</beads-id>\n"
+            "</task>",
+            '<task type="aut">\n'
+            "  <name>Task 5: Partial type</name>\n"
+            "  <beads-id>mock-e1.5</beads-id>\n"
+            "</task>",
+            '<task type="manual">\n'
+            "  <name>Task 6: Unknown type</name>\n"
+            "  <beads-id>mock-e1.6</beads-id>\n"
+            "</task>",
+        )
+        plan_text = plan_text.replace(
+            "</tasks>", "\n\n" + "\n\n".join(excluded) + "\n\n</tasks>", 1
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch.object(
+                sync, "run_bd", side_effect=_make_bd_side_effect()
+            ):
+                exit_code = sync.create_issues(str(plan_copy), allow_strip=False)
+            actual = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        for block in excluded:
+            with self.subTest(block=block.splitlines()[1].strip()):
+                self.assertEqual(actual.count(block), 1)
+        self.assertIn(
+            '<task type="auto" tracker-id="beads:mock-e1.1">', actual
+        )
+        self.assertIn("  <beads-id>mock-e1.1</beads-id>", actual)
+
 
 class TestIdempotency(unittest.TestCase):
     """B5: re-running sync over an unchanged plan writes nothing new; D-06

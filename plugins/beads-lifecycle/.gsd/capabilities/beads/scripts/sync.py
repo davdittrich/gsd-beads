@@ -53,6 +53,10 @@ RESUME_SIGNAL_RE = re.compile(r"<resume-signal>(.*?)</resume-signal>", re.DOTALL
 # than a tag body -- run it against a TASK_RE match's whole block
 # (m.group(0)), same way NAME_RE.search(block) etc. already run (D-03).
 TASK_TYPE_RE = re.compile(r'<task\b[^>]*\btype="([^"]*)"')
+TASK_OPEN_TAG_RE = re.compile(r"<task\b[^>]*>")
+TRACKER_ID_RE = re.compile(
+    r'''\btracker-id\s*=\s*(?:"([^"]*)"|'([^']*)')''', re.IGNORECASE
+)
 # 16-01 Task 2 (D-06): <objective> is plan-level only -- it appears exactly
 # once per PLAN.md, before <tasks>, and never inside an individual <task>
 # block (verified against gsd-core's canonical phase-prompt.md template and
@@ -309,10 +313,16 @@ def parse_plan(path):
     tasks = []
     for m in TASK_RE.finditer(text):
         block = m.group(0)
+        opening_tag_m = TASK_OPEN_TAG_RE.match(block)
+        opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
         name_m = NAME_RE.search(block)
         id_m = BEADS_ID_RE.search(block)
         files_m = FILES_RE.search(block)
         type_m = TASK_TYPE_RE.search(block)
+        tracker_ids = [
+            next(group for group in tracker_m.groups() if group is not None).strip()
+            for tracker_m in TRACKER_ID_RE.finditer(opening_tag)
+        ]
         read_first_m = READ_FIRST_RE.search(block)
         precondition_m = PRECONDITION_RE.search(block)
         behavior_m = BEHAVIOR_RE.search(block)
@@ -339,6 +349,8 @@ def parse_plan(path):
                 "beads_id": id_m.group(1).strip() if id_m else None,
                 "files": files,
                 "type": type_m.group(1).strip() if type_m else "",
+                "tracker_ids": tracker_ids,
+                "tracker_insert": m.start() + type_m.end() if type_m else None,
                 "read_first": read_first_m.group(1).strip() if read_first_m else "",
                 "precondition": precondition_m.group(1).strip() if precondition_m else None,
                 "behavior": behavior_m.group(1).strip() if behavior_m else "",
@@ -1419,19 +1431,23 @@ def collect_epic_task_ids(phase_dir, epic_id):
     return ids
 
 
-def rewrite_plan(text, epic_id, epic_created, task_updates):
-    """Insert beads_epic (if newly created) and per-task <beads-id> elements.
+def rewrite_plan(text, epic_id, epic_created, task_updates, native_updates):
+    """Insert beads_epic plus per-task legacy and native identity updates.
 
     task_updates: [(name_end_pos, issue_id), ...] for tasks that had no
     <beads-id> before this run. Insertions happen in descending position
     order first so earlier offsets in `text` stay valid, then the
     frontmatter insertion (always at the front of the file) happens last.
     """
-    for name_end_pos, issue_id in sorted(
-        task_updates, key=lambda t: t[0], reverse=True
-    ):
-        insertion = f"\n  <beads-id>{issue_id}</beads-id>"
-        text = text[:name_end_pos] + insertion + text[name_end_pos:]
+    insertions = [
+        (name_end_pos, f"\n  <beads-id>{issue_id}</beads-id>")
+        for name_end_pos, issue_id in task_updates
+    ] + [
+        (type_end_pos, f' tracker-id="beads:{issue_id}"')
+        for type_end_pos, issue_id in native_updates
+    ]
+    for position, insertion in sorted(insertions, key=lambda item: item[0], reverse=True):
+        text = text[:position] + insertion + text[position:]
     if epic_created:
         fm_match = FRONTMATTER_RE.match(text)
         insert_pos = fm_match.start(1)
@@ -1759,19 +1775,6 @@ def create_issues(plan_arg, allow_strip=True):
     defence re-gate: config and this flag can only ever subtract permission
     from a run whose patch is missing, never add it back.
     """
-    if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(Path(plan_arg).resolve().parent)
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-sync skipped (B6/D-08)",
-            )
-        return 0
-
     plan_path = Path(plan_arg).resolve()
     project_root = find_project_root(plan_path.parent)
     roadmap_path = confined(project_root, ".planning", "ROADMAP.md")
@@ -1779,6 +1782,43 @@ def create_issues(plan_arg, allow_strip=True):
     text, frontmatter, tasks = parse_plan(plan_path)
     objective_m = OBJECTIVE_RE.search(text)
     objective = objective_m.group(1).strip() if objective_m else ""
+
+    for task in tasks:
+        if task["type"] not in ("auto", "tracer"):
+            continue
+        tracker_ids = task["tracker_ids"]
+        if len(tracker_ids) > 1:
+            print(
+                f"native tracker identity preflight failed for task {task['name']!r}: "
+                "duplicate tracker-id attributes",
+                file=sys.stderr,
+            )
+            return 1
+        if not tracker_ids:
+            continue
+        if not task["beads_id"]:
+            print(
+                f"native tracker identity preflight failed for task {task['name']!r}: "
+                "tracker-id has no authoritative beads-id",
+                file=sys.stderr,
+            )
+            return 1
+        expected = f"beads:{task['beads_id']}"
+        if tracker_ids[0] != expected:
+            print(
+                f"native tracker identity preflight failed for task {task['name']!r}: "
+                f"expected {expected!r}, found {tracker_ids[0]!r}",
+                file=sys.stderr,
+            )
+            return 1
+
+    if not bd_available():
+        print(NOTICE)
+        append_state_blocker(
+            confined(project_root, ".planning", "STATE.md"),
+            "bd unavailable -- beads-sync skipped (B6/D-08)",
+        )
+        return 0
 
     plan_filename_stem = plan_path.stem  # e.g. "01-01-PLAN" -> ordinal "01-01"
     ordinal_prefix = "-".join(plan_filename_stem.split("-")[:2])
@@ -1800,6 +1840,7 @@ def create_issues(plan_arg, allow_strip=True):
             )
 
         task_updates = []
+        native_updates = []
         created_count = 0
         task_ids = []
         divergences = []
@@ -1808,6 +1849,12 @@ def create_issues(plan_arg, allow_strip=True):
             if created:
                 created_count += 1
                 task_updates.append((task["name_end"], issue_id))
+            if (
+                not divergent
+                and task["type"] in ("auto", "tracer")
+                and not task["tracker_ids"]
+            ):
+                native_updates.append((task["tracker_insert"], issue_id))
             if divergent:
                 divergences.append((task["name"], issue_id))
             task_ids.append(issue_id)
@@ -1822,8 +1869,10 @@ def create_issues(plan_arg, allow_strip=True):
     for name, missing_id in divergences:
         print(f"divergence: task {name!r} beads-id {missing_id} not found in bd")
 
-    if task_updates or epic_created:
-        new_text = rewrite_plan(text, epic_id, epic_created, task_updates)
+    if task_updates or native_updates or epic_created:
+        new_text = rewrite_plan(
+            text, epic_id, epic_created, task_updates, native_updates
+        )
         # D-01/D-05: strip content only for tasks whose issue was created in
         # THIS run (task_updates), and only when the read-path patch is
         # verifiably present -- verify the patch before trusting the strip,
