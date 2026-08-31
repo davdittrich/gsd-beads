@@ -55,7 +55,11 @@ RESUME_SIGNAL_RE = re.compile(r"<resume-signal>(.*?)</resume-signal>", re.DOTALL
 TASK_TYPE_RE = re.compile(r'<task\b[^>]*\btype="([^"]*)"')
 TASK_OPEN_TAG_RE = re.compile(r"<task\b[^>]*>")
 TRACKER_ID_RE = re.compile(
-    r'''\btracker-id\s*=\s*(?:"([^"]*)"|'([^']*)')''', re.IGNORECASE
+    r'''(?<=\s)tracker-id\s*=\s*(?:"([^"]*)"|'([^']*)')'''
+)
+TRACKER_ID_LIKE_RE = re.compile(
+    r'''(?<=\s)([^\s=]*tracker-id)\s*=\s*(?:"([^"]*)"|'([^']*)')''',
+    re.IGNORECASE,
 )
 # 16-01 Task 2 (D-06): <objective> is plan-level only -- it appears exactly
 # once per PLAN.md, before <tasks>, and never inside an individual <task>
@@ -321,8 +325,11 @@ def parse_plan(path):
         files_m = FILES_RE.search(block)
         type_m = TASK_TYPE_RE.search(block)
         tracker_ids = [
-            next(group for group in tracker_m.groups() if group is not None).strip()
+            next(group for group in tracker_m.groups() if group is not None)
             for tracker_m in TRACKER_ID_RE.finditer(opening_tag)
+        ]
+        tracker_id_candidates = [
+            tracker_m.group(0) for tracker_m in TRACKER_ID_LIKE_RE.finditer(opening_tag)
         ]
         read_first_m = READ_FIRST_RE.search(block)
         precondition_m = PRECONDITION_RE.search(block)
@@ -351,6 +358,7 @@ def parse_plan(path):
                 "files": files,
                 "type": type_m.group(1).strip() if type_m else "",
                 "tracker_ids": tracker_ids,
+                "tracker_id_candidates": tracker_id_candidates,
                 "tracker_insert": m.start() + type_m.end() if type_m else None,
                 "read_first": read_first_m.group(1).strip() if read_first_m else "",
                 "precondition": precondition_m.group(1).strip() if precondition_m else None,
@@ -1817,6 +1825,15 @@ def create_issues(plan_arg, allow_strip=True):
         if task["type"] not in ("auto", "tracer"):
             continue
         tracker_ids = task["tracker_ids"]
+        if len(task["tracker_id_candidates"]) != len(tracker_ids) or any(
+            tracker_id != tracker_id.strip() for tracker_id in tracker_ids
+        ):
+            print(
+                f"native tracker identity preflight failed for task {task['name']!r}: "
+                "tracker-id attribute is not exact",
+                file=sys.stderr,
+            )
+            return 1
         if len(tracker_ids) > 1:
             print(
                 f"native tracker identity preflight failed for task {task['name']!r}: "

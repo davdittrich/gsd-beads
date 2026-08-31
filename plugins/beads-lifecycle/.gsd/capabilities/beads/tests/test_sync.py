@@ -1805,6 +1805,21 @@ class TestIdentityBinding(unittest.TestCase):
                 "",
                 1,
             ),
+            "prefixed-name": base.replace(
+                '<task type="auto">',
+                '<task type="auto" data-tracker-id="beads:tracer-f5x.1">',
+                1,
+            ),
+            "case-variant": base.replace(
+                '<task type="auto">',
+                '<task type="auto" TRACKER-ID="beads:tracer-f5x.1">',
+                1,
+            ),
+            "padded-value": base.replace(
+                '<task type="auto">',
+                '<task type="auto" tracker-id=" beads:tracer-f5x.1 ">',
+                1,
+            ),
         }
 
         for label, plan_text in cases.items():
