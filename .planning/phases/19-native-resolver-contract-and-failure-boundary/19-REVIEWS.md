@@ -1,7 +1,8 @@
 ---
 phase: 19
+review_cycle: 2
 reviewers: [claude, antigravity]
-reviewed_at: "2026-08-31T01:16:18+02:00"
+reviewed_at: "2026-08-31T01:53:42+02:00"
 plans_reviewed: [19-01-PLAN.md]
 models:
   claude: "unknown"
@@ -9,9 +10,14 @@ models:
 model_sources:
   claude: "unknown"
   antigravity: "unknown"
-reviewed_plan_sha256: "62e87009ed92cf333e6f8a2130d523cf8145eba1d55baa95222da0c63c7b88ae"
-review_prompt_sha256: "d104cac60d0a5bcb8397eaf0bf82bde9b71103e2cbb77e2cafbe5fabdadf14f4"
+reviewed_plan_sha256: "fe9cee6a4efc9483d0ec0e92682723ecdb39bf7a039644d3440bfa9999faf19c"
+review_prompt_sha256: "b946458ee0aeee08f4bef3f4d4931a3e127bf0a3f3bcfa462a051e007578cad8"
+historical_cycle_1:
+  reviewed_plan_sha256: "62e87009ed92cf333e6f8a2130d523cf8145eba1d55baa95222da0c63c7b88ae"
+  review_prompt_sha256: "d104cac60d0a5bcb8397eaf0bf82bde9b71103e2cbb77e2cafbe5fabdadf14f4"
 ---
+
+> Cycle 1 below is retained as historical audit trail. Cycle 2 is appended after it and is the current convergence assessment.
 # Cross-AI Plan Review — Phase 19
 
 Both explicit, source-grounded lanes succeeded. The reviewed `19-01-PLAN.md` stayed at the SHA-256 recorded in frontmatter. Each lane used the same run-scoped prompt whose SHA-256 is recorded above; that prompt contains the required `/ponytail` ladder verbatim.
@@ -221,3 +227,41 @@ The plan is minimal, mathematically sound, strictly respects architectural bound
 - Exact Ponytail prompt bytes: `d104cac60d0a5bcb8397eaf0bf82bde9b71103e2cbb77e2cafbe5fabdadf14f4`; the immutable source plan bytes: `62e87009ed92cf333e6f8a2130d523cf8145eba1d55baa95222da0c63c7b88ae`.
 - Claude received `gsd-review-prompt.md` by the declared stdin channel. Antigravity received the declared absolute-file-reference command and read that same file in full. The prompt explicitly requires the Ponytail ladder and a rung/effect statement for every concern and suggestion.
 - Transport deviation record: the host terminates foreground reviewer processes at 30 seconds, below the declared lane timeout. `setsid` wrapped only the unchanged `node ... gsd-tools.cjs query review-lane invoke --slug antigravity ... --explicit --json` process; it did not alter its command, prompt bytes, timeout, repository, or output paths. **what does it bias? NONE.** Evidence: the result is `ok:true`, `stubbed:false`, the prompt SHA is unchanged, and the normal GSD lane files were produced.
+
+---
+
+# Cross-AI Plan Review — Phase 19, Cycle 2
+
+Both explicitly selected lanes succeeded against commit `872dde1` and the exact current plan SHA-256 `fe9cee6a4efc9483d0ec0e92682723ecdb39bf7a039644d3440bfa9999faf19c`. The shared, untrimmed run-scoped prompt SHA-256 was `b946458ee0aeee08f4bef3f4d4931a3e127bf0a3f3bcfa462a051e007578cad8`; it contains the required full `/ponytail` ladder and demands a rung/effect statement for each concern and suggestion. Claude and Antigravity both returned `ok:true`, `stubbed:false`, with no evidence-quality discount marker and no resolved model reported (`unknown`). Full lane responses and nonempty Antigravity stderr are preserved under `.review-diagnostics/cycle-2-*` and excluded from the review commit.
+
+## Cycle 2 Claude Review
+
+Claude verified the pinned plan bytes, found all eight Cycle 1 concerns incorporated, and raised two new source-grounded HIGH concerns. It also raised one current LOW concern: the plan proves only the arithmetic `8000 < 10000`, not that the adapter's own timeout diagnostic is observably emitted before the outer timeout.
+
+## Cycle 2 Antigravity Review
+
+Antigravity verified the same pinned plan and marked every Cycle 1 disposition incorporated. It returned **APPROVED** with only two LOW observations that the plan already incorporates: direct bootstrap execution/escaping coverage in `TestTaskContentResolverManifest`, and explicit list-wire assertions for the core's non-array-to-empty-list coercion.
+
+## Cycle 2 Consensus Summary
+
+### Historical Cycle 1 Disposition
+
+All eight Cycle 1 concerns are incorporated in the current plan: resolver timeout ordering; zero-exit non-data envelope; list-wire assertions; auto-install inertness and Phase 21 byte-parity boundary; SPEC-less `must_haves`; removal of the unrelated checker; exact `git ls-files` pathspec; and sole `trackerPrefix` validation. Their prior HIGH is therefore historical and excluded from Cycle 2 counts.
+
+The live `OPEN` state of `gsd-beads-byp` remains a correct fail-closed Wave-0 prerequisite, not a plan-convergence defect. It is not counted merely because execution is not ready.
+
+### Current HIGH Concerns
+
+- **Confirmed existence-class HIGH — direct `os.execv` assertion is impossible for the tracked file mode.** `19-01-PLAN.md:214,228` requires `os.execv` argv `[script, "resolve-task-content", id]`, while `git ls-files -s` and `stat` show `sync.py` is tracked and on disk as mode `100644`/`-rw-r--r--`. Direct exec therefore raises `PermissionError`. Replan Task 2 to assert the portable stdlib interpreter-relaunch argv (`[sys.executable, script, "resolve-task-content", id]`) or explicitly authorize and test a mode change; reconcile `19-PATTERNS.md:190` at the same time. Ponytail: rung 3 favors `sys.executable`; an executable-bit lifecycle change adds unrequested state.
+- **Confirmed existence-class HIGH — the Wave-0 ownership claim is stale and cannot clear every asserted blocker.** The exact suite currently reports `263 tests`, `15 failures`, and `1 error`, including five `bd init` workspace-discovery failures caused by the ancestor repository Dolt database. `gsd-beads-byp` still scopes only the original eight lifecycle-dispatch/native-step-detection failures. Replan the Wave-0 baseline and name an owner for every gating failure (widen that prerequisite or create and gate on a distinct prerequisite); do not absorb either repair into Phase 19. Ponytail: rung 1 keeps the fail-closed gate, but its stated ownership must be truthful.
+
+### Current Actionable Non-HIGH Concerns
+
+- **LOW — prove timeout-diagnostic reachability empirically.** Add a one-factor wall-clock/public-wrapper assertion that a sleeping `bd` probe yields the adapter's bounded timeout diagnostic before the 10000 ms outer resolver timeout, rather than proving only `8 * 1000 < 10000`. Ponytail: reuse the planned existing wrapper and sleeping-probe fixture; no new helper or dependency.
+
+## Verification Coverage
+
+- Effective source-grounding authority: `intel`. Both lane sections are source-grounded and unmarked by `[reviewed-without-source-citations]` or `[reviewed-without-repo-access]`.
+- Independent consensus-gate confirmation: tracked `sync.py` mode is `100644` (`-rw-r--r--`), and the exact capability suite failed `15` times with `1` error. Both findings therefore count despite being raised by Claude alone.
+- Cross-artifact status: `drift-guard phase-status --phase 19` returned advisory `lag` (`STATE.md`: Ready to execute; `ROADMAP.md`: Not started). It contributes to neither count. `19-PATTERNS.md:190`'s four-element invocation contradicts the plan's three-element invocation and is captured with the first HIGH because its resolution depends on the chosen executable mechanism.
+- No source-grounding hard block was found. New resolver symbols remain excluded because the plan declares them as artifacts to be created.
