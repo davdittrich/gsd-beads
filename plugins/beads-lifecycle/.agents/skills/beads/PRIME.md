@@ -16,7 +16,8 @@ This project runs gsd-core's plan/execute/verify/ship lifecycle on top of `bd`. 
 - Identity binds through the plan's `beads_epic` frontmatter key and each task's `<beads-id>` element — never by title match.
 - Existing `<beads-id>` values are verified before any create. Exact `auto` and
   `tracer` tasks project that authority as `tracker-id="beads:<id>"`; excluded
-  task types remain unchanged.
+  task types never gain `tracker-id`. A newly created excluded task still gains
+  its missing `<beads-id>` on first sync; otherwise its task bytes remain unchanged.
 - A renamed task resolves to the same issue.
 - `PLAN.md` frontmatter carries `beads_epic` once the phase's tasks have synced.
 - `beads.epic_per` (`phase` default, or `milestone`) controls whether epics are per-phase or shared across a milestone.

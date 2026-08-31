@@ -73,7 +73,9 @@ creates one phase epic, and resolves or creates one beads issue per task.
 resolved `beads_epic` and missing `<beads-id>` values; exact `auto` and `tracer`
 tasks also gain deterministic `tracker-id="beads:<id>"` attributes. Checkpoints
 and tasks with missing, partial, prefixed, case-variant, or unknown `type`
-attributes retain their original task bytes.
+attributes never gain `tracker-id`. A newly created issue still inserts its
+missing `<beads-id>` on first sync; apart from that insertion, these excluded
+task blocks retain their original bytes.
 
 ## Step 4 -- Report
 

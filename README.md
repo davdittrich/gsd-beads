@@ -178,8 +178,10 @@ task content rather than substituting PLAN.md text.
 
 The bootstrap locates the installed script through `GSD_HOME` (falling back to `Path.home()`) and
 relaunches it with the active Python interpreter. SessionStart's existing bundle-drift detector may
-auto-install this source bundle globally, but that declaration is inert until Phase 20 adds tracker-id;
-an installed presence is not cutover or byte-parity evidence. Phase 21 owns exact tracked, project-installed, and global-installed byte parity, installed cutover, and Patch 2 retirement.
+auto-install this source bundle globally. Phase 20 now projects exact `auto` and `tracer` tasks as
+`tracker-id="beads:<id>"` in tracked source; an installed presence alone is still not cutover or
+byte-parity evidence. Phase 21 owns exact tracked, project-installed, and global-installed byte
+parity, installed cutover, and Patch 2 retirement.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.
