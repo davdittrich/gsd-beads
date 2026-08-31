@@ -1946,6 +1946,95 @@ class TestIdentityBinding(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertEqual(parser_result.returncode, 0, parser_result.stderr)
 
+    def test_quoted_greater_than_projection_matches_installed_parser_boundary(self):
+        launcher_result = subprocess.run(
+            ["bash", "-lc", "command -v gsd_run"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(launcher_result.returncode, 0, launcher_result.stderr)
+        launcher_lines = [
+            line.strip()
+            for line in launcher_result.stdout.splitlines()
+            if line.strip()
+        ]
+        self.assertEqual(len(launcher_lines), 1)
+        launcher = Path(launcher_lines[0])
+        self.assertTrue(launcher.is_absolute())
+
+        canonical_result = subprocess.run(
+            ["readlink", "-f", "--", str(launcher)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertEqual(canonical_result.returncode, 0, canonical_result.stderr)
+        parser_path = Path(canonical_result.stdout.strip()).parent / "lib" / "plan-document.cjs"
+        self.assertTrue(parser_path.is_file())
+        self.assertTrue(os.access(parser_path, os.R_OK))
+
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1).replace(
+            "  <name>Task 1: Do the thing</name>",
+            "  <name>Task 1: Do the thing</name>\n"
+            "  <beads-id>mock-e1.1</beads-id>",
+            1,
+        )
+        cases = {
+            "identity-before-quoted-greater-than": (
+                base.replace(
+                    '<task type="auto">',
+                    '<task type="auto" tracker-id="beads:mock-e1.1" note="x > y">',
+                    1,
+                ),
+                0,
+                "beads:mock-e1.1",
+            ),
+            "identity-after-quoted-greater-than": (
+                base.replace(
+                    '<task type="auto">',
+                    '<task note="x > y" type="auto" tracker-id="beads:mock-e1.1">',
+                    1,
+                ),
+                1,
+                None,
+            ),
+        }
+        node_program = (
+            "const fs=require('fs');"
+            "const mod=require(process.argv[1]);"
+            "const doc=mod.parsePlanDocument(fs.readFileSync(process.argv[2],'utf8'));"
+            "process.stdout.write(JSON.stringify(doc.tasks[0]?.trackerId??null));"
+        )
+
+        for label, (plan_text, expected_exit, expected_tracker_id) in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    before = plan_copy.read_bytes()
+                    with mock.patch.object(
+                        sync, "run_bd", side_effect=_make_bd_side_effect()
+                    ) as mock_run:
+                        with self._plan_open_spy() as path_open:
+                            with contextlib.redirect_stderr(io.StringIO()):
+                                exit_code = sync.create_issues(str(plan_copy))
+                    after = plan_copy.read_bytes()
+                    parser_result = subprocess.run(
+                        ["node", "-e", node_program, str(parser_path), str(plan_copy)],
+                        capture_output=True,
+                        text=True,
+                        timeout=10,
+                    )
+
+                self.assertEqual(exit_code, expected_exit)
+                self.assertEqual(parser_result.returncode, 0, parser_result.stderr)
+                self.assertEqual(json.loads(parser_result.stdout), expected_tracker_id)
+                self.assertEqual(after, before)
+                self.assertEqual(self._write_calls(path_open), [])
+                if expected_exit:
+                    mock_run.assert_not_called()
+
     def test_newly_created_auto_and_tracer_gain_both_identities_in_one_write(self):
         base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
         base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)

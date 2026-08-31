@@ -369,6 +369,7 @@ def parse_plan(path):
         tracker_attributes = [
             attribute for attribute in attributes if attribute[0] == "tracker-id"
         ]
+        native_opening_end = opening_tag.find(">")
         tracker_ids = [attribute[1] for attribute in tracker_attributes]
         tracker_id_candidates = [
             attribute
@@ -403,6 +404,15 @@ def parse_plan(path):
                 "type": type_attributes[0][1] if len(type_attributes) == 1 else "",
                 "type_attribute_count": len(type_attributes),
                 "attributes_valid": attributes_valid,
+                "native_identity_readable": (
+                    native_opening_end >= 0
+                    and len(type_attributes) == 1
+                    and type_attributes[0][3] <= native_opening_end
+                    and all(
+                        attribute[3] <= native_opening_end
+                        for attribute in tracker_attributes
+                    )
+                ),
                 "tracker_ids": tracker_ids,
                 "tracker_id_candidates": tracker_id_candidates,
                 "tracker_insert": (
@@ -1888,6 +1898,13 @@ def create_issues(plan_arg, allow_strip=True):
             return 1
         if task["type"] not in ("auto", "tracer"):
             continue
+        if not task["native_identity_readable"]:
+            print(
+                f"native tracker identity preflight failed for task {task['name']!r}: "
+                "task opening is not readable by the native parser",
+                file=sys.stderr,
+            )
+            return 1
         tracker_ids = task["tracker_ids"]
         if len(task["tracker_id_candidates"]) != len(tracker_ids) or any(
             tracker_id != tracker_id.strip() for tracker_id in tracker_ids
