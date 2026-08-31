@@ -1364,10 +1364,28 @@ def resolve_issue(task, epic_id, ordinal_prefix, task_index):
     never clear the element -- a Phase 3 ship gate acts on the divergence.
     """
     if task["beads_id"]:
-        check = run_bd(["bd", "show", task["beads_id"], "--json"])
+        issue_id = task["beads_id"]
+        if not SAFE_BD_ID_RE.fullmatch(issue_id):
+            raise RuntimeError(f"unsafe stored beads-id: {issue_id!r}")
+        check = run_bd(["bd", "show", issue_id, "--json"])
         if check.returncode != 0:
-            return task["beads_id"], False, True
-        return task["beads_id"], False, False
+            return issue_id, False, True
+        if not isinstance(check.stdout, str):
+            raise RuntimeError("bd show returned invalid JSON")
+        try:
+            payload = json.loads(check.stdout)
+        except (UnicodeError, json.JSONDecodeError) as exc:
+            raise RuntimeError("bd show returned invalid JSON") from exc
+        if isinstance(payload, dict):
+            payload = payload.get("data")
+        if (
+            not isinstance(payload, list)
+            or len(payload) != 1
+            or not isinstance(payload[0], dict)
+            or payload[0].get("id") != issue_id
+        ):
+            raise RuntimeError(f"bd show did not identify {issue_id!r}")
+        return issue_id, False, False
     title = f"{ordinal_prefix}.{task_index} {task['name']}"
     # CR-01: a checkpoint:*-typed task's real content lives in its own field
     # set (decision/context/options/... or what-built/how-to-verify/...),
@@ -1389,7 +1407,10 @@ def resolve_issue(task, epic_id, ordinal_prefix, task_index):
     result = run_bd(argv)
     if result.returncode != 0:
         raise RuntimeError(f"bd create (task) failed: {result.stderr.strip()}")
-    return result.stdout.strip(), True, False
+    issue_id = result.stdout.strip() if isinstance(result.stdout, str) else ""
+    if not SAFE_BD_ID_RE.fullmatch(issue_id):
+        raise RuntimeError(f"bd create (task) returned unsafe id: {issue_id!r}")
+    return issue_id, True, False
 
 
 def find_orphans(children, current_ids):
@@ -1784,6 +1805,13 @@ def create_issues(plan_arg, allow_strip=True):
     objective = objective_m.group(1).strip() if objective_m else ""
 
     for task in tasks:
+        if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
+            print(
+                f"native tracker identity preflight failed for task {task['name']!r}: "
+                f"unsafe beads-id {task['beads_id']!r}",
+                file=sys.stderr,
+            )
+            return 1
         if task["type"] not in ("auto", "tracer"):
             continue
         tracker_ids = task["tracker_ids"]

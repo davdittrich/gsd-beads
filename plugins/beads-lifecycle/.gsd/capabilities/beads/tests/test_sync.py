@@ -79,7 +79,7 @@ def _make_bd_side_effect():
         if argv[:2] == ["bd", "list"]:
             return _completed(0, stdout="[]\n")
         if argv[:2] == ["bd", "show"]:
-            return _completed(0, stdout="{}\n")
+            return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
         if argv[:2] == ["bd", "create"]:
             counter["n"] += 1
             return _completed(0, stdout=f"mock-e1.{counter['n']}\n")
@@ -1937,7 +1937,7 @@ class TestIdentityBinding(unittest.TestCase):
         base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
         base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
 
-        for label, issue_id in (("stale", "stale-e1.1"), ("malformed", "bad id")):
+        for label, issue_id in (("stale", "stale-e1.1"),):
             with self.subTest(label=label):
                 plan_text = base.replace(
                     "  <name>Task 1: Do the thing</name>",
@@ -2022,6 +2022,90 @@ class TestIdentityBinding(unittest.TestCase):
             self.assertEqual(after, before)
             self.assertNotIn(b"tracker-id", after)
             write_text.assert_not_called()
+
+    def test_unsafe_existing_identity_fails_before_bd(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        base = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
+
+        for issue_id in ("--help", "bad id"):
+            with self.subTest(issue_id=issue_id):
+                plan_text = base.replace(
+                    "  <name>Task 1: Do the thing</name>",
+                    "  <name>Task 1: Do the thing</name>\n"
+                    f"  <beads-id>{issue_id}</beads-id>",
+                    1,
+                )
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    before = plan_copy.read_bytes()
+                    with mock.patch.object(sync, "run_bd") as mock_run:
+                        exit_code = sync.create_issues(str(plan_copy))
+                    after = plan_copy.read_bytes()
+
+                self.assertNotEqual(exit_code, 0)
+                self.assertEqual(after, before)
+                mock_run.assert_not_called()
+
+    def test_invalid_or_mismatched_show_authority_never_migrates(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1).replace(
+            "  <name>Task 1: Do the thing</name>",
+            "  <name>Task 1: Do the thing</name>\n"
+            "  <beads-id>mock-e1.1</beads-id>",
+            1,
+        )
+
+        for label, show_stdout in (
+            ("invalid-json", "{"),
+            ("mismatched-id", '[{"id": "other-e1.1"}]'),
+        ):
+            with self.subTest(label=label):
+                fallback = _make_bd_side_effect()
+
+                def invalid_show_side_effect(argv, **kwargs):
+                    if argv[:3] == ["bd", "show", "mock-e1.1"]:
+                        return _completed(0, stdout=show_stdout)
+                    return fallback(argv, **kwargs)
+
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    before = plan_copy.read_bytes()
+                    with mock.patch.object(
+                        sync, "run_bd", side_effect=invalid_show_side_effect
+                    ):
+                        with mock.patch.object(sync, "append_state_blocker"):
+                            exit_code = sync.create_issues(str(plan_copy))
+                    after = plan_copy.read_bytes()
+
+                self.assertEqual(exit_code, 0)
+                self.assertEqual(after, before)
+                self.assertNotIn(b"tracker-id", after)
+
+    def test_unsafe_create_output_is_never_projected(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = base.replace("---\n", "---\nbeads_epic: mock-e1\n", 1)
+        fallback = _make_bd_side_effect()
+
+        def unsafe_create_side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "create"] and "--type" in argv:
+                if argv[argv.index("--type") + 1] == "task":
+                    return _completed(0, stdout="bad id\n")
+            return fallback(argv, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            before = plan_copy.read_bytes()
+            with mock.patch.object(
+                sync, "run_bd", side_effect=unsafe_create_side_effect
+            ):
+                with mock.patch.object(sync, "append_state_blocker"):
+                    exit_code = sync.create_issues(str(plan_copy), allow_strip=False)
+            after = plan_copy.read_bytes()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(after, before)
+        self.assertNotIn(b"tracker-id", after)
+        self.assertNotIn(b"<beads-id>", after)
 
     def test_checkpoint_missing_partial_and_unknown_blocks_stay_exact_beside_migration(self):
         plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
