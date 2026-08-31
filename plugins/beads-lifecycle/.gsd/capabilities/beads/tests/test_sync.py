@@ -2405,6 +2405,16 @@ class TestIdentityBinding(unittest.TestCase):
                 '<task type="auto"/>\n<task type="auto">',
                 1,
             ),
+            "unclosed-double-quoted-attribute": base.replace(
+                '<task type="auto">',
+                '<task type="auto>',
+                1,
+            ),
+            "unclosed-single-quoted-attribute": base.replace(
+                '<task type="auto">',
+                "<task type='auto>",
+                1,
+            ),
         }
 
         for label, plan_text in cases.items():

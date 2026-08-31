@@ -24,7 +24,7 @@ NOTICE = "bd unavailable -- sync skipped"
 BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 
 _TASK_OPEN_PATTERN = r'''<task(?=[\s>])(?:"[^"]*"|'[^']*'|[^'">])*>'''
-TASK_RE = re.compile(_TASK_OPEN_PATTERN + r".*?</task>", re.DOTALL)
+TASK_RE = re.compile(r"<task(?=[\s>]).*?</task>", re.DOTALL)
 NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
 BEADS_ID_RE = re.compile(r"<beads-id>(.*?)</beads-id>", re.DOTALL)
 FILES_RE = re.compile(r"<files>(.*?)</files>", re.DOTALL)
