@@ -1682,6 +1682,181 @@ class TestIdentityBinding(unittest.TestCase):
         self.assertEqual(len(create_calls), 0)
         self.assertIn("<beads-id>tracer-f5x.1</beads-id>", new_text)
 
+    def test_existing_bound_auto_and_tracer_gain_exact_native_identity_bytes(self):
+        plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace(
+            '<task type="auto">\n  <name>Task 2:',
+            '<task type="tracer">\n  <name>Task 2:',
+        )
+        expected = plan_text.replace(
+            '<task type="auto">',
+            '<task type="auto" tracker-id="beads:tracer-f5x.1">',
+            1,
+        ).replace(
+            '<task type="tracer">',
+            '<task type="tracer" tracker-id="beads:tracer-f5x.2">',
+            1,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch.object(
+                sync, "run_bd", side_effect=_make_bd_side_effect()
+            ) as mock_run:
+                exit_code = sync.create_issues(str(plan_copy))
+            actual = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(actual, expected)
+        self.assertEqual(actual.count("<beads-id>"), 2)
+        self.assertEqual(
+            [
+                call.args[0]
+                for call in mock_run.call_args_list
+                if call.args[0][:2] == ["bd", "create"]
+            ],
+            [],
+        )
+
+    def test_already_canonical_bound_tasks_are_byte_and_write_noops(self):
+        plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        canonical = plan_text.replace(
+            '<task type="auto">',
+            '<task type="auto" tracker-id="beads:tracer-f5x.1">',
+            1,
+        ).replace(
+            '<task type="auto">',
+            '<task type="auto" tracker-id="beads:tracer-f5x.2">',
+            1,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), canonical)
+            before = plan_copy.read_bytes()
+            with mock.patch.object(
+                sync, "run_bd", side_effect=_make_bd_side_effect()
+            ) as mock_run:
+                with mock.patch.object(Path, "write_text", autospec=True) as write_text:
+                    exit_code = sync.create_issues(str(plan_copy))
+            after = plan_copy.read_bytes()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(after, before)
+        write_text.assert_not_called()
+        self.assertEqual(
+            [
+                call.args[0]
+                for call in mock_run.call_args_list
+                if call.args[0][:2] == ["bd", "create"]
+            ],
+            [],
+        )
+
+    def test_conflicting_duplicate_and_authority_free_native_identity_fail_preflight(self):
+        base = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        cases = {
+            "wrong-value": base.replace(
+                '<task type="auto">',
+                '<task type="auto" tracker-id="beads:wrong">',
+                1,
+            ),
+            "duplicate": base.replace(
+                '<task type="auto">',
+                '<task type="auto" tracker-id="beads:tracer-f5x.1" '
+                'tracker-id="beads:tracer-f5x.1">',
+                1,
+            ),
+            "authority-free": base.replace(
+                '<task type="auto">',
+                '<task type="auto" tracker-id="beads:tracer-f5x.1">',
+                1,
+            ).replace(
+                "  <beads-id>tracer-f5x.1</beads-id>\n",
+                "",
+                1,
+            ),
+        }
+
+        for label, plan_text in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    before = plan_copy.read_bytes()
+                    with mock.patch.object(
+                        sync, "run_bd", side_effect=_make_bd_side_effect()
+                    ) as mock_run:
+                        with mock.patch.object(
+                            Path, "write_text", autospec=True
+                        ) as write_text:
+                            captured = io.StringIO()
+                            with contextlib.redirect_stderr(captured):
+                                exit_code = sync.create_issues(str(plan_copy))
+                    after = plan_copy.read_bytes()
+
+                self.assertNotEqual(exit_code, 0)
+                self.assertIn("native tracker identity", captured.getvalue())
+                self.assertEqual(after, before)
+                self.assertEqual(mock_run.call_args_list, [])
+                write_text.assert_not_called()
+
+    def test_installed_parser_reads_migrated_identity_and_checkpoint_null(self):
+        plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace(
+            "</tasks>",
+            '<task type="checkpoint:human-verify" tracker-id="beads:ignored">\n'
+            "  <what-built>Proof</what-built>\n"
+            "</task>\n\n</tasks>",
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch.object(sync, "run_bd", side_effect=_make_bd_side_effect()):
+                exit_code = sync.create_issues(str(plan_copy))
+
+            launcher_result = subprocess.run(
+                ["bash", "-lc", "command -v gsd_run"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(launcher_result.returncode, 0, launcher_result.stderr)
+            launcher_lines = [
+                line.strip() for line in launcher_result.stdout.splitlines() if line.strip()
+            ]
+            self.assertEqual(len(launcher_lines), 1)
+            launcher = Path(launcher_lines[0])
+            self.assertTrue(launcher.is_absolute())
+
+            canonical_result = subprocess.run(
+                ["readlink", "-f", "--", str(launcher)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+            self.assertEqual(canonical_result.returncode, 0, canonical_result.stderr)
+            canonical = Path(canonical_result.stdout.strip())
+            parser_path = canonical.parent / "lib" / "plan-document.cjs"
+            self.assertTrue(parser_path.is_file())
+            self.assertTrue(os.access(parser_path, os.R_OK))
+
+            node_program = (
+                "const fs=require('fs');"
+                "const mod=require(process.argv[1]);"
+                "if(typeof mod.parsePlanDocument!=='function')process.exit(2);"
+                "const doc=mod.parsePlanDocument(fs.readFileSync(process.argv[2],'utf8'));"
+                "if(doc.tasks[0].trackerId!=='beads:tracer-f5x.1')process.exit(3);"
+                "if(doc.tasks[2].trackerId!==null)process.exit(4);"
+            )
+            parser_result = subprocess.run(
+                ["node", "-e", node_program, str(parser_path), str(plan_copy)],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(parser_result.returncode, 0, parser_result.stderr)
+
 
 class TestIdempotency(unittest.TestCase):
     """B5: re-running sync over an unchanged plan writes nothing new; D-06
