@@ -66,10 +66,14 @@ fi
 python3 "$SYNC_PY" create-issues <PLAN.md path>
 ```
 
-This is a single-call dispatch -- the script parses every `<task>` block in the plan, resolves or
-creates one phase epic, resolves or creates one beads issue per task (skipping any task that
-already carries a `<beads-id>`), and rewrites the plan file in place with the resolved
-`beads_epic` frontmatter key and per-task `<beads-id>` elements.
+This is a single-call dispatch -- the script parses every `<task>` block in
+the plan, verifies every existing `<beads-id>` before any create, resolves or
+creates one phase epic, and resolves or creates one beads issue per task.
+`<beads-id>` remains authoritative. The script rewrites the plan with the
+resolved `beads_epic` and missing `<beads-id>` values; exact `auto` and `tracer`
+tasks also gain deterministic `tracker-id="beads:<id>"` attributes. Checkpoints
+and tasks with missing, partial, prefixed, case-variant, or unknown `type`
+attributes retain their original task bytes.
 
 ## Step 4 -- Report
 

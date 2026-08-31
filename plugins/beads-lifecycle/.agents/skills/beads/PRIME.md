@@ -14,6 +14,9 @@ This project runs gsd-core's plan/execute/verify/ship lifecycle on top of `bd`. 
 - One epic per phase.
 - One bd issue per `<task>` element in a `PLAN.md`.
 - Identity binds through the plan's `beads_epic` frontmatter key and each task's `<beads-id>` element — never by title match.
+- Existing `<beads-id>` values are verified before any create. Exact `auto` and
+  `tracer` tasks project that authority as `tracker-id="beads:<id>"`; excluded
+  task types remain unchanged.
 - A renamed task resolves to the same issue.
 - `PLAN.md` frontmatter carries `beads_epic` once the phase's tasks have synced.
 - `beads.epic_per` (`phase` default, or `milestone`) controls whether epics are per-phase or shared across a milestone.
@@ -25,7 +28,7 @@ Six `capability.json` lifecycle steps dispatch bd integration automatically — 
 | Point | Skill | Dispatched by | Effect |
 |---|---|---|---|
 | `plan:pre` | `beads-recall` | PostToolUse hook | Scans open bd issues, writes `BEADS-RECALL.md` naming any that may touch the phase about to be planned; consumed by the planner. Also runs both gsd-core patch-loss checks. |
-| `plan:post` | `beads-sync` | PostToolUse hook | Parses every `PLAN.md` in the phase, creates/resolves the phase epic and one issue per task, rewrites each plan with `beads_epic`/`<beads-id>`. |
+| `plan:post` | `beads-sync` | PostToolUse hook | Parses every `PLAN.md`, verifies bound task identities before mutation, creates/resolves the epic and task issues, writes missing `beads_epic`/`<beads-id>` values, and projects exact `auto`/`tracer` tasks as `tracker-id="beads:<id>"`. |
 | `execute:wave:pre` | `beads-status` | PostToolUse hook | Regenerates `BEADS.md` from a live `bd` query and composes a `<beads_status>` block for the orchestrator to paste into each executor's prompt. Phase-wide, not wave-scoped — the hook's trigger carries no wave plan-id list. |
 | `execute:wave:post` | `beads-status` | PostToolUse hook | Closes every task-complete bd issue across every plan in the phase (`reconcile-stale-closed`, idempotent). |
 | `verify:post` | `beads-status` | PostToolUse hook | Regenerates `BEADS.md` read-only — no wave/plan context, no close dispatch. |
