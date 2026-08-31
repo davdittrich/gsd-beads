@@ -2939,6 +2939,18 @@ class TestCloseWave(unittest.TestCase):
             "unclosed-quoted-opening": base.replace(
                 '<task type="auto">', '<task type="auto>', 1
             ),
+            "same-duplicate-beads-id": base.replace(
+                "  <beads-id>tracer-wave1.1</beads-id>",
+                "  <beads-id>tracer-wave1.1</beads-id>\n"
+                "  <beads-id>tracer-wave1.1</beads-id>",
+                1,
+            ),
+            "conflicting-duplicate-beads-id": base.replace(
+                "  <beads-id>tracer-wave1.1</beads-id>",
+                "  <beads-id>tracer-wave1.1</beads-id>\n"
+                "  <beads-id>tracer-wave1.2</beads-id>",
+                1,
+            ),
         }
 
         for label, plan_text in cases.items():
@@ -3096,6 +3108,18 @@ class TestReconcileStaleClosed(unittest.TestCase):
         cases = {
             "unclosed-quoted-opening": base.replace(
                 '<task type="auto">', '<task type="auto>', 1
+            ),
+            "same-duplicate-beads-id": base.replace(
+                "  <beads-id>tracer-wave1.1</beads-id>",
+                "  <beads-id>tracer-wave1.1</beads-id>\n"
+                "  <beads-id>tracer-wave1.1</beads-id>",
+                1,
+            ),
+            "conflicting-duplicate-beads-id": base.replace(
+                "  <beads-id>tracer-wave1.1</beads-id>",
+                "  <beads-id>tracer-wave1.1</beads-id>\n"
+                "  <beads-id>tracer-wave1.2</beads-id>",
+                1,
             ),
         }
 

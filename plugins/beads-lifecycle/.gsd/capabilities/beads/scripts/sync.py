@@ -1691,6 +1691,8 @@ def _completed_task_authority_error(task):
     """Return why a parsed completed task cannot safely authorize a bd close."""
     if not task["attributes_valid"] or task["type_attribute_count"] > 1:
         return "task opening attributes are malformed or duplicated"
+    if len(task["beads_ids"]) > 1:
+        return "duplicate beads-id elements"
     if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
         return f"unsafe beads-id {task['beads_id']!r}"
     return None
