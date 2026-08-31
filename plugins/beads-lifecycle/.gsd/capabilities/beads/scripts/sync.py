@@ -1849,7 +1849,7 @@ def create_issues(plan_arg, allow_strip=True):
             if created:
                 created_count += 1
                 task_updates.append((task["name_end"], issue_id))
-            elif (
+            if (
                 not divergent
                 and task["type"] in ("auto", "tracer")
                 and not task["tracker_ids"]
