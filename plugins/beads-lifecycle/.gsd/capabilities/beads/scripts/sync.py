@@ -552,6 +552,121 @@ def _task_description(task):
     return "\n\n".join(sections) + ("\n" if sections else "")
 
 
+def _resolver_fail(category):
+    """Emit one bounded resolver diagnostic and keep stdout protocol-clean."""
+    print(category[:2000], file=sys.stderr)
+    return 1
+
+
+def resolve_task_content(issue_id):
+    """Resolve one Beads task through the deliberately narrow native seam."""
+    if not SAFE_BD_ID_RE.fullmatch(issue_id):
+        return _resolver_fail("invalid id")
+
+    try:
+        result = run_bd(["bd", "show", issue_id, "--json"], timeout=8)
+    except subprocess.TimeoutExpired:
+        return _resolver_fail("bd timeout")
+    except (OSError, UnicodeError):
+        return _resolver_fail("bd unavailable")
+
+    if result.returncode != 0:
+        return _resolver_fail("bd failed")
+    if not isinstance(result.stdout, str):
+        return _resolver_fail("invalid json")
+    try:
+        payload = json.loads(result.stdout)
+    except (UnicodeError, json.JSONDecodeError):
+        return _resolver_fail("invalid json")
+
+    if isinstance(payload, dict):
+        payload = payload.get("data")
+    if not isinstance(payload, list) or len(payload) != 1 or not isinstance(payload[0], dict):
+        return _resolver_fail("invalid envelope")
+    row = payload[0]
+    if row.get("id") != issue_id:
+        return _resolver_fail("id mismatch")
+    description = row.get("description")
+    if not isinstance(description, str) or not description.strip():
+        return _resolver_fail("invalid description")
+    criteria = row.get("acceptance_criteria")
+    if criteria is None:
+        criteria_items = []
+    elif isinstance(criteria, str):
+        criteria_items = [
+            line.strip().removeprefix("-").removeprefix("*").strip()
+            for line in criteria.splitlines()
+            if line.strip()
+        ]
+    else:
+        return _resolver_fail("invalid acceptance")
+
+    extracted = {"Read First": None, "Verify": None, "Done": None}
+    retained, current, active = [], [], None
+    fence = None
+    for line in description.splitlines(keepends=True):
+        stripped = line.rstrip("\r\n")
+        if fence is not None:
+            current.append(line)
+            if re.match(rf"^{re.escape(fence)}", stripped):
+                fence = None
+            continue
+        opening = re.match(r"^([\\x60~]{3,})", stripped)
+        if opening:
+            fence = opening.group(1)
+            current.append(line)
+            continue
+        heading = re.fullmatch(r"## (Read First|Verify|Done)", stripped)
+        if heading:
+            if active is not None:
+                extracted[active] = "".join(current).strip()
+            else:
+                retained.extend(current)
+            active, current = heading.group(1), []
+            if extracted[active] is not None:
+                return _resolver_fail("duplicate heading")
+            continue
+        if re.fullmatch(r"## .+", stripped):
+            if active is not None:
+                extracted[active] = "".join(current).strip()
+                active = None
+            else:
+                retained.extend(current)
+            retained.append(line)
+            current = []
+            continue
+        current.append(line)
+    if active is not None:
+        extracted[active] = "".join(current).strip()
+    else:
+        retained.extend(current)
+
+    retained_description = "".join(retained).strip()
+    if not retained_description:
+        return _resolver_fail("invalid description")
+    read_first = []
+    if extracted["Read First"]:
+        for line in extracted["Read First"].splitlines():
+            if not line.strip():
+                continue
+            if not line.startswith("- ") or not line[2:].strip():
+                return _resolver_fail("invalid read first")
+            read_first.append(line[2:].strip())
+
+    print(
+        json.dumps(
+            {
+                "description": retained_description,
+                "read_first": read_first,
+                "verify": extracted["Verify"] or None,
+                "acceptance_criteria": criteria_items,
+                "done": extracted["Done"] or None,
+            }
+        )
+    )
+    return 0
+
+
 def _checkpoint_task_description(task):
     """Fold a checkpoint:decision/checkpoint:human-verify task's real content
     into one `-d` prose string (CR-01), same "## section, only when non-empty"
@@ -2577,6 +2692,11 @@ def main(argv=None):
         "create-issues", help="Sync a PLAN.md's tasks into bd issues under a phase epic"
     )
     create_p.add_argument("plan_path")
+    resolver_p = sub.add_parser(
+        "resolve-task-content",
+        help="Resolve one Beads issue into gsd-core task content",
+    )
+    resolver_p.add_argument("issue_id")
     close_p = sub.add_parser(
         "close-wave",
         help="Batch-close every completed task's issue across every plan in a wave",
@@ -2640,6 +2760,8 @@ def main(argv=None):
     )
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
+    if args.command == "resolve-task-content":
+        return resolve_task_content(args.issue_id)
     if args.command == "create-issues":
         # 17-02 Task 3 (D-06): the explicit CLI path's strip permission is
         # governed by beads.sync_mode -- the hook path (lifecycle_dispatch)
