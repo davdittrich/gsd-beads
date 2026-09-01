@@ -131,7 +131,7 @@ The current registry is deliberately insufficient for CUT-01: live output shows 
 
 Patch 2 remains a distinct machine-local `execute-plan.md` marker path. Its current retirement boundary is already enumerated in the operational document: workflow marker block, Patch-2 section, marker constant, checker-table entry/wrapper/CLI, and `beads-recall` invocation. Patch 1 is the independent `ship-md` row and must remain exactly one entry. [VERIFIED: `plugins/beads-lifecycle/.gsd/capabilities/beads/GSD-CORE-PATCH.md:188-195`; `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:145-201`]
 
-**Primary recommendation:** Use one existing-seam transaction—runtime-derived bundle parity plus a naturally synced Phase 21 task through the public command, then the four isolated failures, then the smallest deletion of Patch 2 surfaces and re-run the same proof matrix. [VERIFIED: `21-CONTEXT.md`, D-01 through D-15]
+**Primary recommendation:** Use one existing-seam transaction—runtime-derived byte parity across tracked, project-active, global-active, and exact-environment bootstrap/executed bundles plus a naturally synced Phase 21 task through the public command; then four isolated failures, the eight-file/post-edit-source digest retirement, and the same proof matrix again. [VERIFIED: `21-CONTEXT.md`, D-01 through D-15]
 
 ## Architectural Responsibility Map
 
@@ -179,7 +179,8 @@ Patch 2 remains a distinct machine-local `execute-plan.md` marker path. Its curr
 ```text
 tracked capability bundle ──install/derive paths──> project + global bundles
           │                                             │
-          └──complete-tree byte comparison──────────────┘
+          └──exact public env──> bootstrap/executed bundle
+          └──────────four-tree complete-byte comparison─┘
                                                         │
 normal Phase 21 plan:post ──> live bd issue + both IDs ─┼──> active global registry proof
                                                         │
@@ -203,8 +204,8 @@ Do not add a new module or project structure. Extend only the tracked seams belo
 | Responsibility | Existing seam | Planned action |
 |----------------|---------------|----------------|
 | Live resolver and public proof | `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py` and `/home/dd/.codex/gsd-core/bin/lib/task-command-router.cjs` | Preserve resolver; add focused cutover probes/tests around its public contract. [VERIFIED: `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:676-782`; `/home/dd/.codex/gsd-core/bin/lib/task-command-router.cjs:92-155`] |
-| Manifest and bundle parity | `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`, `plugins/beads-lifecycle/hooks/capability-auto-install.sh` | Derive every runtime location; compare full trees; retain installer behavior. [VERIFIED: `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json:1-35`; `plugins/beads-lifecycle/hooks/capability-auto-install.sh:31-97`] |
-| Patch 2 retirement | `sync.py`, `GSD-CORE-PATCH.md`, `skills/beads-recall/SKILL.md`, active workflow | Delete exact Patch 2 surfaces, no alias/tombstone. [VERIFIED: `plugins/beads-lifecycle/.gsd/capabilities/beads/GSD-CORE-PATCH.md:188-195`] |
+| Manifest and bundle parity | `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`, `plugins/beads-lifecycle/hooks/capability-auto-install.sh` | Derive the selected manifest plus tracked/project/global/bootstrap trees from the exact public environment, prove the executed resolver path, and retain installer behavior. [VERIFIED: `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json:1-35`; `plugins/beads-lifecycle/hooks/capability-auto-install.sh:31-97`] |
+| Patch 2 retirement | `sync.py`, `test_sync.py`, `GSD-CORE-PATCH.md`, `skills/beads-recall/SKILL.md`, `capability.json`, `PRIME.md`, README, CHANGELOG, active workflow | Delete seven active tracked surfaces plus the runtime block, update append-only history, and bind the eight tracked files to one canonical post-edit source digest; no alias/tombstone. [VERIFIED: `plugins/beads-lifecycle/.gsd/capabilities/beads/GSD-CORE-PATCH.md:188-195`] |
 | Patch 1 regression gate | `sync.py` `ship-md` table entry and status path | Preserve and independently run after deletion. [VERIFIED: `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:157-179`; `21-CONTEXT.md`, D-14] |
 
 ### Pattern 1: Public oracle plus internal argv spy
@@ -309,7 +310,7 @@ Start from the known-good installed baseline, mutate exactly one factor per arm,
 | Node.js | gsd-core public command | ✓ | `v26.8.1` [VERIFIED: `node --version`, observed 2026-09-01] | — |
 | Python | Existing resolver adapter/tests | ✓ | `3.14.7` [VERIFIED: `python3 --version`, observed 2026-09-01] | — |
 | `bd` | Live Beads proof | ✓ | `1.2.2` [VERIFIED: `bd --version`, observed 2026-09-01] | No fallback; failure is a negative arm / `SPEC_FAILURE` pre-removal. [VERIFIED: `21-CONTEXT.md`, D-05, D-09] |
-| Current global Beads bundle | CUT-01 parity | ✗ | Active global `0.4.0`, project `0.5.0`; parity is not currently established. [VERIFIED: `gsd-tools capability list --raw`, observed 2026-09-01] | Install from the runtime-derived tracked bundle through the existing installer, then prove complete-tree identity. [VERIFIED: `plugins/beads-lifecycle/hooks/capability-auto-install.sh:78-97`; `21-CONTEXT.md`, D-02] |
+| Current global Beads bundle | CUT-01 parity | ✗ | Active global `0.4.0` lacks `taskContentResolver`, while project `0.5.0` declares it; parity is not currently established. [VERIFIED: `gsd-tools capability list --raw` plus both active `capability.json` files, observed 2026-09-01] | Derive the bootstrap path independently from the exact public `GSD_HOME`/`Path.home()` controls; treat the stale/missing resolver declaration as an install trigger, install from the runtime-derived tracked bundle, then re-derive and prove complete tracked/project/global/bootstrap tree identity plus the executed resolver path. [VERIFIED: `plugins/beads-lifecycle/hooks/capability-auto-install.sh:78-97`; `21-CONTEXT.md`, D-02] |
 
 **Missing dependencies with no fallback:** none; a failed live `bd` is a required negative proof arm and blocks retirement, not a condition to bypass. [VERIFIED: `21-CONTEXT.md`, D-05 and D-09]
 
