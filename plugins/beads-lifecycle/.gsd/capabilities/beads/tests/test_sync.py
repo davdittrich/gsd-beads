@@ -8,7 +8,6 @@ import io
 import json
 import re
 import os
-import shlex
 import shutil
 import subprocess
 import sys
@@ -6840,70 +6839,8 @@ fi'''
         ("beads-status:status", "beads-status/SKILL.md", ("status [phase directory]",)),
         ("beads-status:close-wave", "beads-status/SKILL.md", ("close-wave <phase directory> <plan id> [<plan id> ...]",)),
     )
-    PLACEHOLDERS = {
-        "<PLAN.md path>", "<phase directory>", "<plan id>",
-        "[<plan id> ...]", "[phase directory]",
-    }
-
     def _skill_path(self, relative):
         return self.ROOT / ".gsd/capabilities/beads/skills" / relative
-
-    def _direct_fences(self):
-        prefix = r'(?:\.gsd/capabilities/beads/scripts/sync\.py|"\$SYNC_PY")'
-        direct = []
-        for relative in dict.fromkeys(relative for _, relative, _ in self.RAW_FENCES):
-            path = self._skill_path(relative)
-            text = path.read_text(encoding="utf-8")
-            for raw in re.findall(r"```bash\n(.*?)\n```", text, re.DOTALL):
-                tails = tuple(re.findall(rf'^python3 {prefix}(?: (.*))?$', raw, re.MULTILINE))
-                if tails:
-                    direct.append((path, raw, tails))
-        return direct
-
-    def _selected_fences(self):
-        expected = [
-            (name, self._skill_path(relative), tails)
-            for name, relative, tails in self.RAW_FENCES
-        ]
-        selected = {}
-        for path, raw, tails in self._direct_fences():
-            matches = [item for item in expected if item[1] == path and item[2] == tails]
-            self.assertEqual(
-                len(matches), 1,
-                f"unmatched or duplicate direct-sync fence in {path}: {tails}",
-            )
-            name = matches[0][0]
-            self.assertNotIn(name, selected, f"duplicate direct-sync fence: {name}")
-            selected[name] = raw
-        self.assertEqual(set(selected), {name for name, _, _ in expected})
-        return selected
-
-    def _assert_raw_contract(self):
-        selected = self._selected_fences()
-        for name, _, tails in self.RAW_FENCES:
-            raw = selected[name]
-            self.assertEqual(raw.count(self.RESOLVER), 1, f"{name} resolver differs")
-            actual = tuple(re.findall(r'^python3 "\$SYNC_PY"(?: (.*))?$', raw, re.MULTILINE))
-            self.assertEqual(actual, tails, f"{name} command tail changed")
-        return selected
-
-    def _derive(self, raw, values, status_phase=True):
-        discovered = set(re.findall(r"<[^>]+>|\[[^\]]+\]", "\n".join(
-            re.findall(r'^python3 "\$SYNC_PY"(?: (.*))?$', raw, re.MULTILINE)
-        )))
-        self.assertTrue(discovered <= self.PLACEHOLDERS, discovered - self.PLACEHOLDERS)
-        derived = raw
-        if not status_phase:
-            derived = derived.replace(" [phase directory]", "")
-        for token in ("[<plan id> ...]", "<PLAN.md path>", "<phase directory>", "<plan id>", "[phase directory]"):
-            if token in derived:
-                self.assertIn(token, values)
-                derived = derived.replace(token, shlex.quote(values[token]))
-        command_tails = "\n".join(
-            re.findall(r'^python3 "\$SYNC_PY"(?: (.*))?$', derived, re.MULTILINE)
-        )
-        self.assertFalse(re.search(r"<[^>]+>|\[[^\]]+\]", command_tails))
-        return derived
 
     def _write_spy(self, root):
         path = root / self.RELATIVE_SYNC
@@ -6916,63 +6853,66 @@ fi'''
         )
         return path.resolve()
 
-    def _run_all(self, selected, env, values, status_phase=True):
-        results = []
-        for name, _, _ in self.RAW_FENCES:
-            phase_options = (True, False) if name == "beads-status:status" else (status_phase,)
-            for include_phase in phase_options:
-                results.append(subprocess.run(
-                    ["bash", "-c", self._derive(selected[name], values, include_phase)],
-                    cwd=env["UNRELATED_CWD"], env=env, capture_output=True, text=True, timeout=15,
-                ))
-        return results
+    def _run(self, env, *argv):
+        return subprocess.run(
+            [
+                "bash", "-c",
+                self.RESOLVER + '\npython3 "$SYNC_PY" "$@"',
+                "resolver-test", *argv,
+            ],
+            cwd=env["UNRELATED_CWD"], env=env,
+            capture_output=True, text=True, timeout=15,
+        )
 
-    def test_raw_fences_require_one_canonical_resolver_before_execution(self):
-        self._assert_raw_contract()
+    @staticmethod
+    def _read_calls(spy_log):
+        return [
+            json.loads(line)
+            for line in spy_log.read_text(encoding="utf-8").splitlines()
+        ]
 
-    def test_resolution_precedence_argv_and_failure_boundary(self):
-        selected = self._assert_raw_contract()
+    def test_all_ten_fences_have_exact_static_contract(self):
+        texts = {}
+        for name, relative, tails in self.RAW_FENCES:
+            if relative not in texts:
+                texts[relative] = self._skill_path(relative).read_text(encoding="utf-8")
+            text = texts[relative]
+            commands = "\n".join(f'python3 "$SYNC_PY" {tail}' for tail in tails)
+            expected = f"```bash\n{self.RESOLVER}\n{commands}\n```"
+            self.assertEqual(text.count(expected), 1, f"{name} static contract changed")
+        self.assertEqual(
+            sum(text.count(self.RESOLVER) for text in texts.values()),
+            len(self.RAW_FENCES),
+        )
+        self.assertEqual(
+            sum(text.count('python3 "$SYNC_PY"') for text in texts.values()),
+            sum(len(tails) for _, _, tails in self.RAW_FENCES),
+        )
+
+    def test_resolution_precedence_and_failure_boundary(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             project, global_root, plugin = (base / "project root", base / "global root", base / "plugin root")
             unrelated = base / "unrelated cwd"
             unrelated.mkdir()
             spy_log = base / "spy.jsonl"
-            plan, phase = base / "PLAN path.md", base / "phase directory"
-            values = {
-                "<PLAN.md path>": str(plan), "<phase directory>": str(phase),
-                "<plan id>": "01", "[<plan id> ...]": "02",
-                "[phase directory]": str(phase),
-            }
             base_env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project), GSD_HOME=str(global_root), HOME=str(base / "home root"), CLAUDE_PLUGIN_ROOT=str(plugin), SPY_LOG=str(spy_log), UNRELATED_CWD=str(unrelated))
-            expected_argv = []
-            for name, _, _ in self.RAW_FENCES:
-                options = (True, False) if name == "beads-status:status" else (True,)
-                for include_phase in options:
-                    suffixes = re.findall(
-                        r'^python3 "\$SYNC_PY"(?: (.*))?$',
-                        self._derive(selected[name], values, include_phase),
-                        re.MULTILINE,
-                    )
-                    expected_argv.extend(shlex.split(suffix or "") for suffix in suffixes)
-            for root in (project, global_root, plugin):
-                self._write_spy(root)
-            results = self._run_all(selected, base_env, values)
-            self.assertTrue(all(result.returncode == 0 for result in results), results)
-            calls = [json.loads(line) for line in spy_log.read_text(encoding="utf-8").splitlines()]
-            self.assertEqual(len(calls), len(expected_argv))
-            self.assertTrue(all(call[0] == str((project / self.RELATIVE_SYNC).resolve()) for call in calls))
-            self.assertEqual([call[1] for call in calls], expected_argv)
+            project_sync = self._write_spy(project)
+            global_sync = self._write_spy(global_root)
+            plugin_sync = self._write_spy(plugin)
+
+            result = self._run(base_env, "status")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(self._read_calls(spy_log), [[str(project_sync), ["status"]]])
 
             spy_log.unlink()
-            (project / self.RELATIVE_SYNC).unlink()
-            results = self._run_all(selected, base_env, values)
-            self.assertTrue(all(result.returncode == 0 for result in results), results)
-            calls = [json.loads(line) for line in spy_log.read_text(encoding="utf-8").splitlines()]
-            self.assertTrue(all(call[0] == str((global_root / self.RELATIVE_SYNC).resolve()) for call in calls))
+            project_sync.unlink()
+            result = self._run(base_env, "status")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(self._read_calls(spy_log), [[str(global_sync), ["status"]]])
 
             spy_log.unlink()
-            (global_root / self.RELATIVE_SYNC).unlink()
+            global_sync.unlink()
             home_sync = self._write_spy(base / "home root")
             for gsd_home in (None, ""):
                 spy_log.unlink(missing_ok=True)
@@ -6981,25 +6921,63 @@ fi'''
                     env.pop("GSD_HOME")
                 else:
                     env["GSD_HOME"] = gsd_home
-                results = self._run_all(selected, env, values)
-                self.assertTrue(all(result.returncode == 0 for result in results), results)
-                calls = [json.loads(line) for line in spy_log.read_text(encoding="utf-8").splitlines()]
-                self.assertTrue(all(call[0] == str(home_sync) for call in calls))
+                result = self._run(env, "status")
+                self.assertEqual(result.returncode, 0, result)
+                self.assertEqual(self._read_calls(spy_log), [[str(home_sync), ["status"]]])
 
             spy_log.unlink()
             home_sync.unlink()
-            results = self._run_all(selected, base_env, values)
-            self.assertTrue(all(result.returncode == 0 for result in results), results)
-            calls = [json.loads(line) for line in spy_log.read_text(encoding="utf-8").splitlines()]
-            self.assertTrue(all(call[0] == str((plugin / self.RELATIVE_SYNC).resolve()) for call in calls))
+            result = self._run(base_env, "status")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(self._read_calls(spy_log), [[str(plugin_sync), ["status"]]])
 
             spy_log.unlink()
-            (plugin / self.RELATIVE_SYNC).unlink()
+            plugin_sync.unlink()
             (project / self.RELATIVE_SYNC).mkdir(parents=True)
-            results = self._run_all(selected, base_env, values)
-            self.assertTrue(all(result.returncode != 0 for result in results), results)
-            self.assertTrue(all(result.stderr == self.DIAGNOSTIC + "\n" for result in results))
+            result = self._run(base_env, "status")
+            self.assertEqual(result.returncode, 1, result)
+            self.assertEqual(result.stderr, self.DIAGNOSTIC + "\n")
             self.assertFalse(spy_log.exists())
+
+    def test_each_distinct_argv_shape_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project = base / "project root"
+            unrelated = base / "unrelated cwd"
+            unrelated.mkdir()
+            spy_log = base / "spy.jsonl"
+            phase = str(base / "phase directory")
+            argv_cases = (
+                ("create-issues", str(base / "PLAN path.md")),
+                ("beads-recall", phase),
+                ("check-patch", "ship-md"),
+                ("check-patch", "execute-plan"),
+                ("migrate-todos",),
+                ("wave-status-block", phase, "01", "02"),
+                ("reconcile-stale-closed", phase),
+                ("regenerate-beads-md", phase),
+                ("ship-override", phase),
+                ("status", phase),
+                ("status",),
+                ("close-wave", phase, "01", "02"),
+            )
+            self.assertEqual(len(argv_cases), len(set(argv_cases)))
+            project_sync = self._write_spy(project)
+            env = dict(
+                os.environ,
+                CLAUDE_PROJECT_DIR=str(project),
+                GSD_HOME=str(base / "missing global"),
+                HOME=str(base / "missing home"),
+                CLAUDE_PLUGIN_ROOT=str(base / "missing plugin"),
+                SPY_LOG=str(spy_log),
+                UNRELATED_CWD=str(unrelated),
+            )
+            for argv in argv_cases:
+                result = self._run(env, *argv)
+                self.assertEqual(result.returncode, 0, (argv, result))
+            calls = self._read_calls(spy_log)
+            self.assertEqual([call[0] for call in calls], [str(project_sync)] * len(argv_cases))
+            self.assertEqual([call[1] for call in calls], [list(argv) for argv in argv_cases])
 
 
 if __name__ == "__main__":
