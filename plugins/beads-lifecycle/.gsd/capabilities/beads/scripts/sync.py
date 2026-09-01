@@ -1361,13 +1361,11 @@ def resolve_milestone_epic(project_root):
 
     for candidate_id in candidate_ids:
         check = run_bd(["bd", "show", candidate_id, "--json"])
-        if check.returncode != 0:
-            continue
         try:
-            data = json.loads(check.stdout)
-        except json.JSONDecodeError:
-            continue
-        if data.get("title") == title:
+            row = _bd_show_row(check, candidate_id)
+        except RuntimeError as exc:
+            raise EpicAuthorityError(str(exc)) from exc
+        if row is not None and row.get("title") == title:
             return candidate_id
 
     if candidate_ids:
@@ -1387,10 +1385,10 @@ def resolve_milestone_epic(project_root):
     return result.stdout.strip()
 
 
-def _bd_show_identifies(result, expected_id):
-    """Return False on absence; require exact one-row JSON on success."""
+def _bd_show_row(result, expected_id):
+    """Return the exact identified row, None on absence, or fail closed."""
     if result.returncode != 0:
-        return False
+        return None
     if not isinstance(result.stdout, str):
         raise RuntimeError("bd show returned invalid JSON")
     try:
@@ -1406,7 +1404,12 @@ def _bd_show_identifies(result, expected_id):
         or payload[0].get("id") != expected_id
     ):
         raise RuntimeError(f"bd show did not identify {expected_id!r}")
-    return True
+    return payload[0]
+
+
+def _bd_show_identifies(result, expected_id):
+    """Return False on absence; require exact one-row JSON on success."""
+    return _bd_show_row(result, expected_id) is not None
 
 
 def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, objective=""):
