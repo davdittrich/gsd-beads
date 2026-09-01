@@ -5831,6 +5831,49 @@ class TestMilestoneEpic(unittest.TestCase):
         self.assertEqual(mutations, [])
         self.assertEqual(after, before)
 
+    def test_incomplete_milestone_candidate_metadata_never_authorizes_mutation(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+
+        for label, row in (
+            ("missing-title", {"id": "candidate-epic"}),
+            ("non-string-title", {"id": "candidate-epic", "title": 42}),
+        ):
+            with self.subTest(label=label):
+                def _side_effect(argv, **kwargs):
+                    if argv[:3] == ["bd", "show", "candidate-epic"]:
+                        return _completed(0, stdout=json.dumps([row]) + "\n")
+                    return _completed(0, stdout="unexpected-mutation\n")
+
+                with tempfile.TemporaryDirectory() as tmp:
+                    _, phase_dirs = _write_milestone_workspace(
+                        Path(tmp), ["01-substrate", "02-visibility"], epic_per="milestone"
+                    )
+                    foreign_plan = phase_dirs["01-substrate"] / "01-01-PLAN.md"
+                    foreign_plan.write_text(
+                        base.replace("---\n", "---\nbeads_epic: candidate-epic\n", 1),
+                        encoding="utf-8",
+                    )
+                    target_plan = phase_dirs["02-visibility"] / "02-01-PLAN.md"
+                    target_plan.write_text(
+                        base.replace("phase: 01-substrate", "phase: 02-visibility", 1),
+                        encoding="utf-8",
+                    )
+                    before = target_plan.read_bytes()
+                    with mock.patch.object(sync, "bd_available", return_value=True):
+                        with mock.patch.object(sync, "run_bd", side_effect=_side_effect) as mock_run:
+                            exit_code = sync.create_issues(str(target_plan), allow_strip=False)
+                    after = target_plan.read_bytes()
+
+                mutations = [
+                    call.args[0]
+                    for call in mock_run.call_args_list
+                    if len(call.args[0]) > 1
+                    and call.args[0][1] in ("create", "update", "close", "dep")
+                ]
+                self.assertNotEqual(exit_code, 0)
+                self.assertEqual(mutations, [])
+                self.assertEqual(after, before)
+
 
 def _lifecycle_workspace(tmp_path, *, current_phase="07", enabled=None, plan_text=None):
     """gh-2: lay out the minimum tree `lifecycle_dispatch` resolves against --

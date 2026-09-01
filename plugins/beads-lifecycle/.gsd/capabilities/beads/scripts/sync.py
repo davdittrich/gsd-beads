@@ -1365,8 +1365,14 @@ def resolve_milestone_epic(project_root):
             row = _bd_show_row(check, candidate_id)
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
-        if row is not None and row.get("title") == title:
-            return candidate_id
+        if row is not None:
+            candidate_title = row.get("title")
+            if not isinstance(candidate_title, str):
+                raise EpicAuthorityError(
+                    f"bd show returned invalid title for {candidate_id!r}"
+                )
+            if candidate_title == title:
+                return candidate_id
 
     if candidate_ids:
         print(
