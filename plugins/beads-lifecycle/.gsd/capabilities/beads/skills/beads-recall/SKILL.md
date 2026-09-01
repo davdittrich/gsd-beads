@@ -74,11 +74,10 @@ matching `<beads-id>` anywhere. The result is written to
 issue matching neither technique is listed under a separate "Unscoped" heading, never dropped
 (D-02).
 
-## Step 3.5 -- verify the local gsd-core patches (independent reapply check, CR-01)
+## Step 3.5 -- verify the local gsd-core patch (independent reapply check, CR-01)
 
 This step always runs after Step 3, whether or not `bd` was available for Step 3 (these checks
-read only the installed workflow files, never `bd`). Run both, alongside each other -- the
-second joins the first, it does not replace it:
+reads only the installed workflow file, never `bd`). Run the retained Patch 1 check:
 
 ```bash
 SYNC_PY=""
@@ -94,18 +93,16 @@ if [ -z "$SYNC_PY" ]; then
   exit 1
 fi
 python3 "$SYNC_PY" check-patch ship-md
-python3 "$SYNC_PY" check-patch execute-plan
 ```
 
-If either command exits non-zero, or its output does not contain the string "present", surface
-that output to the user verbatim -- never swallow it -- but never block planning on either; both
-are diagnostic only, matching the `onError: skip` this entire beads-recall `plan:pre` dispatch
+If the command exits non-zero, or its output does not contain the string "present", surface
+that output to the user verbatim -- never swallow it -- but never block planning on it; the check
+is diagnostic only, matching the `onError: skip` this entire beads-recall `plan:pre` dispatch
 already runs under. Keyed on exit code / absence of "present" rather than on the "⚠" marker glyph,
 so a future message template that forgets the marker prefix still surfaces (D-03.2).
 
-This is the call site that actually *detects* patch loss for both patches (unlike `beads-status`'s
-Step 2d, which only *confirms* the `ship.md` patch is still intact, and has no counterpart at all
-for the `execute-plan.md` patch).
+This is the call site that actually *detects* Patch 1 loss. `beads-status` Step 2d only
+*confirms* that the `ship.md` patch remains intact.
 
 **Corrected 0.3.0 (gh-2).** The original independence argument here was that `plan:pre` "is
 dispatched by gsd-core's own native generic step-dispatch loop". It is not. `plan-phase.md` §5.6
@@ -117,12 +114,10 @@ shared the failure mode of the thing it protects, and had been silently not runn
 Independence is now real, by a different route: `plan:pre` is dispatched by
 `hooks/lifecycle-dispatch.sh`, a `PostToolUse` hook keyed on the
 `gsd_run loop render-hooks plan:pre --raw` call gsd-core makes regardless of branch. That hook
-runs both checks itself, so they fire whether this skill is invoked or not, and keep firing when
-the patch they check has been stripped by a `gsd-core` update or capability reinstall -- the exact
-scenario in which `beads-status`'s `ship:pre`-gated Step 2d cannot run at all for the `ship.md`
-patch (its own call site depends on the patch it verifies), and the exact scenario the
-`execute-plan.md` patch has no `ship:pre`-gated confirmation step at all (by design -- see
-`GSD-CORE-PATCH.md`'s "Scope" section and Patch 2, and Anti-Pattern 5 below).
+runs the check itself, so it fires whether this skill is invoked or not, and keeps firing when
+the patch has been stripped by a `gsd-core` update or capability reinstall -- the exact scenario
+in which `beads-status`'s `ship:pre`-gated Step 2d cannot run because its own call site depends
+on the patch it verifies.
 
 ## Step 4 -- Report
 
@@ -140,9 +135,6 @@ notice `bd unavailable -- sync skipped`.
 3. DO NOT skip the config gate.
 4. DO NOT silently drop an issue that matches neither scope-matching technique -- it must appear
    under the "Unscoped" heading (D-02).
-5. DO NOT skip Step 3.5 or swallow either of its "⚠" warnings -- it is the only patch-loss
-   *detector* in this capability for both the `ship.md` patch (Step 2d in `beads-status` is
-   confirmation-only, see Step 3.5's own note) and the `execute-plan.md` patch (which has no
-   `beads-status` counterpart at all -- `check-patch execute-plan` is deliberately NOT wired at
-   `ship:pre`, see `GSD-CORE-PATCH.md` Patch 2). A future editor merging or trimming steps must
-   not remove either check from this step.
+5. DO NOT skip Step 3.5 or swallow its "⚠" warning -- it is the only Patch 1 loss
+   *detector* in this capability. Step 2d in `beads-status` is confirmation-only because its
+   own `ship:pre` call site depends on the patch it verifies.

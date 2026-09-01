@@ -120,7 +120,7 @@ capability registry that would normally evaluate each step's `when` condition.
 The hook matches only a real invocation: a recognised tools shim (`gsd_run`, `gsd-tools`, or
 `node …/gsd-tools.cjs`) in shell command position, followed by `loop render-hooks <point> --raw`.
 A command that merely quotes or greps that string does not dispatch. And a hook-driven
-`plan:post` never strips `<task>` bodies out of `PLAN.md`, whatever the read-path patch says —
+`plan:post` never strips `<task>` bodies out of `PLAN.md`, whatever the sync mode says —
 only an explicit `sync.py create-issues <plan>` does that. Both guards exist because the trigger
 is ultimately a substring of a shell command, so a spurious match can never be ruled out
 entirely; creating a `bd` issue by mistake is recoverable, deleting task prose is not.
@@ -134,7 +134,7 @@ object, and the shipped defaults are declared in
 | Key | Type | Values | Default | Effect |
 | :--- | :--- | :--- | :--- | :--- |
 | `beads.enabled` | boolean | `true` / `false` | `true` | Master toggle for the beads issue-tracking capability. |
-| `beads.sync_mode` | enum | `authoritative`, `mirror` | `"authoritative"` | Governs whether an explicit `sync.py create-issues <plan>` strips synced task bodies out of `PLAN.md`: `authoritative` strips once the read-path patch is present, `mirror` never strips. Never governs the hook-driven `plan:post` dispatch, which never strips either way. |
+| `beads.sync_mode` | enum | `authoritative`, `mirror` | `"authoritative"` | Governs whether an explicit `sync.py create-issues <plan>` strips synced task bodies out of `PLAN.md`: `authoritative` strips because native task resolution reads authoritative content from `bd`, `mirror` never strips. Never governs the hook-driven `plan:post` dispatch, which never strips either way. |
 | `beads.ship_gate` | boolean | `true` / `false` | `true` | When true, `ship:pre` blocks on `BEADS.md`'s `blocking_open` or `diverged` frontmatter fields being non-zero; both gates are blocking. |
 | `beads.epic_per` | enum | `phase`, `milestone` | `"phase"` | `phase`: one epic per phase, as today. `milestone`: one epic shared across every phase in the current milestone. |
 
@@ -173,17 +173,16 @@ comment on the phase epic, and the amend is refused when HEAD is already pushed.
 
 #### Native task-content resolver source contract
 
-The tracked Beads capability declares one native resolver that returns exactly
+The tracked Beads capability declares one native `taskContentResolver` that returns exactly
 `description, read_first, verify, acceptance_criteria, and done`. It fails closed with no PLAN.md fallback:
 the resolver invokes `bd show` for the task id and rejects malformed, unavailable, or ambiguous
 task content rather than substituting PLAN.md text.
 
 The bootstrap locates the installed script through `GSD_HOME` (falling back to `Path.home()`) and
 relaunches it with the active Python interpreter. SessionStart's existing bundle-drift detector may
-auto-install this source bundle globally. Phase 20 now projects exact `auto` and `tracer` tasks as
-`tracker-id="beads:<id>"` in tracked source; an installed presence alone is still not cutover or
-byte-parity evidence. Phase 21 owns exact tracked, project-installed, and global-installed byte
-parity, installed cutover, and Patch 2 retirement.
+auto-install this source bundle globally. Phase 20 projects exact `auto` and `tracer` tasks as `tracker-id="beads:<id>"`. The installed
+tracked, project-active, global-active, and bootstrap bundles are byte-identical, the native
+resolver is the executed content authority, and Patch 2 has been retired.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.
@@ -195,12 +194,12 @@ parity, installed cutover, and Patch 2 retirement.
 | Variable | Read by | Default | Purpose |
 | :--- | :--- | :--- | :--- |
 | `CLAUDE_PLUGIN_ROOT` | `hooks/session-start.sh`, `hooks/capability-auto-install.sh` | `$(cd "$(dirname "$0")/.." && pwd)` | Resolves the plugin's own root directory. |
-| `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the gsd-tools resolver and the local-patch checks against `gsd-core/workflows/ship.md` and `gsd-core/workflows/execute-plan.md`. |
-| `GSD_HOME` | `hooks/capability-auto-install.sh` | `$HOME` | Locates the per-capability bundle-drift hash sidecar (`.gsd/capability-auto-install-$CAP_ID.hash`). |
+| `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the gsd-tools resolver and the surviving Patch 1 check against `gsd-core/workflows/ship.md`. |
+| `GSD_HOME` | resolver bootstrap, `hooks/capability-auto-install.sh` | `Path.home()` / `$HOME` | Locates the installed native task-content resolver bundle and the per-capability bundle-drift hash sidecar (`.gsd/capability-auto-install-$CAP_ID.hash`). |
 
 gsd-beads only reads these — it never sets them — and every one has a working default, so none
-is required. The two `CLAUDE_CONFIG_DIR` consumers in `sync.py` probe the Claude runtime home
-only; they do not check other runtime homes such as `CODEX_HOME` or `CURSOR_CONFIG_DIR`.
+is required. The surviving `CLAUDE_CONFIG_DIR` patch check in `sync.py` probes the Claude runtime
+home only; it does not check other runtime homes such as `CODEX_HOME` or `CURSOR_CONFIG_DIR`.
 `sync.py`'s 15-second `bd` subprocess timeout is a module constant, not a configurable
 environment variable.
 

@@ -28,7 +28,7 @@ Six `capability.json` lifecycle steps dispatch bd integration automatically — 
 
 | Point | Skill | Dispatched by | Effect |
 |---|---|---|---|
-| `plan:pre` | `beads-recall` | PostToolUse hook | Scans open bd issues, writes `BEADS-RECALL.md` naming any that may touch the phase about to be planned; consumed by the planner. Also runs both gsd-core patch-loss checks. |
+| `plan:pre` | `beads-recall` | PostToolUse hook | Scans open bd issues, writes `BEADS-RECALL.md` naming any that may touch the phase about to be planned; consumed by the planner. Also runs the surviving Patch 1 loss check. |
 | `plan:post` | `beads-sync` | gsd-core native step dispatch | Parses every `PLAN.md`, verifies bound task identities before mutation, creates/resolves the epic and task issues, writes missing `beads_epic`/`<beads-id>` values, and projects exact `auto`/`tracer` tasks as `tracker-id="beads:<id>"`. |
 | `execute:wave:pre` | `beads-status` | PostToolUse hook | Regenerates `BEADS.md` from a live `bd` query and composes a `<beads_status>` block for the orchestrator to paste into each executor's prompt. Phase-wide, not wave-scoped — the hook's trigger carries no wave plan-id list. |
 | `execute:wave:post` | `beads-status` | PostToolUse hook | Closes every task-complete bd issue across every plan in the phase (`reconcile-stale-closed`, idempotent). |
@@ -60,6 +60,6 @@ Two consequences worth knowing:
 ## Config keys
 
 - `beads.enabled` (default `true`) — master toggle for this whole integration.
-- `beads.sync_mode` (default `authoritative`) — governs whether an explicit `create-issues` strips synced `<task>` bodies out of `PLAN.md`. `authoritative`: strips once the read-path patch is present; `bd` owns task content after first sync, and `PLAN.md` task text is never re-synced from later `bd` edits. `mirror`: never strips. The hook-driven `plan:post` dispatch never strips either way.
+- `beads.sync_mode` (default `authoritative`) — governs whether an explicit `create-issues` strips synced `<task>` bodies out of `PLAN.md`. `authoritative`: strips because native task resolution reads authoritative content from `bd` after first sync, and `PLAN.md` task text is never re-synced from later `bd` edits. `mirror`: never strips. The hook-driven `plan:post` dispatch never strips either way.
 - `beads.ship_gate` (default `true`) — see Ship gate above.
 - `beads.epic_per` (default `phase`) — see Phase epics above.

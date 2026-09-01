@@ -143,17 +143,8 @@ BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # now-redundant gate loop running alongside the native one, and this checker
 # reporting "missing" is the signal to reapply the trimmed v2.
 SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->"
-# 16-03 Task 1 (D-05): the literal marker bracketing the local
-# execute-plan.md bd-task-read patch (GSD-CORE-PATCH.md) --
-# check_execute_plan_patch does a plain substring check against this, never
-# a regex, same discipline as SHIP_MD_PATCH_MARKER immediately above.
-EXECUTE_PLAN_PATCH_MARKER = "<!-- gsd-beads-patch:execute-plan-bd-task-read v1 -->"
-# 17-04 Task 3 (D-08/D-10): the table `check_patch` walks -- a plain dict of
-# literals keyed by target name (this module's existing small-fixed-variant
-# idiom, LIFECYCLE_DISPATCH_POINTS below; no registry/decorator/class). Each
-# entry's own `version` matters: the two markers are independently versioned
-# (v2 vs v1), so one shared field would let a bump to one silently apply to
-# both. The `*_msg` fields are the exact pre-merge message templates.
+# 17-04 Task 3 (D-08/D-10): the table `check_patch` walks. The retained
+# ship-md target remains a literal entry rather than a registry or class.
 PATCH_CHECKS = {
     "ship-md": {
         "default_path_parts": ("gsd-core", "workflows", "ship.md"),
@@ -175,27 +166,6 @@ PATCH_CHECKS = {
             "missing at {path} -- the ship_override step will not fire. The two ship:pre "
             "GATES are unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR "
             "#3608). Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
-        ),
-    },
-    "execute-plan": {
-        "default_path_parts": ("gsd-core", "workflows", "execute-plan.md"),
-        "marker": EXECUTE_PLAN_PATCH_MARKER,
-        "version": "v1",
-        "filename": "execute-plan.md",
-        "not_found_msg": (
-            "⚠ {filename} not found at {path} -- cannot verify the local bd-task-read "
-            "patch (only this runtime home was probed; other runtime homes such "
-            "as CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
-        ),
-        "could_not_read_msg": (
-            "⚠ {filename} at {path} could not be read ({exc}) -- cannot "
-            "verify the local bd-task-read patch"
-        ),
-        "present_msg": "{filename} bd-task-read patch: present ({version}) at {path}",
-        "missing_msg": (
-            "⚠ {filename}'s bd-task-read patch (beads) is missing at {path} -- "
-            "gsd-executor will not read task content from bd. "
-            "Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
         ),
     },
 }
@@ -1073,14 +1043,14 @@ def check_sync_mode_value(project_root):
     outside the declared enum -- the retired `off` value, an empty string,
     a case/whitespace variant, or a non-string type. Called from
     `lifecycle_dispatch`'s `plan:pre` branch, beside `check_shipmd_patch`
-    and `check_execute_plan_patch`, inside the same `try/except Exception`,
+    inside the same `try/except Exception`,
     so a failure here degrades to at most one skipped notice and cannot
     take out `beads_recall`.
 
     Prints to STDOUT -- the same stream `check_patch` uses for all four of
     its message paths (`not_found_msg`, `could_not_read_msg`, `present_msg`,
-    `missing_msg`), which `check_shipmd_patch`/`check_execute_plan_patch`
-    both thin-wrap (WR-01: this function shares that convention, it is not
+    `missing_msg`), which `check_shipmd_patch` thin-wraps (WR-01: this
+    function shares that convention, it is not
     the opposite of it). `hooks/lifecycle-dispatch.sh` promotes only stdout
     into `additionalContext`; the whole point of this notice is that a user
     encounters it without taking any action, so a stderr line would be
@@ -1214,9 +1184,8 @@ def lifecycle_dispatch(point):
             # the thing it protects. Reached from a harness hook it is finally
             # independent of gsd-core's dispatch prose altogether.
             check_shipmd_patch()
-            check_execute_plan_patch()
             # 17-03 Task 2 (D-04 Case 2): stdout notice for an out-of-enum
-            # beads.sync_mode value -- all three plan:pre checks above and
+            # beads.sync_mode value -- both plan:pre checks above and
             # here print to stdout and run inside this one try/except
             # alongside beads_recall; see check_sync_mode_value's docstring
             # for why stdout is the correct stream (WR-01).
@@ -1934,8 +1903,8 @@ def _milestone_authority_error(project_root):
 
 
 def create_issues(plan_arg, allow_strip=True):
-    """`allow_strip=False` keeps every `<task>` body in PLAN.md even when the
-    read-path patch is present (gh-2). `strip_task_bodies` is a deliberate,
+    """`allow_strip=False` keeps every `<task>` body in PLAN.md (gh-2).
+    `strip_task_bodies` is a deliberate,
     destructive migration: it moves the ONLY copy of a task's content into a bd
     database the project may be gitignoring.
 
@@ -1955,9 +1924,8 @@ def create_issues(plan_arg, allow_strip=True):
       principal than a string-matched hook, so it is the one path config is
       allowed to govern.
 
-    Either way, `check_execute_plan_patch() == 0` below is the last-line-of-
-    defence re-gate: config and this flag can only ever subtract permission
-    from a run whose patch is missing, never add it back.
+    Native task resolution now governs authoritative content reads, so the
+    explicit CLI may strip without a local execute-plan patch gate.
     """
     plan_path = Path(plan_arg).resolve()
     project_root = find_project_root(plan_path.parent)
@@ -2144,9 +2112,8 @@ def create_issues(plan_arg, allow_strip=True):
             text, epic_id, epic_created, task_updates, native_updates
         )
         # D-01/D-05: strip content only for tasks whose issue was created in
-        # THIS run (task_updates), and only when the read-path patch is
-        # verifiably present -- verify the patch before trusting the strip,
-        # never assume it (ROADMAP Cross-Cutting Constraint).
+        # THIS run (task_updates). Native task resolution now provides the
+        # authoritative read path; the unattended hook remains non-destructive.
         newly_created_ids = {issue_id for _, issue_id in task_updates}
         if newly_created_ids and not allow_strip:
             print(
@@ -2154,14 +2121,7 @@ def create_issues(plan_arg, allow_strip=True):
                 "(gh-2: an unattended dispatch never performs the authoritative strip)"
             )
         elif newly_created_ids:
-            if check_execute_plan_patch() == 0:
-                new_text = strip_task_bodies(new_text, newly_created_ids)
-            else:
-                print(
-                    "beads-sync: execute-plan.md bd-task-read patch not detected -- "
-                    "leaving task content in PLAN.md (D-05: verify the patch before "
-                    "trusting the strip)"
-                )
+            new_text = strip_task_bodies(new_text, newly_created_ids)
         with plan_path.open("w", encoding="utf-8", newline="") as plan_file:
             plan_file.write(new_text)
 
@@ -2826,8 +2786,8 @@ def ship_override(phase_dir_arg):
 
 def check_patch(target, path_override=None):
     """17-04 Task 3 (TRUTH-02): the one reader PATCH_CHECKS parameterizes,
-    replacing check_shipmd_patch's and check_execute_plan_patch's identical
-    bodies. Preserves the three-case return contract (not-found /
+    serving the retained Patch 1 ship-md wrapper through one generic
+    PATCH_CHECKS-backed reader. Preserves the three-case return contract (not-found /
     could-not-read / marker present-or-missing), the `CLAUDE_CONFIG_DIR`
     idiom, and naming the exact path probed in every message (WR-03).
     Read-only. Total by construction (T-17-04-02): both checks run inside
@@ -2850,8 +2810,8 @@ def check_patch(target, path_override=None):
         print(entry["not_found_msg"].format(filename=entry["filename"], path=path))
         return 1
     # WR-02/CR-02: degrade to "cannot verify" rather than raise -- an
-    # uncaught exception here would abort create_issues before
-    # plan_path.write_text runs (execute-plan target).
+    # An unreadable target returns a checker result instead of raising so
+    # retained Patch 1 ship diagnostics can still complete.
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
@@ -2875,14 +2835,6 @@ def check_shipmd_patch(ship_md_path_override=None):
     return check_patch("ship-md", ship_md_path_override)
 
 
-def check_execute_plan_patch(execute_plan_path_override=None):
-    """Thin wrapper over check_patch (17-04 Task 3, D-08) -- retained under
-    this exact name for the same reason as check_shipmd_patch above; also
-    gates `strip_task_bodies` via `check_execute_plan_patch() == 0` in
-    create_issues, which must keep working unedited."""
-    return check_patch("execute-plan", execute_plan_path_override)
-
-
 def check_native_step_dispatch(point, workflow_path_override=None):
     """D-05 diagnostic (17-02 Task 1): report whether the installed gsd-core
     workflow file now dispatches `kind == "step"` hooks natively at this
@@ -2891,8 +2843,8 @@ def check_native_step_dispatch(point, workflow_path_override=None):
     to know so it can stand down at `plan:post`/`verify:post` rather than
     double-dispatch alongside gsd-core's own native loop.
 
-    Opposite polarity from check_shipmd_patch/check_execute_plan_patch just
-    above: those ask "is our local patch still here" (missing is bad); this
+    Opposite polarity from check_shipmd_patch just above: it asks "is our
+    local patch still here" (missing is bad); this
     asks "does upstream now do this natively" (present means the hook is
     redundant here). Kept a SEPARATE function rather than a shared table
     with those two for exactly that reason -- sharing one table would
@@ -3049,14 +3001,10 @@ def main(argv=None):
         help="Record a beads.ship_gate=false bypass via a git trailer plus a best-effort bd comment (D-05)",
     )
     ship_override_p.add_argument("phase_dir")
-    # 17-04 Task 3 (D-08): one verb reaches both patch-check targets,
-    # replacing the two prior single-target verbs and their per-target
-    # `--*-path` flags. Hard break, no alias window (D-08 rated one-way;
-    # every caller updated in this same commit).
+    # 17-04 Task 3 (D-08): one verb reaches the retained patch-check target.
     check_patch_p = sub.add_parser(
         "check-patch",
-        help="Report whether a local GSD-CORE-PATCH.md patch is present at its target "
-        "(ship-md or execute-plan)",
+        help="Report whether the local GSD-CORE-PATCH.md ship-md patch is present",
     )
     check_patch_p.add_argument("target", choices=sorted(PATCH_CHECKS))
     check_patch_p.add_argument("--path", default=None)

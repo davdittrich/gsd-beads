@@ -44,7 +44,7 @@
         "mirror"
       ],
       "default": "authoritative",
-      "description": "Governs whether an explicit `sync.py create-issues <plan>` strips synced <task> bodies out of PLAN.md. authoritative (default): strips once the read-path patch is present -- bd owns task content after first sync, and PLAN.md task text is never re-synced from later bd edits (D-01). mirror: never strips -- PLAN.md keeps every task body regardless of patch state. Neither value governs the hook-driven plan:post dispatch, which never strips (D-03)."
+      "description": "Governs whether an explicit `sync.py create-issues <plan>` strips synced <task> bodies out of PLAN.md. authoritative (default): strips because native task resolution reads authoritative content from bd after first sync, and PLAN.md task text is never re-synced from later bd edits (D-01). mirror: never strips -- PLAN.md keeps every task body. Neither value governs the hook-driven plan:post dispatch, which never strips (D-03)."
     },
     "beads.ship_gate": {
       "type": "boolean",

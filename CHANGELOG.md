@@ -3,7 +3,10 @@
 ## 0.5.0
 
 ### Added
-- **Tracked `taskContentResolver` source contract.** The Beads capability now declares the native resolver bootstrap for source availability only; installed-runtime lifecycle and byte-identity claims remain outside this release.
+- **Tracked `taskContentResolver` source contract.** The Beads capability declares the native resolver bootstrap for exact five-field, fail-closed task-content resolution.
+
+### Changed
+- **Installed native task-content cutover is complete and Patch 2 is retired.** The tracked, project-active, global-active, and bootstrap capability trees are byte-identical; the native resolver is the executed content authority. The local `execute-plan.md` marker block, detector, tests, and active documentation were removed together while the independent `ship.md` Patch 1 contract remains intact.
 
 Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`.
 

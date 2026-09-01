@@ -1011,93 +1011,6 @@ class TestStripTaskBodies(unittest.TestCase):
             )
 
 
-class TestCreateIssuesStripGate(unittest.TestCase):
-    """16-03 Task 2: create_issues' strip step is gated on
-    check_execute_plan_patch() -- present strips newly-created auto/tracer
-    tasks, absent leaves the plan's content intact."""
-
-    @mock.patch("sync.check_execute_plan_patch")
-    @mock.patch("subprocess.run")
-    def test_patch_present_strips_newly_created_tasks(self, mock_run, mock_check):
-        mock_run.side_effect = _make_bd_side_effect()
-        mock_check.return_value = 0
-        with tempfile.TemporaryDirectory() as tmp:
-            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
-            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
-            exit_code = sync.create_issues(str(plan_copy))
-            written = plan_copy.read_text(encoding="utf-8")
-
-        self.assertEqual(exit_code, 0)
-        mock_check.assert_called()
-        self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
-        self.assertIn("<beads-id>", written)
-
-    @mock.patch("sync.check_execute_plan_patch")
-    @mock.patch("subprocess.run")
-    def test_patch_present_preserves_untyped_body_with_type_text(
-        self, mock_run, mock_check
-    ):
-        mock_run.side_effect = _make_bd_side_effect()
-        mock_check.return_value = 0
-        with tempfile.TemporaryDirectory() as tmp:
-            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
-            plan_text = plan_text.replace('<task type="auto">', "<task>", 1).replace(
-                "<action>Implement the thing.</action>",
-                '<action>Keep literal type="auto" text.</action>',
-                1,
-            )
-            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
-            exit_code = sync.create_issues(str(plan_copy))
-            written = plan_copy.read_text(encoding="utf-8")
-
-        self.assertEqual(exit_code, 0)
-        mock_check.assert_called()
-        self.assertNotIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertIn('<action>Keep literal type="auto" text.</action>', written)
-        self.assertIn("<beads-id>", written)
-
-    @mock.patch("sync.check_execute_plan_patch")
-    @mock.patch("subprocess.run")
-    def test_patch_absent_leaves_content_intact(self, mock_run, mock_check):
-        mock_run.side_effect = _make_bd_side_effect()
-        mock_check.return_value = 1
-        with tempfile.TemporaryDirectory() as tmp:
-            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
-            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
-            exit_code = sync.create_issues(str(plan_copy))
-            written = plan_copy.read_text(encoding="utf-8")
-
-        self.assertEqual(exit_code, 0)
-        mock_check.assert_called()
-        self.assertNotIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertIn("<action>Implement the thing.</action>", written)
-        self.assertIn("<beads-id>", written)
-
-    @mock.patch("subprocess.run")
-    def test_unreadable_execute_plan_md_still_writes_back_beads_id(self, mock_run):
-        """CR-02: a real (un-mocked) check_execute_plan_patch() call whose
-        execute-plan.md is unreadable (non-UTF-8 bytes) must not propagate an
-        exception out of create_issues -- the already-created bd issue's
-        <beads-id> must still be written back to PLAN.md (the exact failure
-        mode CR-02 identified: an uncaught read error aborting
-        plan_path.write_text, risking a duplicate bd issue on retry)."""
-        mock_run.side_effect = _make_bd_side_effect()
-        with tempfile.TemporaryDirectory() as tmp:
-            config_dir = Path(tmp) / "claude-config"
-            workflows_dir = config_dir / "gsd-core" / "workflows"
-            workflows_dir.mkdir(parents=True)
-            (workflows_dir / "execute-plan.md").write_bytes(b"\xff\xfe not valid utf-8")
-
-            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
-            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
-            with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(config_dir)}):
-                exit_code = sync.create_issues(str(plan_copy))
-            written = plan_copy.read_text(encoding="utf-8")
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("<beads-id>", written)
-
 
 class TestPhaseScopedEpic(unittest.TestCase):
     """gsd-beads-uh1: two plans in one phase, neither pre-set with
@@ -1358,7 +1271,7 @@ class TestResolveTaskContent(unittest.TestCase):
 
 
 class TestTaskContentResolverManifest(unittest.TestCase):
-    """Tracked native resolver declaration stays inert until a later identity phase."""
+    """Tracked native resolver declaration remains the installed content authority."""
 
     CAPABILITY_PATH = Path(__file__).resolve().parent.parent / "capability.json"
 
@@ -1380,28 +1293,19 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertIn("os.execv(sys.executable", bootstrap)
         self.assertIn('"resolve-task-content", sys.argv[1]', bootstrap)
 
-    def test_release_docs_keep_source_availability_distinct_from_cutover(self):
+    def test_release_docs_record_completed_installed_cutover(self):
         root = self.CAPABILITY_PATH.parents[5]
         changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
         readme = (root / "README.md").read_text(encoding="utf-8")
-        readme_prose = " ".join(readme.split())
+        prose = " ".join(readme.split())
         self.assertIn("## 0.5.0", changelog)
         self.assertIn("taskContentResolver", changelog)
+        self.assertIn("Patch 2", changelog)
         self.assertIn("description, read_first, verify, acceptance_criteria, and done", readme)
         self.assertIn("fails closed with no PLAN.md fallback", readme)
-        self.assertIn(
-            'Phase 20 now projects exact `auto` and `tracer` tasks as '
-            '`tracker-id="beads:<id>"` in tracked source',
-            readme_prose,
-        )
-        self.assertIn(
-            "an installed presence alone is still not cutover or byte-parity evidence",
-            readme_prose,
-        )
-        self.assertIn(
-            "Phase 21 owns exact tracked, project-installed, and global-installed byte parity, installed cutover, and Patch 2 retirement",
-            readme_prose,
-        )
+        self.assertIn('Phase 20 projects exact `auto` and `tracer` tasks as `tracker-id="beads:<id>"`', prose)
+        self.assertIn("The installed tracked, project-active, global-active, and bootstrap bundles are byte-identical", prose)
+        self.assertIn("Patch 2 has been retired", prose)
 
     def test_prime_matches_readme_dispatch_ownership(self):
         root = self.CAPABILITY_PATH.parents[5]
@@ -4856,9 +4760,8 @@ class TestCheckShipmdPatch(unittest.TestCase):
         self.assertIn("could not be read", captured.getvalue())
 
     def test_never_writes_to_target_file(self):
-        """D-09: mirrors TestCheckExecutePlanPatch's never-writes test,
-        target-swapped -- the ship-md counterpart did not exist before this
-        task."""
+        """D-09: the retained Patch 1 ship-md checker is read-only and never
+        changes the target file."""
         with tempfile.TemporaryDirectory() as tmp:
             ship_md = Path(tmp) / "ship.md"
             original = f"...preamble...\n{sync.SHIP_MD_PATCH_MARKER}\n...body...\n"
@@ -4869,11 +4772,9 @@ class TestCheckShipmdPatch(unittest.TestCase):
             self.assertEqual(ship_md.read_text(encoding="utf-8"), original)
 
     def test_cli_routes_through_main_and_returns_function_exit_code(self):
-        """D-09: mirrors TestCheckExecutePlanPatch's CLI-level test,
-        target-swapped. 17-04 Task 3: updated to the collapsed `check-patch`
-        verb (positional target, --path override) as a visible diff -- the
-        message and version assertions this class's siblings pin stay
-        byte-identical; only the verb spelling changed."""
+        """D-09/17-04 Task 3: the retained Patch 1 CLI routes the ship-md
+        target through the generic `check-patch` verb and returns the
+        checker exit code."""
         with tempfile.TemporaryDirectory() as tmp:
             ship_md = Path(tmp) / "ship.md"
             ship_md.write_text(f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
@@ -4885,114 +4786,16 @@ class TestCheckShipmdPatch(unittest.TestCase):
         self.assertIn("present", captured.getvalue())
 
 
-class TestCheckExecutePlanPatch(unittest.TestCase):
-    """16-03 Task 1: check_execute_plan_patch mirrors check_shipmd_patch's
-    three-case behavior and read-only discipline for the machine-local
-    execute-plan.md bd-task-read patch."""
-
-    def test_reports_present_when_marker_found(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            execute_plan_md = Path(tmp) / "execute-plan.md"
-            execute_plan_md.write_text(
-                f"...preamble...\n{sync.EXECUTE_PLAN_PATCH_MARKER}\n...body...\n",
-                encoding="utf-8",
-            )
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_execute_plan_patch(str(execute_plan_md))
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("present", captured.getvalue())
-
-    def test_reports_missing_with_reapply_pointer_when_marker_absent(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            execute_plan_md = Path(tmp) / "execute-plan.md"
-            execute_plan_md.write_text("no patch marker in this file\n", encoding="utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_execute_plan_patch(str(execute_plan_md))
-
-        self.assertEqual(exit_code, 1)
-        out = captured.getvalue()
-        self.assertIn("GSD-CORE-PATCH.md", out)
-        self.assertIn("gsd-executor", out)
-
-    def test_reports_missing_with_reapply_pointer_when_file_absent(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            missing_path = Path(tmp) / "does-not-exist" / "execute-plan.md"
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_execute_plan_patch(str(missing_path))
-
-        self.assertEqual(exit_code, 1)
-        self.assertIn(str(missing_path), captured.getvalue())
-
-    def test_reports_cannot_verify_when_file_is_not_valid_utf8(self):
-        """CR-02/WR-02: a non-UTF-8 byte sequence in execute-plan.md must
-        degrade to the same "cannot verify" exit code as the missing-file
-        case, not raise UnicodeDecodeError out of the function."""
-        with tempfile.TemporaryDirectory() as tmp:
-            execute_plan_md = Path(tmp) / "execute-plan.md"
-            execute_plan_md.write_bytes(b"\xff\xfe not valid utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_execute_plan_patch(str(execute_plan_md))
-
-        self.assertEqual(exit_code, 1)
-        self.assertIn("could not be read", captured.getvalue())
-
-    def test_never_writes_to_target_file(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            execute_plan_md = Path(tmp) / "execute-plan.md"
-            original = f"...preamble...\n{sync.EXECUTE_PLAN_PATCH_MARKER}\n...body...\n"
-            execute_plan_md.write_text(original, encoding="utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_execute_plan_patch(str(execute_plan_md))
-            self.assertEqual(execute_plan_md.read_text(encoding="utf-8"), original)
-
-    def test_cli_routes_through_main_and_returns_function_exit_code(self):
-        """17-04 Task 3: updated to the collapsed `check-patch` verb (verb
-        spelling only -- see the ship-md sibling test's docstring)."""
-        with tempfile.TemporaryDirectory() as tmp:
-            execute_plan_md = Path(tmp) / "execute-plan.md"
-            execute_plan_md.write_text(
-                f"{sync.EXECUTE_PLAN_PATCH_MARKER}\n", encoding="utf-8"
-            )
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.main(
-                    ["check-patch", "execute-plan", "--path", str(execute_plan_md)]
-                )
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("present", captured.getvalue())
-
 
 class TestPatchChecksTable(unittest.TestCase):
-    """17-04 Task 1 (D-09/D-10): pre-merge coverage pinning the exact literal
-    marker strings, the per-entry version tokens in each present message, and
-    the consequence text in each missing message -- the blind spot commit
-    `966315a` exploited (moving SHIP_MD_PATCH_MARKER v1 -> v2 with the suite
-    still reporting 164/164 green, because no test asserted either marker's
-    literal string). Written against today's two standalone functions, before
-    Task 3's merge; Task 3 extends this class with the merged table's own
-    invariants and these assertions must survive byte-identically."""
+    """Retained Patch 1 coverage pins the ship-md marker, version,
+    consequence text, generic table invariant, and public CLI behavior."""
 
     def test_ship_md_marker_literal_string(self):
         self.assertEqual(
             sync.SHIP_MD_PATCH_MARKER,
             "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->",
         )
-
-    def test_execute_plan_marker_literal_string(self):
-        self.assertEqual(
-            sync.EXECUTE_PLAN_PATCH_MARKER,
-            "<!-- gsd-beads-patch:execute-plan-bd-task-read v1 -->",
-        )
-
-    def test_ship_md_and_execute_plan_markers_are_distinct(self):
-        self.assertNotEqual(sync.SHIP_MD_PATCH_MARKER, sync.EXECUTE_PLAN_PATCH_MARKER)
 
     def test_ship_md_present_message_carries_v2_token(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -5002,20 +4805,6 @@ class TestPatchChecksTable(unittest.TestCase):
             with contextlib.redirect_stdout(captured):
                 sync.check_shipmd_patch(str(ship_md))
         self.assertIn("(v2)", captured.getvalue())
-
-    def test_execute_plan_present_message_carries_v1_token(self):
-        """Separate from the v2 assertion above so a shared-template merge
-        that quietly emits one version for both targets cannot mask this
-        failure with the other test's pass."""
-        with tempfile.TemporaryDirectory() as tmp:
-            execute_plan_md = Path(tmp) / "execute-plan.md"
-            execute_plan_md.write_text(
-                f"{sync.EXECUTE_PLAN_PATCH_MARKER}\n", encoding="utf-8"
-            )
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_execute_plan_patch(str(execute_plan_md))
-        self.assertIn("(v1)", captured.getvalue())
 
     def test_ship_md_missing_message_names_ship_pre_gates_unaffected(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -5028,19 +4817,6 @@ class TestPatchChecksTable(unittest.TestCase):
         self.assertIn("ship_override step will not fire", out)
         self.assertIn("ship:pre GATES are", out)
         self.assertIn("unaffected", out)
-
-    def test_execute_plan_missing_message_names_executor_consequence(self):
-        """Separate from the ship-md consequence assertion above so a merge
-        that collapses both consequence strings into one shared sentence
-        cannot pass this test on the other target's wording."""
-        with tempfile.TemporaryDirectory() as tmp:
-            execute_plan_md = Path(tmp) / "execute-plan.md"
-            execute_plan_md.write_text("no patch marker in this file\n", encoding="utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_execute_plan_patch(str(execute_plan_md))
-        out = captured.getvalue()
-        self.assertIn("gsd-executor will not read task content from bd", out)
 
     # -- 18-03 Task 1 (D-03.1): not-found/could-not-read now carry the same
     # marker missing_msg already does, one test per target per case so a
@@ -5064,42 +4840,15 @@ class TestPatchChecksTable(unittest.TestCase):
                 sync.check_shipmd_patch(str(ship_md))
         self.assertTrue(captured.getvalue().startswith("⚠ "))
 
-    def test_execute_plan_not_found_message_carries_the_marker(self):
-        """Separate from the ship-md assertion above so a merge that
-        collapses both targets' wording into one shared template cannot
-        pass this test on the other target's message."""
-        with tempfile.TemporaryDirectory() as tmp:
-            missing_path = Path(tmp) / "does-not-exist" / "execute-plan.md"
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_execute_plan_patch(str(missing_path))
-        self.assertTrue(captured.getvalue().startswith("⚠ "))
-
-    def test_execute_plan_could_not_read_message_carries_the_marker(self):
-        """Separate from the ship-md assertion above for the same reason."""
-        with tempfile.TemporaryDirectory() as tmp:
-            execute_plan_md = Path(tmp) / "execute-plan.md"
-            execute_plan_md.write_bytes(b"\xff\xfe not valid utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_execute_plan_patch(str(execute_plan_md))
-        self.assertTrue(captured.getvalue().startswith("⚠ "))
-
     # -- 17-04 Task 3: the merged PATCH_CHECKS table's own invariants --
 
-    def test_table_has_exactly_two_entries_with_distinct_keys(self):
-        self.assertEqual(len(sync.PATCH_CHECKS), 2)
-        self.assertEqual(len(set(sync.PATCH_CHECKS)), 2)
-        self.assertIn("ship-md", sync.PATCH_CHECKS)
-        self.assertIn("execute-plan", sync.PATCH_CHECKS)
+    def test_table_has_exactly_one_ship_md_entry(self):
+        self.assertEqual(len(sync.PATCH_CHECKS), 1)
+        self.assertEqual(set(sync.PATCH_CHECKS), {"ship-md"})
 
-    def test_both_wrapper_names_still_callable(self):
-        """Criterion 5: the two Python function names survive the CLI
-        collapse as thin wrappers -- the four existing test mocks and both
-        in-file call sites bind to these names, not to the table or the
-        shared reader."""
+    def test_retained_wrapper_stays_callable(self):
+        """The retained public Python wrapper continues to serve Patch 1."""
         self.assertTrue(callable(sync.check_shipmd_patch))
-        self.assertTrue(callable(sync.check_execute_plan_patch))
 
     def test_unrecognized_table_key_is_fail_open_and_does_not_raise(self):
         """BINDING codex MEDIUM: totality is required (both checks share
@@ -5958,60 +5707,18 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             finally:
                 os.chdir(prev)
 
-    def test_plan_pre_runs_recall_then_all_three_diagnostics(self):
-        """The patch-loss detector documented as beads-recall SKILL.md Step 3.5.
-        It was wired at plan:pre to be independent of the ship.md patch it
-        checks -- but plan:pre was itself one of the dead points, so it shared
-        the failure mode of the thing it protects. 17-03 Task 2 adds a third
-        diagnostic, check_sync_mode_value, dispatched alongside the two patch
-        checks."""
+    def test_plan_pre_runs_recall_then_two_diagnostics(self):
+        """The retained Patch 1 loss detector and sync-mode diagnostic run
+        after recall at plan:pre."""
         with self._in_workspace() as phase_dir:
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
                  mock.patch.object(sync, "check_shipmd_patch", return_value=0) as ship, \
-                 mock.patch.object(sync, "check_execute_plan_patch", return_value=0) as ep, \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0) as sm:
                 exit_code = sync.lifecycle_dispatch("plan:pre")
         self.assertEqual(exit_code, 0)
         recall.assert_called_once_with(str(phase_dir))
         ship.assert_called_once()
-        ep.assert_called_once()
         sm.assert_called_once()
-
-    def test_plan_pre_prints_ship_report_before_execute_report_unmocked(self):
-        """17-04 Task 3 behavior assertion: against the real merged reader
-        (beads_recall and check_sync_mode_value mocked out, the two patch
-        checks left real), the ship-md report still prints before the
-        execute-plan report -- the merge did not reorder or blend the two
-        targets' output."""
-        with tempfile.TemporaryDirectory() as tmp:
-            runtime_home = Path(tmp) / "runtime"
-            workflows = runtime_home / "gsd-core" / "workflows"
-            workflows.mkdir(parents=True)
-            (workflows / "ship.md").write_text(
-                f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8"
-            )
-            (workflows / "execute-plan.md").write_text(
-                f"{sync.EXECUTE_PLAN_PATCH_MARKER}\n", encoding="utf-8"
-            )
-            workspace = Path(tmp) / "ws"
-            workspace.mkdir()
-            _lifecycle_workspace(workspace)
-            prev = Path.cwd()
-            os.chdir(str(workspace))
-            captured = io.StringIO()
-            try:
-                with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": str(runtime_home)}), \
-                     mock.patch.object(sync, "beads_recall", return_value=0), \
-                     mock.patch.object(sync, "check_sync_mode_value", return_value=0):
-                    with contextlib.redirect_stdout(captured):
-                        exit_code = sync.lifecycle_dispatch("plan:pre")
-            finally:
-                os.chdir(prev)
-        self.assertEqual(exit_code, 0)
-        out = captured.getvalue()
-        ship_idx = out.index("ship.md ship:pre step-dispatch patch: present (v2)")
-        exec_idx = out.index("execute-plan.md bd-task-read patch: present (v1)")
-        self.assertLess(ship_idx, exec_idx)
 
     def test_plan_post_syncs_every_plan_in_the_phase(self):
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
@@ -6059,7 +5766,7 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
         gitignoring. The hook's trigger is a substring of a shell command, so a
         spurious fire is always possible; creating an issue by mistake is
         recoverable, deleting prose is not. A hook-driven dispatch must
-        therefore never authorize the strip, whatever the read-path patch says."""
+        therefore never authorize the strip, whatever the sync mode says."""
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
         with self._in_workspace(plan_text=plan) as phase_dir:
             with mock.patch.object(sync, "create_issues", return_value=0) as create:
@@ -6623,8 +6330,7 @@ class TestLifecycleDispatchNativeGate(unittest.TestCase):
             try:
                 with mock.patch.object(sync, "check_native_step_dispatch", return_value=1), \
                      mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                     mock.patch.object(sync, "check_shipmd_patch", return_value=0), \
-                     mock.patch.object(sync, "check_execute_plan_patch", return_value=0):
+                     mock.patch.object(sync, "check_shipmd_patch", return_value=0):
                     exit_code = sync.lifecycle_dispatch("plan:pre")
             finally:
                 os.chdir(prev)
@@ -7127,7 +6833,7 @@ fi'''
     RAW_FENCES = (
         ("beads-sync:create-issues", "beads-sync/SKILL.md", ("create-issues <PLAN.md path>",)),
         ("beads-recall:recall", "beads-recall/SKILL.md", ("beads-recall <phase directory>",)),
-        ("beads-recall:patch-checks", "beads-recall/SKILL.md", ("check-patch ship-md", "check-patch execute-plan")),
+        ("beads-recall:patch-check", "beads-recall/SKILL.md", ("check-patch ship-md",)),
         ("beads-migrate-todos:migrate", "beads-migrate-todos/SKILL.md", ("migrate-todos",)),
         ("beads-status:wave-status", "beads-status/SKILL.md", ("wave-status-block <phase directory> <plan id> [<plan id> ...]",)),
         ("beads-status:reconcile-regenerate", "beads-status/SKILL.md", ("reconcile-stale-closed <phase directory>", "regenerate-beads-md <phase directory>")),
