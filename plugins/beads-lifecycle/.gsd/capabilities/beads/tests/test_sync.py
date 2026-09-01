@@ -1280,7 +1280,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.6.1")
+        self.assertEqual(manifest["version"], "0.6.2")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -2653,6 +2653,96 @@ class TestIdempotency(unittest.TestCase):
             c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
         ]
         self.assertEqual(create_calls, [])
+
+    def test_placeholder_beads_id_creates_and_replaces_in_place(self):
+        """GH#7: a stored <beads-id> that cannot be a value `bd create` ever
+        returned (e.g. "TBD") is unbound, not stale -- it is created and the
+        placeholder element is replaced in place, never left dangling
+        alongside a second, freshly-inserted <beads-id>. A task carrying a
+        real, already-synced id in the same plan is untouched, isolating
+        the placeholder-vs-stale distinction to the one variable that
+        differs between the two tasks."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "show"] and argv[2] == "TBD":
+                raise AssertionError("resolve_issue must never bd show a shape-invalid id")
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "create"]:
+                return _completed(0, stdout="tracer-f5x.3\n")
+            if argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-placeholder.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                with contextlib.redirect_stdout(captured):
+                    exit_code = sync.create_issues(str(plan_copy))
+            new_text = plan_copy.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertNotIn("<beads-id>TBD</beads-id>", new_text)
+        self.assertIn("<beads-id>tracer-f5x.3</beads-id>", new_text)
+        self.assertIn("<beads-id>tracer-f5x.2</beads-id>", new_text)
+        self.assertEqual(new_text.count("<beads-id>"), 2)
+        create_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+        ]
+        self.assertEqual(len(create_calls), 1)
+        self.assertIn("Synced 1 issue(s)", captured.getvalue())
+
+    def test_all_diverged_stale_ids_print_summary(self):
+        """GH#7: when every task's stored <beads-id> is syntactically valid
+        but unresolvable in bd, the run creates nothing and must say so as
+        an unambiguous summary, not just per-task divergence lines that
+        read like skippable noise."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "show"] and argv[2] in ("tracer-f5x.1", "tracer-f5x.2"):
+                return _completed(1, stderr=f"no issue found matching {argv[2]}")
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            before = plan_copy.read_bytes()
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                with contextlib.redirect_stdout(captured):
+                    exit_code = sync.create_issues(str(plan_copy))
+            after = plan_copy.read_bytes()
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(before, after)
+        out = captured.getvalue()
+        self.assertIn("beads-sync: 0 of 2 task(s) bound", out)
+        self.assertIn("tracer-f5x.1", out)
+        self.assertIn("tracer-f5x.2", out)
+        create_calls = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+        ]
+        self.assertEqual(create_calls, [])
+
+    def test_unsafe_stored_beads_id_hard_fails_before_any_bd_call(self):
+        """The argv-injection guard (SAFE_BD_ID_RE) fires unconditionally for
+        any non-empty stored <beads-id>, checked before GH#7's new
+        BEADS_ID_SHAPE_RE gate -- an unsafe value never reaches the
+        unbound-create fallback."""
+        with mock.patch("subprocess.run") as mock_run:
+            with self.assertRaises(RuntimeError):
+                sync.resolve_issue({"beads_id": "; rm -rf /"}, "epic-1", "01-01", 1)
+        mock_run.assert_not_called()
 
     def test_stale_beads_epic_reports_divergence_instead_of_healing_silently(self):
         """WR-02: resolve_epic's stale-`beads_epic` fallback must report the

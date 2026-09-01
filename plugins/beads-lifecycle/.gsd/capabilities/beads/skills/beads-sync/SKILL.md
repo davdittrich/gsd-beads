@@ -77,10 +77,22 @@ attributes never gain `tracker-id`. A newly created issue still inserts its
 missing `<beads-id>` on first sync; apart from that insertion, these excluded
 task blocks retain their original bytes.
 
+**An unbound task must omit `<beads-id>` entirely -- never write a placeholder
+value (e.g. `TBD`).** A placeholder that happens to match bd's own id shape
+(lowercase, hyphenated, e.g. `gsd-beads-xy2`) is indistinguishable from a real,
+deleted identity and is treated as stale, not unbound: sync reports it as a
+divergence and creates nothing for that task (GH#7). Any other placeholder text
+is created normally, but that is a safety net, not a contract -- an author or
+planning agent must never rely on it.
+
 ## Step 4 -- Report
 
 Print the one-line summary `sync.py` printed to stdout: either
 `Synced <n> issue(s) -> epic <id>` or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
+If every task's stored `<beads-id>` diverged from bd, `sync.py` also prints
+`beads-sync: 0 of <n> task(s) bound` -- treat that line as a hard stop, not a
+warning to skim past: zero issues exist for this phase and the run must be
+investigated before proceeding.
 
 ## Anti-Patterns
 
@@ -93,3 +105,7 @@ Print the one-line summary `sync.py` printed to stdout: either
    task in the one plan just written; a later `execute:wave:post` dispatch (Plan 03's
    `beads-status`) covers every task across every plan in the wave, never one task at a time.
 4. DO NOT skip the config gate or the `<beads-id>`-first identity resolution.
+5. DO NOT write a placeholder `<beads-id>` value (e.g. `TBD`) for a task not yet
+   bound to an issue -- omit the element entirely. A placeholder is not a stable
+   identity, and one that happens to share bd's own id shape is treated as a
+   stale, deleted issue rather than an unbound task (GH#7).

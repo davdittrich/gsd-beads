@@ -114,6 +114,17 @@ RESOLVES_ISSUES_BLOCK_RE = re.compile(r"^resolves_issues:\s*\n((?:^[ \t]*-[ \t]*
 # multi-token string like "a b" or "../evil" cannot pass by matching only a
 # safe prefix.
 SAFE_BD_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
+# gsd-beads-7 (GH#7): every id `bd create` has ever emitted in this project's
+# database (`bd list --all --json`, sampled directly) is lowercase and
+# contains at least one `<prefix>-<code>` hyphen split, optionally followed
+# by a `.<ordinal>` subtask suffix -- e.g. "gsd-beads-xy2", "tracer-f5x.1".
+# SAFE_BD_ID_RE only excludes argv-unsafe characters; it does NOT test this
+# shape, so it accepts implausible values like "TBD" as if they were a real
+# stored identity. BEADS_ID_SHAPE_RE is the narrower, additional test:
+# a `<beads-id>` failing it can never have been written by `bd create`, so
+# resolve_issue treats it as unbound (create) rather than stale (diverge) --
+# preserving D-07's stale-identity protection for anything that DOES match.
+BEADS_ID_SHAPE_RE = re.compile(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)+(?:\.[0-9]+)?")
 PROBLEM_RE = re.compile(r"^##\s*Problem\s*\n(.*?)(?=^##\s*Solution\s*$)", re.MULTILINE | re.DOTALL)
 # WR-02: PROBLEM_RE's lookahead anchor requires a literal "## Solution"
 # heading later in the body. When that heading is missing/misspelled,
@@ -404,6 +415,11 @@ def parse_plan(path):
                 "name_end": m.start() + (name_m.end() if name_m else 0),
                 "beads_id": beads_ids[0] if beads_ids else None,
                 "beads_ids": beads_ids,
+                "beads_id_span": (
+                    (m.start() + id_matches[0].start(), m.start() + id_matches[0].end())
+                    if id_matches
+                    else None
+                ),
                 "files": files,
                 "type": type_attributes[0][1] if len(type_attributes) == 1 else "",
                 "type_attribute_count": len(type_attributes),
@@ -1450,15 +1466,23 @@ def _epic_description(objective):
 
 
 def resolve_issue(task, epic_id, ordinal_prefix, task_index):
-    """Return (issue_id, created, divergent) from exact stored authority."""
+    """Return (issue_id, created, divergent) from exact stored authority.
+
+    GH#7: a stored `<beads-id>` that fails BEADS_ID_SHAPE_RE (e.g. a
+    plan-author placeholder like "TBD") cannot be a value `bd create` ever
+    returned, so it is unbound -- fall through to create, same as an absent
+    `<beads-id>`. A value that passes the shape check but does not resolve
+    in `bd` is stale (D-07): report divergence, never replace it.
+    """
     if task["beads_id"]:
         issue_id = task["beads_id"]
         if not SAFE_BD_ID_RE.fullmatch(issue_id):
             raise RuntimeError(f"unsafe stored beads-id: {issue_id!r}")
-        check = run_bd(["bd", "show", issue_id, "--json"])
-        if not _bd_show_identifies(check, issue_id):
-            return issue_id, False, True
-        return issue_id, False, False
+        if BEADS_ID_SHAPE_RE.fullmatch(issue_id):
+            check = run_bd(["bd", "show", issue_id, "--json"])
+            if not _bd_show_identifies(check, issue_id):
+                return issue_id, False, True
+            return issue_id, False, False
     title = f"{ordinal_prefix}.{task_index} {task['name']}"
     if task.get("type", "").startswith("checkpoint:"):
         description = _checkpoint_task_description(task)
@@ -1518,23 +1542,37 @@ def collect_epic_task_ids(phase_dir, epic_id):
     return ids
 
 
-def rewrite_plan(text, epic_id, epic_created, task_updates, native_updates):
+def rewrite_plan(
+    text, epic_id, epic_created, task_updates, native_updates, placeholder_updates=()
+):
     """Insert beads_epic plus per-task legacy and native identity updates.
 
     task_updates: [(name_end_pos, issue_id), ...] for tasks that had no
-    <beads-id> before this run. Insertions happen in descending position
-    order first so earlier offsets in `text` stay valid, then the
-    frontmatter insertion (always at the front of the file) happens last.
+    <beads-id> before this run -- spliced as a zero-width insertion right
+    after </name>.
+
+    placeholder_updates: [((span_start, span_end), issue_id), ...] for tasks
+    whose stored <beads-id> was a shape-invalid placeholder (GH#7) -- the
+    existing element spans span_start:span_end and is replaced in place,
+    never left dangling alongside a second, freshly-inserted element.
+
+    Both splice kinds share one descending-position pass so earlier offsets
+    in `text` stay valid as later (higher-offset) edits are applied first;
+    the frontmatter insertion (always at the front of the file) happens
+    last.
     """
-    insertions = [
-        (name_end_pos, f"\n  <beads-id>{issue_id}</beads-id>")
+    edits = [
+        (name_end_pos, name_end_pos, f"\n  <beads-id>{issue_id}</beads-id>")
         for name_end_pos, issue_id in task_updates
     ] + [
-        (type_end_pos, f' tracker-id="beads:{issue_id}"')
+        (type_end_pos, type_end_pos, f' tracker-id="beads:{issue_id}"')
         for type_end_pos, issue_id in native_updates
+    ] + [
+        (span[0], span[1], f"<beads-id>{issue_id}</beads-id>")
+        for span, issue_id in placeholder_updates
     ]
-    for position, insertion in sorted(insertions, key=lambda item: item[0], reverse=True):
-        text = text[:position] + insertion + text[position:]
+    for start, end, replacement in sorted(edits, key=lambda item: item[0], reverse=True):
+        text = text[:start] + replacement + text[end:]
     if epic_created:
         fm_match = FRONTMATTER_RE.match(text)
         insert_pos = fm_match.start(1)
@@ -2055,7 +2093,12 @@ def create_issues(plan_arg, allow_strip=True):
     try:
         verified_tasks = {}
         for i, task in enumerate(tasks, start=1):
-            if task["beads_id"]:
+            # GH#7: a shape-invalid stored id (e.g. "TBD") never resolves via
+            # bd show, so it must go through the second loop below with the
+            # real epic_id in hand to create -- excluded from this pre-pass,
+            # which calls resolve_issue with epic_id="" and only ever expects
+            # the verify-existing branch to run.
+            if task["beads_id"] and BEADS_ID_SHAPE_RE.fullmatch(task["beads_id"]):
                 verified_tasks[i] = resolve_issue(
                     task, "", ordinal_prefix, i
                 )
@@ -2070,6 +2113,7 @@ def create_issues(plan_arg, allow_strip=True):
             )
 
         task_updates = []
+        placeholder_updates = []
         native_updates = []
         created_count = 0
         task_ids = []
@@ -2083,7 +2127,15 @@ def create_issues(plan_arg, allow_strip=True):
                 )
             if created:
                 created_count += 1
-                task_updates.append((task["name_end"], issue_id))
+                if task["beads_id"]:
+                    # GH#7: an existing (shape-invalid) <beads-id> element
+                    # must be replaced in place -- task_updates' insert-
+                    # after-<name> splice assumes no element exists yet and
+                    # would leave the stale placeholder behind as a second,
+                    # dangling <beads-id>.
+                    placeholder_updates.append((task["beads_id_span"], issue_id))
+                else:
+                    task_updates.append((task["name_end"], issue_id))
             if (
                 not divergent
                 and task["type"] in ("auto", "tracer")
@@ -2107,14 +2159,26 @@ def create_issues(plan_arg, allow_strip=True):
     for name, missing_id in divergences:
         print(f"divergence: task {name!r} beads-id {missing_id} not found in bd")
 
-    if task_updates or native_updates or epic_created:
+    # GH#7: an all-diverged run creates and binds nothing -- the per-task
+    # lines above read as noise, not as "zero issues were synced"; say so
+    # plainly so it can't be skimmed past.
+    if tasks and created_count == 0 and len(divergences) == len(tasks):
+        print(
+            f"beads-sync: 0 of {len(tasks)} task(s) bound -- every stored "
+            "beads-id diverged from bd; no issues were created or updated"
+        )
+
+    if task_updates or placeholder_updates or native_updates or epic_created:
         new_text = rewrite_plan(
-            text, epic_id, epic_created, task_updates, native_updates
+            text, epic_id, epic_created, task_updates, native_updates, placeholder_updates
         )
         # D-01/D-05: strip content only for tasks whose issue was created in
-        # THIS run (task_updates). Native task resolution now provides the
-        # authoritative read path; the unattended hook remains non-destructive.
-        newly_created_ids = {issue_id for _, issue_id in task_updates}
+        # THIS run (task_updates/placeholder_updates). Native task resolution
+        # now provides the authoritative read path; the unattended hook
+        # remains non-destructive.
+        newly_created_ids = {issue_id for _, issue_id in task_updates} | {
+            issue_id for _, issue_id in placeholder_updates
+        }
         if newly_created_ids and not allow_strip:
             print(
                 "beads-sync: hook-driven dispatch -- leaving task content in PLAN.md "

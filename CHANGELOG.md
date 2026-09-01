@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.2
+
+### Fixed
+- **`<beads-id>` placeholder (e.g. `TBD`) read as a bound identity, syncing zero issues.** `resolve_issue` treated any non-empty `<beads-id>` as already-bound, so a plan authored with a placeholder (rather than an absent element) diverged every task against `bd` and created nothing, while still exiting 0. A new `BEADS_ID_SHAPE_RE` distinguishes a value that could never have come from `bd create` (unbound -- create normally, replacing the placeholder element in place) from one that matches bd's id shape but doesn't resolve (stale -- unchanged D-07 divergence behavior, never replaced). An all-diverged sync now also prints an explicit `beads-sync: 0 of <n> task(s) bound` summary line instead of only per-task divergence noise. `skills/beads-sync/SKILL.md` now states the contract: an unbound task omits `<beads-id>` entirely. ([GH#7](https://github.com/davdittrich/gsd-beads/issues/7))
+
 ## 0.6.1
 
 - Make installed-runtime integration checks portable to clean CI runners while
