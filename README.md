@@ -51,12 +51,19 @@ claude plugin marketplace add davdittrich/gsd-beads
 claude plugin install beads-lifecycle@gsd-beads -y
 ```
 
-Codex:
+Codex CLI: pin the marketplace to a release tag rather than tracking `main`.
+`codex plugin marketplace upgrade` force-reinstalls every configured plugin's
+cache on *any* new commit to the tracked ref, not just commits touching that
+plugin — an unpinned `main` ref means an unrelated doc commit here can
+invalidate a live session's plugin cache mid-run ([davdittrich/gsd-beads#8](https://github.com/davdittrich/gsd-beads/issues/8),
+root cause upstream in [openai/codex#31383](https://github.com/openai/codex/issues/31383)).
 
 ```bash
-codex plugin marketplace add davdittrich/gsd-beads
+codex plugin marketplace add davdittrich/gsd-beads --ref v1.5.1
 codex plugin add beads-lifecycle@gsd-beads
 ```
+
+Bump `--ref` to the latest tag from `git tag --sort=-creatordate | head -1` when upgrading.
 
 ### Example workflow
 
