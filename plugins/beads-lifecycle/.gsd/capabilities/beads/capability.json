@@ -1,7 +1,7 @@
 {
   "id": "beads",
   "role": "feature",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "taskContentResolver": {
     "trackerPrefix": "beads",
     "invoke": {

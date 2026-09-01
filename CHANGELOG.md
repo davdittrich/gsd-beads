@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1
+
+- Make installed-runtime integration checks portable to clean CI runners while
+  retaining a self-contained native-dispatch fixture.
+
 ## 0.6.0
 
 ### Changed
