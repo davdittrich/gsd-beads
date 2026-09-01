@@ -1367,7 +1367,7 @@ def resolve_milestone_epic(project_root):
             raise EpicAuthorityError(str(exc)) from exc
         if row is not None:
             candidate_title = row.get("title")
-            if not isinstance(candidate_title, str):
+            if not isinstance(candidate_title, str) or not candidate_title.strip():
                 raise EpicAuthorityError(
                     f"bd show returned invalid title for {candidate_id!r}"
                 )

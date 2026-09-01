@@ -5837,6 +5837,8 @@ class TestMilestoneEpic(unittest.TestCase):
         for label, row in (
             ("missing-title", {"id": "candidate-epic"}),
             ("non-string-title", {"id": "candidate-epic", "title": 42}),
+            ("empty-title", {"id": "candidate-epic", "title": ""}),
+            ("whitespace-title", {"id": "candidate-epic", "title": "  "}),
         ):
             with self.subTest(label=label):
                 def _side_effect(argv, **kwargs):
