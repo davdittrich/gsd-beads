@@ -27,11 +27,11 @@ and Beads issue `gsd-beads-xy2` only.
 
 ### Task Identity
 
-- [ ] **ID-01**: Every eligible `auto` or `tracer` task gains
+- [x] **ID-01**: Every eligible `auto` or `tracer` task gains
   `tracker-id="beads:<id>"` while retaining `<beads-id>`; repeated
   synchronization produces a byte-identical plan and never duplicates Beads
   issues.
-- [ ] **ID-02**: Checkpoint tasks never gain `tracker-id` and preserve their
+- [x] **ID-02**: Checkpoint tasks never gain `tracker-id` and preserve their
   existing human-decision and human-verification behavior.
 
 ### Native Cutover
@@ -69,8 +69,8 @@ in this milestone.
 | RES-01 | Phase 19 | TBD | TBD | Pending |
 | RES-02 | Phase 19 | TBD | TBD | Pending |
 | RES-03 | Phase 19 | TBD | TBD | Pending |
-| ID-01 | Phase 20 | TBD | TBD | Pending |
-| ID-02 | Phase 20 | TBD | TBD | Pending |
+| ID-01 | Phase 20 | TBD | TBD | Complete |
+| ID-02 | Phase 20 | TBD | TBD | Complete |
 | CUT-01 | Phase 21 | TBD | TBD | Pending |
 | CUT-02 | Phase 21 | TBD | TBD | Pending |
 

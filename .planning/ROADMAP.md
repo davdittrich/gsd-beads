@@ -23,7 +23,7 @@ installed path before removing Patch 2 while preserving Patch 1.
 
 - [ ] **Phase 19: Native Resolver Contract and Failure Boundary** - Resolve
   live Beads task content through one lossless, fail-closed native adapter.
-- [ ] **Phase 20: Additive Identity Migration and Compatibility** - Add native
+- [x] **Phase 20: Additive Identity Migration and Compatibility** - Add native (completed 2026-09-01)
   tracker identity without disturbing legacy identity or checkpoints.
 - [ ] **Phase 21: Installed Cutover and Patch 2 Retirement** - Prove the
   installed native path before removing Patch 2 and re-verifying Patch 1.
@@ -63,7 +63,7 @@ installed path before removing Patch 2 while preserving Patch 1.
 3. Checkpoint tasks never gain `tracker-id` and preserve their existing
    human-decision and human-verification behavior.
 
-**Plans:** TBD
+**Plans:** 1/1 plans complete
 
 ### Phase 21: Installed Cutover and Patch 2 Retirement
 
@@ -89,5 +89,5 @@ installed path before removing Patch 2 while preserving Patch 1.
 | Phase | Plans Complete | Status | Completed |
 |---|---:|---|---|
 | 19. Native Resolver Contract and Failure Boundary | 0/TBD | Not started | - |
-| 20. Additive Identity Migration and Compatibility | 0/TBD | Not started | - |
+| 20. Additive Identity Migration and Compatibility | 1/1 | Complete    | 2026-09-01 |
 | 21. Installed Cutover and Patch 2 Retirement | 0/TBD | Not started | - |
