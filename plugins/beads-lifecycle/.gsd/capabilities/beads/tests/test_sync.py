@@ -1721,6 +1721,42 @@ class TestDependencyMapping(unittest.TestCase):
         self.assertEqual(len(dep_add_argvs), 3)
         self.assertTrue(any(argv[-1] == "tracer-f5x.2" for argv in dep_add_argvs))
 
+    def test_invalid_prerequisite_authority_fails_before_bd_or_file_mutation(self):
+        prereq_base = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        dependent_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        dependent_text = dependent_text.replace("plan: 01", "plan: 02", 1).replace(
+            "depends_on: []", 'depends_on: ["01-01"]', 1
+        )
+        cases = {
+            "unsafe-prerequisite-id": prereq_base.replace(
+                "tracer-f5x.2", "bad id", 1
+            ),
+            "duplicate-prerequisite-id": prereq_base.replace(
+                "  <beads-id>tracer-f5x.2</beads-id>",
+                "  <beads-id>tracer-f5x.2</beads-id>\n"
+                "  <beads-id>tracer-f5x.2</beads-id>",
+                1,
+            ),
+        }
+
+        for label, prereq_text in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    prereq_path = _write_plan_workspace(Path(tmp), prereq_text)
+                    dependent_path = prereq_path.parent / "01-02-PLAN.md"
+                    dependent_path.write_text(dependent_text, encoding="utf-8")
+                    before = {
+                        prereq_path: prereq_path.read_bytes(),
+                        dependent_path: dependent_path.read_bytes(),
+                    }
+                    with mock.patch.object(sync, "run_bd") as mock_run:
+                        exit_code = sync.create_issues(str(dependent_path))
+                    after = {path: path.read_bytes() for path in before}
+
+                self.assertNotEqual(exit_code, 0)
+                mock_run.assert_not_called()
+                self.assertEqual(after, before)
+
 
 class TestIdentityBinding(unittest.TestCase):
     @staticmethod
@@ -2747,6 +2783,70 @@ class TestIdempotency(unittest.TestCase):
         self.assertIn("not found in bd", out)
         self.assertEqual(sync.BEADS_EPIC_RE.search(new_text).group(1), "fresh-epic-01")
 
+    def test_unsafe_stored_epic_fails_before_bd_or_plan_write(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+            plan_text = plan_text.replace("beads_epic: tracer-f5x", "beads_epic: --help", 1)
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            before = plan_copy.read_bytes()
+            with mock.patch.object(sync, "run_bd") as mock_run:
+                exit_code = sync.create_issues(str(plan_copy))
+            after = plan_copy.read_bytes()
+
+        self.assertNotEqual(exit_code, 0)
+        mock_run.assert_not_called()
+        self.assertEqual(after, before)
+
+    def test_mismatched_epic_show_json_fails_without_mutation(self):
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "show"]:
+                shown_id = "wrong-epic" if argv[2] == "tracer-f5x" else argv[2]
+                return _completed(0, stdout=json.dumps([{"id": shown_id}]) + "\n")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            before = plan_copy.read_bytes()
+            with mock.patch.object(sync, "bd_available", return_value=True):
+                with mock.patch.object(sync, "run_bd", side_effect=_side_effect) as mock_run:
+                    exit_code = sync.create_issues(str(plan_copy))
+            after = plan_copy.read_bytes()
+
+        self.assertNotEqual(exit_code, 0)
+        self.assertFalse(
+            any(call.args[0][1] in ("create", "update", "close", "dep") for call in mock_run.call_args_list)
+        )
+        self.assertEqual(after, before)
+
+    def test_unsafe_epic_create_stdout_fails_without_task_create_or_write(self):
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "create"] and "epic" in argv:
+                return _completed(0, stdout="--help\n")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            before = plan_copy.read_bytes()
+            with mock.patch.object(sync, "bd_available", return_value=True):
+                with mock.patch.object(sync, "run_bd", side_effect=_side_effect) as mock_run:
+                    exit_code = sync.create_issues(str(plan_copy))
+            after = plan_copy.read_bytes()
+
+        self.assertNotEqual(exit_code, 0)
+        task_creates = [
+            call.args[0]
+            for call in mock_run.call_args_list
+            if call.args[0][:2] == ["bd", "create"] and "task" in call.args[0]
+        ]
+        self.assertEqual(task_creates, [])
+        self.assertEqual(after, before)
+
 
 class TestEpicScopedOrphans(unittest.TestCase):
     """gsd-beads-bgb: syncing a second plan under a shared epic must never
@@ -2858,6 +2958,32 @@ Plan B: same shared epic as plan A, one task not yet synced.
         ]
         closed_ids = {argv[2] for argv in close_calls}
         self.assertNotIn("shared-epic-01.1", closed_ids)
+
+    def test_duplicate_sibling_authority_fails_before_bd_or_orphan_close(self):
+        plan_a_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        plan_a_text = plan_a_text.replace(
+            "  <beads-id>tracer-f5x.1</beads-id>",
+            "  <beads-id>tracer-f5x.1</beads-id>\n"
+            "  <beads-id>tracer-f5x.1</beads-id>",
+            1,
+        )
+        plan_b_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_b_text = plan_b_text.replace("plan: 01", "plan: 02", 1).replace(
+            "---\n", "---\nbeads_epic: tracer-f5x\n", 1
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = _write_plan_workspace(Path(tmp), plan_a_text)
+            plan_b = plan_a.parent / "01-02-PLAN.md"
+            plan_b.write_text(plan_b_text, encoding="utf-8")
+            before = {plan_a: plan_a.read_bytes(), plan_b: plan_b.read_bytes()}
+            with mock.patch.object(sync, "run_bd") as mock_run:
+                exit_code = sync.create_issues(str(plan_b))
+            after = {path: path.read_bytes() for path in before}
+
+        self.assertNotEqual(exit_code, 0)
+        mock_run.assert_not_called()
+        self.assertEqual(after, before)
 
 
 def _three_task_two_synced_plan_text():

@@ -351,6 +351,10 @@ class PlanParseError(ValueError):
     """A plan's raw task openings cannot be mapped to closed task blocks."""
 
 
+class EpicAuthorityError(ValueError):
+    """An epic id is unsafe or does not match exact live bd authority."""
+
+
 def parse_plan(path):
     """Return (full_text, frontmatter_body, [task dict, ...]).
 
@@ -1369,48 +1373,61 @@ def resolve_milestone_epic(project_root):
     return result.stdout.strip()
 
 
+def _bd_show_identifies(result, expected_id):
+    """Return False on absence; require exact one-row JSON on success."""
+    if result.returncode != 0:
+        return False
+    if not isinstance(result.stdout, str):
+        raise RuntimeError("bd show returned invalid JSON")
+    try:
+        payload = json.loads(result.stdout)
+    except (UnicodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("bd show returned invalid JSON") from exc
+    if isinstance(payload, dict):
+        payload = payload.get("data")
+    if (
+        not isinstance(payload, list)
+        or len(payload) != 1
+        or not isinstance(payload[0], dict)
+        or payload[0].get("id") != expected_id
+    ):
+        raise RuntimeError(f"bd show did not identify {expected_id!r}")
+    return True
+
+
 def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, objective=""):
-    """Return (epic_id, needs_write, stale_epic_id). Resolve-by-id first,
-    create only on confirmed absence -- never by title (B4/B5 pattern
-    applied to the epic level too).
-
-    `needs_write` means "this plan's own frontmatter still lacks a
-    resolving beads_epic and rewrite_plan must write one" -- not literally
-    "created in bd" -- since the phase-scoped reuse path below finds an
-    existing epic without creating one (gsd-beads-uh1: every plan in a
-    phase shares one epic, per resolve_phase_epic's D-05 contract).
-
-    `stale_epic_id` is the frontmatter's own `beads_epic` value when it no
-    longer resolves in bd (WR-02: D-07's stale-identity reporting applied to
-    the epic level) -- None when frontmatter carried no `beads_epic`, or it
-    resolved successfully. The caller reports this the same way
-    `resolve_issue`'s `divergent` flag is reported, so a resync after an
-    external epic deletion never forks the phase across epics silently.
-
-    B14/D-11: when `beads.epic_per` (read fresh here via `read_epic_per`) is
-    `"milestone"`, resolution routes to `resolve_milestone_epic` and skips
-    the phase-scoped path entirely -- a mid-milestone config change never
-    disturbs a phase already mid-flight, since each call re-reads the
-    config independently.
-    """
+    """Return (epic_id, needs_write, stale_epic_id) from exact bd authority."""
     stale_epic_id = None
     m = BEADS_EPIC_RE.search(frontmatter)
     if m:
         epic_id = m.group(1)
+        if not SAFE_BD_ID_RE.fullmatch(epic_id):
+            raise EpicAuthorityError(f"unsafe stored beads_epic: {epic_id!r}")
         check = run_bd(["bd", "show", epic_id, "--json"])
-        if check.returncode == 0:
+        try:
+            identified = _bd_show_identifies(check, epic_id)
+        except RuntimeError as exc:
+            raise EpicAuthorityError(str(exc)) from exc
+        if identified:
             return epic_id, False, None
-        # stored epic id no longer resolves in bd -- fall through and create fresh
         stale_epic_id = epic_id
 
     if read_epic_per(project_root) == "milestone":
         epic_id = resolve_milestone_epic(project_root)
+        if not SAFE_BD_ID_RE.fullmatch(epic_id):
+            raise EpicAuthorityError(f"unsafe milestone epic id: {epic_id!r}")
         return epic_id, True, stale_epic_id
 
     shared_epic_id = resolve_phase_epic(phase_dir)
     if shared_epic_id is not None:
+        if not SAFE_BD_ID_RE.fullmatch(shared_epic_id):
+            raise EpicAuthorityError(f"unsafe shared epic id: {shared_epic_id!r}")
         check = run_bd(["bd", "show", shared_epic_id, "--json"])
-        if check.returncode == 0:
+        try:
+            identified = _bd_show_identifies(check, shared_epic_id)
+        except RuntimeError as exc:
+            raise EpicAuthorityError(str(exc)) from exc
+        if identified:
             return shared_epic_id, True, stale_epic_id
 
     title = get_phase_header(roadmap_path, phase_num)
@@ -1422,7 +1439,10 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, 
     result = run_bd(argv)
     if result.returncode != 0:
         raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
-    return result.stdout.strip(), True, stale_epic_id
+    epic_id = result.stdout.strip() if isinstance(result.stdout, str) else ""
+    if not SAFE_BD_ID_RE.fullmatch(epic_id):
+        raise EpicAuthorityError(f"bd create (epic) returned unsafe id: {epic_id!r}")
+    return epic_id, True, stale_epic_id
 
 
 def _epic_description(objective):
@@ -1441,44 +1461,16 @@ def _epic_description(objective):
 
 
 def resolve_issue(task, epic_id, ordinal_prefix, task_index):
-    """Return (issue_id, created, divergent). <beads-id> is the identity;
-    only create when it is absent -- never resolve or dedup by title (B4).
-
-    When a <beads-id> is present but bd cannot find it, that is stale-
-    identity divergence (D-07): report it, never recreate a replacement,
-    never clear the element -- a Phase 3 ship gate acts on the divergence.
-    """
+    """Return (issue_id, created, divergent) from exact stored authority."""
     if task["beads_id"]:
         issue_id = task["beads_id"]
         if not SAFE_BD_ID_RE.fullmatch(issue_id):
             raise RuntimeError(f"unsafe stored beads-id: {issue_id!r}")
         check = run_bd(["bd", "show", issue_id, "--json"])
-        if check.returncode != 0:
+        if not _bd_show_identifies(check, issue_id):
             return issue_id, False, True
-        if not isinstance(check.stdout, str):
-            raise RuntimeError("bd show returned invalid JSON")
-        try:
-            payload = json.loads(check.stdout)
-        except (UnicodeError, json.JSONDecodeError) as exc:
-            raise RuntimeError("bd show returned invalid JSON") from exc
-        if isinstance(payload, dict):
-            payload = payload.get("data")
-        if (
-            not isinstance(payload, list)
-            or len(payload) != 1
-            or not isinstance(payload[0], dict)
-            or payload[0].get("id") != issue_id
-        ):
-            raise RuntimeError(f"bd show did not identify {issue_id!r}")
         return issue_id, False, False
     title = f"{ordinal_prefix}.{task_index} {task['name']}"
-    # CR-01: a checkpoint:*-typed task's real content lives in its own field
-    # set (decision/context/options/... or what-built/how-to-verify/...),
-    # never in the auto/tracer fields _task_description reads -- dispatch to
-    # the matching renderer so a checkpoint task's -d is never empty. The
-    # `if description` guard (matching resolve_epic's existing discipline)
-    # is kept as a second line of defense even though both renderers already
-    # return "" only when every source field is empty.
     if task.get("type", "").startswith("checkpoint:"):
         description = _checkpoint_task_description(task)
     else:
@@ -1701,7 +1693,7 @@ def _compute_diverged(rows, ordinal_map, completed_ids):
     return diverged_count, task_status_by_id
 
 
-def _completed_task_authority_error(task):
+def _task_authority_error(task):
     """Return why a parsed completed task cannot safely authorize a bd close."""
     if not task["attributes_valid"] or task["type_attribute_count"] > 1:
         return "task opening attributes are malformed or duplicated"
@@ -1736,7 +1728,7 @@ def find_completed_task_ids(phase_dir, plan_id):
     ids = []
     skipped = 0
     for task in tasks:
-        authority_error = _completed_task_authority_error(task)
+        authority_error = _task_authority_error(task)
         if authority_error:
             raise ValueError(
                 f"completed-task authority invalid in {plan_path.name} "
@@ -1894,6 +1886,22 @@ def reconcile_stale_closed(phase_dir_arg):
     return 0
 
 
+def _plan_authority_error(plan_path):
+    """Return a local parse or identity-authority error for one plan."""
+    try:
+        _, frontmatter, tasks = parse_plan(plan_path)
+    except (OSError, UnicodeDecodeError, PlanParseError) as exc:
+        return str(exc)
+    epic_match = BEADS_EPIC_RE.search(frontmatter)
+    if epic_match and not SAFE_BD_ID_RE.fullmatch(epic_match.group(1)):
+        return f"unsafe beads_epic {epic_match.group(1)!r}"
+    for task in tasks:
+        authority_error = _task_authority_error(task)
+        if authority_error:
+            return f"task {task['name']!r}: {authority_error}"
+    return None
+
+
 def create_issues(plan_arg, allow_strip=True):
     """`allow_strip=False` keeps every `<task>` body in PLAN.md even when the
     read-path patch is present (gh-2). `strip_task_bodies` is a deliberate,
@@ -1931,6 +1939,15 @@ def create_issues(plan_arg, allow_strip=True):
         return 1
     objective_m = OBJECTIVE_RE.search(text)
     objective = objective_m.group(1).strip() if objective_m else ""
+
+    stored_epic = BEADS_EPIC_RE.search(frontmatter)
+    if stored_epic and not SAFE_BD_ID_RE.fullmatch(stored_epic.group(1)):
+        print(
+            f"epic identity preflight failed: unsafe beads_epic "
+            f"{stored_epic.group(1)!r}",
+            file=sys.stderr,
+        )
+        return 1
 
     for task in tasks:
         if not task["attributes_valid"] or task["type_attribute_count"] > 1:
@@ -1998,6 +2015,18 @@ def create_issues(plan_arg, allow_strip=True):
             )
             return 1
 
+    for sibling_path in discover_plan_files(plan_path.parent).values():
+        if sibling_path.resolve() == plan_path:
+            continue
+        authority_error = _plan_authority_error(sibling_path)
+        if authority_error:
+            print(
+                f"cross-plan task authority preflight failed in "
+                f"{sibling_path.name}: {authority_error}",
+                file=sys.stderr,
+            )
+            return 1
+
     if not bd_available():
         print(NOTICE)
         append_state_blocker(
@@ -2056,6 +2085,9 @@ def create_issues(plan_arg, allow_strip=True):
             if divergent:
                 divergences.append((task["name"], issue_id))
             task_ids.append(issue_id)
+    except EpicAuthorityError as exc:
+        print(f"epic identity authority failed: {exc}", file=sys.stderr)
+        return 1
     except RuntimeError as exc:
         print(NOTICE)
         append_state_blocker(
