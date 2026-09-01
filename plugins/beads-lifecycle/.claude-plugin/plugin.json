@@ -1,6 +1,6 @@
 {
   "name": "beads-lifecycle",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Beads issue tracking for gsd-core's plan→execute→verify→ship lifecycle",
   "author": {
     "name": "Dennis A. V. Dittrich",
