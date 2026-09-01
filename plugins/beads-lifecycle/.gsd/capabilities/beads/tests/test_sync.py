@@ -6701,13 +6701,11 @@ class TestCheckSyncModeValue(unittest.TestCase):
         self.assertEqual(len(out.splitlines()), 1)
 
     def test_notice_states_authoritative_default_still_applies_and_may_strip(self):
-        """codex MEDIUM (BINDING): the notice must say execution continues
-        under the shipped authoritative behavior and that task bodies may
-        therefore still be stripped once the read-path patch gate passes,
-        not merely "value not recognized"."""
+        """The notice names native resolution as the active strip authority."""
         _, out = self._notice_for({"sync_mode": "off"})
         self.assertIn("authoritative default applies", out)
-        self.assertIn("stripped", out)
+        self.assertIn("native task resolution permits task-body stripping", out)
+        self.assertNotIn("read-path patch gate", out)
 
     def test_notice_names_the_remedy_command(self):
         _, out = self._notice_for({"sync_mode": "off"})

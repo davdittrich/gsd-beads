@@ -1087,8 +1087,8 @@ def check_sync_mode_value(project_root):
     print(
         f"beads.sync_mode: stored value {_sanitize_notice_value(value)!r} is not one of "
         f"the declared values ({', '.join(sorted(SYNC_MODE_VALUES))}) -- the shipped "
-        "authoritative default applies, so task bodies may still be stripped once the "
-        "read-path patch gate passes. Remedy: gsd-tools config-set beads.sync_mode "
+        "authoritative default applies, so native task resolution permits task-body "
+        "stripping. Remedy: gsd-tools config-set beads.sync_mode "
         "authoritative (or mirror)."
     )
     return 0
