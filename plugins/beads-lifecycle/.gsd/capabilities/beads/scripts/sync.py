@@ -63,6 +63,7 @@ TASK_OPEN_TAG_RE = re.compile(_TASK_OPEN_PATTERN)
 OBJECTIVE_RE = re.compile(r"<objective>(.*?)</objective>", re.DOTALL)
 FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.DOTALL)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
+BEADS_EPIC_DECL_RE = re.compile(r"^beads_epic[ \t]*:(.*)$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
 # WR-04: the inline-bracket form above requires the value on the same line
 # as the key. YAML also permits (and this fixture set previously had no
@@ -353,6 +354,19 @@ class PlanParseError(ValueError):
 
 class EpicAuthorityError(ValueError):
     """An epic id is unsafe or does not match exact live bd authority."""
+
+
+def parse_beads_epic(frontmatter):
+    """Return one safe epic id, rejecting malformed or duplicate authority."""
+    declarations = list(BEADS_EPIC_DECL_RE.finditer(frontmatter))
+    if len(declarations) > 1:
+        raise EpicAuthorityError("duplicate beads_epic declarations")
+    if not declarations:
+        return None
+    epic_id = declarations[0].group(1).strip()
+    if not SAFE_BD_ID_RE.fullmatch(epic_id):
+        raise EpicAuthorityError(f"unsafe or malformed beads_epic: {epic_id!r}")
+    return epic_id
 
 
 def parse_plan(path):
@@ -1398,11 +1412,8 @@ def _bd_show_identifies(result, expected_id):
 def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, objective=""):
     """Return (epic_id, needs_write, stale_epic_id) from exact bd authority."""
     stale_epic_id = None
-    m = BEADS_EPIC_RE.search(frontmatter)
-    if m:
-        epic_id = m.group(1)
-        if not SAFE_BD_ID_RE.fullmatch(epic_id):
-            raise EpicAuthorityError(f"unsafe stored beads_epic: {epic_id!r}")
+    epic_id = parse_beads_epic(frontmatter)
+    if epic_id is not None:
         check = run_bd(["bd", "show", epic_id, "--json"])
         try:
             identified = _bd_show_identifies(check, epic_id)
@@ -1890,11 +1901,9 @@ def _plan_authority_error(plan_path):
     """Return a local parse or identity-authority error for one plan."""
     try:
         _, frontmatter, tasks = parse_plan(plan_path)
-    except (OSError, UnicodeDecodeError, PlanParseError) as exc:
+        parse_beads_epic(frontmatter)
+    except (OSError, UnicodeDecodeError, PlanParseError, EpicAuthorityError) as exc:
         return str(exc)
-    epic_match = BEADS_EPIC_RE.search(frontmatter)
-    if epic_match and not SAFE_BD_ID_RE.fullmatch(epic_match.group(1)):
-        return f"unsafe beads_epic {epic_match.group(1)!r}"
     for task in tasks:
         authority_error = _task_authority_error(task)
         if authority_error:
@@ -1940,11 +1949,11 @@ def create_issues(plan_arg, allow_strip=True):
     objective_m = OBJECTIVE_RE.search(text)
     objective = objective_m.group(1).strip() if objective_m else ""
 
-    stored_epic = BEADS_EPIC_RE.search(frontmatter)
-    if stored_epic and not SAFE_BD_ID_RE.fullmatch(stored_epic.group(1)):
+    try:
+        parse_beads_epic(frontmatter)
+    except EpicAuthorityError as exc:
         print(
-            f"epic identity preflight failed: unsafe beads_epic "
-            f"{stored_epic.group(1)!r}",
+            f"epic identity preflight failed: {exc}",
             file=sys.stderr,
         )
         return 1

@@ -2797,6 +2797,37 @@ class TestIdempotency(unittest.TestCase):
         mock_run.assert_not_called()
         self.assertEqual(after, before)
 
+    def test_malformed_or_duplicate_epic_authority_fails_before_bd_or_plan_write(self):
+        base = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        cases = {
+            "malformed-spaced-value": base.replace(
+                "beads_epic: tracer-f5x", "beads_epic: bad id", 1
+            ),
+            "duplicate-same-value": base.replace(
+                "beads_epic: tracer-f5x",
+                "beads_epic: tracer-f5x\nbeads_epic: tracer-f5x",
+                1,
+            ),
+            "duplicate-conflicting-values": base.replace(
+                "beads_epic: tracer-f5x",
+                "beads_epic: tracer-f5x\nbeads_epic: other-epic",
+                1,
+            ),
+        }
+
+        for label, plan_text in cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+                    before = plan_copy.read_bytes()
+                    with mock.patch.object(sync, "run_bd") as mock_run:
+                        exit_code = sync.create_issues(str(plan_copy))
+                    after = plan_copy.read_bytes()
+
+                self.assertNotEqual(exit_code, 0)
+                mock_run.assert_not_called()
+                self.assertEqual(after, before)
+
     def test_mismatched_epic_show_json_fails_without_mutation(self):
         def _side_effect(argv, **kwargs):
             if argv[:3] == ["bd", "list", "--json"]:
