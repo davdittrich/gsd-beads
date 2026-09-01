@@ -1,154 +1,205 @@
 ---
 phase: 20-additive-identity-migration-and-compatibility
-reviewed: 2026-08-31T20:21:39Z
+reviewed: 2026-09-01T09:27:54Z
+reviewed_sha: 9fc842cd27637316228260bb118f3c8ddf8c0597
 depth: deep
-files_reviewed: 4
+files_reviewed: 17
 files_reviewed_list:
   - plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py
   - plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py
+  - plugins/beads-lifecycle/.gsd/capabilities/beads/tests/fixtures/plan-single.md
+  - plugins/beads-lifecycle/.gsd/capabilities/beads/tests/fixtures/plan-synced.md
   - plugins/beads-lifecycle/.gsd/capabilities/beads/skills/beads-sync/SKILL.md
+  - plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json
   - plugins/beads-lifecycle/.agents/skills/beads/PRIME.md
+  - plugins/beads-lifecycle/.claude-plugin/plugin.json
+  - plugins/beads-lifecycle/hooks/lifecycle-dispatch.sh
+  - plugins/beads-lifecycle/hooks/hooks.json
+  - README.md
+  - .github/workflows/ci.yml
+  - .github/workflows/release.yml
+  - .planning/phases/20-additive-identity-migration-and-compatibility/20-CONTEXT.md
+  - .planning/phases/20-additive-identity-migration-and-compatibility/20-01-PLAN.md
+  - .planning/phases/20-additive-identity-migration-and-compatibility/20-01-SUMMARY.md
+  - .planning/phases/20-additive-identity-migration-and-compatibility/20-SECURITY.md
 findings:
-  critical: 3
+  critical: 0
   warning: 0
   info: 0
-  total: 3
-status: issues_found
+  total: 0
+status: clean
 ---
 
 # Phase 20: Code Review Report
 
-**Reviewed:** 2026-08-31T20:21:39Z
+**Reviewed:** 2026-09-01T09:27:54Z
+**Reviewed SHA:** `9fc842cd27637316228260bb118f3c8ddf8c0597`
 **Depth:** deep
-**Files Reviewed:** 4
-**Status:** issues_found
+**Status:** clean
 
-## Summary
+## Verdict
 
-Phase 20 must not ship. The seven previously reproduced defects are repaired at
-their direct sites: task authority validation, CRLF preservation, the covered
-tracker/type name cases, all-bound-authority-before-create ordering, active
-writer spies, and documentation are present. A fresh full-context pass
-reproduced two uncovered lexical failures and one live integration failure:
-quoted attribute values and `<task-extra>` cross the identity boundary,
-the destructive stripper discovers `type=` in task bodies, and the mandatory
-active-parser test cannot load its current gsd-core dependency graph.
+Phase 20 is clean at the reviewed SHA. The final fix closes the remaining
+milestone-title authority gap without changing valid forward-only behavior.
+No correctness, security, standards, specification, integration, release, or
+over-engineering finding remains. Review confidence: **99/100**.
 
-## Full-context evidence
+## Findings
 
-- Traced `lifecycle_dispatch("plan:post")` and direct `main create-issues` into
-  `create_issues -> parse_plan -> resolve_issue/resolve_epic -> rewrite_plan ->
-  Path.open("w")`, all ten production `parse_plan` callers, stripping, orphan
-  reconciliation, dependency application, and fail-open handling.
-- Inspected all 15 `TestIdentityBinding` controls, fixtures, capability
-  metadata, lifecycle hook, shipped sync skill, PRIME, CI, and the active
-  `/home/dd/projects/gsd-core/gsd-core/bin/lib/plan-document.cjs` consumer.
-- Public runs returned 0 and produced
-  `<task note=' type="auto" tracker-id="beads:e1.1"'>`, treated
-  `note=' tracker-id="beads:e1.1"'` as canonical without an exact attribute,
-  and rewrote `<task-extra type="auto">` as
-  `<task-extra type="auto" tracker-id="beads:e1.1">`.
-- A stripping trace converted a missing-type task whose action merely contained
-  `type="auto"` into a pointer and deleted its action.
-- `py_compile` and `git diff --check` passed. The focused class ran 15 tests
-  with one failure; the full suite ran 288 tests with the same failure. All
-  review execution used the mandated session scratch, and the review-created
-  pycache was removed.
+None.
 
-Ponytail lens: keep the single parser/resolver/writer seam. Do not add XML
-serialization, a second migrator, registry, or dependency. The minimum safe
-change is one local quote-aware opening-tag scanner reused by `parse_plan` and
-`strip_task_bodies`.
+## Exact Authority Evidence
 
-## Narrative Findings (AI reviewer)
-
-## Critical Issues
-
-### CR-01: Identity scanners accept text that is not an exact task attribute
-
-**Classification:** BLOCKER
-**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:26,55-63,319-362`; `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py:1796-1854,2200-2254`; `plugins/beads-lifecycle/.gsd/capabilities/beads/skills/beads-sync/SKILL.md:68-75`; `plugins/beads-lifecycle/.agents/skills/beads/PRIME.md:14-18,30`
-**Issue:** The exact-name fixes delimit names with whitespace but do not track
-quoting context, while the task element is still delimited with `\b`:
+The milestone-specific consumer now separates malformed successful authority
+from a genuine nonempty title mismatch:
 
 ```python
-TASK_RE = re.compile(r"<task\b[^>]*>.*?</task>", re.DOTALL)
-TASK_TYPE_RE = re.compile(r'(?<=\s)type="([^"]*)"')
-TRACKER_ID_RE = re.compile(
-    r'''(?<=\s)tracker-id\s*=\s*(?:"([^"]*)"|'([^']*)')'''
-)
+candidate_title = row.get("title")
+if not isinstance(candidate_title, str) or not candidate_title.strip():
+    raise EpicAuthorityError(
+        f"bd show returned invalid title for {candidate_id!r}"
+    )
+if candidate_title == title:
+    return candidate_id
 ```
 
-Whitespace inside another quoted value satisfies the lookbehind. Sync inserted
-native identity inside `note` for `<task note=' type="auto"'>`, accepted
-`note=' tracker-id="beads:e1.1"'` as canonical, and mutated `<task-extra>`.
-The active consumer uses `/<task(?=[\s>])[^>]*>/`, so the last case is also
-source/consumer divergence. Existing tests cover prefixed/case names but not
-quoted-value or element-boundary controls; the shipped exact-task docs are
-therefore false.
+This is at
+`plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:1369-1375`.
+It preserves exact comparison after validating that the live title is usable.
 
-**Fix:** Use one minimum opening-tag scanner that accepts only `<task` followed
-by whitespace or `>`, walks quoted values without recognizing their contents
-as attributes, returns exact case-sensitive `type`/`tracker-id` spans, and
-rejects malformed/duplicate exact attributes before any Beads call. Keep raw
-splicing. Add public tests for quoted `type`, quoted `tracker-id`,
-`<task-extra>`, and `>` inside a quoted value, including active-parser parity.
+The shared row helper at lines 1394-1413 accepts either the live one-row list or
+the optional `data` envelope, then requires exactly one object whose `id`
+matches the requested ID. Nonzero `bd show` remains absence; malformed JSON,
+direct dictionaries without the envelope, zero/multiple rows, non-object rows,
+and mismatched IDs raise.
 
-**Confidence:** 100/100.
+Stored task identity reaches the same helper through
+`_bd_show_identifies()`. Stored and shared phase epics do likewise through
+`resolve_epic()` at lines 1424-1451. The milestone caller alone adds the
+title contract, so task/phase consumers are not burdened with fields they do
+not need.
 
-### CR-02: The destructive stripper discovers task type in body text
+## Full-Context Evidence
 
-**Classification:** BLOCKER
-**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py:1509-1548`; `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py:975-980,2200-2254`; `plugins/beads-lifecycle/.gsd/capabilities/beads/skills/beads-sync/SKILL.md:68-75`
-**Issue:** `strip_task_bodies` applies the attribute regex to the whole block:
+- Traced all eleven `parse_plan()` consumers: task-file collection,
+  prerequisite resolution, milestone candidate discovery, epic task
+  collection, completed-task discovery, local/milestone authority preflight,
+  `create_issues()`, phase-epic resolution, ordinal mapping, status mapping,
+  and wave-status rendering. All remain named-field consumers.
+- Traced `parse_beads_epic()` through target preflight, foreign-plan
+  preflight, stored epic resolution, and milestone candidate discovery.
+  Candidate discovery uses the same syntax/cardinality mechanism as the target
+  plan.
+- Confirmed unbound milestone mode runs `_milestone_authority_error()` over
+  every discovered phase plan before `bd_available()`. Malformed and
+  conflicting foreign declarations therefore perform no Beads call and no
+  plan write.
+- Confirmed stored-epic exact success returns before milestone discovery. A
+  stored absence may fall through to configured resolution; malformed
+  successful task authority retains its established visible fail-open/no-plan-
+  mutation boundary, while malformed successful epic authority returns
+  nonzero.
+- Traced every mutation path through
+  `create_issues() -> resolve_issue()/resolve_epic() -> rewrite_plan()`:
+  task/epic create, orphan close, dependency add, and the sole raw-text plan
+  writer. Epic authority errors return at lines 2128-2130 before those
+  downstream paths.
+- Inspected identity, idempotence, malformed-authority, milestone, orphan,
+  dependency, availability, lifecycle, and native-parser tests plus both
+  fixtures. The new public regression includes empty and whitespace-only
+  titles beside missing and numeric cases.
+- Inspected README, PRIME, beads-sync skill, capability/plugin metadata, hook
+  launcher/configuration, CI, release allowlist, and Phase 20
+  context/plan/summary/security contracts. They remain consistent with the
+  implementation and phase boundary.
+- Active launcher integration is coherent. The hook resolves project, global,
+  then plugin scope. The project-installed `sync.py` SHA-256
+  `21765705747996956f71f14bd208739ec62fdff9a78717efeff637ea973cfe41`
+  matches the exact reviewed source. The global copy differs but is shadowed
+  by project-first resolution. The active `gsd_run` parser proof in the suite
+  resolves the launcher, derives `plan-document.cjs`, and verifies exact
+  eligible identity plus checkpoint `null`.
+- CI runs the same stdlib discovery command used here. Release packaging
+  allowlists the plugin tree containing this source and its tests.
 
-```python
-block = m.group(0)
-type_m = TASK_TYPE_RE.search(block)
-task_type = type_m.group(1).strip() if type_m else None
-```
+## Independent Milestone Title Matrix
 
-A missing-type task containing literal `type="auto"` in `<action>` was
-classified as auto, lost its action, and gained the synced-content pointer.
-This is data loss on the explicit authoritative CLI. Current missing-type tests
-contain no attribute-shaped body text, and the coexistence test uses
-`allow_strip=False`.
+The public `create_issues()` boundary was exercised against the exact archive
+with one foreign `beads_epic: candidate-epic`:
 
-**Fix:** Reuse CR-01's opening-tag result; never search the task body for
-attributes. Add direct stripper and `allow_strip=True` public controls where
-missing/unknown task bodies contain literal `type="auto"`; require body and
-unrelated bytes to survive.
+| Live exact-ID title state | Exit | Mutations | Epic creates | Target changed | Result |
+|---|---:|---:|---:|---|---|
+| missing | 1 | 0 | 0 | no | fail closed |
+| `null` | 1 | 0 | 0 | no | fail closed |
+| number | 1 | 0 | 0 | no | fail closed |
+| list | 1 | 0 | 0 | no | fail closed |
+| object | 1 | 0 | 0 | no | fail closed |
+| empty string | 1 | 0 | 0 | no | fail closed |
+| whitespace-only string | 1 | 0 | 0 | no | fail closed |
+| genuine nonempty mismatch | 0 | 2 | 1 | yes | intended forward-only replacement |
+| exact title, one-row list | 0 | 1 | 0 | yes | candidate reused; unbound task created |
+| exact title, `data` envelope | 0 | 1 | 0 | yes | candidate reused; unbound task created |
 
-**Confidence:** 100/100.
+The exact-title controls changed the target only to bind the reused epic and
+new task; neither created another epic.
 
-### CR-03: The mandatory active-parser integration gate is red
+## Standards
 
-**Classification:** BLOCKER
-**Files:** `plugins/beads-lifecycle/.gsd/capabilities/beads/tests/test_sync.py:1856-1913`; `/home/dd/projects/gsd-core/gsd-core/bin/lib/cli-exit.cjs:16-22`
-**Issue:** Focused and full suites fail
-`test_installed_parser_reads_migrated_identity_and_checkpoint_null`. It
-correctly resolves live `gsd_run` to
-`/home/dd/projects/gsd-core/gsd-core/bin/gsd_run`, but loading its sibling
-parser reaches:
+No documented-standard violation or baseline code smell was found. The fix is
+one local predicate at the consumer that owns title semantics and two adjacent
+public regression cases. It preserves typed argv, the existing helper, the
+single mutation seam, named-field parser compatibility, and the repository's
+fail-closed/no-speculative-abstraction rules.
 
-```javascript
-const exitCodeRegistryModule = require("./exit-code-registry.cjs");
-```
+The code-review skill requested parallel Standards and Spec subreviews, but the
+shared agent thread limit was full. Both axes were completed directly against
+the same exact SHA and full repository context.
 
-`/home/dd/projects/gsd-core/gsd-core/bin/lib/exit-code-registry.cjs` is absent,
-so Node exits 1 with `MODULE_NOT_FOUND`. Phase 20 has no current proof that the
-active consumer can load. The plan makes require failure a hard failure;
-historical green output cannot override current state.
+## Spec
 
-**Fix:** Restore or regenerate the active gsd-core build/install so every
-runtime dependency of `plan-document.cjs` exists at the launcher-derived path,
-then rerun the unchanged parser test, focused class, and full suite. Do not
-skip, hard-code another home, or select another parser copy.
+Phase 20's locked requirements remain satisfied: canonical
+`tracker-id="beads:<beads-id>"` projection is additive; legacy identity stays
+authoritative; exact `auto`/`tracer` tasks migrate; excluded task types
+remain byte-preserved; conflicts and malformed authority halt before mutation;
+repeat synchronization stays idempotent; installed cutover remains outside
+this phase. No scope creep was introduced by the final one-condition fix.
 
-**Confidence:** 100/100.
+## Verification
+
+- Exact isolated tree:
+  `9fc842cd27637316228260bb118f3c8ddf8c0597`.
+- Focused milestone gate:
+  `python3 -m unittest discover -s tests -t tests -k milestone` —
+  **10/10 passed in 0.009s**.
+- Full gate:
+  `python3 -m unittest discover -s tests -t tests` —
+  **305/305 passed in 9.078s**.
+- Complete independent title/list/envelope matrix: all ten arms matched the
+  table above.
+- `git diff --check 086af2a..9fc842c -- <source> <tests>` passed.
+- The final commit changes only the synchronizer and its existing unittest
+  module.
+- Every exact-SHA archive and diagnostic workspace used only
+  `/run/user/1000/codex-scratch-01a0583c-f3f3-76e2-98c3-a0d64094c310`
+  and was deleted. Tests ran against the archive, not the dirty main checkout.
+  Source and tests were not modified.
+
+## Security and Ponytail
+
+Security verdict: **SECURED**. Typed argv, safe-ID checks, declaration
+preflight, exact response cardinality/identity, nonblank milestone title
+authority, and pre-mutation error returns cover the reviewed trust boundary.
+No new disclosure, command injection, path traversal, or mutation-order issue
+was found.
+
+Ponytail verdict: **Lean already. Ship.** The local predicate reuses the
+existing consumer and helper; the two table cases are the minimum regression
+proof.
+
+`net: -0 lines possible.`
 
 ---
 
-_Reviewed: 2026-08-31T20:21:39Z_
-_Reviewer: gsd-code-reviewer_
+_Reviewed: 2026-09-01T09:27:54Z_
+_Reviewer: the agent (gsd-code-reviewer)_
 _Depth: deep_

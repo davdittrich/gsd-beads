@@ -1,9 +1,9 @@
 ---
 phase: "20"
 slug: "additive-identity-migration-and-compatibility"
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: validated
+nyquist_compliant: true
+wave_0_complete: true
 created: "2026-08-31"
 ---
 
@@ -32,13 +32,14 @@ created: "2026-08-31"
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 20-01-01 | 01 | 1 | ID-01 | T-20-01 | Canonical `auto`/`tracer` native identity derives only from a safe live Beads id and the second sync is byte-identical. | public-boundary unit | `TMPDIR=/dev/shm python3 -m unittest tests.test_sync.TestIdentityBinding -v` | ✅ | pending |
-| 20-01-02 | 01 | 1 | ID-02 | T-20-02 | Checkpoint, missing, and unknown task blocks remain byte-identical; duplicate or conflicting native identity causes no write or create. | public-boundary unit | `TMPDIR=/dev/shm python3 -m unittest tests.test_sync.TestIdentityBinding -v` | ✅ | pending |
+| 20-01-01 | 01 | 1 | ID-01 | T-20-01 | Canonical `auto`/`tracer` native identity derives only from a safe live Beads id and the second sync is byte-identical. | public-boundary unit | `TMPDIR=/dev/shm python3 -m unittest tests.test_sync.TestIdentityBinding -v` | ✅ | covered |
+| 20-01-02 | 01 | 1 | ID-02 | T-20-02 | Checkpoint, missing, and unknown task blocks remain byte-identical; duplicate or conflicting native identity causes no write or create. | public-boundary unit | `TMPDIR=/dev/shm python3 -m unittest tests.test_sync.TestIdentityBinding -v` | ✅ | covered |
 
 ## Wave 0 Requirements
 
-- [ ] Existing `tests/test_sync.py` gains focused Phase 20 public-boundary coverage; no new framework or fixture layer.
-- [ ] Existing infrastructure covers all requirements.
+- [x] Existing `tests/test_sync.py` gains focused Phase 20 public-boundary
+  coverage; no new framework or fixture layer.
+- [x] Existing infrastructure covers all requirements.
 
 ## Manual-Only Verifications
 
@@ -46,11 +47,20 @@ All phase behaviors have automated verification.
 
 ## Validation Sign-Off
 
-- [ ] All tasks have automated verification.
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verification.
-- [ ] Wave 0 covers all MISSING references.
-- [ ] No watch-mode flags.
-- [ ] Feedback latency < 60s.
-- [ ] `nyquist_compliant: true` set in frontmatter.
+- [x] All tasks have automated verification.
+- [x] Sampling continuity: no 3 consecutive tasks without automated verification.
+- [x] Wave 0 covers all MISSING references.
+- [x] No watch-mode flags.
+- [x] Feedback latency < 60s.
+- [x] `nyquist_compliant: true` set in frontmatter.
 
-**Approval:** pending
+**Approval:** validated from the focused Phase 20 controls and 305/305
+full-suite passing tests.
+
+## Validation Audit 2026-08-31
+
+| Metric | Count |
+|--------|-------|
+| Gaps found | 0 |
+| Resolved | 0 |
+| Escalated | 0 |
