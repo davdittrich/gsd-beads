@@ -80,7 +80,10 @@ installed path before removing Patch 2 while preserving Patch 1.
    documentation wiring remains, while Patch 1 is still installed and passes
    its independent verification.
 
-**Plans:** TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 21-01-PLAN.md — Prove the active global resolver against live Beads, then retire Patch 2 transactionally while preserving Patch 1.
 
 ## Progress
 
