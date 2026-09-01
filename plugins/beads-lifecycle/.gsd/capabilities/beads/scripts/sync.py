@@ -24,7 +24,8 @@ NOTICE = "bd unavailable -- sync skipped"
 BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 
 _TASK_OPEN_PATTERN = r'''<task(?=[\s>])(?:"[^"]*"|'[^']*'|[^'">])*>'''
-TASK_RE = re.compile(r"<task(?=[\s>]).*?</task>", re.DOTALL)
+RAW_TASK_OPEN_RE = re.compile(r"<task(?=[\s>])")
+TASK_RE = re.compile(_TASK_OPEN_PATTERN + r".*?</task>", re.DOTALL)
 NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
 BEADS_ID_RE = re.compile(r"<beads-id>(.*?)</beads-id>", re.DOTALL)
 FILES_RE = re.compile(r"<files>(.*?)</files>", re.DOTALL)
@@ -346,6 +347,10 @@ def _scan_task_attributes(opening_tag):
     return attributes, False
 
 
+class PlanParseError(ValueError):
+    """A plan's raw task openings cannot be mapped to closed task blocks."""
+
+
 def parse_plan(path):
     """Return (full_text, frontmatter_body, [task dict, ...]).
 
@@ -356,8 +361,17 @@ def parse_plan(path):
         text = plan_file.read()
     fm_match = FRONTMATTER_RE.match(text)
     frontmatter = fm_match.group(1) if fm_match else ""
+    raw_open_starts = [match.start() for match in RAW_TASK_OPEN_RE.finditer(text)]
+    task_matches = list(TASK_RE.finditer(text))
+    closed_open_starts = [match.start() for match in task_matches]
+    if raw_open_starts != closed_open_starts:
+        raise PlanParseError(
+            "task structure invalid: every exact <task opener must map one-to-one "
+            "to a structurally closed task block"
+        )
+
     tasks = []
-    for m in TASK_RE.finditer(text):
+    for m in task_matches:
         block = m.group(0)
         opening_tag_m = TASK_OPEN_TAG_RE.match(block)
         opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
@@ -1713,7 +1727,12 @@ def find_completed_task_ids(phase_dir, plan_id):
     summary_path = plan_path.with_name(f"{plan_id}-SUMMARY.md")
     if not summary_path.exists():
         return [], 0
-    _, _, tasks = parse_plan(plan_path)
+    try:
+        _, _, tasks = parse_plan(plan_path)
+    except PlanParseError as exc:
+        raise ValueError(
+            f"completed-task authority invalid in {plan_path.name}: {exc}"
+        ) from exc
     ids = []
     skipped = 0
     for task in tasks:
@@ -1905,7 +1924,11 @@ def create_issues(plan_arg, allow_strip=True):
     project_root = find_project_root(plan_path.parent)
     roadmap_path = confined(project_root, ".planning", "ROADMAP.md")
 
-    text, frontmatter, tasks = parse_plan(plan_path)
+    try:
+        text, frontmatter, tasks = parse_plan(plan_path)
+    except (OSError, UnicodeDecodeError, PlanParseError) as exc:
+        print(f"native tracker identity preflight failed: {exc}", file=sys.stderr)
+        return 1
     objective_m = OBJECTIVE_RE.search(text)
     objective = objective_m.group(1).strip() if objective_m else ""
 

@@ -2459,6 +2459,16 @@ class TestIdentityBinding(unittest.TestCase):
                 "<task type='auto>",
                 1,
             ),
+            "valid-sibling-plus-missing-close": base.replace(
+                "</tasks>",
+                """<task type="auto">
+  <name>Task 2: Missing close</name>
+  <beads-id>mock-e1.2</beads-id>
+  <action>Must never authorize a partial sync.</action>
+
+</tasks>""",
+                1,
+            ),
         }
 
         for label, plan_text in cases.items():
@@ -2974,6 +2984,11 @@ class TestCloseWave(unittest.TestCase):
                 "  <beads-id>tracer-wave1.2</beads-id>",
                 1,
             ),
+            "valid-sibling-plus-missing-close": base.replace(
+                "  <done>Wave-a thing 2 is implemented.</done>\n</task>",
+                "  <done>Wave-a thing 2 is implemented.</done>",
+                1,
+            ),
         }
 
         for label, plan_text in cases.items():
@@ -3142,6 +3157,11 @@ class TestReconcileStaleClosed(unittest.TestCase):
                 "  <beads-id>tracer-wave1.1</beads-id>",
                 "  <beads-id>tracer-wave1.1</beads-id>\n"
                 "  <beads-id>tracer-wave1.2</beads-id>",
+                1,
+            ),
+            "valid-sibling-plus-missing-close": base.replace(
+                "  <done>Wave-a thing 2 is implemented.</done>\n</task>",
+                "  <done>Wave-a thing 2 is implemented.</done>",
                 1,
             ),
         }
