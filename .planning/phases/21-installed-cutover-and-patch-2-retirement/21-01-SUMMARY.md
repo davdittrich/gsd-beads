@@ -65,6 +65,7 @@ without changing the independent ship Patch 1 contract.
 
 1. **Task 1: Prove installed native resolver cutover** - `9da2d34` (test)
 2. **Task 2: Retire execute-plan Patch 2** - `902488c` (feat)
+3. **Review remediation: Align warning and current Codex runtime** - `1a9aa87` (fix)
 
 ## Verification
 
@@ -72,8 +73,14 @@ without changing the independent ship Patch 1 contract.
 - Retirement surface gate: `PHASE21_RETIREMENT_SURFACE_OK`.
 - Repeated public matrix: `PHASE21_POST_MATRIX_OK`.
 - Full capability suite: 288/288 passed.
-- Final source digest: `4829a5a67d872cabe4defd144cdd9414f8cb574ef98de3234b18ffe15913249a`.
+- Final source digest: `64c430d1c3de63698d4c1e3da025162bd40a10ef60fdc4bb7a91ee4587ade038`.
 - Runtime `ship.md` remained hash-identical; retirement scratch was empty.
+- Current Codex `execute-plan.md` changed from
+  `a0245104e164fb696ae514d9531d6e756ab6c37bd43fcd5468ca84d476f4255b`
+  to `fcc3c4a40bc389170f0d57a7e2c6e56370b147bab177e32113c875e7cf73ff6b`
+  by removing only the balanced Patch 2 block.
+- Deep full-context re-review at `1a9aa87` passed with zero findings and
+  100/100 verdict confidence.
 
 ## Deviations from Plan
 
@@ -86,6 +93,9 @@ without changing the independent ship Patch 1 contract.
 - Per-command sandbox `/dev/shm` isolation required one persistent host shell.
 - Two exact preservation gates caught a missing README manifest-key token and
   one over-broad Patch 1 comment deletion; both rolled runtime back before retry.
+- Code review found one stale sync-mode diagnostic and a Codex runtime block
+  missed by the original Claude-derived transaction; both were corrected and
+  the public cutover plus 288-test suite passed again.
 
 ## User Setup Required
 
