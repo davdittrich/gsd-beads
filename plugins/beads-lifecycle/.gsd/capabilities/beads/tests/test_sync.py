@@ -1280,7 +1280,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.5.0")
+        self.assertEqual(manifest["version"], "0.6.0")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -1297,7 +1297,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
         readme = (root / "README.md").read_text(encoding="utf-8")
         prose = " ".join(readme.split())
-        self.assertIn("## 0.5.0", changelog)
+        self.assertIn("## 0.6.0", changelog)
         self.assertIn("taskContentResolver", changelog)
         self.assertIn("Patch 2", changelog)
         self.assertIn("description, read_first, verify, acceptance_criteria, and done", readme)
@@ -1305,6 +1305,8 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertIn('Phase 20 projects exact `auto` and `tracer` tasks as `tracker-id="beads:<id>"`', prose)
         self.assertIn("The installed tracked, project-active, global-active, and bootstrap bundles are byte-identical", prose)
         self.assertIn("Patch 2 has been retired", prose)
+        self.assertIn("codex plugin marketplace add davdittrich/gsd-beads", readme)
+        self.assertIn("codex plugin add beads-lifecycle@gsd-beads", readme)
 
     def test_prime_matches_readme_dispatch_ownership(self):
         root = self.CAPABILITY_PATH.parents[5]

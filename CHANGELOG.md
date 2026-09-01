@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0
+
+### Changed
+- **Published the installed native task-content cutover.** The Beads resolver is now the
+  installed content authority in Claude and Codex, while the retired `execute-plan.md` Patch 2
+  remains absent and the independent `ship.md` Patch 1 contract remains intact.
+- **Documented native marketplace installation for both supported runtimes.** The README now
+  gives separate Claude and Codex install and uninstall commands for the same plugin source.
+
 ## 0.5.0
 
 ### Added

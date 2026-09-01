@@ -4,9 +4,9 @@ Beads issue tracking for gsd-core's plan→execute→verify→ship lifecycle
 
 ## What it does
 
-[gsd-core](https://github.com/open-gsd/gsd-core) is a Claude Code planning framework that
+[gsd-core](https://github.com/open-gsd/gsd-core) is an agentic planning framework that
 turns a feature request into phased plans, tracked execution, and a ship gate, orchestrated
-through `/gsd:*` commands and markdown under a project's `.planning/` directory.
+through lifecycle commands and markdown under a project's `.planning/` directory.
 [Beads](https://github.com/gastownhall/beads) (`bd`) is a durable, git-native issue tracker
 with a local Dolt database, issue dependencies, and blocker tracking, built for work that
 has to survive multi-session handoff between people and agents.
@@ -44,9 +44,18 @@ the single source of truth for task state, so no duplicated task-state bookkeepi
 
 ## Install
 
+Claude Code:
+
 ```bash
 claude plugin marketplace add davdittrich/gsd-beads
 claude plugin install beads-lifecycle@gsd-beads -y
+```
+
+Codex:
+
+```bash
+codex plugin marketplace add davdittrich/gsd-beads
+codex plugin add beads-lifecycle@gsd-beads
 ```
 
 ### Example workflow
@@ -213,8 +222,16 @@ or a whole project at a beads workspace outside the tree; `bd config set no-git-
 
 ## Uninstall
 
+Claude Code:
+
 ```bash
 claude plugin uninstall beads-lifecycle@gsd-beads -y
+```
+
+Codex:
+
+```bash
+codex plugin remove beads-lifecycle@gsd-beads
 ```
 
 ## Caveats
