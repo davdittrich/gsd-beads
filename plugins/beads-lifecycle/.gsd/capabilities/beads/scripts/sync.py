@@ -1355,9 +1355,9 @@ def resolve_milestone_epic(project_root):
                     _, plan_frontmatter, _ = parse_plan(plan_path)
                 except (OSError, UnicodeDecodeError):
                     continue
-                m = BEADS_EPIC_RE.search(plan_frontmatter)
-                if m and m.group(1) not in candidate_ids:
-                    candidate_ids.append(m.group(1))
+                epic_id = parse_beads_epic(plan_frontmatter)
+                if epic_id is not None and epic_id not in candidate_ids:
+                    candidate_ids.append(epic_id)
 
     for candidate_id in candidate_ids:
         check = run_bd(["bd", "show", candidate_id, "--json"])
@@ -1911,6 +1911,19 @@ def _plan_authority_error(plan_path):
     return None
 
 
+def _milestone_authority_error(project_root):
+    """Return the first invalid plan authority scanned by milestone epic lookup."""
+    phases_root = confined(project_root, ".planning", "phases")
+    if not phases_root.is_dir():
+        return None
+    for phase_dir in sorted(path for path in phases_root.iterdir() if path.is_dir()):
+        for plan_path in discover_plan_files(phase_dir).values():
+            authority_error = _plan_authority_error(plan_path)
+            if authority_error:
+                return f"{phase_dir.name}/{plan_path.name}: {authority_error}"
+    return None
+
+
 def create_issues(plan_arg, allow_strip=True):
     """`allow_strip=False` keeps every `<task>` body in PLAN.md even when the
     read-path patch is present (gh-2). `strip_task_bodies` is a deliberate,
@@ -1950,7 +1963,7 @@ def create_issues(plan_arg, allow_strip=True):
     objective = objective_m.group(1).strip() if objective_m else ""
 
     try:
-        parse_beads_epic(frontmatter)
+        stored_epic_id = parse_beads_epic(frontmatter)
     except EpicAuthorityError as exc:
         print(
             f"epic identity preflight failed: {exc}",
@@ -2032,6 +2045,15 @@ def create_issues(plan_arg, allow_strip=True):
             print(
                 f"cross-plan task authority preflight failed in "
                 f"{sibling_path.name}: {authority_error}",
+                file=sys.stderr,
+            )
+            return 1
+
+    if stored_epic_id is None and read_epic_per(project_root) == "milestone":
+        authority_error = _milestone_authority_error(project_root)
+        if authority_error:
+            print(
+                f"milestone epic authority preflight failed in {authority_error}",
                 file=sys.stderr,
             )
             return 1

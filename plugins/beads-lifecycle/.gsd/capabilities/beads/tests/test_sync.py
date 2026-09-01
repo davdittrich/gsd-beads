@@ -5743,6 +5743,44 @@ class TestMilestoneEpic(unittest.TestCase):
         self.assertEqual(len(epic_creates), 1)
         self.assertEqual(epic_creates[0][2], "Milestone v1.0: milestone")
 
+    def test_invalid_foreign_phase_epic_authority_fails_before_bd_or_plan_write(self):
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        foreign_cases = {
+            "malformed-spaced-value": base.replace(
+                "---\n", "---\nbeads_epic: bad id\n", 1
+            ),
+            "duplicate-conflicting-values": base.replace(
+                "---\n",
+                "---\nbeads_epic: old-epic\nbeads_epic: other-epic\n",
+                1,
+            ),
+        }
+
+        for label, foreign_text in foreign_cases.items():
+            with self.subTest(label=label):
+                with tempfile.TemporaryDirectory() as tmp:
+                    _, phase_dirs = _write_milestone_workspace(
+                        Path(tmp), ["01-substrate", "02-visibility"], epic_per="milestone"
+                    )
+                    foreign_plan = phase_dirs["01-substrate"] / "01-01-PLAN.md"
+                    foreign_plan.write_text(foreign_text, encoding="utf-8")
+                    target_plan = phase_dirs["02-visibility"] / "02-01-PLAN.md"
+                    target_plan.write_text(
+                        base.replace("phase: 01-substrate", "phase: 02-visibility", 1),
+                        encoding="utf-8",
+                    )
+                    before = {
+                        foreign_plan: foreign_plan.read_bytes(),
+                        target_plan: target_plan.read_bytes(),
+                    }
+                    with mock.patch.object(sync, "run_bd") as mock_run:
+                        exit_code = sync.create_issues(str(target_plan))
+                    after = {path: path.read_bytes() for path in before}
+
+                self.assertNotEqual(exit_code, 0)
+                mock_run.assert_not_called()
+                self.assertEqual(after, before)
+
 
 def _lifecycle_workspace(tmp_path, *, current_phase="07", enabled=None, plan_text=None):
     """gh-2: lay out the minimum tree `lifecycle_dispatch` resolves against --
