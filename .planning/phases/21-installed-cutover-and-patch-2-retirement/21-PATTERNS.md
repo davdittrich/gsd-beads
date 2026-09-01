@@ -43,7 +43,7 @@ PATCH_CHECKS = {
 }
 ```
 
-Delete the Patch 2 marker constant, the second table entry, and `check_execute_plan_patch`; leave the `ship-md` row, `check_patch`, and `check_shipmd_patch` structurally unchanged. Do not replace the surviving one-entry table with a new special case or compatibility abstraction.
+Delete the Patch 2 marker constant, the second table entry, and `check_execute_plan_patch`; leave the `ship-md` row and the executable/message behavior of `check_patch` and `check_shipmd_patch` unchanged. Patch-2-only prose may be removed or reworded in those retained docstrings, so preservation compares a recursively docstring-stripped AST dump rather than raw function bytes. Do not replace the surviving one-entry table with a new special case or compatibility abstraction.
 
 **Preserve the generic reader contract** (lines 2827-2866):
 
@@ -148,7 +148,7 @@ class TestPatchChecksTable(unittest.TestCase):
     self.assertIn("execute-plan", sync.PATCH_CHECKS)
 ```
 
-Delete the execute-plan class and all execute-plan table, CLI, lifecycle, and strip-gate assertions. Change only the mechanically inseparable table assertion to prove the retained `ship-md` entry; retain the `TestCheckShipmdPatch` body and the `ship-md` marker/message assertions byte-for-byte where possible. `TestCreateIssuesStripGate` at lines 1014-1100 is Patch-2-specific and must be retired with its production gate, rather than reworked into a new mechanism.
+Delete the execute-plan class and all execute-plan table, CLI, lifecycle, and strip-gate assertions. Change only the mechanically inseparable table assertion to prove the retained `ship-md` entry; retain `TestCheckShipmdPatch`'s assertions and executable/message behavior, while allowing removal or rewording of obsolete Patch-2-only class/method docstrings. Compare that class through the same recursively docstring-stripped AST dump used for the retained functions; keep the `ship-md` marker/message assertions byte-for-byte. `TestCreateIssuesStripGate` at lines 1014-1100 is Patch-2-specific and must be retired with its production gate, rather than reworked into a new mechanism.
 
 **Keep release-documentation assertions synchronized** (`TestTaskContentResolverManifest.test_release_docs_keep_source_availability_distinct_from_cutover`, lines 1383-1404): update only its expected current Phase 21 sentence after the README/CHANGELOG change. Preserve its distinction that tracked resolver availability is not installed byte-parity proof.
 
@@ -270,7 +270,7 @@ The known-good installed baseline is the control. For each negative arm, assert 
 
 **Sources:** `sync.py:157-179,2869-2875`; `test_sync.py:4802-4885`; `skills/beads-status/SKILL.md:267-286`.
 
-`check-patch ship-md` remains the one active check target. Keep its marker, table row, wrapper, tests, status skill, installer, manifest `ship:pre` slice, runtime workflow, and core Patch 1 documentation bytes. For the document, apply one identical normalizer bounded by enduring `## Patch 1:`/`## Probe (not a patch):`: pre-edit it removes the intervening Patch 2/shared-reapply interval; post-edit it hashes the whole interval. Exercise the checker after deletion rather than folding the mechanisms together.
+`check-patch ship-md` remains the one active check target. Byte-hash its marker, exact table row/messages, status skill, installer, manifest `ship:pre` slice, runtime workflow, retained Patch-1-only test methods, and core Patch 1 documentation region. For `check_patch`, `check_shipmd_patch`, and `TestCheckShipmdPatch`, capture and verification both parse the source AST, recursively remove only leading docstring expression nodes, and hash stable `ast.dump(..., include_attributes=False)` so required Patch-2-only prose removal cannot mask an executable or message change. For the document, apply one identical normalizer bounded by enduring `## Patch 1:`/`## Probe (not a patch):`: pre-edit it removes the intervening Patch 2/shared-reapply interval; post-edit it hashes the whole interval. Exercise the checker after deletion rather than folding the mechanisms together.
 
 ## No Analog Found
 

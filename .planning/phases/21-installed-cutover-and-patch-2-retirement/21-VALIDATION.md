@@ -41,7 +41,7 @@ created: "2026-09-01"
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
 | 21-01-01 | 01 | 1 | CUT-01 | Global-install proof cannot be satisfied by a project overlay; malformed or unavailable resolver inputs stop non-zero without fallback. | Existing exact-argv spy plus fresh live public integration | Self-contained bounded `/dev/shm` transaction deriving bootstrap paths before parsing the stale global manifest, treating missing/non-exact resolver metadata as the approved install trigger, then proving base HEAD, natural identities/live row, four-tree tracked/project/global/bootstrap parity, explicit executed-resolver path under the recorded public environment, global-only selection, authored five-field positive, four isolated negatives, mutation absence, and cleanup; then the exact `bd show` argv spy | ✅ inline / existing | ⬜ pending |
-| 21-01-02 | 01 | 2 | CUT-02 | Patch 2 is deleted only after the pre-removal gate; Patch 1 remains byte-identical and independently executable. | TDD retirement regression plus fresh live public integration | Execution-local exact RED producer, eight-file canonical post-edit source SHA-256, seven-surface residue/Patch-1 enduring-boundary/rollback transaction, repeated four-tree public positive/four-negative transaction and argv spy, Python compile plus full capability suite | ✅ inline / existing | ⬜ pending |
+| 21-01-02 | 01 | 2 | CUT-02 | Patch 2 is deleted only after the pre-removal gate; Patch 1 executable/message behavior remains exact and independently executable while obsolete Patch-2-only docstrings may be removed. | TDD retirement regression plus fresh live public integration | Execution-local exact RED producer, eight-file canonical post-edit source SHA-256, seven-surface residue/docstring-stripped Patch-1 AST/enduring-document-boundary/rollback transaction, repeated four-tree public positive/four-negative transaction and argv spy, Python compile plus full capability suite | ✅ inline / existing | ⬜ pending |
 
 *Status: ⬜ pending · ✅ green · ❌ red · ⚠️ flaky*
 
@@ -50,7 +50,7 @@ created: "2026-09-01"
 ## Wave 0 Requirements
 
 - [x] No new harness or source scaffold is required: Task 1 embeds the bounded execution-local public transaction and reuses the existing exact-argv adapter spy.
-- [x] Task 2 embeds the post-removal residue, Patch 1 identity, rollback-hash, repeated public matrix, compile, and full-suite commands; its tests-first edit deletes or narrows every Patch-2-owned test while retaining the public native contract.
+- [x] Task 2 embeds the post-removal residue, byte-exact Patch 1 messages/surfaces, docstring-stripped AST behavior hashes, rollback-hash, repeated public matrix, compile, and full-suite commands; its tests-first edit deletes or narrows every Patch-2-owned test while retaining the public native contract.
 
 ---
 
