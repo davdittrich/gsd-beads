@@ -39,7 +39,8 @@ setup() {
   INSTALLED_BUNDLE="$GSD_HOME/.gsd/capabilities/beads"
   mkdir -p "$(dirname "$INSTALLED_BUNDLE")"
   cp -rf "$BUNDLE_DIR" "$INSTALLED_BUNDLE"
-  STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.hash"
+  STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.projections"
+  LEGACY_STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.hash"
   SKILLS_ROOT="$SCRATCH/.agents/skills"
   CLAUDE_SKILLS_ROOT="$SCRATCH/.claude/skills"
   mkdir -p "$SKILLS_ROOT" "$CLAUDE_SKILLS_ROOT"
@@ -142,6 +143,15 @@ grep -qx "capability set beads --runtime codex --scope global --config-dir $CODE
 [ -f "$SKILLS_ROOT/gsd-beads-recall/.gsd-capability-skill" ] \
   || fail "case1: current-layout install did not project the recall skill"
 [ -f "$STATE_FILE" ] || fail "case1: sidecar state file not created"
+python3 - "$STATE_FILE" <<'PY'
+import pathlib
+import re
+import sys
+
+rows = pathlib.Path(sys.argv[1]).read_text().splitlines()
+if len(rows) != 1 or not re.fullmatch(r"projection-v2 codex [0-9a-f]{64} [0-9a-f]{64}", rows[0]):
+    raise SystemExit(f"invalid projection ledger: {rows!r}")
+PY
 pass "case1: first-run auto-install prints notice, installs once, writes sidecar"
 
 # Case 2: unchanged rerun -> completely silent, zero native writer invocations.
@@ -153,6 +163,14 @@ run_script beads
 [ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 1)) ] || fail "case2: unchanged rerun invoked a native writer"
 [ "$(tail -n 1 "$STUB_LOG")" = 'query skills-root codex --raw' ] || fail "case2: unchanged rerun did more than validate its destination"
 pass "case2: unchanged rerun is silent and invokes native writers zero times"
+
+### Case 2b: selected-surface drift invalidates the fingerprint fast path ###
+PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
+printf '\n' >> "$SKILLS_ROOT/gsd-beads-status/SKILL.md"
+run_script beads
+[ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 3)) ] \
+  || fail "case2b: selected fingerprint drift did not invoke both native writers"
+pass "case2b: observed selected-surface drift invalidates the fast path"
 
 # Case 3: bundle edit -> re-grant with a fresh notice.
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
@@ -229,7 +247,8 @@ mkdir -p "$BUNDLE_DIR"
 printf '{"id":"beads"}\n' > "$BUNDLE_DIR/capability.json"
 GSD_HOME="$SCRATCH/home"
 mkdir -p "$GSD_HOME"
-STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.hash"
+STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.projections"
+LEGACY_STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.hash"
 CONFIG_DIR="$SCRATCH/no-gsd-core-here"
 mkdir -p "$CONFIG_DIR"
 WORKDIR="$SCRATCH/workdir"
@@ -332,7 +351,6 @@ LEGACY_HASH="$({
   find "$BUNDLE_DIR" -type f | LC_ALL=C sort | while IFS= read -r _f; do cat "$_f"; done
 } | "${TEST_HASH_CMD[@]}" | awk '{print $1}')"
 mkdir -p "$(dirname "$STATE_FILE")"
-LEGACY_STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.hash"
 printf '%s\n' "$LEGACY_HASH" > "$LEGACY_STATE_FILE"
 mkdir -p "$SKILLS_ROOT/gsd-user-owned" \
   "$SKILLS_ROOT/plain-user-skill" "$SKILLS_ROOT/gsd-other-plugin" \
@@ -350,8 +368,8 @@ run_script beads
 [ "$STATUS" -eq 0 ] || fail "case7: exit status $STATUS, expected 0"
 [ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case7: legacy sidecar did not trigger root validation and native reconciliation"
 [ -f "$STATE_FILE" ] || fail "case7: convergence sidecar was not written"
-[ "$(cat "$STATE_FILE")" != "$LEGACY_HASH" ] || fail "case7: legacy raw sidecar format was not migrated"
-grep -q "^projection-v1 codex " "$STATE_FILE" || fail "case7: codex convergence record missing"
+[ ! -e "$LEGACY_STATE_FILE" ] || fail "case7: verified v2 publication retained the legacy receipt"
+grep -Eq "^projection-v2 codex [0-9a-f]{64} [0-9a-f]{64}$" "$STATE_FILE" || fail "case7: codex convergence record missing"
 grep -qx "capability set beads --runtime codex --scope global --config-dir $CODEX_HOME" "$STUB_LOG" \
   || fail "case7: stale projection was not delegated to native reconciliation"
 ! grep -q 'check-patch execute-plan' "$SKILLS_ROOT/gsd-beads-recall/SKILL.md" \
@@ -385,8 +403,11 @@ run_script beads
   || fail "case7: codex convergence incorrectly suppressed claude reconciliation"
 grep -qx "capability set beads --runtime claude --scope global --config-dir $CLAUDE_CONFIG_DIR" "$STUB_LOG" \
   || fail "case7: native claude surface materialization was not invoked"
-grep -q "^projection-v1 codex " "$STATE_FILE" || fail "case7: codex convergence record was lost"
-grep -q "^projection-v1 claude " "$STATE_FILE" || fail "case7: claude convergence record missing"
+grep -Eq "^projection-v2 codex [0-9a-f]{64} [0-9a-f]{64}$" "$STATE_FILE" || fail "case7: codex convergence record was lost"
+grep -Eq "^projection-v2 claude [0-9a-f]{64} [0-9a-f]{64}$" "$STATE_FILE" || fail "case7: claude convergence record missing"
+[ "$(sed -n '1p' "$STATE_FILE")" != "$(sed -n '2p' "$STATE_FILE")" ] || fail "case7: ledger contains duplicate rows"
+[ "$(sed -n '1p' "$STATE_FILE" | cut -d' ' -f2)" = claude ] || fail "case7: ledger is not sorted by runtime"
+[ "$(sed -n '2p' "$STATE_FILE" | cut -d' ' -f2)" = codex ] || fail "case7: ledger is not sorted by runtime"
 ! grep -q 'check-patch execute-plan' "$CLAUDE_SKILLS_ROOT/gsd-beads-recall/SKILL.md" \
   || fail "case7: claude stale projection remained selected"
 pass "case7: legacy sidecar reconciles once per runtime and each runtime converges"
@@ -394,6 +415,8 @@ teardown
 
 ### Case 8: install success plus surface failure leaves no converged sidecar ###
 setup 0
+mkdir -p "$(dirname "$LEGACY_STATE_FILE")"
+printf '%s\n' legacy-retry-sentinel > "$LEGACY_STATE_FILE"
 cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$STUB_LOG"
@@ -411,6 +434,7 @@ run_script beads
 [ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case8: expected root validation, install, and surface invocations"
 grep -q 'capability set failed' "$STDERR_FILE" || fail "case8: missing projection-failure diagnostic"
 [ ! -e "$STATE_FILE" ] || fail "case8: sidecar was created despite surface failure"
+[ "$(cat "$LEGACY_STATE_FILE")" = legacy-retry-sentinel ] || fail "case8: failed migration changed legacy retry state"
 pass "case8: projection failure warns, retries later, and never records false convergence"
 teardown
 
