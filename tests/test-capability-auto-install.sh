@@ -47,6 +47,8 @@ setup() {
 
   BIN_DIR="$CODEX_HOME/gsd-core/bin"
   mkdir -p "$BIN_DIR"
+  TEST_BIN="$SCRATCH/test-bin"
+  mkdir -p "$TEST_BIN"
   STUB_LOG="$SCRATCH/stub.log"
   : > "$STUB_LOG"
   local stub_status="${1:-0}"
@@ -104,6 +106,7 @@ teardown() {
 run_script() {
   HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="${GSD_RUNTIME:-}" \
+    GSD_AUTO_INSTALL_PROC_ROOT="${GSD_AUTO_INSTALL_PROC_ROOT:-}" PATH="$TEST_BIN:/usr/bin:/bin" \
     bash "$SCRIPT" "$1" >"$STDOUT_FILE" 2>"$STDERR_FILE"
   STATUS=$?
 }
@@ -516,6 +519,133 @@ run_script beads
 grep -q 'runtime selection failed' "$STDERR_FILE" \
   || fail "case11: missing unknown-runtime diagnostic"
 pass "case11: unknown custom root fails closed without guessing a runtime"
+teardown
+
+### Case 12: missing procfs uses one guarded nonempty ps identity ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+cat > "$TEST_BIN/ps" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' 'Mon Sep  2 20:00:00 2026'
+STUB
+chmod +x "$TEST_BIN/ps"
+GSD_AUTO_INSTALL_PROC_ROOT="$SCRATCH/no-proc"
+run_script beads
+unset GSD_AUTO_INSTALL_PROC_ROOT
+[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case12: guarded ps fallback did not acquire and complete"
+[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case12: owner-matched cleanup left the lock"
+pass "case12: procfs absence uses the guarded single-value ps fallback"
+teardown
+
+### Case 13: unusable procfs and multi-value ps fail before acquisition ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+cat > "$TEST_BIN/ps" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' first second
+STUB
+chmod +x "$TEST_BIN/ps"
+GSD_AUTO_INSTALL_PROC_ROOT="$SCRATCH/no-proc"
+run_script beads
+unset GSD_AUTO_INSTALL_PROC_ROOT
+grep -q 'process identity unavailable' "$STDERR_FILE" \
+  || fail "case13: missing identity diagnostic"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case13: identity failure reached a native writer"
+[ ! -e "$STATE_FILE" ] && [ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case13: identity failure mutated lock or ledger state"
+pass "case13: neither identity source prevents lock and native mutation"
+teardown
+
+### Case 14: final-parenthesis proc identity keeps a live odd-name owner busy ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+IDENTITY_FIFO="$SCRATCH/identity.fifo"
+mkfifo "$IDENTITY_FIFO"
+python3 - "$IDENTITY_FIFO" <<'PY' &
+import ctypes
+import os
+import signal
+import sys
+
+ctypes.CDLL(None).prctl(15, b"name ) with )", 0, 0, 0)
+with open(sys.argv[1], "w") as stream:
+    stream.write(f"{os.getpid()}\n")
+signal.pause()
+PY
+ODD_PID=$!
+IFS= read -r REPORTED_ODD_PID < "$IDENTITY_FIFO"
+[ "$REPORTED_ODD_PID" = "$ODD_PID" ] || fail "case14: holder pid handoff mismatch"
+ODD_IDENTITY="$(python3 - "$ODD_PID" <<'PY'
+import pathlib
+import sys
+
+text = pathlib.Path(f"/proc/{sys.argv[1]}/stat").read_text()
+print(text.rsplit(") ", 1)[1].split()[19])
+PY
+)"
+mkdir -p "$(dirname "$STATE_FILE")"
+ln -s "$ODD_PID:$ODD_IDENTITY" "$STATE_FILE.lock"
+run_script beads
+grep -q 'projection transaction busy' "$STDERR_FILE" \
+  || fail "case14: matching odd-name owner was not treated as live"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case14: live owner contention reached a native writer"
+[ "$(readlink "$STATE_FILE.lock")" = "$ODD_PID:$ODD_IDENTITY" ] \
+  || fail "case14: contender changed the live owner token"
+kill "$ODD_PID"
+wait "$ODD_PID" 2>/dev/null || true
+rm -f "$STATE_FILE.lock"
+pass "case14: procfs identity parses field 22 after the final parenthesis"
+teardown
+
+### Case 15: one complete symlink token serializes cross-runtime hook writers ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+seed_selected "$CLAUDE_SKILLS_ROOT"
+READY_FIFO="$SCRATCH/ready.fifo"
+RELEASE_FIFO="$SCRATCH/release.fifo"
+mkfifo "$READY_FIFO" "$RELEASE_FIFO"
+cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$STUB_LOG"
+if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
+if [ "\$*" = 'query skills-root claude --raw' ]; then printf '%s\n' "$CLAUDE_SKILLS_ROOT"; exit 0; fi
+if [ "\$*" = 'capability install $BUNDLE_DIR --scope global --yes' ]; then
+  printf '%s\n' ready > "$READY_FIFO"
+  IFS= read -r _release < "$RELEASE_FIFO"
+fi
+exit 0
+STUB
+chmod +x "$BIN_DIR/gsd-tools.cjs"
+cp -f "$BIN_DIR/gsd-tools.cjs" "$CLAUDE_CONFIG_DIR/gsd-core/bin/gsd-tools.cjs"
+HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
+  PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads >"$SCRATCH/first.out" 2>"$SCRATCH/first.err" &
+FIRST_HOOK_PID=$!
+IFS= read -r READY_SIGNAL < "$READY_FIFO"
+[ "$READY_SIGNAL" = ready ] || fail "case15: first hook did not reach the deterministic rendezvous"
+[ -L "$STATE_FILE.lock" ] || fail "case15: acquisition did not atomically publish a symlink token"
+case "$(readlink "$STATE_FILE.lock")" in
+  [0-9]*:*) ;;
+  *) fail "case15: lock exposed an incomplete owner token" ;;
+esac
+WRITERS_BEFORE="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
+export GSD_RUNTIME=claude
+run_script beads
+unset GSD_RUNTIME
+grep -q 'projection transaction busy' "$STDERR_FILE" \
+  || fail "case15: cross-runtime contender was not bounded by the shared lock"
+[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq "$WRITERS_BEFORE" ] \
+  || fail "case15: live contender reached a native writer"
+printf '%s\n' release > "$RELEASE_FIFO"
+wait "$FIRST_HOOK_PID"
+[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case15: completed owner did not release its matching token"
+run_script beads
+[ -z "$(cat "$STDOUT_FILE")" ] && [ -z "$(cat "$STDERR_FILE")" ] \
+  || fail "case15: later invocation did not converge silently"
+pass "case15: live hook ownership serializes runtime participants without polling"
 teardown
 
 echo "ALL PASS"
