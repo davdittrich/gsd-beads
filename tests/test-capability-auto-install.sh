@@ -7,6 +7,7 @@ set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$REPO_ROOT/plugins/beads-lifecycle/hooks/capability-auto-install.sh"
+REAL_PYTHON="$(command -v python3)"
 
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
@@ -781,6 +782,84 @@ RIVAL_QUARANTINE="$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*
   || fail "case21: failed reacquire removed the stale quarantine"
 [ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case21: failed reacquire reached a native writer"
 pass "case21: one failed reacquire preserves rival and quarantine state"
+teardown
+
+install_fingerprint_rendezvous_python() {
+  READY_FIFO="$SCRATCH/fingerprint-ready.fifo"
+  RELEASE_FIFO="$SCRATCH/fingerprint-release.fifo"
+  PYTHON_COUNT="$SCRATCH/fingerprint-count"
+  mkfifo "$READY_FIFO" "$RELEASE_FIFO"
+  cat > "$TEST_BIN/python3" <<STUB
+#!/usr/bin/env bash
+if [ "\$1" = - ] && [ "\${2:-}" = "$SKILLS_ROOT" ]; then
+  _count=0
+  [ ! -f "$PYTHON_COUNT" ] || _count="\$(cat "$PYTHON_COUNT")"
+  _count=\$((_count + 1))
+  printf '%s\n' "\$_count" > "$PYTHON_COUNT"
+  if [ "\$_count" -eq 2 ]; then
+    "$REAL_PYTHON" "\$@" > "$SCRATCH/fingerprint-result"
+    _status=\$?
+    printf '%s\n' ready > "$READY_FIFO"
+    IFS= read -r _release < "$RELEASE_FIFO"
+    cat "$SCRATCH/fingerprint-result"
+    exit "\$_status"
+  fi
+fi
+exec "$REAL_PYTHON" "\$@"
+STUB
+  chmod +x "$TEST_BIN/python3"
+}
+
+### Case 22: an external installed-generation writer blocks publication ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+PRIOR_LEDGER="projection-v2 claude $(printf 'a%.0s' {1..64}) $(printf 'b%.0s' {1..64})"
+printf '%s\n' "$PRIOR_LEDGER" > "$STATE_FILE"
+printf '%s\n' legacy-preserved > "$LEGACY_STATE_FILE"
+install_fingerprint_rendezvous_python
+HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
+  PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads >"$SCRATCH/external.out" 2>"$SCRATCH/external.err" &
+EXTERNAL_HOOK_PID=$!
+IFS= read -r READY_SIGNAL < "$READY_FIFO"
+[ "$READY_SIGNAL" = ready ] || fail "case22: fingerprint rendezvous failed"
+printf '\n' >> "$INSTALLED_BUNDLE/capability.json"
+printf '%s\n' release > "$RELEASE_FIFO"
+wait "$EXTERNAL_HOOK_PID"
+grep -q 'installed generation verification failed' "$SCRATCH/external.err" \
+  || fail "case22: external installed-generation drift was certified"
+[ "$(cat "$STATE_FILE")" = "$PRIOR_LEDGER" ] \
+  || fail "case22: external generation drift changed the prior ledger"
+[ "$(cat "$LEGACY_STATE_FILE")" = legacy-preserved ] \
+  || fail "case22: external generation drift changed legacy retry state"
+pass "case22: final installed-generation recheck rejects an external writer"
+teardown
+
+### Case 23: an external selected-surface writer blocks publication ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+PRIOR_LEDGER="projection-v2 claude $(printf 'c%.0s' {1..64}) $(printf 'd%.0s' {1..64})"
+printf '%s\n' "$PRIOR_LEDGER" > "$STATE_FILE"
+printf '%s\n' legacy-preserved > "$LEGACY_STATE_FILE"
+install_fingerprint_rendezvous_python
+HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
+  PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads >"$SCRATCH/external.out" 2>"$SCRATCH/external.err" &
+EXTERNAL_HOOK_PID=$!
+IFS= read -r READY_SIGNAL < "$READY_FIFO"
+[ "$READY_SIGNAL" = ready ] || fail "case23: fingerprint rendezvous failed"
+printf '\n' >> "$SKILLS_ROOT/gsd-beads-status/SKILL.md"
+printf '%s\n' release > "$RELEASE_FIFO"
+wait "$EXTERNAL_HOOK_PID"
+grep -q 'selected projection verification failed' "$SCRATCH/external.err" \
+  || fail "case23: external selected-surface drift was certified"
+[ "$(cat "$STATE_FILE")" = "$PRIOR_LEDGER" ] \
+  || fail "case23: external selected drift changed the prior ledger"
+[ "$(cat "$LEGACY_STATE_FILE")" = legacy-preserved ] \
+  || fail "case23: external selected drift changed legacy retry state"
+pass "case23: final selected-fingerprint recheck rejects an external writer"
 teardown
 
 echo "ALL PASS"
