@@ -225,6 +225,9 @@ Unavailable self identity prevents acquisition; an unvalidated or matching live 
 as busy and retried by a later SessionStart. A dead, reused, or malformed owner permits one atomic
 rename to a token-checked quarantine and one reacquire attempt; a lost race preserves the rival
 token and quarantine. The owner removes the lock only while its complete token still matches.
+The lock coordinates these hook participants, not administrators or direct gsd-core commands, so
+the hook immediately rechecks both installed generation and observed selected fingerprint before
+publishing. External drift leaves the prior ledger and legacy retry receipt unchanged.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.

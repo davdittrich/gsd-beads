@@ -458,6 +458,16 @@ if [ "$INSTALL_STATUS" -eq 0 ]; then
       echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
       exit 0
     fi
+    FINAL_INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
+    if [ "$?" -ne 0 ] || [ "$FINAL_INSTALLED_GENERATION" != "$INSTALLED_GENERATION" ]; then
+      echo "capability-auto-install: installed generation verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+      exit 0
+    fi
+    FINAL_SELECTED_FINGERPRINT="$(selected_fingerprint)"
+    if [ "$?" -ne 0 ] || [ "$FINAL_SELECTED_FINGERPRINT" != "$SELECTED_FINGERPRINT" ]; then
+      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+      exit 0
+    fi
     mkdir -p "$STATE_DIR" 2>/dev/null
     if publish_ledger; then
       printf 'Auto-installed capability: %s (user scope)\n' "$CAP_ID"
