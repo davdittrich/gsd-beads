@@ -38,6 +38,48 @@ bundle_hash() {
   } | "${HASH_CMD[@]}" | awk '{print $1}'
 }
 
+# Hash an explicitly bounded tree as type-tagged, length-prefixed relative
+# paths plus file bytes. Relative framing avoids absolute-root drift and
+# concatenation collisions.
+canonical_tree_hash() {
+  python3 - "$@" <<'PY'
+import hashlib
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+requested = sys.argv[2:] or ["."]
+entries = {}
+try:
+    for requested_name in requested:
+        start = root / requested_name
+        if not start.exists() or start.is_symlink():
+            raise ValueError
+        candidates = [start]
+        if start.is_dir():
+            candidates.extend(start.rglob("*"))
+        for path in candidates:
+            if path.is_symlink() or not (path.is_dir() or path.is_file()):
+                raise ValueError
+            relative = path.relative_to(root).as_posix()
+            entries[relative] = path
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+digest = hashlib.sha256()
+for relative in sorted(entries):
+    path = entries[relative]
+    name = os.fsencode(relative)
+    kind = b"d" if path.is_dir() else b"f"
+    digest.update(kind + len(name).to_bytes(8, "big") + name)
+    if kind == b"f":
+        data = path.read_bytes()
+        digest.update(len(data).to_bytes(8, "big") + data)
+print(digest.hexdigest())
+PY
+}
+
 STATE_VERSION="projection-v1"
 
 # Reconcile only the runtime that loaded this plugin. An explicit validated
@@ -94,6 +136,32 @@ if [ "$SKILLS_ROOT_STATUS" -ne 0 ] || [ "$SKILLS_ROOT" != "$EXPECTED_SKILLS_ROOT
   exit 0
 fi
 
+SELECTED_SKILL_NAMES="$(python3 - "$BUNDLE_DIR/capability.json" <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+try:
+    skills = json.loads(pathlib.Path(sys.argv[1]).read_text())["skills"]
+except (OSError, KeyError, TypeError, json.JSONDecodeError):
+    raise SystemExit(1)
+if not isinstance(skills, list) or not skills:
+    raise SystemExit(1)
+for skill in skills:
+    if not isinstance(skill, str) or not re.fullmatch(r"[a-z][a-z0-9-]*", skill):
+        raise SystemExit(1)
+if len(skills) != len(set(skills)):
+    raise SystemExit(1)
+print("\n".join(skills))
+PY
+)"
+SELECTED_SKILL_STATUS=$?
+if [ "$SELECTED_SKILL_STATUS" -ne 0 ] || [ -z "$SELECTED_SKILL_NAMES" ]; then
+  echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+  exit 0
+fi
+
 gsd_tools() {
   "$GSD_TOOLS" "$@"
 }
@@ -112,12 +180,10 @@ fi
 # same-name collisions so only an absent destination or this capability's own
 # marker can reach that writer; unmarked user content remains untouched.
 guard_skill_ownership() {
-  local _skills_root _source _stem _dest _marker
+  local _skills_root _stem _dest _marker
   _skills_root="$SKILLS_ROOT"
-  for _source in "$BUNDLE_DIR"/skills/*; do
-    [ -d "$_source" ] || continue
-    _stem="$(basename "$_source")"
-    [[ "$_stem" =~ ^[a-z][a-z0-9-]*$ ]] || return 1
+  for _stem in $SELECTED_SKILL_NAMES; do
+    [ -d "$BUNDLE_DIR/skills/$_stem" ] && [ ! -L "$BUNDLE_DIR/skills/$_stem" ] || return 1
     _dest="$_skills_root/gsd-$_stem"
     _marker="$_dest/.gsd-capability-skill"
     if [ -e "$_dest" ] || [ -L "$_dest" ]; then
@@ -127,17 +193,113 @@ guard_skill_ownership() {
   done
 }
 
+verify_selected_projection() {
+  python3 - "$BUNDLE_DIR/capability.json" "$SKILLS_ROOT" \
+    "${GSD_HOME:-$HOME}/.gsd/capabilities/$CAP_ID/scripts/sync.py" "$CAP_ID" <<'PY'
+import json
+import pathlib
+import re
+import shlex
+import subprocess
+import sys
+
+manifest_path, skills_root, sync_path = map(pathlib.Path, sys.argv[1:4])
+capability_id = sys.argv[4]
+try:
+    skills = json.loads(manifest_path.read_text())["skills"]
+except (OSError, KeyError, TypeError, json.JSONDecodeError):
+    raise SystemExit(20)
+if not sync_path.is_file() or sync_path.is_symlink():
+    raise SystemExit(20)
+
+commands = set()
+for stem in skills:
+    selected = skills_root / f"gsd-{stem}"
+    marker = selected / ".gsd-capability-skill"
+    skill_file = selected / "SKILL.md"
+    if (
+        not selected.is_dir()
+        or selected.is_symlink()
+        or not marker.is_file()
+        or marker.is_symlink()
+        or marker.read_text().rstrip("\n") != capability_id
+        or not skill_file.is_file()
+        or skill_file.is_symlink()
+    ):
+        raise SystemExit(20)
+    text = skill_file.read_text()
+    if "execute-plan" in text:
+        raise SystemExit(21)
+    for declaration in re.findall(r'^python3 "\$SYNC_PY" (.+)$', text, re.MULTILINE):
+        prefix = []
+        for token in shlex.split(declaration):
+            if "<" in token or "[" in token:
+                break
+            if not re.fullmatch(r"[a-z][a-z0-9-]*", token):
+                raise SystemExit(21)
+            prefix.append(token)
+        if not prefix:
+            raise SystemExit(21)
+        commands.add(tuple(prefix))
+if not commands:
+    raise SystemExit(21)
+for prefix in sorted(commands):
+    result = subprocess.run(
+        [sys.executable, str(sync_path), *prefix, "--help"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(21)
+retired = subprocess.run(
+    [sys.executable, str(sync_path), "execute-plan", "--help"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    check=False,
+)
+if retired.returncode == 0:
+    raise SystemExit(21)
+PY
+}
+
+selected_fingerprint() {
+  local _stem _paths=()
+  for _stem in $SELECTED_SKILL_NAMES; do
+    _paths+=("gsd-$_stem")
+  done
+  canonical_tree_hash "$SKILLS_ROOT" "${_paths[@]}"
+}
+
 # Spec is always the absolute bundle dir (Pattern 2) -- a relative spec would
 # resolve against the end user's cwd, not the plugin. Prose "user scope"
 # (D-01) maps to the CLI's literal --scope global value (Pitfall 1).
+if ! guard_skill_ownership; then
+  echo "capability-auto-install: destination ownership check failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+  exit 0
+fi
+
 gsd_tools capability install "$BUNDLE_DIR" --scope global --yes >/dev/null 2>&1
 INSTALL_STATUS=$?
 
 if [ "$INSTALL_STATUS" -eq 0 ]; then
-  guard_skill_ownership && \
-    GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --runtime "$ACTIVE_RUNTIME" --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1
+  GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --runtime "$ACTIVE_RUNTIME" --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1
   RECONCILE_STATUS=$?
   if [ "$RECONCILE_STATUS" -eq 0 ]; then
+    verify_selected_projection
+    VERIFY_STATUS=$?
+    if [ "$VERIFY_STATUS" -eq 21 ]; then
+      echo "capability-auto-install: selected command contract verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+      exit 0
+    elif [ "$VERIFY_STATUS" -ne 0 ]; then
+      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+      exit 0
+    fi
+    SELECTED_FINGERPRINT="$(selected_fingerprint)"
+    if [ "$?" -ne 0 ] || [[ ! "$SELECTED_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]]; then
+      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+      exit 0
+    fi
     mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null
     STATE_TMP="$STATE_FILE.$$"
     {
@@ -153,17 +315,10 @@ if [ "$INSTALL_STATUS" -eq 0 ]; then
       echo "capability-auto-install: state update failed for $CAP_ID (exit $STATE_STATUS)" >&2
     fi
   else
-    echo "capability-auto-install: skill projection reconciliation failed for $CAP_ID (exit $RECONCILE_STATUS)" >&2
+    echo "capability-auto-install: capability set failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
   fi
-elif [ "$INSTALL_STATUS" -eq 127 ]; then
-  # D-04: deliberate divergence from this repo's usual silent `|| true`
-  # fail-open convention -- this path is unattended, so silence would leave
-  # a capability permanently inactive with nobody the wiser. Do not "fix"
-  # this back to silent. Do NOT write STATE_FILE, so the next session retries.
-  echo "capability-auto-install: gsd-tools not found; $CAP_ID not installed" >&2
 else
-  # D-04, same rationale as above -- install command ran and failed.
-  echo "capability-auto-install: capability install failed for $CAP_ID (exit $INSTALL_STATUS)" >&2
+  echo "capability-auto-install: capability install failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
 fi
 
 exit 0

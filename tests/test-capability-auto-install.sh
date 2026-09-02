@@ -409,7 +409,7 @@ seed_selected "$SKILLS_ROOT"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case8: exit status $STATUS, expected 0"
 [ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case8: expected root validation, install, and surface invocations"
-grep -q 'skill projection reconciliation failed' "$STDERR_FILE" || fail "case8: missing projection-failure diagnostic"
+grep -q 'capability set failed' "$STDERR_FILE" || fail "case8: missing projection-failure diagnostic"
 [ ! -e "$STATE_FILE" ] || fail "case8: sidecar was created despite surface failure"
 pass "case8: projection failure warns, retries later, and never records false convergence"
 teardown
