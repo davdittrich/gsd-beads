@@ -702,39 +702,74 @@ setup 0
 seed_selected "$SKILLS_ROOT"
 CRASH_READY_FIFO="$SCRATCH/crash-ready.fifo"
 CRASH_RELEASE_FIFO="$SCRATCH/crash-release.fifo"
-CRASH_DONE_FIFO="$SCRATCH/crash-done.fifo"
+CRASH_PID_FIFO="$SCRATCH/crash-pid.fifo"
 CRASH_ONCE="$SCRATCH/crash-once"
-mkfifo "$CRASH_READY_FIFO" "$CRASH_RELEASE_FIFO" "$CRASH_DONE_FIFO"
+CRASH_FD_LEAK="$SCRATCH/crash-fd-leak"
+mkfifo "$CRASH_READY_FIFO" "$CRASH_RELEASE_FIFO" "$CRASH_PID_FIFO"
 cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$STUB_LOG"
 if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
-if [ "\$*" = 'capability install $BUNDLE_DIR --scope global --yes' ] && [ ! -e "$CRASH_ONCE" ]; then
-  : > "$CRASH_ONCE"
-  printf '%s\n' ready > "$CRASH_READY_FIFO"
-  IFS= read -r _release < "$CRASH_RELEASE_FIFO"
-  printf '%s\n' done > "$CRASH_DONE_FIFO"
+if [ "\$*" = 'capability install $BUNDLE_DIR --scope global --yes' ]; then
+  "$REAL_PYTHON" - "$CRASH_FD_LEAK" <<'PY'
+import os
+import pathlib
+import sys
+
+try:
+    os.fstat(9)
+except OSError:
+    pass
+else:
+    pathlib.Path(sys.argv[1]).write_text("leaked\n")
+PY
+  if [ ! -e "$CRASH_ONCE" ]; then
+    : > "$CRASH_ONCE"
+    printf '%s\n' ready > "$CRASH_READY_FIFO"
+    IFS= read -r _release < "$CRASH_RELEASE_FIFO"
+  fi
 fi
 exit 0
 STUB
 chmod +x "$BIN_DIR/gsd-tools.cjs"
 HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
-  PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads >"$SCRATCH/crash.out" 2>"$SCRATCH/crash.err" &
-CRASH_HOOK_PID=$!
+  PATH="$TEST_BIN:/usr/bin:/bin" "$REAL_PYTHON" - "$SCRIPT" "$CRASH_PID_FIFO" \
+  "$SCRATCH/crash.out" "$SCRATCH/crash.err" <<'PY' &
+import os
+import subprocess
+import sys
+
+script, pid_fifo, stdout_path, stderr_path = sys.argv[1:]
+with open(stdout_path, "w") as stdout, open(stderr_path, "w") as stderr:
+    process = subprocess.Popen(
+        ["bash", script, "beads"],
+        env=os.environ.copy(),
+        stdout=stdout,
+        stderr=stderr,
+        start_new_session=True,
+    )
+    with open(pid_fifo, "w") as stream:
+        stream.write(f"{process.pid}\n")
+    raise SystemExit(process.wait())
+PY
+CRASH_LAUNCHER_PID=$!
+IFS= read -r CRASH_HOOK_PID < "$CRASH_PID_FIFO"
 IFS= read -r CRASH_READY < "$CRASH_READY_FIFO"
 [ "$CRASH_READY" = ready ] || fail "case16: holder did not reach the deterministic rendezvous"
-kill -KILL "$CRASH_HOOK_PID"
-wait "$CRASH_HOOK_PID" 2>/dev/null || true
+LOCK_ID_BEFORE="$("$REAL_PYTHON" -c 'import os,sys; s=os.stat(sys.argv[1]); print(f"{s.st_dev}:{s.st_ino}")' "$STATE_FILE.lock")"
+kill -KILL -- "-$CRASH_HOOK_PID"
+wait "$CRASH_LAUNCHER_PID" 2>/dev/null || true
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case16: invocation after SIGKILL exited $STATUS"
 [ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
   || fail "case16: kernel did not release the hook lock after SIGKILL"
-printf '%s\n' release > "$CRASH_RELEASE_FIFO"
-IFS= read -r CRASH_DONE < "$CRASH_DONE_FIFO"
-[ "$CRASH_DONE" = done ] || fail "case16: orphaned stub did not finish"
+[ ! -e "$CRASH_FD_LEAK" ] || fail "case16: native writer inherited the hook lock descriptor"
 [ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
   || fail "case16: post-crash lock path is not a persistent regular file"
+LOCK_ID_AFTER="$("$REAL_PYTHON" -c 'import os,sys; s=os.stat(sys.argv[1]); print(f"{s.st_dev}:{s.st_ino}")' "$STATE_FILE.lock")"
+[ "$LOCK_ID_AFTER" = "$LOCK_ID_BEFORE" ] \
+  || fail "case16: crash recovery replaced the persistent lock inode"
 [ -z "$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*' -print)" ] \
   || fail "case16: crash path created stale recovery artifacts"
 pass "case16: SIGKILL releases the hook lock without stale recovery"

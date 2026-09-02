@@ -22,7 +22,7 @@ BUNDLE_DIR="$PLUGIN_ROOT/.gsd/capabilities/$CAP_ID"
 # paths plus file bytes. Relative framing avoids absolute-root drift and
 # concatenation collisions.
 canonical_tree_hash() {
-  python3 - "$@" <<'PY'
+  python3 - "$@" 9>&- <<'PY'
 import hashlib
 import os
 import pathlib
@@ -109,14 +109,125 @@ if [ ! -x "$GSD_TOOLS" ]; then
   exit 0
 fi
 
-SKILLS_ROOT="$($GSD_TOOLS query skills-root "$ACTIVE_RUNTIME" --raw 2>/dev/null)"
-SKILLS_ROOT_STATUS=$?
+if [ -n "${GSD_AUTO_INSTALL_LOCK_FD:-}" ]; then
+  SKILLS_ROOT="${GSD_AUTO_INSTALL_SKILLS_ROOT:-}"
+  SKILLS_ROOT_STATUS=0
+else
+  SKILLS_ROOT="$($GSD_TOOLS query skills-root "$ACTIVE_RUNTIME" --raw 2>/dev/null)"
+  SKILLS_ROOT_STATUS=$?
+fi
 if [ "$SKILLS_ROOT_STATUS" -ne 0 ] || [ "$SKILLS_ROOT" != "$EXPECTED_SKILLS_ROOT" ]; then
   echo "capability-auto-install: skills-root query failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
   exit 0
 fi
 
-SELECTED_SKILL_NAMES="$(python3 - "$BUNDLE_DIR/capability.json" <<'PY'
+STATE_DIR="${GSD_HOME:-$HOME}/.gsd"
+INSTALLED_BUNDLE="$STATE_DIR/capabilities/$CAP_ID"
+LEDGER="$STATE_DIR/capability-auto-install-$CAP_ID.projections"
+LEGACY_STATE_FILE="$STATE_DIR/capability-auto-install-$CAP_ID.hash"
+LOCK_PATH="$LEDGER.lock"
+
+mkdir -p "$STATE_DIR" 2>/dev/null || {
+  echo "capability-auto-install: projection lock failed for $CAP_ID; projection not recorded" >&2
+  exit 0
+}
+
+if [ -z "${GSD_AUTO_INSTALL_LOCK_FD:-}" ]; then
+  python3 - "$LOCK_PATH" "$0" "$CAP_ID" "$SKILLS_ROOT" 8>&2 2>/dev/null <<'PY'
+import errno
+import fcntl
+import os
+import stat
+import sys
+
+lock_path, hook_path, capability_id, skills_root = sys.argv[1:]
+try:
+    flags = os.O_RDWR | os.O_CREAT | os.O_NONBLOCK | os.O_NOFOLLOW
+except AttributeError:
+    raise SystemExit(76)
+
+try:
+    fd = os.open(lock_path, flags, 0o600)
+except OSError:
+    raise SystemExit(76)
+
+try:
+    descriptor = os.fstat(fd)
+    path_entry = os.stat(lock_path, follow_symlinks=False)
+    valid = (
+        stat.S_ISREG(descriptor.st_mode)
+        and stat.S_ISREG(path_entry.st_mode)
+        and descriptor.st_dev == path_entry.st_dev
+        and descriptor.st_ino == path_entry.st_ino
+        and descriptor.st_uid == os.geteuid()
+        and descriptor.st_nlink == 1
+    )
+    if not valid:
+        raise SystemExit(76)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as error:
+        if error.errno in (errno.EACCES, errno.EAGAIN):
+            raise SystemExit(75)
+        raise SystemExit(76)
+    path_entry = os.stat(lock_path, follow_symlinks=False)
+    if (
+        not stat.S_ISREG(path_entry.st_mode)
+        or descriptor.st_dev != path_entry.st_dev
+        or descriptor.st_ino != path_entry.st_ino
+    ):
+        raise SystemExit(76)
+    if fd != 9:
+        os.dup2(fd, 9)
+        os.close(fd)
+    os.set_inheritable(9, True)
+    environment = os.environ.copy()
+    environment["GSD_AUTO_INSTALL_LOCK_FD"] = "9"
+    environment["GSD_AUTO_INSTALL_SKILLS_ROOT"] = skills_root
+    os.dup2(8, 2)
+    os.close(8)
+    os.execvpe("bash", ["bash", hook_path, capability_id], environment)
+except SystemExit:
+    raise
+except BaseException:
+    raise SystemExit(76)
+PY
+  LOCK_STATUS=$?
+  if [ "$LOCK_STATUS" -eq 75 ]; then
+    echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
+  elif [ "$LOCK_STATUS" -ne 0 ]; then
+    echo "capability-auto-install: projection lock failed for $CAP_ID; projection not recorded" >&2
+  fi
+  exit 0
+fi
+
+if [ "$GSD_AUTO_INSTALL_LOCK_FD" != 9 ] || ! python3 - "$LOCK_PATH" 9 2>/dev/null <<'PY'
+import os
+import stat
+import sys
+
+try:
+    path_entry = os.stat(sys.argv[1], follow_symlinks=False)
+    descriptor = os.fstat(int(sys.argv[2]))
+except (OSError, TypeError, ValueError):
+    raise SystemExit(1)
+if (
+    not stat.S_ISREG(path_entry.st_mode)
+    or not stat.S_ISREG(descriptor.st_mode)
+    or path_entry.st_dev != descriptor.st_dev
+    or path_entry.st_ino != descriptor.st_ino
+    or descriptor.st_uid != os.geteuid()
+    or descriptor.st_nlink != 1
+):
+    raise SystemExit(1)
+PY
+then
+  echo "capability-auto-install: projection lock failed for $CAP_ID; projection not recorded" >&2
+  exit 0
+fi
+unset GSD_AUTO_INSTALL_LOCK_FD GSD_AUTO_INSTALL_SKILLS_ROOT
+
+SELECTED_SKILL_NAMES="$(python3 - "$BUNDLE_DIR/capability.json" 9>&- <<'PY'
 import json
 import pathlib
 import re
@@ -143,13 +254,8 @@ if [ "$SELECTED_SKILL_STATUS" -ne 0 ] || [ -z "$SELECTED_SKILL_NAMES" ]; then
 fi
 
 gsd_tools() {
-  "$GSD_TOOLS" "$@"
+  "$GSD_TOOLS" "$@" 9>&-
 }
-
-STATE_DIR="${GSD_HOME:-$HOME}/.gsd"
-INSTALLED_BUNDLE="$STATE_DIR/capabilities/$CAP_ID"
-LEDGER="$STATE_DIR/capability-auto-install-$CAP_ID.projections"
-LEGACY_STATE_FILE="$STATE_DIR/capability-auto-install-$CAP_ID.hash"
 
 # Native surface application overwrites retained names before pruning. Guard
 # same-name collisions so only an absent destination or this capability's own
@@ -163,14 +269,14 @@ guard_skill_ownership() {
     _marker="$_dest/.gsd-capability-skill"
     if [ -e "$_dest" ] || [ -L "$_dest" ]; then
       [ -d "$_dest" ] && [ ! -L "$_dest" ] || return 1
-      [ -f "$_marker" ] && [ "$(cat "$_marker" 2>/dev/null)" = "$CAP_ID" ] || return 1
+      [ -f "$_marker" ] && [ "$(cat "$_marker" 9>&- 2>/dev/null)" = "$CAP_ID" ] || return 1
     fi
   done
 }
 
 verify_selected_projection() {
   python3 - "$BUNDLE_DIR/capability.json" "$SKILLS_ROOT" \
-    "${GSD_HOME:-$HOME}/.gsd/capabilities/$CAP_ID/scripts/sync.py" "$CAP_ID" <<'PY'
+    "${GSD_HOME:-$HOME}/.gsd/capabilities/$CAP_ID/scripts/sync.py" "$CAP_ID" 9>&- <<'PY'
 import json
 import pathlib
 import re
@@ -248,7 +354,7 @@ selected_fingerprint() {
 
 ledger_has_current_row() {
   python3 - "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
-    "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" <<'PY'
+    "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" 9>&- <<'PY'
 import pathlib
 import re
 import sys
@@ -272,7 +378,7 @@ PY
 publish_ledger() {
   local _tmp="$LEDGER.$$" _legacy_tmp="$LEGACY_STATE_FILE.$$"
   python3 - "$LEDGER" "$_tmp" "$ACTIVE_RUNTIME" "$INSTALLED_GENERATION" \
-    "$SELECTED_FINGERPRINT" <<'PY'
+    "$SELECTED_FINGERPRINT" 9>&- <<'PY'
 import pathlib
 import re
 import sys
@@ -304,114 +410,6 @@ PY
   fi
   rm -f "$_legacy_tmp" 2>/dev/null
 }
-
-process_identity() {
-  local _pid="$1" _stat _remainder _identity _ps_output
-  [[ "$_pid" =~ ^[1-9][0-9]*$ ]] || return 1
-  _stat=""
-  if [ -r "${GSD_AUTO_INSTALL_PROC_ROOT:-/proc}/$_pid/stat" ]; then
-    IFS= read -r _stat < "${GSD_AUTO_INSTALL_PROC_ROOT:-/proc}/$_pid/stat" || _stat=""
-    _remainder="${_stat##*) }"
-    if [ -n "$_stat" ] && [ "$_remainder" != "$_stat" ]; then
-      set -- $_remainder
-      if [ "$#" -ge 20 ] && [[ "${20}" =~ ^[0-9]+$ ]]; then
-        printf '%s\n' "${20}"
-        return 0
-      fi
-    fi
-  fi
-
-  command -v ps >/dev/null 2>&1 || return 1
-  _ps_output="$(ps -o lstart= -p "$_pid" 2>/dev/null)" || return 1
-  _identity="$(printf '%s\n' "$_ps_output" | awk '
-    NF { count += 1; line = $0 }
-    END {
-      if (count != 1) exit 1
-      sub(/^[[:space:]]+/, "", line)
-      sub(/[[:space:]]+$/, "", line)
-      if (line == "") exit 1
-      print line
-    }
-  ')" || return 1
-  [ -n "$_identity" ] || return 1
-  printf '%s\n' "$_identity"
-}
-
-release_projection_lock() {
-  local _current
-  [ "${LOCK_OWNED:-0}" -eq 1 ] || return 0
-  _current="$(readlink "$LOCK_PATH" 2>/dev/null)" || return 0
-  if [ "$_current" = "$OWNER_TOKEN" ]; then
-    rm -f "$LOCK_PATH" 2>/dev/null
-    LOCK_OWNED=0
-  fi
-}
-
-mkdir -p "$STATE_DIR" 2>/dev/null || {
-  echo "capability-auto-install: ledger publish failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-  exit 0
-}
-SELF_IDENTITY="$(process_identity "$$")"
-if [ "$?" -ne 0 ] || [ -z "$SELF_IDENTITY" ]; then
-  echo "capability-auto-install: process identity unavailable for $CAP_ID; projection not recorded" >&2
-  exit 0
-fi
-OWNER_TOKEN="$$:$SELF_IDENTITY"
-LOCK_PATH="$LEDGER.lock"
-LOCK_OWNED=0
-if ln -s "$OWNER_TOKEN" "$LOCK_PATH" 2>/dev/null; then
-  LOCK_OWNED=1
-else
-  CONTENDER_TOKEN="$(readlink "$LOCK_PATH" 2>/dev/null)"
-  STALE_LOCK=0
-  if [[ "$CONTENDER_TOKEN" =~ ^([1-9][0-9]*):(.*)$ ]]; then
-    CONTENDER_PID="${BASH_REMATCH[1]}"
-    RECORDED_IDENTITY="${BASH_REMATCH[2]}"
-    CONTENDER_IDENTITY="$(process_identity "$CONTENDER_PID")"
-    CONTENDER_STATUS=$?
-    if [ "$CONTENDER_STATUS" -eq 0 ] && [ "$CONTENDER_IDENTITY" = "$RECORDED_IDENTITY" ]; then
-      echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
-      exit 0
-    elif [ "$CONTENDER_STATUS" -eq 0 ]; then
-      STALE_LOCK=1
-    elif [ "${GSD_AUTO_INSTALL_PROC_ROOT:-/proc}" = "/proc" ] \
-      && [ ! -e "/proc/$CONTENDER_PID" ]; then
-      STALE_LOCK=1
-    elif kill -0 "$CONTENDER_PID" 2>/dev/null; then
-      echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
-      exit 0
-    else
-      echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
-      exit 0
-    fi
-  else
-    STALE_LOCK=1
-  fi
-
-  QUARANTINE="$LOCK_PATH.stale.$$.$RANDOM"
-  if [ "$STALE_LOCK" -ne 1 ] || ! mv -f "$LOCK_PATH" "$QUARANTINE" 2>/dev/null; then
-    echo "capability-auto-install: projection lock recovery failed for $CAP_ID; projection not recorded" >&2
-    exit 0
-  fi
-  QUARANTINED_TOKEN="$(readlink "$QUARANTINE" 2>/dev/null)"
-  if [ "$QUARANTINED_TOKEN" != "$CONTENDER_TOKEN" ]; then
-    echo "capability-auto-install: projection lock recovery failed for $CAP_ID; projection not recorded" >&2
-    exit 0
-  fi
-  if ! ln -s "$OWNER_TOKEN" "$LOCK_PATH" 2>/dev/null; then
-    echo "capability-auto-install: projection lock recovery failed for $CAP_ID; projection not recorded" >&2
-    exit 0
-  fi
-  LOCK_OWNED=1
-  if [ "$(readlink "$QUARANTINE" 2>/dev/null)" != "$CONTENDER_TOKEN" ]; then
-    release_projection_lock
-    echo "capability-auto-install: projection lock recovery failed for $CAP_ID; projection not recorded" >&2
-    exit 0
-  fi
-  rm -f "$QUARANTINE" 2>/dev/null
-fi
-trap 'release_projection_lock' EXIT
-trap 'exit 0' HUP INT TERM
 
 SOURCE_GENERATION="$(canonical_tree_hash "$BUNDLE_DIR")"
 SOURCE_STATUS=$?

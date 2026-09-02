@@ -218,13 +218,14 @@ fingerprint. The first verified update atomically replaces the legacy `.hash` re
 keeps prior state available for a later SessionStart. A matching fast path still recomputes the
 installed generation and selected fingerprint, but invokes neither native writer.
 
-Hook participants serialize ledger observation through publication with one symlink lock whose
-complete target is `PID:process-start-identity`. Identity comes from `/proc/$pid/stat` field 22
-after the final process-name parenthesis, with a guarded single-value `ps -o lstart=` fallback.
-Unavailable self identity prevents acquisition; an unvalidated or matching live owner is treated
-as busy and retried by a later SessionStart. A dead, reused, or malformed owner permits one atomic
-rename to a token-checked quarantine and one reacquire attempt; a lost race preserves the rival
-token and quarantine. The owner removes the lock only while its complete token still matches.
+Hook participants serialize ledger observation through publication with one nonblocking exclusive
+`fcntl.flock` on a persistent, owner-controlled regular lock file. The acquiring Python process
+validates the opened descriptor against the non-symlink path, duplicates it to a fixed inheritable
+descriptor, and re-execs this same hook so the kernel lock spans the complete transaction without
+an unlocked handoff. Contenders return one bounded busy diagnostic; unsafe lock targets or helper
+failures return one bounded lock-failure diagnostic. Native writers and helper children do not
+inherit the descriptor, and normal exit, signals, or crashes release it in the kernel without PID
+inspection, stale-owner recovery, lock deletion, or quarantine files.
 The lock coordinates these hook participants, not administrators or direct gsd-core commands, so
 the hook immediately rechecks both installed generation and observed selected fingerprint before
 publishing. External drift leaves the prior ledger and legacy retry receipt unchanged.
