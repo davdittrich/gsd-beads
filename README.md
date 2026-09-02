@@ -200,6 +200,31 @@ auto-install this source bundle globally. Phase 20 projects exact `auto` and `tr
 tracked, project-active, global-active, and bootstrap bundles are byte-identical, the native
 resolver is the executed content authority, and Patch 2 has been retired.
 
+### Capability projection updates
+
+Each SessionStart reconciles only the runtime that loaded the plugin. A validated explicit
+`GSD_RUNTIME` wins; otherwise the installed Codex or Claude plugin cache identifies the owner.
+The hook uses that runtime's gsd-core CLI, requires its public `query skills-root` result to match
+the canonical runtime destination, then delegates all selected-skill writing, transformation, and
+owned pruning to native `capability install` plus runtime-targeted `capability set`. It never copies
+skills between runtimes. Same-name destinations must be absent or real directories carrying the
+exact Beads owner marker, so unmarked user skills, sibling capabilities, unrelated files, and the
+unselected runtime remain outside the hook's write authority.
+
+Verified completion is cached in
+`${GSD_HOME:-$HOME}/.gsd/capability-auto-install-beads.projections`. Each sorted `projection-v2`
+row records one runtime, the installed bundle generation, and the observed selected-surface
+fingerprint. The first verified update atomically replaces the legacy `.hash` receipt; a failure
+keeps prior state available for a later SessionStart. A matching fast path still recomputes the
+installed generation and selected fingerprint, but invokes neither native writer.
+
+Hook participants serialize ledger observation through publication with one symlink lock whose
+complete target is `PID:process-start-identity`. Identity comes from `/proc/$pid/stat` field 22
+after the final process-name parenthesis, with a guarded single-value `ps -o lstart=` fallback.
+Unavailable self identity prevents acquisition; an unvalidated or matching live owner is treated
+as busy and retried by a later SessionStart. The owner removes the lock only while its complete
+token still matches.
+
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.
 - `epic_per: milestone` is forward-only — it does not retroactively fold existing per-phase
@@ -210,8 +235,10 @@ resolver is the executed content authority, and Patch 2 has been retired.
 | Variable | Read by | Default | Purpose |
 | :--- | :--- | :--- | :--- |
 | `CLAUDE_PLUGIN_ROOT` | `hooks/session-start.sh`, `hooks/capability-auto-install.sh` | `$(cd "$(dirname "$0")/.." && pwd)` | Resolves the plugin's own root directory. |
-| `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the gsd-tools resolver and the surviving Patch 1 check against `gsd-core/workflows/ship.md`. |
-| `GSD_HOME` | resolver bootstrap, `hooks/capability-auto-install.sh` | `Path.home()` / `$HOME` | Locates the installed native task-content resolver bundle and the per-capability bundle-drift hash sidecar (`.gsd/capability-auto-install-$CAP_ID.hash`). |
+| `GSD_RUNTIME` | `hooks/capability-auto-install.sh` | plugin-cache owner | Selects exactly `codex` or `claude` when the runtime exports it explicitly. |
+| `CODEX_HOME` | `hooks/capability-auto-install.sh` | `$HOME/.codex` | Locates the selected Codex runtime's gsd-core CLI; Codex skills remain under `$HOME/.agents/skills`. |
+| `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the selected Claude runtime's gsd-core CLI and skills, plus the surviving Patch 1 check against `gsd-core/workflows/ship.md`. |
+| `GSD_HOME` | resolver bootstrap, `hooks/capability-auto-install.sh` | `Path.home()` / `$HOME` | Locates the installed native task-content resolver bundle and the shared per-capability `projection-v2` ledger. |
 
 gsd-beads only reads these — it never sets them — and every one has a working default, so none
 is required. The surviving `CLAUDE_CONFIG_DIR` patch check in `sync.py` probes the Claude runtime

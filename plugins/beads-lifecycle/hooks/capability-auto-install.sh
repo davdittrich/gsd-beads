@@ -305,6 +305,77 @@ PY
   rm -f "$_legacy_tmp" 2>/dev/null
 }
 
+process_identity() {
+  local _pid="$1" _stat _remainder _identity _ps_output
+  [[ "$_pid" =~ ^[1-9][0-9]*$ ]] || return 1
+  _stat=""
+  if [ -r "${GSD_AUTO_INSTALL_PROC_ROOT:-/proc}/$_pid/stat" ]; then
+    IFS= read -r _stat < "${GSD_AUTO_INSTALL_PROC_ROOT:-/proc}/$_pid/stat" || _stat=""
+    _remainder="${_stat##*) }"
+    if [ -n "$_stat" ] && [ "$_remainder" != "$_stat" ]; then
+      set -- $_remainder
+      if [ "$#" -ge 20 ] && [[ "${20}" =~ ^[0-9]+$ ]]; then
+        printf '%s\n' "${20}"
+        return 0
+      fi
+    fi
+  fi
+
+  command -v ps >/dev/null 2>&1 || return 1
+  _ps_output="$(ps -o lstart= -p "$_pid" 2>/dev/null)" || return 1
+  _identity="$(printf '%s\n' "$_ps_output" | awk '
+    NF { count += 1; line = $0 }
+    END {
+      if (count != 1) exit 1
+      sub(/^[[:space:]]+/, "", line)
+      sub(/[[:space:]]+$/, "", line)
+      if (line == "") exit 1
+      print line
+    }
+  ')" || return 1
+  [ -n "$_identity" ] || return 1
+  printf '%s\n' "$_identity"
+}
+
+release_projection_lock() {
+  local _current
+  [ "${LOCK_OWNED:-0}" -eq 1 ] || return 0
+  _current="$(readlink "$LOCK_PATH" 2>/dev/null)" || return 0
+  if [ "$_current" = "$OWNER_TOKEN" ]; then
+    rm -f "$LOCK_PATH" 2>/dev/null
+    LOCK_OWNED=0
+  fi
+}
+
+mkdir -p "$STATE_DIR" 2>/dev/null || {
+  echo "capability-auto-install: ledger publish failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+  exit 0
+}
+SELF_IDENTITY="$(process_identity "$$")"
+if [ "$?" -ne 0 ] || [ -z "$SELF_IDENTITY" ]; then
+  echo "capability-auto-install: process identity unavailable for $CAP_ID; projection not recorded" >&2
+  exit 0
+fi
+OWNER_TOKEN="$$:$SELF_IDENTITY"
+LOCK_PATH="$LEDGER.lock"
+LOCK_OWNED=0
+if ln -s "$OWNER_TOKEN" "$LOCK_PATH" 2>/dev/null; then
+  LOCK_OWNED=1
+else
+  CONTENDER_TOKEN="$(readlink "$LOCK_PATH" 2>/dev/null)"
+  if [[ "$CONTENDER_TOKEN" =~ ^([1-9][0-9]*):(.*)$ ]]; then
+    CONTENDER_IDENTITY="$(process_identity "${BASH_REMATCH[1]}")"
+    if [ "$?" -eq 0 ] && [ "$CONTENDER_IDENTITY" = "${BASH_REMATCH[2]}" ]; then
+      echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
+      exit 0
+    fi
+  fi
+  echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
+  exit 0
+fi
+trap 'release_projection_lock' EXIT
+trap 'exit 0' HUP INT TERM
+
 SOURCE_GENERATION="$(canonical_tree_hash "$BUNDLE_DIR")"
 SOURCE_STATUS=$?
 INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
