@@ -86,6 +86,12 @@ STUB
   STDERR_FILE="$SCRATCH/stderr"
   TEST_PYTHONPATH=""
   R1_LOCK_SPY_LOG=""
+  R2_PUBLISH_SPY_LOG=""
+  R2_LEGACY_PATH=""
+  R2_LEDGER_PATH=""
+  R2_REPLACE_FAIL=""
+  R2_REPLACE_READY=""
+  R2_REPLACE_RELEASE=""
 }
 
 seed_selected() {
@@ -151,7 +157,10 @@ run_script() {
   HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="${GSD_RUNTIME:-}" \
     PYTHONPATH="${TEST_PYTHONPATH:-}" R1_LOCK_SPY_LOG="${R1_LOCK_SPY_LOG:-}" \
-    PATH="$TEST_BIN:/usr/bin:/bin" \
+    R2_PUBLISH_SPY_LOG="${R2_PUBLISH_SPY_LOG:-}" R2_LEGACY_PATH="${R2_LEGACY_PATH:-}" \
+    R2_LEDGER_PATH="${R2_LEDGER_PATH:-}" PYTHONDONTWRITEBYTECODE=1 \
+    R2_REPLACE_FAIL="${R2_REPLACE_FAIL:-}" R2_REPLACE_READY="${R2_REPLACE_READY:-}" \
+    R2_REPLACE_RELEASE="${R2_REPLACE_RELEASE:-}" PATH="$TEST_BIN:/usr/bin:/bin" \
     bash "$SCRIPT" "$1" >"$STDOUT_FILE" 2>"$STDERR_FILE"
   STATUS=$?
 }
@@ -793,6 +802,257 @@ run_script beads
 pass "case17: hostile lock-helper output is bounded"
 teardown
 
+install_publish_spy() {
+  PUBLISH_SPY_DIR="$SCRATCH/publish-spy"
+  mkdir -p "$PUBLISH_SPY_DIR"
+  R2_PUBLISH_SPY_LOG="$SCRATCH/publish-spy.log"
+  R2_LEGACY_PATH="$LEGACY_STATE_FILE"
+  R2_LEDGER_PATH="$STATE_FILE"
+  TEST_PYTHONPATH="$PUBLISH_SPY_DIR"
+  cat > "$PUBLISH_SPY_DIR/sitecustomize.py" <<'PY'
+import os
+import pathlib
+import stat
+import tempfile
+
+_log_path = os.environ.get("R2_PUBLISH_SPY_LOG", "")
+_ledger_path = os.environ.get("R2_LEDGER_PATH", "")
+_real_fsync = os.fsync
+_real_replace = os.replace
+_real_temporary = tempfile.NamedTemporaryFile
+_temp_identity = None
+
+
+def _append(*fields):
+    if not _log_path:
+        return
+    with open(_log_path, "a", encoding="utf-8") as stream:
+        stream.write("\t".join(map(str, fields)) + "\n")
+
+
+class _TemporaryProxy:
+    def __init__(self, handle):
+        self._handle = handle
+
+    def __enter__(self):
+        self._handle.__enter__()
+        return self
+
+    def __exit__(self, *args):
+        return self._handle.__exit__(*args)
+
+    def __getattr__(self, name):
+        return getattr(self._handle, name)
+
+    def flush(self):
+        _append("flush", self._handle.name)
+        return self._handle.flush()
+
+
+def _temporary(*args, **kwargs):
+    global _temp_identity
+    handle = _real_temporary(*args, **kwargs)
+    metadata = os.fstat(handle.fileno())
+    _temp_identity = (metadata.st_dev, metadata.st_ino)
+    _append("temp", handle.name, kwargs.get("dir", ""), kwargs.get("delete"), metadata.st_dev, metadata.st_ino)
+    return _TemporaryProxy(handle)
+
+
+def _fsync(fd):
+    metadata = os.fstat(fd)
+    if _temp_identity == (metadata.st_dev, metadata.st_ino):
+        _append("fsync", fd)
+    return _real_fsync(fd)
+
+
+def _replace(source, destination):
+    if os.fspath(destination) != _ledger_path:
+        return _real_replace(source, destination)
+    legacy_path = os.environ.get("R2_LEGACY_PATH", "")
+    legacy = pathlib.Path(legacy_path) if legacy_path else None
+    if legacy is None or not legacy.exists() or legacy.is_symlink():
+        legacy_value = "unsafe-or-absent"
+    else:
+        legacy_value = legacy.read_bytes().hex()
+    source_stat = os.lstat(source)
+    _append(
+        "replace",
+        source,
+        destination,
+        legacy_value,
+        stat.S_ISREG(source_stat.st_mode),
+        source_stat.st_dev,
+        source_stat.st_ino,
+    )
+    ready = os.environ.get("R2_REPLACE_READY", "")
+    release = os.environ.get("R2_REPLACE_RELEASE", "")
+    if ready and release:
+        with open(ready, "w", encoding="utf-8") as stream:
+            stream.write("ready\n")
+        with open(release, "r", encoding="utf-8") as stream:
+            stream.readline()
+    if os.environ.get("R2_REPLACE_FAIL") == "1":
+        raise OSError("hostile replacement failure\n/secret/replacement/path")
+    return _real_replace(source, destination)
+
+
+tempfile.NamedTemporaryFile = _temporary
+os.fsync = _fsync
+os.replace = _replace
+PY
+}
+
+### Case 18: a symlink ownership marker blocks native mutation ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+MARKER_PATH="$SKILLS_ROOT/gsd-beads-recall/.gsd-capability-skill"
+MARKER_TARGET="$SCRATCH/marker-target"
+printf '%s\n' beads > "$MARKER_TARGET"
+rm -f "$MARKER_PATH"
+ln -s "$MARKER_TARGET" "$MARKER_PATH"
+DESTINATION_BEFORE="$("${TEST_HASH_CMD[@]}" "$SKILLS_ROOT/gsd-beads-recall/SKILL.md")"
+run_script beads
+[ "$STATUS" -eq 0 ] || fail "case18: exit status $STATUS, expected 0"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case18: symlink marker emitted stdout"
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: destination ownership check failed for beads on codex; projection not recorded' ] \
+  || fail "case18: symlink marker did not produce the fixed ownership diagnostic"
+[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq 0 ] \
+  || fail "case18: symlink marker reached a native writer"
+[ ! -e "$STATE_FILE" ] || fail "case18: symlink marker wrote convergence state"
+[ -L "$MARKER_PATH" ] && [ "$(readlink "$MARKER_PATH")" = "$MARKER_TARGET" ] \
+  || fail "case18: symlink ownership marker was changed"
+[ "$(cat "$MARKER_TARGET")" = beads ] || fail "case18: marker target bytes changed"
+[ "$("${TEST_HASH_CMD[@]}" "$SKILLS_ROOT/gsd-beads-recall/SKILL.md")" = "$DESTINATION_BEFORE" ] \
+  || fail "case18: destination bytes changed"
+pass "case18: symlink ownership marker fails closed before native mutation"
+teardown
+
+### Case 19: secure publisher orders tempfile, fsync, replace, then legacy cleanup ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+printf '%s\n' prior-canonical > "$STATE_FILE"
+printf '%s\n' legacy-before > "$LEGACY_STATE_FILE"
+install_publish_spy
+run_script beads
+[ "$STATUS" -eq 0 ] || fail "case19: exit status $STATUS, expected 0"
+[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case19: secure publication did not complete"
+[ -z "$(cat "$STDERR_FILE")" ] || fail "case19: secure publication emitted stderr"
+"$REAL_PYTHON" - "$R2_PUBLISH_SPY_LOG" "$STATE_FILE" "$LEGACY_STATE_FILE" <<'PY'
+import pathlib
+import re
+import sys
+
+log_path, ledger_path, legacy_path = map(pathlib.Path, sys.argv[1:])
+lines = log_path.read_text().splitlines()
+temps = [line.split("\t") for line in lines if line.startswith("temp\t")]
+flushes = [line for line in lines if line.startswith("flush\t")]
+fsyncs = [line for line in lines if line.startswith("fsync\t")]
+replaces = [line.split("\t") for line in lines if line.startswith("replace\t")]
+if len(temps) != 1 or len(flushes) != 1 or len(fsyncs) != 1 or len(replaces) != 1:
+    raise SystemExit(f"unexpected publisher spy calls: {lines!r}")
+if [line.split("\t", 1)[0] for line in lines] != ["temp", "flush", "fsync", "replace"]:
+    raise SystemExit(f"publisher operation order is wrong: {lines!r}")
+temp_name, temp_dir = pathlib.Path(temps[0][1]), pathlib.Path(temps[0][2])
+source, destination, legacy_hex = pathlib.Path(replaces[0][1]), pathlib.Path(replaces[0][2]), replaces[0][3]
+if temp_dir != ledger_path.parent or temp_name.parent != ledger_path.parent or temps[0][3] != "False":
+    raise SystemExit("secure temporary was not created safely in the ledger directory")
+if replaces[0][4] != "True" or temps[0][4:6] != replaces[0][5:7]:
+    raise SystemExit("os.replace source was not the spied regular tempfile inode")
+if source != temp_name or destination != ledger_path:
+    raise SystemExit("os.replace did not publish the secure temporary to the ledger")
+if re.fullmatch(re.escape(ledger_path.name) + r"\.\d+", temp_name.name):
+    raise SystemExit("publisher retained a predictable PID-suffixed name")
+if legacy_hex != b"legacy-before\n".hex():
+    raise SystemExit("legacy bytes were not intact at os.replace")
+if temp_name.exists() or legacy_path.exists():
+    raise SystemExit("successful publication left temporary or eligible legacy state")
+PY
+pass "case19: secure publisher flushes and replaces before legacy cleanup"
+teardown
+
+### Case 20: replacement failure preserves canonical and legacy bytes ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+printf '%s\n' canonical-before > "$STATE_FILE"
+printf '%s\n' legacy-before > "$LEGACY_STATE_FILE"
+install_publish_spy
+R2_REPLACE_FAIL=1
+run_script beads
+[ "$STATUS" -eq 0 ] || fail "case20: exit status $STATUS, expected 0"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case20: failed replacement emitted stdout"
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: ledger publish failed for beads on codex; projection not recorded' ] \
+  || fail "case20: replacement failure diagnostic exposed helper detail"
+[ "$(cat "$STATE_FILE")" = canonical-before ] \
+  || fail "case20: replacement failure changed canonical bytes"
+[ "$(cat "$LEGACY_STATE_FILE")" = legacy-before ] \
+  || fail "case20: replacement failure changed legacy bytes"
+FAILED_TEMP="$(awk -F '\t' '$1 == "temp" { print $2 }' "$R2_PUBLISH_SPY_LOG")"
+[ -n "$FAILED_TEMP" ] && [ ! -e "$FAILED_TEMP" ] \
+  || fail "case20: replacement failure left its secure temporary"
+pass "case20: replacement failure preserves both receipts and cleans its temporary"
+teardown
+
+### Case 21: nonregular canonical ledger targets are rejected unchanged ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+LEDGER_SENTINEL="$SCRATCH/ledger-sentinel"
+printf '%s\n' sentinel > "$LEDGER_SENTINEL"
+ln -s "$LEDGER_SENTINEL" "$STATE_FILE"
+run_script beads
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: ledger publish failed for beads on codex; projection not recorded' ] \
+  || fail "case21: canonical symlink was not rejected"
+[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq 0 ] \
+  || fail "case21: canonical symlink reached a native writer"
+[ -L "$STATE_FILE" ] && [ "$(cat "$LEDGER_SENTINEL")" = sentinel ] \
+  || fail "case21: canonical symlink or target changed"
+teardown
+
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$STATE_FILE"
+run_script beads
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: ledger publish failed for beads on codex; projection not recorded' ] \
+  || fail "case21: canonical directory was not rejected"
+[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq 0 ] \
+  || fail "case21: canonical directory reached a native writer"
+[ -d "$STATE_FILE" ] && [ -z "$(find "$STATE_FILE" -mindepth 1 -maxdepth 1 -print)" ] \
+  || fail "case21: canonical directory changed"
+teardown
+
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+mkfifo "$STATE_FILE"
+run_script beads
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: ledger publish failed for beads on codex; projection not recorded' ] \
+  || fail "case21: canonical FIFO was not rejected"
+[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq 0 ] \
+  || fail "case21: canonical FIFO reached a native writer"
+[ -p "$STATE_FILE" ] || fail "case21: canonical FIFO changed"
+pass "case21: nonregular canonical ledger targets fail closed"
+teardown
+
+### Case 21b: unsafe legacy state remains untouched after canonical success ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+LEGACY_SENTINEL="$SCRATCH/legacy-sentinel"
+printf '%s\n' legacy-target > "$LEGACY_SENTINEL"
+ln -s "$LEGACY_SENTINEL" "$LEGACY_STATE_FILE"
+install_publish_spy
+run_script beads
+[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case21b: unsafe legacy state blocked canonical publication"
+[ -z "$(cat "$STDERR_FILE")" ] || fail "case21b: unsafe legacy state emitted stderr"
+[ -L "$LEGACY_STATE_FILE" ] && [ "$(cat "$LEGACY_SENTINEL")" = legacy-target ] \
+  || fail "case21b: unsafe legacy state or target changed"
+pass "case21b: unsafe legacy state remains untouched after canonical success"
+teardown
+
 install_fingerprint_rendezvous_python() {
   READY_FIFO="$SCRATCH/fingerprint-ready.fifo"
   RELEASE_FIFO="$SCRATCH/fingerprint-release.fifo"
@@ -869,6 +1129,84 @@ grep -q 'selected projection verification failed' "$SCRATCH/external.err" \
 [ "$(cat "$LEGACY_STATE_FILE")" = legacy-preserved ] \
   || fail "case23: external selected drift changed legacy retry state"
 pass "case23: final selected-fingerprint recheck rejects an external writer"
+teardown
+
+### Case 23b: a writer after final observation is repaired on next SessionStart ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+install_publish_spy
+R2_REPLACE_READY="$SCRATCH/replace-ready.fifo"
+R2_REPLACE_RELEASE="$SCRATCH/replace-release.fifo"
+mkfifo "$R2_REPLACE_READY" "$R2_REPLACE_RELEASE"
+cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$STUB_LOG"
+if [ "\$*" = 'query skills-root codex --raw' ]; then
+  printf '%s\n' "$SKILLS_ROOT"
+  exit 0
+fi
+if [ "\$*" = 'capability set beads --runtime codex --scope global --config-dir $CODEX_HOME' ]; then
+  cp -f "$BUNDLE_DIR/skills/beads-status/SKILL.md" "$SKILLS_ROOT/gsd-beads-status/SKILL.md"
+fi
+exit 0
+STUB
+chmod +x "$BIN_DIR/gsd-tools.cjs"
+HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
+  PYTHONPATH="$TEST_PYTHONPATH" PYTHONDONTWRITEBYTECODE=1 \
+  R2_PUBLISH_SPY_LOG="$R2_PUBLISH_SPY_LOG" R2_LEGACY_PATH="$R2_LEGACY_PATH" \
+  R2_LEDGER_PATH="$R2_LEDGER_PATH" R2_REPLACE_READY="$R2_REPLACE_READY" \
+  R2_REPLACE_RELEASE="$R2_REPLACE_RELEASE" PATH="$TEST_BIN:/usr/bin:/bin" \
+  bash "$SCRIPT" beads >"$SCRATCH/after-final.out" 2>"$SCRATCH/after-final.err" &
+AFTER_FINAL_HOOK_PID=$!
+REPLACE_READY="$("$REAL_PYTHON" - "$R2_REPLACE_READY" <<'PY'
+import os
+import select
+import sys
+
+descriptor = os.open(sys.argv[1], os.O_RDWR | os.O_NONBLOCK)
+try:
+    readable, _, _ = select.select([descriptor], [], [], 10)
+    if not readable:
+        raise SystemExit(1)
+    print(os.read(descriptor, 64).decode().strip())
+finally:
+    os.close(descriptor)
+PY
+)"
+if [ "$?" -ne 0 ]; then
+  kill "$AFTER_FINAL_HOOK_PID" 2>/dev/null || true
+  wait "$AFTER_FINAL_HOOK_PID" 2>/dev/null || true
+  fail "case23b: publisher did not reach the bounded replace barrier"
+fi
+[ "$REPLACE_READY" = ready ] || fail "case23b: publisher did not reach the replace barrier"
+printf '\n# direct writer after final observation\n' >> "$SKILLS_ROOT/gsd-beads-status/SKILL.md"
+printf '%s\n' release > "$R2_REPLACE_RELEASE"
+wait "$AFTER_FINAL_HOOK_PID"
+[ "$(cat "$SCRATCH/after-final.out")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case23b: after-observation publication did not complete"
+[ -z "$(cat "$SCRATCH/after-final.err")" ] \
+  || fail "case23b: after-observation publication emitted stderr"
+STALE_LEDGER="$(cat "$STATE_FILE")"
+WRITERS_BEFORE="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
+R2_REPLACE_READY=""
+R2_REPLACE_RELEASE=""
+run_script beads
+[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case23b: next SessionStart did not repair the direct-writer race"
+[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq $((WRITERS_BEFORE + 2)) ] \
+  || fail "case23b: next SessionStart did not invoke both native writers"
+cmp -s "$BUNDLE_DIR/skills/beads-status/SKILL.md" "$SKILLS_ROOT/gsd-beads-status/SKILL.md" \
+  || fail "case23b: next SessionStart did not restore selected bytes"
+[ "$(cat "$STATE_FILE")" != "$STALE_LEDGER" ] \
+  || fail "case23b: next SessionStart did not replace the stale receipt"
+WRITERS_AFTER_REPAIR="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
+run_script beads
+[ -z "$(cat "$STDOUT_FILE")" ] && [ -z "$(cat "$STDERR_FILE")" ] \
+  || fail "case23b: repaired state did not converge silently"
+[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq "$WRITERS_AFTER_REPAIR" ] \
+  || fail "case23b: repaired rerun invoked a native writer"
+pass "case23b: post-observation external drift is invalidated and repaired next start"
 teardown
 
 ### Case 24: immutable floor provenance plus real current two-capability proof ###
