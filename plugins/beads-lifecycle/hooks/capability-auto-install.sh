@@ -18,26 +18,6 @@ PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 BUNDLE_DIR="$PLUGIN_ROOT/.gsd/capabilities/$CAP_ID"
 [ -d "$BUNDLE_DIR" ] || exit 0
 
-# Portable hash tool selection (Assumption A3: macOS ships no sha256sum).
-if command -v sha256sum >/dev/null 2>&1; then
-  HASH_CMD=(sha256sum)
-elif command -v shasum >/dev/null 2>&1; then
-  HASH_CMD=(shasum -a 256)
-else
-  exit 0
-fi
-
-# Whole-bundle-directory hash (D-03): LC_ALL=C-sorted list of every path
-# under the bundle (files AND directories, so an added empty directory is
-# caught -- Assumption A1) followed by the concatenated contents of the
-# sorted regular files.
-bundle_hash() {
-  {
-    find "$BUNDLE_DIR" \( -type f -o -type d \) | LC_ALL=C sort
-    find "$BUNDLE_DIR" -type f | LC_ALL=C sort | while IFS= read -r _f; do cat "$_f"; done
-  } | "${HASH_CMD[@]}" | awk '{print $1}'
-}
-
 # Hash an explicitly bounded tree as type-tagged, length-prefixed relative
 # paths plus file bytes. Relative framing avoids absolute-root drift and
 # concatenation collisions.
@@ -80,7 +60,7 @@ print(digest.hexdigest())
 PY
 }
 
-STATE_VERSION="projection-v1"
+STATE_VERSION="projection-v2"
 
 # Reconcile only the runtime that loaded this plugin. An explicit validated
 # runtime wins; otherwise the installed plugin cache must identify one owner.
@@ -166,15 +146,10 @@ gsd_tools() {
   "$GSD_TOOLS" "$@"
 }
 
-# One sidecar per capability, with one line per runtime. A successful Codex
-# projection must not make Claude skip its own update, or vice versa. Legacy
-# raw-hash content matches no versioned line and is replaced on first success.
-STATE_FILE="${GSD_HOME:-$HOME}/.gsd/capability-auto-install-$CAP_ID.hash"
-NEW_HASH="$(bundle_hash)"
-NEW_STATE="$STATE_VERSION $ACTIVE_RUNTIME $NEW_HASH"
-if [ -r "$STATE_FILE" ] && grep -qxF "$NEW_STATE" "$STATE_FILE" 2>/dev/null; then
-  exit 0
-fi
+STATE_DIR="${GSD_HOME:-$HOME}/.gsd"
+INSTALLED_BUNDLE="$STATE_DIR/capabilities/$CAP_ID"
+LEDGER="$STATE_DIR/capability-auto-install-$CAP_ID.projections"
+LEGACY_STATE_FILE="$STATE_DIR/capability-auto-install-$CAP_ID.hash"
 
 # Native surface application overwrites retained names before pruning. Guard
 # same-name collisions so only an absent destination or this capability's own
@@ -271,6 +246,76 @@ selected_fingerprint() {
   canonical_tree_hash "$SKILLS_ROOT" "${_paths[@]}"
 }
 
+ledger_has_current_row() {
+  python3 - "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
+    "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" <<'PY'
+import pathlib
+import re
+import sys
+
+ledger = pathlib.Path(sys.argv[1])
+runtime, source_generation, installed_generation, selected_fingerprint = sys.argv[2:]
+if source_generation != installed_generation or not ledger.is_file() or ledger.is_symlink():
+    raise SystemExit(1)
+rows = ledger.read_text().splitlines()
+pattern = re.compile(r"projection-v2 (claude|codex) ([0-9a-f]{64}) ([0-9a-f]{64})")
+if len(rows) > 2 or rows != sorted(set(rows)):
+    raise SystemExit(1)
+parsed = [pattern.fullmatch(row) for row in rows]
+if not all(parsed):
+    raise SystemExit(1)
+expected = f"projection-v2 {runtime} {installed_generation} {selected_fingerprint}"
+raise SystemExit(0 if expected in rows else 1)
+PY
+}
+
+publish_ledger() {
+  local _tmp="$LEDGER.$$" _legacy_tmp="$LEGACY_STATE_FILE.$$"
+  python3 - "$LEDGER" "$_tmp" "$ACTIVE_RUNTIME" "$INSTALLED_GENERATION" \
+    "$SELECTED_FINGERPRINT" <<'PY'
+import pathlib
+import re
+import sys
+
+ledger, target = map(pathlib.Path, sys.argv[1:3])
+runtime, generation, fingerprint = sys.argv[3:]
+pattern = re.compile(r"projection-v2 (claude|codex) ([0-9a-f]{64}) ([0-9a-f]{64})")
+rows = {}
+try:
+    old_rows = ledger.read_text().splitlines() if ledger.is_file() and not ledger.is_symlink() else []
+    for row in old_rows:
+        match = pattern.fullmatch(row)
+        if match and match.group(2) == generation and match.group(1) != runtime:
+            rows[match.group(1)] = row
+    rows[runtime] = f"projection-v2 {runtime} {generation} {fingerprint}"
+    target.write_text("".join(f"{rows[key]}\n" for key in sorted(rows)))
+except OSError:
+    raise SystemExit(1)
+PY
+  [ "$?" -eq 0 ] || return 1
+
+  if [ -e "$LEGACY_STATE_FILE" ] || [ -L "$LEGACY_STATE_FILE" ]; then
+    [ -f "$LEGACY_STATE_FILE" ] && [ ! -L "$LEGACY_STATE_FILE" ] || return 1
+    mv -f "$LEGACY_STATE_FILE" "$_legacy_tmp" 2>/dev/null || return 1
+  fi
+  if ! mv -f "$_tmp" "$LEDGER" 2>/dev/null; then
+    [ ! -e "$_legacy_tmp" ] || mv -f "$_legacy_tmp" "$LEGACY_STATE_FILE" 2>/dev/null
+    return 1
+  fi
+  rm -f "$_legacy_tmp" 2>/dev/null
+}
+
+SOURCE_GENERATION="$(canonical_tree_hash "$BUNDLE_DIR")"
+SOURCE_STATUS=$?
+INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
+INSTALLED_STATUS=$?
+SELECTED_FINGERPRINT="$(selected_fingerprint)"
+SELECTED_STATUS=$?
+if [ "$SOURCE_STATUS" -eq 0 ] && [ "$INSTALLED_STATUS" -eq 0 ] \
+  && [ "$SELECTED_STATUS" -eq 0 ] && ledger_has_current_row; then
+  exit 0
+fi
+
 # Spec is always the absolute bundle dir (Pattern 2) -- a relative spec would
 # resolve against the end user's cwd, not the plugin. Prose "user scope"
 # (D-01) maps to the CLI's literal --scope global value (Pitfall 1).
@@ -283,6 +328,11 @@ gsd_tools capability install "$BUNDLE_DIR" --scope global --yes >/dev/null 2>&1
 INSTALL_STATUS=$?
 
 if [ "$INSTALL_STATUS" -eq 0 ]; then
+  INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
+  if [ "$?" -ne 0 ] || [ "$INSTALLED_GENERATION" != "$SOURCE_GENERATION" ]; then
+    echo "capability-auto-install: installed generation verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+    exit 0
+  fi
   GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --runtime "$ACTIVE_RUNTIME" --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1
   RECONCILE_STATUS=$?
   if [ "$RECONCILE_STATUS" -eq 0 ]; then
@@ -300,19 +350,12 @@ if [ "$INSTALL_STATUS" -eq 0 ]; then
       echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
       exit 0
     fi
-    mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null
-    STATE_TMP="$STATE_FILE.$$"
-    {
-      [ ! -r "$STATE_FILE" ] || awk -v runtime="$ACTIVE_RUNTIME" \
-        '$1 == "projection-v1" && $2 != runtime { print }' "$STATE_FILE"
-      printf '%s\n' "$NEW_STATE"
-    } > "$STATE_TMP" 2>/dev/null && mv -f "$STATE_TMP" "$STATE_FILE" 2>/dev/null
-    STATE_STATUS=$?
-    if [ "$STATE_STATUS" -eq 0 ]; then
+    mkdir -p "$STATE_DIR" 2>/dev/null
+    if publish_ledger; then
       printf 'Auto-installed capability: %s (user scope)\n' "$CAP_ID"
     else
-      rm -f "$STATE_TMP" 2>/dev/null
-      echo "capability-auto-install: state update failed for $CAP_ID (exit $STATE_STATUS)" >&2
+      rm -f "$LEDGER.$$" "$LEGACY_STATE_FILE.$$" 2>/dev/null
+      echo "capability-auto-install: ledger publish failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
     fi
   else
     echo "capability-auto-install: capability set failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2

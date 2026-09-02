@@ -410,6 +410,18 @@ grep -Eq "^projection-v2 claude [0-9a-f]{64} [0-9a-f]{64}$" "$STATE_FILE" || fai
 [ "$(sed -n '2p' "$STATE_FILE" | cut -d' ' -f2)" = codex ] || fail "case7: ledger is not sorted by runtime"
 ! grep -q 'check-patch execute-plan' "$CLAUDE_SKILLS_ROOT/gsd-beads-recall/SKILL.md" \
   || fail "case7: claude stale projection remained selected"
+
+PLUGIN_DIR="$CODEX_HOME/plugins/cache/gsd-beads/beads-lifecycle/test"
+BUNDLE_DIR="$PLUGIN_DIR/.gsd/capabilities/beads"
+printf '\n' >> "$BUNDLE_DIR/capability.json"
+sync_installed_fixture
+PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
+run_script beads
+[ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 3)) ] \
+  || fail "case7: changed global generation did not reconcile Codex"
+[ "$(wc -l < "$STATE_FILE")" -eq 1 ] || fail "case7: changed generation retained a stale runtime row"
+grep -Eq "^projection-v2 codex [0-9a-f]{64} [0-9a-f]{64}$" "$STATE_FILE" \
+  || fail "case7: changed generation did not publish the completed Codex row"
 pass "case7: legacy sidecar reconciles once per runtime and each runtime converges"
 teardown
 
