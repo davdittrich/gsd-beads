@@ -648,5 +648,110 @@ run_script beads
 pass "case15: live hook ownership serializes runtime participants without polling"
 teardown
 
+### Case 16: a positively dead owner is quarantined and recovered once ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+ln -s '99999999:dead-start' "$STATE_FILE.lock"
+run_script beads
+[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case16: dead owner did not recover"
+[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq 2 ] \
+  || fail "case16: dead-owner recovery did not invoke each native writer exactly once"
+[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case16: recovered transaction left a lock"
+[ -z "$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*' -print)" ] \
+  || fail "case16: recovered transaction left its owned quarantine"
+pass "case16: positively dead ownership recovers through one bounded takeover"
+teardown
+
+### Case 17: a reused live PID with mismatched identity is stale ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+ln -s "$$:definitely-not-this-process-start" "$STATE_FILE.lock"
+run_script beads
+[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case17: mismatched live identity did not recover"
+[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case17: reused-PID recovery left a lock"
+pass "case17: resolved start-identity mismatch permits one takeover"
+teardown
+
+### Case 18: a malformed complete token is stale ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+ln -s 'malformed-owner-token' "$STATE_FILE.lock"
+run_script beads
+[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case18: malformed token did not recover"
+[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case18: malformed-token recovery left a lock"
+pass "case18: malformed ownership permits one bounded takeover"
+teardown
+
+### Case 19: an unresolvable existing live identity is busy, never stale ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+LIVE_FIFO="$SCRATCH/live.fifo"
+mkfifo "$LIVE_FIFO"
+python3 - "$LIVE_FIFO" <<'PY' &
+import os
+import signal
+import sys
+
+with open(sys.argv[1], "w") as stream:
+    stream.write(f"{os.getpid()}\n")
+signal.pause()
+PY
+UNRESOLVED_PID=$!
+IFS= read -r REPORTED_PID < "$LIVE_FIFO"
+[ "$REPORTED_PID" = "$UNRESOLVED_PID" ] || fail "case19: live pid handoff mismatch"
+mkdir -p "$(dirname "$STATE_FILE")"
+ln -s "$UNRESOLVED_PID:unknown-start" "$STATE_FILE.lock"
+cat > "$TEST_BIN/ps" <<'STUB'
+#!/usr/bin/env bash
+printf '%s\n' first second
+STUB
+chmod +x "$TEST_BIN/ps"
+GSD_AUTO_INSTALL_PROC_ROOT="$SCRATCH/no-proc"
+run_script beads
+unset GSD_AUTO_INSTALL_PROC_ROOT
+grep -q 'projection transaction busy' "$STDERR_FILE" \
+  || fail "case19: unresolvable live identity was not treated as busy"
+[ "$(readlink "$STATE_FILE.lock")" = "$UNRESOLVED_PID:unknown-start" ] \
+  || fail "case19: unresolvable live owner was stolen"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case19: unresolvable owner reached a native writer"
+kill "$UNRESOLVED_PID"
+wait "$UNRESOLVED_PID" 2>/dev/null || true
+rm -f "$STATE_FILE.lock"
+pass "case19: unavailable contender identity preserves the live token"
+teardown
+
+### Case 20: replacement between observation and rename is preserved ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+ln -s 'malformed-owner-token' "$STATE_FILE.lock"
+cat > "$TEST_BIN/mv" <<STUB
+#!/usr/bin/env bash
+if [ "\$1" = "$STATE_FILE.lock" ]; then
+  rm -f "$STATE_FILE.lock"
+  ln -s 'replacement-owner-token' "$STATE_FILE.lock"
+fi
+exec /usr/bin/mv "\$@"
+STUB
+chmod +x "$TEST_BIN/mv"
+run_script beads
+grep -q 'projection lock recovery failed' "$STDERR_FILE" \
+  || fail "case20: replacement race did not report bounded recovery failure"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case20: replacement race reached a native writer"
+RACE_QUARANTINE="$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*' -print)"
+[ -L "$RACE_QUARANTINE" ] && [ "$(readlink "$RACE_QUARANTINE")" = replacement-owner-token ] \
+  || fail "case20: replacement token was not preserved in quarantine"
+pass "case20: token mismatch preserves replacement quarantine and stops"
+teardown
+
 echo "ALL PASS"
 exit 0
