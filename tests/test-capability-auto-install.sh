@@ -31,12 +31,14 @@ setup() {
   CLAUDE_CONFIG_DIR="$SCRATCH/.claude"
   PLUGIN_DIR="$CODEX_HOME/plugins/cache/gsd-beads/beads-lifecycle/test"
   BUNDLE_DIR="$PLUGIN_DIR/.gsd/capabilities/beads"
-  mkdir -p "$BUNDLE_DIR"
-  printf '{"id":"beads"}\n' > "$BUNDLE_DIR/capability.json"
-  cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads/skills" "$BUNDLE_DIR/skills"
+  mkdir -p "$(dirname "$BUNDLE_DIR")"
+  cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$BUNDLE_DIR"
 
   GSD_HOME="$SCRATCH/home"
   mkdir -p "$GSD_HOME"
+  INSTALLED_BUNDLE="$GSD_HOME/.gsd/capabilities/beads"
+  mkdir -p "$(dirname "$INSTALLED_BUNDLE")"
+  cp -rf "$BUNDLE_DIR" "$INSTALLED_BUNDLE"
   STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.hash"
   SKILLS_ROOT="$SCRATCH/.agents/skills"
   CLAUDE_SKILLS_ROOT="$SCRATCH/.claude/skills"
@@ -67,18 +69,6 @@ elif [ "\$*" = "capability set beads --runtime claude --scope global --config-di
 else
   _target=""
 fi
-if [ -n "\$_target" ]; then
-  for _source in "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads/skills"/*; do
-    _dest="\$_target/gsd-\$(basename "\$_source")"
-    rm -rf "\$_dest"
-    cp -rf "\$_source" "\$_dest"
-    printf '%s\n' beads > "\$_dest/.gsd-capability-skill"
-  done
-  if [ -f "\$_target/gsd-beads-retired/.gsd-capability-skill" ] \
-    && [ "\$(cat "\$_target/gsd-beads-retired/.gsd-capability-skill")" = beads ]; then
-    rm -rf "\$_target/gsd-beads-retired"
-  fi
-fi
 exit $stub_status
 STUB
   chmod +x "$BIN_DIR/gsd-tools.cjs"
@@ -87,6 +77,21 @@ STUB
 
   STDOUT_FILE="$SCRATCH/stdout"
   STDERR_FILE="$SCRATCH/stderr"
+}
+
+seed_selected() {
+  local _root="$1" _source _dest
+  for _source in "$BUNDLE_DIR"/skills/*; do
+    _dest="$_root/gsd-$(basename "$_source")"
+    rm -rf "$_dest"
+    cp -rf "$_source" "$_dest"
+    printf '%s\n' beads > "$_dest/.gsd-capability-skill"
+  done
+}
+
+sync_installed_fixture() {
+  rm -rf "$INSTALLED_BUNDLE"
+  cp -rf "$BUNDLE_DIR" "$INSTALLED_BUNDLE"
 }
 
 teardown() {
@@ -117,6 +122,7 @@ if "gsd-core >= 1.10.0" not in readme_path.read_text():
     raise SystemExit("README does not state gsd-core >= 1.10.0")
 PY
 setup 0
+seed_selected "$SKILLS_ROOT"
 
 # Case 1: first run, no prior sidecar state -> installs once, prints notice.
 run_script beads
@@ -150,7 +156,8 @@ pass "case2: unchanged rerun is silent and invokes native writers zero times"
 
 # Case 3: bundle edit -> re-grant with a fresh notice.
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
-printf 'edit\n' >> "$BUNDLE_DIR/capability.json"
+printf '\n' >> "$BUNDLE_DIR/capability.json"
+sync_installed_fixture
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case3: exit status $STATUS, expected 0"
 [ "$(cat "$STDOUT_FILE")" = "Auto-installed capability: beads (user scope)" ] \
@@ -163,6 +170,7 @@ teardown
 
 ### Case 3b: a validated explicit runtime overrides plugin-owner fallback ###
 setup 0
+seed_selected "$CLAUDE_SKILLS_ROOT"
 export GSD_RUNTIME=claude
 run_script beads
 unset GSD_RUNTIME
@@ -187,6 +195,18 @@ run_script beads
 grep -q 'skills-root query failed' "$STDERR_FILE" || fail "case3c: missing skills-root diagnostic"
 [ ! -e "$STATE_FILE" ] || fail "case3c: noncanonical root wrote convergence state"
 pass "case3c: noncanonical public skills root blocks install and set"
+teardown
+
+### Case 3d: a retired selected command prevents certification after native set ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf '\npython3 "$SYNC_PY" execute-plan\n' >> "$SKILLS_ROOT/gsd-beads-recall/SKILL.md"
+run_script beads
+[ "$STATUS" -eq 0 ] || fail "case3d: exit status $STATUS, expected 0"
+grep -q 'selected command contract verification failed' "$STDERR_FILE" \
+  || fail "case3d: retired selected command was certified"
+[ ! -e "$STATE_FILE" ] || fail "case3d: sidecar recorded an invalid selected command"
+pass "case3d: selected command verification rejects retired execute-plan"
 teardown
 
 ### Case 4: install-failure path (D-04, CAP-05) -- stub gsd-tools exits 1 ###
@@ -240,8 +260,8 @@ rm -rf "$SCRATCH" 2>/dev/null
 PARITY_ROOT="$(mktemp -d)"
 PARITY_PLUGIN="$PARITY_ROOT/.codex/plugins/cache/gsd-beads/beads-lifecycle/test"
 PARITY_BUNDLE="$PARITY_PLUGIN/.gsd/capabilities/beads"
-mkdir -p "$PARITY_BUNDLE"
-printf '{"id":"beads"}\n' > "$PARITY_BUNDLE/capability.json"
+mkdir -p "$(dirname "$PARITY_BUNDLE")"
+cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$PARITY_BUNDLE"
 PARITY_CODEX_HOME="$PARITY_ROOT/.codex"
 PARITY_BIN="$PARITY_CODEX_HOME/gsd-core/bin"
 mkdir -p "$PARITY_BIN"
@@ -257,12 +277,20 @@ esac
 exit 0
 STUB
 chmod +x "$PARITY_BIN/gsd-tools.cjs"
-mkdir -p "$PARITY_ROOT/runtime-skills"
+mkdir -p "$PARITY_ROOT/.agents/skills"
+for _source in "$PARITY_BUNDLE"/skills/*; do
+  _dest="$PARITY_ROOT/.agents/skills/gsd-$(basename "$_source")"
+  cp -rf "$_source" "$_dest"
+  printf '%s\n' beads > "$_dest/.gsd-capability-skill"
+done
 
 CWD_A="$PARITY_ROOT/cwd-a"; mkdir -p "$CWD_A"
 CWD_B="$PARITY_ROOT/cwd-b"; mkdir -p "$CWD_B"
 GSD_HOME_A="$PARITY_ROOT/home-a"; mkdir -p "$GSD_HOME_A"
 GSD_HOME_B="$PARITY_ROOT/home-b"; mkdir -p "$GSD_HOME_B"
+mkdir -p "$GSD_HOME_A/.gsd/capabilities" "$GSD_HOME_B/.gsd/capabilities"
+cp -rf "$PARITY_BUNDLE" "$GSD_HOME_A/.gsd/capabilities/beads"
+cp -rf "$PARITY_BUNDLE" "$GSD_HOME_B/.gsd/capabilities/beads"
 
 OUT_SET_FILE="$PARITY_ROOT/out-set"
 ERR_SET_FILE="$PARITY_ROOT/err-set"
@@ -298,6 +326,7 @@ rm -rf "$PARITY_ROOT" 2>/dev/null
 
 ### Case 7: legacy raw-hash sidecar forces one reconciliation, then converges ###
 setup 0
+seed_selected "$SKILLS_ROOT"
 LEGACY_HASH="$({
   find "$BUNDLE_DIR" \( -type f -o -type d \) | LC_ALL=C sort
   find "$BUNDLE_DIR" -type f | LC_ALL=C sort | while IFS= read -r _f; do cat "$_f"; done
@@ -305,11 +334,9 @@ LEGACY_HASH="$({
 mkdir -p "$(dirname "$STATE_FILE")"
 LEGACY_STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.hash"
 printf '%s\n' "$LEGACY_HASH" > "$LEGACY_STATE_FILE"
-mkdir -p "$SKILLS_ROOT/gsd-beads-recall" "$SKILLS_ROOT/gsd-user-owned" \
+mkdir -p "$SKILLS_ROOT/gsd-user-owned" \
   "$SKILLS_ROOT/plain-user-skill" "$SKILLS_ROOT/gsd-other-plugin" \
   "$CLAUDE_SKILLS_ROOT/gsd-beads-recall"
-printf 'beads\n' > "$SKILLS_ROOT/gsd-beads-recall/.gsd-capability-skill"
-printf 'check-patch execute-plan\n' > "$SKILLS_ROOT/gsd-beads-recall/SKILL.md"
 printf 'user-owned\n' > "$SKILLS_ROOT/gsd-user-owned/SKILL.md"
 printf 'plain-user\n' > "$SKILLS_ROOT/plain-user-skill/SKILL.md"
 printf 'other\n' > "$SKILLS_ROOT/gsd-other-plugin/.gsd-capability-skill"
@@ -351,6 +378,7 @@ cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$CLAUDE_PLU
 printf 'beads\n' > "$CLAUDE_SKILLS_ROOT/gsd-beads-recall/.gsd-capability-skill"
 PLUGIN_DIR="$CLAUDE_PLUGIN"
 BUNDLE_DIR="$CLAUDE_PLUGIN/.gsd/capabilities/beads"
+seed_selected "$CLAUDE_SKILLS_ROOT"
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
 run_script beads
 [ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 3)) ] \
@@ -377,6 +405,7 @@ printf '%s\n' "\$*" >> "$STUB_LOG"
 exit 0
 STUB
 chmod +x "$BIN_DIR/gsd-tools.cjs"
+seed_selected "$SKILLS_ROOT"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case8: exit status $STATUS, expected 0"
 [ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case8: expected root validation, install, and surface invocations"
@@ -387,6 +416,7 @@ teardown
 
 ### Case 9: an unmarked same-name user skill is preserved and blocks convergence ###
 setup 0
+rm -rf "$SKILLS_ROOT/gsd-beads-recall"
 mkdir -p "$SKILLS_ROOT/gsd-beads-recall"
 printf 'user-owned same-name\n' > "$SKILLS_ROOT/gsd-beads-recall/SKILL.md"
 SAME_NAME_BEFORE="$(cksum "$SKILLS_ROOT/gsd-beads-recall/SKILL.md")"
@@ -394,6 +424,9 @@ run_script beads
 [ "$STATUS" -eq 0 ] || fail "case9: exit status $STATUS, expected 0"
 [ "$SAME_NAME_BEFORE" = "$(cksum "$SKILLS_ROOT/gsd-beads-recall/SKILL.md")" ] \
   || fail "case9: unmarked same-name user skill changed"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case9: ownership conflict reached a native mutation"
+grep -q 'destination ownership check failed' "$STDERR_FILE" \
+  || fail "case9: missing ownership diagnostic"
 [ ! -e "$STATE_FILE" ] || fail "case9: sidecar recorded convergence over a user-owned collision"
 pass "case9: same-name user-owned skill is preserved and convergence fails closed"
 teardown
@@ -401,6 +434,7 @@ teardown
 ### Case 10: every command declared by the selected recall skill is accepted ###
 ACTIVE_SYNC="$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py"
 setup 0
+seed_selected "$SKILLS_ROOT"
 run_script beads
 SELECTED_RECALL="$SKILLS_ROOT/gsd-beads-recall/SKILL.md"
 ! grep -q 'check-patch execute-plan' "$SELECTED_RECALL" \
