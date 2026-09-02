@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Stdlib-only smoke test (N5): no framework, no fixtures dir. Every case runs
-# against a scratch plugin root + scratch GSD_HOME under mktemp -d, with a
-# stub runtime-owned `gsd-tools.cjs` -- no real capability install ever occurs and this
+# against scratch plugin/runtime roots. Focused cases use a stub runtime-owned
+# `gsd-tools.cjs`; the final `/dev/shm` case uses the active/current CLI. This
 # repo's own real $HOME/.gsd/ is never touched.
 set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$REPO_ROOT/plugins/beads-lifecycle/hooks/capability-auto-install.sh"
 REAL_PYTHON="$(command -v python3)"
+GSD_CORE_REPO="$REPO_ROOT/../gsd-core"
+ACTIVE_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
+ACTIVE_GSD_TOOLS="$ACTIVE_CODEX_HOME/gsd-core/bin/gsd-tools.cjs"
 
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
@@ -96,6 +99,44 @@ seed_selected() {
 sync_installed_fixture() {
   rm -rf "$INSTALLED_BUNDLE"
   cp -rf "$BUNDLE_DIR" "$INSTALLED_BUNDLE"
+}
+
+fixture_tree_hash() {
+  "$REAL_PYTHON" - "$@" <<'PY'
+import hashlib
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+requested = sys.argv[2:] or ["."]
+entries = {}
+try:
+    for requested_name in requested:
+        start = root / requested_name
+        if not start.exists() or start.is_symlink():
+            raise ValueError
+        candidates = [start]
+        if start.is_dir():
+            candidates.extend(start.rglob("*"))
+        for path in candidates:
+            if path.is_symlink() or not (path.is_dir() or path.is_file()):
+                raise ValueError
+            entries[path.relative_to(root).as_posix()] = path
+except (OSError, ValueError):
+    raise SystemExit(1)
+
+digest = hashlib.sha256()
+for relative in sorted(entries):
+    path = entries[relative]
+    name = os.fsencode(relative)
+    kind = b"d" if path.is_dir() else b"f"
+    digest.update(kind + len(name).to_bytes(8, "big") + name)
+    if kind == b"f":
+        data = path.read_bytes()
+        digest.update(len(data).to_bytes(8, "big") + data)
+print(digest.hexdigest())
+PY
 }
 
 teardown() {
@@ -861,6 +902,394 @@ grep -q 'selected projection verification failed' "$SCRATCH/external.err" \
   || fail "case23: external selected drift changed legacy retry state"
 pass "case23: final selected-fingerprint recheck rejects an external writer"
 teardown
+
+### Case 24: immutable floor provenance plus real current two-capability proof ###
+REAL_ROOT="$(mktemp -d /dev/shm/gsd-beads-210-real.XXXXXX)" \
+  || fail "case24: could not allocate bounded /dev/shm scratch"
+SCRATCH="$REAL_ROOT"
+REAL_TMP="$REAL_ROOT/tmp"
+mkdir -p "$REAL_TMP"
+
+[ -d "$GSD_CORE_REPO/.git" ] || fail "case24: gsd-core source repository is unavailable"
+[ -x "$ACTIVE_GSD_TOOLS" ] || fail "case24: active/current gsd-tools is unavailable"
+FLOOR_SHA="$(git -C "$GSD_CORE_REPO" rev-parse 'v1.10.0^{commit}' 2>/dev/null)" \
+  || fail "case24: official v1.10.0 tag is unavailable"
+[ "$FLOOR_SHA" = "68a04ccf8ef74803bdb651e12c3b85b218bbccdf" ] \
+  || fail "case24: official v1.10.0 tag peeled to $FLOOR_SHA"
+FLOOR_PACKAGE_FILE="$REAL_ROOT/floor-package.json"
+git -C "$GSD_CORE_REPO" show "$FLOOR_SHA:package.json" > "$FLOOR_PACKAGE_FILE" 2>/dev/null \
+  || fail "case24: official v1.10.0 package metadata is unavailable"
+FLOOR_PACKAGE="$($REAL_PYTHON - "$FLOOR_PACKAGE_FILE" <<'PY'
+import json
+import pathlib
+import sys
+
+metadata = json.loads(pathlib.Path(sys.argv[1]).read_text())
+print(f"{metadata.get('name')}@{metadata.get('version')}")
+PY
+)" || fail "case24: official v1.10.0 package metadata is invalid"
+[ "$FLOOR_PACKAGE" = "@opengsd/gsd-core@1.10.0" ] \
+  || fail "case24: official floor package is $FLOOR_PACKAGE"
+
+ACTIVE_IDENTITY="$($ACTIVE_GSD_TOOLS runtime-identity --raw 2>/dev/null)" \
+  || fail "case24: active/current runtime identity failed"
+ACTIVE_IDENTITY_KEY="$(printf '%s' "$ACTIVE_IDENTITY" | "$REAL_PYTHON" -c '
+import json, sys
+identity = json.load(sys.stdin)
+print("{}@{}".format(identity.get("packageName"), identity.get("version")))
+')" || fail "case24: active/current runtime identity was not JSON"
+[ "$ACTIVE_IDENTITY_KEY" = "@opengsd/gsd-core@1.12.0" ] \
+  || fail "case24: active/current runtime is $ACTIVE_IDENTITY_KEY"
+ACTIVE_PUBLIC_ROOT="$($ACTIVE_GSD_TOOLS query skills-root codex --raw 2>/dev/null)" \
+  || fail "case24: active/current public skills-root query failed"
+[ -n "$ACTIVE_PUBLIC_ROOT" ] || fail "case24: active/current public skills-root was empty"
+
+CURRENT_ARCHIVE="$REAL_ROOT/current-gsd-core.tar"
+git -C "$GSD_CORE_REPO" archive --format=tar --output="$CURRENT_ARCHIVE" HEAD \
+  || fail "case24: could not archive the current gsd-core source"
+
+prepare_current_runtime() {
+  local _config_root="$1" _home_root="$2" _claude_root="$3" _project_root="$4"
+  mkdir -p "$_config_root" "$_home_root" "$_claude_root" "$_project_root/.planning"
+  tar -xf "$CURRENT_ARCHIVE" -C "$_config_root" \
+    || fail "case24: could not materialize current gsd-core source"
+  cp -rf "$ACTIVE_CODEX_HOME/gsd-core/bin" "$_config_root/gsd-core/" \
+    || fail "case24: could not overlay the active/current compiled CLI"
+  cp -f "$ACTIVE_CODEX_HOME/gsd-core/VERSION" "$_config_root/gsd-core/VERSION" \
+    || fail "case24: could not copy the active/current version marker"
+  printf '{}\n' > "$_project_root/.planning/config.json"
+}
+
+real_cli() {
+  local _config_root="$1" _home_root="$2" _claude_root="$3" _project_root="$4"
+  shift 4
+  (
+    cd "$_project_root" || exit 1
+    env TMPDIR="$REAL_TMP" HOME="$_home_root" GSD_HOME="$_home_root" \
+      CODEX_HOME="$_config_root" CLAUDE_CONFIG_DIR="$_claude_root" \
+      "$_config_root/gsd-core/bin/gsd-tools.cjs" "$@"
+  )
+}
+
+ACTUAL_CODEX="$REAL_ROOT/actual/.codex"
+ACTUAL_HOME="$REAL_ROOT/actual/home"
+ACTUAL_CLAUDE="$REAL_ROOT/actual/.claude"
+ACTUAL_PROJECT="$REAL_ROOT/actual/project"
+ORACLE_CODEX="$REAL_ROOT/oracle/.codex"
+ORACLE_HOME="$REAL_ROOT/oracle/home"
+ORACLE_CLAUDE="$REAL_ROOT/oracle/.claude"
+ORACLE_PROJECT="$REAL_ROOT/oracle/project"
+prepare_current_runtime "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT"
+prepare_current_runtime "$ORACLE_CODEX" "$ORACLE_HOME" "$ORACLE_CLAUDE" "$ORACLE_PROJECT"
+
+FIXTURE_IDENTITY="$(real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" \
+  "$ACTUAL_PROJECT" runtime-identity --raw 2>/dev/null)" \
+  || fail "case24: isolated current runtime identity failed"
+[ "$FIXTURE_IDENTITY" = "$ACTIVE_IDENTITY" ] \
+  || fail "case24: isolated current runtime identity differs from active/current"
+ACTUAL_SKILLS_ROOT="$(real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" \
+  "$ACTUAL_PROJECT" query skills-root codex --raw 2>/dev/null)" \
+  || fail "case24: isolated real public skills-root query failed"
+[ "$ACTUAL_SKILLS_ROOT" = "$ACTUAL_HOME/.agents/skills" ] \
+  || fail "case24: isolated real public skills-root is noncanonical"
+ORACLE_SKILLS_ROOT="$(real_cli "$ORACLE_CODEX" "$ORACLE_HOME" "$ORACLE_CLAUDE" \
+  "$ORACLE_PROJECT" query skills-root codex --raw 2>/dev/null)" \
+  || fail "case24: oracle real public skills-root query failed"
+[ "$ORACLE_SKILLS_ROOT" = "$ORACLE_HOME/.agents/skills" ] \
+  || fail "case24: oracle real public skills-root is noncanonical"
+
+GENERATION_B="$REAL_ROOT/generation-b"
+GENERATION_A="$REAL_ROOT/generation-a"
+SIBLING_BUNDLE="$REAL_ROOT/phase22-sibling"
+cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$GENERATION_B"
+cp -rf "$GENERATION_B" "$GENERATION_A"
+$REAL_PYTHON - "$GENERATION_A/capability.json" <<'PY'
+import json
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+manifest["version"] = "0.6.1"
+path.write_text(json.dumps(manifest, indent=2) + "\n")
+PY
+mkdir -p "$SIBLING_BUNDLE/skills/phase22-sibling"
+$REAL_PYTHON - "$SIBLING_BUNDLE/capability.json" <<'PY'
+import json
+import pathlib
+import sys
+
+manifest = {
+    "id": "phase22-sibling",
+    "role": "feature",
+    "version": "1.0.0",
+    "title": "Phase 22 sibling",
+    "description": "Real sibling preservation fixture.",
+    "tier": "full",
+    "requires": [],
+    "engines": {"gsd": ">=1.10.0"},
+    "runtimeCompat": {"supported": ["*"], "unsupported": []},
+    "skills": ["phase22-sibling"],
+    "agents": [],
+    "hooks": [],
+    "config": {},
+    "steps": [],
+    "contributions": [],
+    "gates": [],
+}
+pathlib.Path(sys.argv[1]).write_text(json.dumps(manifest, indent=2) + "\n")
+PY
+printf '%s\n' '---' 'name: gsd-phase22-sibling' \
+  'description: Genuine sibling preservation fixture.' '---' '' '# Sibling' \
+  > "$SIBLING_BUNDLE/skills/phase22-sibling/SKILL.md"
+
+REAL_SETUP_LOG="$REAL_ROOT/native-setup.log"
+: > "$REAL_SETUP_LOG"
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability install "$SIBLING_BUNDLE" --scope global --yes >> "$REAL_SETUP_LOG" 2>&1 \
+  || fail "case24: real sibling install failed"
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability install "$GENERATION_A" --scope global --yes >> "$REAL_SETUP_LOG" 2>&1 \
+  || fail "case24: real generation-A install failed"
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability set phase22-sibling --runtime codex --scope global --config-dir "$ACTUAL_CODEX" \
+  >> "$REAL_SETUP_LOG" 2>&1 || fail "case24: real sibling set failed"
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability set beads --runtime codex --scope global --config-dir "$ACTUAL_CODEX" \
+  >> "$REAL_SETUP_LOG" 2>&1 || fail "case24: real generation-A set failed"
+
+ORACLE_LOG="$REAL_ROOT/oracle.log"
+: > "$ORACLE_LOG"
+real_cli "$ORACLE_CODEX" "$ORACLE_HOME" "$ORACLE_CLAUDE" "$ORACLE_PROJECT" \
+  capability install "$SIBLING_BUNDLE" --scope global --yes >> "$ORACLE_LOG" 2>&1 \
+  || fail "case24: oracle sibling install failed"
+real_cli "$ORACLE_CODEX" "$ORACLE_HOME" "$ORACLE_CLAUDE" "$ORACLE_PROJECT" \
+  capability install "$GENERATION_B" --scope global --yes >> "$ORACLE_LOG" 2>&1 \
+  || fail "case24: oracle generation-B install failed"
+real_cli "$ORACLE_CODEX" "$ORACLE_HOME" "$ORACLE_CLAUDE" "$ORACLE_PROJECT" \
+  capability set phase22-sibling --runtime codex --scope global --config-dir "$ORACLE_CODEX" \
+  >> "$ORACLE_LOG" 2>&1 || fail "case24: oracle sibling set failed"
+real_cli "$ORACLE_CODEX" "$ORACLE_HOME" "$ORACLE_CLAUDE" "$ORACLE_PROJECT" \
+  capability set beads --runtime codex --scope global --config-dir "$ORACLE_CODEX" \
+  >> "$ORACLE_LOG" 2>&1 || fail "case24: oracle generation-B set failed"
+
+# The native transform embeds the runtime config root in one selected skill.
+# Normalize only that independently produced fixture-local prefix before the
+# byte-for-byte comparison; no raw installed skill supplies expected output.
+EXPECTED_SKILLS_ROOT="$REAL_ROOT/oracle-normalized"
+mkdir -p "$EXPECTED_SKILLS_ROOT"
+cp -rf "$ORACLE_SKILLS_ROOT/." "$EXPECTED_SKILLS_ROOT/"
+$REAL_PYTHON - "$EXPECTED_SKILLS_ROOT" "$ORACLE_CODEX" "$ACTUAL_CODEX" <<'PY'
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+old, new = (value.encode() for value in sys.argv[2:])
+for path in root.rglob("*"):
+    if path.is_symlink():
+        raise SystemExit("transformed oracle contains a symlink")
+    if path.is_file():
+        data = path.read_bytes()
+        path.write_bytes(data.replace(old, new))
+PY
+
+SELECTED_PATHS=(
+  gsd-beads-sync
+  gsd-beads-status
+  gsd-beads-recall
+  gsd-beads-migrate-todos
+)
+for _selected_path in "${SELECTED_PATHS[@]}"; do
+  [ -d "$ACTUAL_SKILLS_ROOT/$_selected_path" ] \
+    || fail "case24: generation-A selected tree is incomplete"
+  [ -d "$EXPECTED_SKILLS_ROOT/$_selected_path" ] \
+    || fail "case24: transformed oracle is incomplete"
+done
+[ -d "$ACTUAL_SKILLS_ROOT/gsd-phase22-sibling" ] \
+  || fail "case24: actual genuine sibling projection is missing"
+[ -d "$ORACLE_SKILLS_ROOT/gsd-phase22-sibling" ] \
+  || fail "case24: oracle genuine sibling projection is missing"
+
+ACTUAL_LEDGER="$ACTUAL_HOME/.gsd/capability-auto-install-beads.projections"
+ACTUAL_LEGACY="$ACTUAL_HOME/.gsd/capability-auto-install-beads.hash"
+ACTUAL_INSTALLED="$ACTUAL_HOME/.gsd/capabilities/beads"
+GENERATION_A_HASH="$(fixture_tree_hash "$ACTUAL_INSTALLED")" \
+  || fail "case24: could not hash installed generation A"
+GENERATION_A_SELECTED="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT" "${SELECTED_PATHS[@]}")" \
+  || fail "case24: could not hash selected generation A"
+printf 'projection-v2 codex %s %s\n' "$GENERATION_A_HASH" "$GENERATION_A_SELECTED" \
+  > "$ACTUAL_LEDGER"
+printf '%s\n' legacy-generation-a > "$ACTUAL_LEGACY"
+
+mkdir -p "$ACTUAL_SKILLS_ROOT/plain-user-skill"
+printf '%s\n' plain-user-bytes > "$ACTUAL_SKILLS_ROOT/plain-user-skill/note"
+mkdir -p "$ACTUAL_HOME/unrelated"
+printf '%s\n' unrelated-bytes > "$ACTUAL_HOME/unrelated/note"
+mkdir -p "$ACTUAL_CLAUDE/skills/gsd-beads-recall"
+printf '%s\n' unmarked-same-name-user-bytes \
+  > "$ACTUAL_CLAUDE/skills/gsd-beads-recall/SKILL.md"
+PLAIN_BEFORE="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT/plain-user-skill")"
+UNRELATED_BEFORE="$(fixture_tree_hash "$ACTUAL_HOME/unrelated")"
+UNSELECTED_BEFORE="$(fixture_tree_hash "$ACTUAL_CLAUDE/skills")"
+SIBLING_BEFORE="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT/gsd-phase22-sibling")"
+
+REAL_PLUGIN_ROOT="$ACTUAL_CODEX/plugins/cache/gsd-beads/beads-lifecycle/current"
+mkdir -p "$REAL_PLUGIN_ROOT/.gsd/capabilities"
+cp -rf "$GENERATION_B" "$REAL_PLUGIN_ROOT/.gsd/capabilities/beads"
+REAL_GSD_TOOLS="$ACTUAL_CODEX/gsd-core/bin/gsd-tools-real.cjs"
+REAL_SPY_LOG="$REAL_ROOT/real-spy.log"
+cp -f "$ACTUAL_CODEX/gsd-core/bin/gsd-tools.cjs" "$REAL_GSD_TOOLS"
+cat > "$ACTUAL_CODEX/gsd-core/bin/gsd-tools.cjs" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$REAL_SPY_LOG"
+exec "$REAL_GSD_TOOLS" "\$@"
+STUB
+chmod +x "$ACTUAL_CODEX/gsd-core/bin/gsd-tools.cjs" "$REAL_GSD_TOOLS"
+: > "$REAL_SPY_LOG"
+
+REAL_HOOK_OUT="$REAL_ROOT/hook.out"
+REAL_HOOK_ERR="$REAL_ROOT/hook.err"
+(
+  cd "$ACTUAL_PROJECT" || exit 1
+  env TMPDIR="$REAL_TMP" HOME="$ACTUAL_HOME" GSD_HOME="$ACTUAL_HOME" \
+    CODEX_HOME="$ACTUAL_CODEX" CLAUDE_CONFIG_DIR="$ACTUAL_CLAUDE" \
+    CLAUDE_PLUGIN_ROOT="$REAL_PLUGIN_ROOT" GSD_RUNTIME=codex \
+    bash "$SCRIPT" beads
+) > "$REAL_HOOK_OUT" 2> "$REAL_HOOK_ERR"
+REAL_HOOK_STATUS=$?
+[ "$REAL_HOOK_STATUS" -eq 0 ] || fail "case24: real hook exited $REAL_HOOK_STATUS"
+[ "$(cat "$REAL_HOOK_OUT")" = 'Auto-installed capability: beads (user scope)' ] \
+  || fail "case24: real hook did not report generation-B reconciliation"
+[ -z "$(cat "$REAL_HOOK_ERR")" ] \
+  || fail "case24: real hook emitted: $(cat "$REAL_HOOK_ERR")"
+[ "$(wc -l < "$REAL_SPY_LOG")" -eq 3 ] \
+  || fail "case24: real hook invoked the current CLI an unexpected number of times"
+grep -qx 'query skills-root codex --raw' "$REAL_SPY_LOG" \
+  || fail "case24: real hook omitted the public skills-root query"
+grep -qx "capability install $REAL_PLUGIN_ROOT/.gsd/capabilities/beads --scope global --yes" \
+  "$REAL_SPY_LOG" || fail "case24: real hook install argv differed"
+grep -qx "capability set beads --runtime codex --scope global --config-dir $ACTUAL_CODEX" \
+  "$REAL_SPY_LOG" || fail "case24: real hook set argv differed"
+
+for _selected_path in "${SELECTED_PATHS[@]}"; do
+  ACTUAL_SELECTED_HASH="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT/$_selected_path")"
+  ORACLE_SELECTED_HASH="$(fixture_tree_hash "$EXPECTED_SKILLS_ROOT/$_selected_path")"
+  [ "$ACTUAL_SELECTED_HASH" = "$ORACLE_SELECTED_HASH" ] \
+    || fail "case24: $_selected_path differs from the current transformed oracle"
+  [ "$(cat "$ACTUAL_SKILLS_ROOT/$_selected_path/.gsd-capability-skill")" = beads ] \
+    || fail "case24: $_selected_path has the wrong owner"
+done
+ACTUAL_SIBLING_HASH="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT/gsd-phase22-sibling")"
+ORACLE_SIBLING_HASH="$(fixture_tree_hash "$EXPECTED_SKILLS_ROOT/gsd-phase22-sibling")"
+[ "$ACTUAL_SIBLING_HASH" = "$ORACLE_SIBLING_HASH" ] \
+  || fail "case24: genuine sibling differs from the transformed oracle"
+[ "$(cat "$ACTUAL_SKILLS_ROOT/gsd-phase22-sibling/.gsd-capability-skill")" = phase22-sibling ] \
+  || fail "case24: genuine sibling owner changed"
+[ "$ACTUAL_SIBLING_HASH" = "$SIBLING_BEFORE" ] \
+  || fail "case24: Beads reconciliation changed the genuine sibling"
+
+COMMAND_PREFIXES="$($REAL_PYTHON - "$GENERATION_B/capability.json" "$ACTUAL_SKILLS_ROOT" \
+  "$ACTUAL_INSTALLED/scripts/sync.py" <<'PY'
+import json
+import pathlib
+import re
+import shlex
+import subprocess
+import sys
+
+manifest_path = pathlib.Path(sys.argv[1])
+skills_root = pathlib.Path(sys.argv[2])
+sync_path = pathlib.Path(sys.argv[3])
+skills = json.loads(manifest_path.read_text())["skills"]
+commands = set()
+observed_skills = set()
+for skill in skills:
+    text = (skills_root / f"gsd-{skill}" / "SKILL.md").read_text()
+    if "execute-plan" in text:
+        raise SystemExit("retired execute-plan remains selected")
+    for declaration in re.findall(r'^python3 "\$SYNC_PY" (.+)$', text, re.MULTILINE):
+        prefix = []
+        for token in shlex.split(declaration):
+            if "<" in token or "[" in token:
+                break
+            if not re.fullmatch(r"[a-z][a-z0-9-]*", token):
+                raise SystemExit(f"unsafe selected command token: {token}")
+            prefix.append(token)
+        if not prefix:
+            raise SystemExit(f"missing selected command for {skill}")
+        commands.add(tuple(prefix))
+        observed_skills.add(skill)
+if observed_skills != set(skills):
+    raise SystemExit(f"selected command declarations incomplete: {sorted(observed_skills)}")
+for prefix in sorted(commands):
+    result = subprocess.run(
+        [sys.executable, str(sync_path), *prefix, "--help"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(f"selected command rejected: {' '.join(prefix)}")
+retired = subprocess.run(
+    [sys.executable, str(sync_path), "execute-plan", "--help"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+    check=False,
+)
+if retired.returncode == 0:
+    raise SystemExit("retired execute-plan was accepted")
+print(",".join(" ".join(prefix) for prefix in sorted(commands)))
+PY
+)" || fail "case24: selected installed CLI contract failed"
+[ -n "$COMMAND_PREFIXES" ] || fail "case24: no selected command prefixes were exercised"
+
+[ ! -e "$ACTUAL_LEGACY" ] && [ ! -L "$ACTUAL_LEGACY" ] \
+  || fail "case24: legacy generation-A state was not replaced"
+GENERATION_B_HASH="$(fixture_tree_hash "$ACTUAL_INSTALLED")"
+GENERATION_B_SELECTED="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT" "${SELECTED_PATHS[@]}")"
+EXPECTED_LEDGER="projection-v2 codex $GENERATION_B_HASH $GENERATION_B_SELECTED"
+[ "$(cat "$ACTUAL_LEDGER")" = "$EXPECTED_LEDGER" ] \
+  || fail "case24: shared v2 ledger is not the canonical generation-B row"
+[ "$GENERATION_A_HASH" != "$GENERATION_B_HASH" ] \
+  || fail "case24: generation A and B fixture hashes are identical"
+grep -q "$GENERATION_A_HASH" "$ACTUAL_LEDGER" \
+  && fail "case24: stale generation-A ledger row survived invalidation"
+[ "$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT/plain-user-skill")" = "$PLAIN_BEFORE" ] \
+  || fail "case24: plain user skill changed"
+[ "$(fixture_tree_hash "$ACTUAL_HOME/unrelated")" = "$UNRELATED_BEFORE" ] \
+  || fail "case24: unrelated bytes changed"
+[ "$(fixture_tree_hash "$ACTUAL_CLAUDE/skills")" = "$UNSELECTED_BEFORE" ] \
+  || fail "case24: unselected runtime or same-name user bytes changed"
+
+SELECTED_BEFORE_REPEAT="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT")"
+LEDGER_BEFORE_REPEAT="$(fixture_tree_hash "$(dirname "$ACTUAL_LEDGER")" \
+  "$(basename "$ACTUAL_LEDGER")")"
+(
+  cd "$ACTUAL_PROJECT" || exit 1
+  env TMPDIR="$REAL_TMP" HOME="$ACTUAL_HOME" GSD_HOME="$ACTUAL_HOME" \
+    CODEX_HOME="$ACTUAL_CODEX" CLAUDE_CONFIG_DIR="$ACTUAL_CLAUDE" \
+    CLAUDE_PLUGIN_ROOT="$REAL_PLUGIN_ROOT" GSD_RUNTIME=codex \
+    bash "$SCRIPT" beads
+) > "$REAL_HOOK_OUT" 2> "$REAL_HOOK_ERR"
+REAL_REPEAT_STATUS=$?
+[ "$REAL_REPEAT_STATUS" -eq 0 ] || fail "case24: real repeat exited $REAL_REPEAT_STATUS"
+[ -z "$(cat "$REAL_HOOK_OUT")" ] && [ -z "$(cat "$REAL_HOOK_ERR")" ] \
+  || fail "case24: real repeat was not silent"
+[ "$(wc -l < "$REAL_SPY_LOG")" -eq 4 ] \
+  || fail "case24: real repeat invoked a native writer"
+[ "$(tail -n 1 "$REAL_SPY_LOG")" = 'query skills-root codex --raw' ] \
+  || fail "case24: real repeat did more than validate its public destination"
+[ "$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT")" = "$SELECTED_BEFORE_REPEAT" ] \
+  || fail "case24: real repeat changed the selected tree"
+[ "$(fixture_tree_hash "$(dirname "$ACTUAL_LEDGER")" \
+  "$(basename "$ACTUAL_LEDGER")")" = "$LEDGER_BEFORE_REPEAT" ] \
+  || fail "case24: real repeat changed the shared ledger"
+
+EVIDENCE_ROOT="$ACTUAL_SKILLS_ROOT"
+rm -rf "$REAL_ROOT"
+[ ! -e "$REAL_ROOT" ] || fail "case24: bounded real scratch was not removed"
+SCRATCH=""
+pass "case24: floor=$FLOOR_SHA package=$FLOOR_PACKAGE current=$ACTIVE_IDENTITY_KEY public-root=$EVIDENCE_ROOT commands=$COMMAND_PREFIXES sibling=preserved oracle=matched no-skip scratch=clean"
 
 echo "ALL PASS"
 exit 0
