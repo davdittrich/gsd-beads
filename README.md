@@ -40,7 +40,7 @@ the single source of truth for task state, so no duplicated task-state bookkeepi
 
 - `bd` on `PATH`
 - Python 3 (standard library only)
-- gsd-core >= 1.6.0
+- gsd-core >= 1.10.0
 
 ## Install
 

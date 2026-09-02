@@ -82,6 +82,8 @@ fi
 exit $stub_status
 STUB
   chmod +x "$BIN_DIR/gsd-tools.cjs"
+  mkdir -p "$CLAUDE_CONFIG_DIR/gsd-core/bin"
+  cp -f "$BIN_DIR/gsd-tools.cjs" "$CLAUDE_CONFIG_DIR/gsd-core/bin/gsd-tools.cjs"
 
   STDOUT_FILE="$SCRATCH/stdout"
   STDERR_FILE="$SCRATCH/stderr"
@@ -95,7 +97,7 @@ teardown() {
 # capturing stdout/stderr to STDOUT_FILE/STDERR_FILE and STATUS.
 run_script() {
   HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
-    CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
+    CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="${GSD_RUNTIME:-}" \
     bash "$SCRIPT" "$1" >"$STDOUT_FILE" 2>"$STDERR_FILE"
   STATUS=$?
 }
@@ -136,16 +138,18 @@ grep -qx "capability set beads --runtime codex --scope global --config-dir $CODE
 [ -f "$STATE_FILE" ] || fail "case1: sidecar state file not created"
 pass "case1: first-run auto-install prints notice, installs once, writes sidecar"
 
-# Case 2: unchanged rerun -> completely silent, zero new invocations.
+# Case 2: unchanged rerun -> completely silent, zero native writer invocations.
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case2: exit status $STATUS, expected 0"
 [ -z "$(cat "$STDOUT_FILE")" ] || fail "case2: stdout not empty on unchanged rerun"
 [ -z "$(cat "$STDERR_FILE")" ] || fail "case2: stderr not empty on unchanged rerun"
-[ "$(wc -l < "$STUB_LOG")" -eq "$PREV_LOG_LINES" ] || fail "case2: install invoked on unchanged rerun"
-pass "case2: unchanged rerun is silent and invokes install zero times"
+[ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 1)) ] || fail "case2: unchanged rerun invoked a native writer"
+[ "$(tail -n 1 "$STUB_LOG")" = 'query skills-root codex --raw' ] || fail "case2: unchanged rerun did more than validate its destination"
+pass "case2: unchanged rerun is silent and invokes native writers zero times"
 
 # Case 3: bundle edit -> re-grant with a fresh notice.
+PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
 printf 'edit\n' >> "$BUNDLE_DIR/capability.json"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case3: exit status $STATUS, expected 0"
@@ -159,7 +163,9 @@ teardown
 
 ### Case 3b: a validated explicit runtime overrides plugin-owner fallback ###
 setup 0
-GSD_RUNTIME=claude run_script beads
+export GSD_RUNTIME=claude
+run_script beads
+unset GSD_RUNTIME
 grep -qx 'query skills-root claude --raw' "$STUB_LOG" \
   || fail "case3b: explicit Claude runtime did not select the Claude skills-root query"
 grep -qx "capability set beads --runtime claude --scope global --config-dir $CLAUDE_CONFIG_DIR" "$STUB_LOG" \
@@ -334,7 +340,8 @@ grep -qx "capability set beads --runtime codex --scope global --config-dir $CODE
 PROJECTED_TREE_BEFORE="$(find "$SKILLS_ROOT" -type f -exec cksum {} + | LC_ALL=C sort | cksum)"
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
 run_script beads
-[ "$(wc -l < "$STUB_LOG")" -eq "$PREV_LOG_LINES" ] || fail "case7: migrated sidecar was not idempotent"
+[ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 1)) ] || fail "case7: migrated sidecar invoked a native writer"
+[ "$(tail -n 1 "$STUB_LOG")" = 'query skills-root codex --raw' ] || fail "case7: migrated sidecar did more than validate its destination"
 [ "$PROJECTED_TREE_BEFORE" = "$(find "$SKILLS_ROOT" -type f -exec cksum {} + | LC_ALL=C sort | cksum)" ] \
   || fail "case7: repeated update changed the projected tree"
 
@@ -436,7 +443,7 @@ BUNDLE_DIR="$CUSTOM_PLUGIN/.gsd/capabilities/beads"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case11: exit status $STATUS, expected 0"
 [ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case11: unknown runtime invoked gsd-tools"
-grep -q 'cannot determine active runtime' "$STDERR_FILE" \
+grep -q 'runtime selection failed' "$STDERR_FILE" \
   || fail "case11: missing unknown-runtime diagnostic"
 pass "case11: unknown custom root fails closed without guessing a runtime"
 teardown

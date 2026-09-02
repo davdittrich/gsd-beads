@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # Vendored auto-install hook (D-05: vendored copy per plugin, not shared at
-# runtime -- see davdittrich/ponytail-everywhere's hooks/capability-auto-install.sh
-# for the byte-identical sibling copy, Phase 10.1 Plan 02).
+# runtime).
 #
 # Detects bundle drift via a whole-directory hash and re-grants the
 # capability at global ("user") scope on every SessionStart (D-01..D-03).
@@ -39,40 +38,93 @@ bundle_hash() {
   } | "${HASH_CMD[@]}" | awk '{print $1}'
 }
 
-# One sidecar file per capability id (Pitfall 4) so vendored copies in
-# different plugins cannot race or stomp each other's cached hash. Never
-# gsd-core's own .gsd-capabilities.json / ~/.gsd/consent.json -- those are
-# gsd-core-owned schemas this script must not write into.
-STATE_FILE="${GSD_HOME:-$HOME}/.gsd/capability-auto-install-$CAP_ID.hash"
+STATE_VERSION="projection-v1"
 
-OLD_HASH=""
-[ -r "$STATE_FILE" ] && OLD_HASH="$(cat "$STATE_FILE" 2>/dev/null)"
-NEW_HASH="$(bundle_hash)"
-
-# D-02 fast path: unchanged bundle exits silently, never spawns node.
-[ "$NEW_HASH" = "$OLD_HASH" ] && exit 0
-
-# gsd_tools() resolver, inlined verbatim from
-# davdittrich/ponytail-everywhere's hooks/gsd-tools.sh rather than sourced --
-# the root plugin ships no gsd-tools.sh, and an inline copy keeps this script
-# dependency-free within its own plugin (D-05).
-gsd_tools() {
-  if [ -z "${_GSD_TOOLS_ARGS_SET+x}" ]; then
-    _GSD_TOOLS_ARGS_SET=1
-    local _root
-    _root="$(git rev-parse --show-toplevel 2>/dev/null)"
-    if [ -n "$_root" ] && [ -f "$_root/gsd-core/bin/gsd-tools.cjs" ]; then
-      _GSD_TOOLS_ARGS=(node "$_root/gsd-core/bin/gsd-tools.cjs")
-    elif command -v gsd-tools >/dev/null 2>&1; then
-      _GSD_TOOLS_ARGS=(gsd-tools)
-    elif [ -f "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/gsd-tools.cjs" ]; then
-      _GSD_TOOLS_ARGS=(node "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/gsd-core/bin/gsd-tools.cjs")
+# Reconcile only the runtime that loaded this plugin. An explicit validated
+# runtime wins; otherwise the installed plugin cache must identify one owner.
+CODEX_CONFIG_ROOT="${CODEX_HOME:-$HOME/.codex}"
+CLAUDE_CONFIG_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+ACTIVE_RUNTIME="${GSD_RUNTIME:-}"
+case "$ACTIVE_RUNTIME" in
+  codex|claude) ;;
+  "")
+    CODEX_OWNER=0
+    CLAUDE_OWNER=0
+    [[ "$PLUGIN_ROOT/" == "$CODEX_CONFIG_ROOT"/plugins/* ]] && CODEX_OWNER=1
+    [[ "$PLUGIN_ROOT/" == "$CLAUDE_CONFIG_ROOT"/plugins/* ]] && CLAUDE_OWNER=1
+    if [ "$CODEX_OWNER" -eq 1 ] && [ "$CLAUDE_OWNER" -eq 0 ]; then
+      ACTIVE_RUNTIME="codex"
+    elif [ "$CODEX_OWNER" -eq 0 ] && [ "$CLAUDE_OWNER" -eq 1 ]; then
+      ACTIVE_RUNTIME="claude"
     else
-      _GSD_TOOLS_ARGS=()
+      echo "capability-auto-install: runtime selection failed for $CAP_ID; projection not recorded" >&2
+      exit 0
     fi
-  fi
-  [ "${#_GSD_TOOLS_ARGS[@]}" -gt 0 ] || return 127
-  "${_GSD_TOOLS_ARGS[@]}" "$@"
+    ;;
+  *)
+    echo "capability-auto-install: runtime selection failed for $CAP_ID; projection not recorded" >&2
+    exit 0
+    ;;
+esac
+
+case "$ACTIVE_RUNTIME" in
+  codex)
+    RUNTIME_CONFIG_DIR="$CODEX_CONFIG_ROOT"
+    EXPECTED_SKILLS_ROOT="$HOME/.agents/skills"
+    ;;
+  claude)
+    RUNTIME_CONFIG_DIR="$CLAUDE_CONFIG_ROOT"
+    EXPECTED_SKILLS_ROOT="$CLAUDE_CONFIG_ROOT/skills"
+    ;;
+esac
+
+# Use only the selected runtime's public CLI and skills-root query. This avoids
+# accidentally projecting through a repository checkout, PATH shim, or sibling
+# runtime installation.
+GSD_TOOLS="$RUNTIME_CONFIG_DIR/gsd-core/bin/gsd-tools.cjs"
+if [ ! -x "$GSD_TOOLS" ]; then
+  echo "capability-auto-install: gsd-tools resolution failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+  exit 0
+fi
+
+SKILLS_ROOT="$($GSD_TOOLS query skills-root "$ACTIVE_RUNTIME" --raw 2>/dev/null)"
+SKILLS_ROOT_STATUS=$?
+if [ "$SKILLS_ROOT_STATUS" -ne 0 ] || [ "$SKILLS_ROOT" != "$EXPECTED_SKILLS_ROOT" ]; then
+  echo "capability-auto-install: skills-root query failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+  exit 0
+fi
+
+gsd_tools() {
+  "$GSD_TOOLS" "$@"
+}
+
+# One sidecar per capability, with one line per runtime. A successful Codex
+# projection must not make Claude skip its own update, or vice versa. Legacy
+# raw-hash content matches no versioned line and is replaced on first success.
+STATE_FILE="${GSD_HOME:-$HOME}/.gsd/capability-auto-install-$CAP_ID.hash"
+NEW_HASH="$(bundle_hash)"
+NEW_STATE="$STATE_VERSION $ACTIVE_RUNTIME $NEW_HASH"
+if [ -r "$STATE_FILE" ] && grep -qxF "$NEW_STATE" "$STATE_FILE" 2>/dev/null; then
+  exit 0
+fi
+
+# Native surface application overwrites retained names before pruning. Guard
+# same-name collisions so only an absent destination or this capability's own
+# marker can reach that writer; unmarked user content remains untouched.
+guard_skill_ownership() {
+  local _skills_root _source _stem _dest _marker
+  _skills_root="$SKILLS_ROOT"
+  for _source in "$BUNDLE_DIR"/skills/*; do
+    [ -d "$_source" ] || continue
+    _stem="$(basename "$_source")"
+    [[ "$_stem" =~ ^[a-z][a-z0-9-]*$ ]] || return 1
+    _dest="$_skills_root/gsd-$_stem"
+    _marker="$_dest/.gsd-capability-skill"
+    if [ -e "$_dest" ] || [ -L "$_dest" ]; then
+      [ -d "$_dest" ] && [ ! -L "$_dest" ] || return 1
+      [ -f "$_marker" ] && [ "$(cat "$_marker" 2>/dev/null)" = "$CAP_ID" ] || return 1
+    fi
+  done
 }
 
 # Spec is always the absolute bundle dir (Pattern 2) -- a relative spec would
@@ -82,9 +134,27 @@ gsd_tools capability install "$BUNDLE_DIR" --scope global --yes >/dev/null 2>&1
 INSTALL_STATUS=$?
 
 if [ "$INSTALL_STATUS" -eq 0 ]; then
-  printf 'Auto-installed capability: %s (user scope)\n' "$CAP_ID"
-  mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null
-  printf '%s' "$NEW_HASH" > "$STATE_FILE" 2>/dev/null
+  guard_skill_ownership && \
+    GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --runtime "$ACTIVE_RUNTIME" --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1
+  RECONCILE_STATUS=$?
+  if [ "$RECONCILE_STATUS" -eq 0 ]; then
+    mkdir -p "$(dirname "$STATE_FILE")" 2>/dev/null
+    STATE_TMP="$STATE_FILE.$$"
+    {
+      [ ! -r "$STATE_FILE" ] || awk -v runtime="$ACTIVE_RUNTIME" \
+        '$1 == "projection-v1" && $2 != runtime { print }' "$STATE_FILE"
+      printf '%s\n' "$NEW_STATE"
+    } > "$STATE_TMP" 2>/dev/null && mv -f "$STATE_TMP" "$STATE_FILE" 2>/dev/null
+    STATE_STATUS=$?
+    if [ "$STATE_STATUS" -eq 0 ]; then
+      printf 'Auto-installed capability: %s (user scope)\n' "$CAP_ID"
+    else
+      rm -f "$STATE_TMP" 2>/dev/null
+      echo "capability-auto-install: state update failed for $CAP_ID (exit $STATE_STATUS)" >&2
+    fi
+  else
+    echo "capability-auto-install: skill projection reconciliation failed for $CAP_ID (exit $RECONCILE_STATUS)" >&2
+  fi
 elif [ "$INSTALL_STATUS" -eq 127 ]; then
   # D-04: deliberate divergence from this repo's usual silent `|| true`
   # fail-open convention -- this path is unattended, so silence would leave

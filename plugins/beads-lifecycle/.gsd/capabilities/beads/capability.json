@@ -15,7 +15,7 @@
   "tier": "full",
   "requires": [],
   "engines": {
-    "gsd": ">=1.6.0"
+    "gsd": ">=1.10.0"
   },
   "runtimeCompat": {
     "supported": [
