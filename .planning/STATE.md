@@ -1,19 +1,19 @@
 ---
 gsd_state_version: 1.0
 milestone: v1.4
-current_phase: 19
-current_phase_name: Native Resolver Contract and Failure Boundary
-status: executing
-stopped_at: Phase 19 planned — ready to execute
-last_updated: "2026-08-30T23:00:51.793Z"
-last_activity: 2026-08-31
-last_activity_desc: Phase 19 planned with 1 plan
-state_head: 35b7e6859dc01cb56393327f614712eceaf7c4c1
+current_phase: 22
+current_phase_name: Capability Projection Reconciliation
+status: verifying
+stopped_at: Completed 22-01-PLAN.md
+last_updated: "2026-09-02T22:09:04.113Z"
+last_activity: 2026-09-02
+last_activity_desc: Phase 22 plan complete — ready for verification
+state_head: 887e67132826b45ee60efb75a190c111dcabae26
 progress:
-  total_phases: 3
-  completed_phases: 0
-  total_plans: 1
-  completed_plans: 0
+  total_phases: 4
+  completed_phases: 3
+  total_plans: 5
+  completed_plans: 5
 milestone_name: Native Task Content Resolution
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for
 task state; zero duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 19 — Native Resolver Contract and Failure Boundary
+**Current focus:** Phase 22 — Capability Projection Reconciliation
 
 ## Current Position
 
-Phase: 19 (Native Resolver Contract and Failure Boundary) — READY TO EXECUTE
-Plan: 0 of 1 in current phase
-Status: Ready to execute
-Last activity: 2026-08-31 — Phase 19 planned with 1 plan
+Phase: 22 (Capability Projection Reconciliation) — READY FOR VERIFICATION
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-09-02 — Phase 22 plan complete — ready for verification
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -45,6 +45,11 @@ Progress: [░░░░░░░░░░] 0%
 - Total execution time: -
 
 Historical baseline: `.planning/STATE-ARCHIVE.md`
+**Per-Plan Metrics:**
+
+| Plan | Duration | Tasks | Files |
+|------|----------|-------|-------|
+| Phase 22 P01 | 115 min | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -56,6 +61,13 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
   `auto` and `tracer` tasks; checkpoints remain unchanged.
 - Phase 21 removes Patch 2 only after installed positive and negative proofs;
   Patch 1 remains installed and independently verified.
+- [Phase 22]: Keep gsd-core as the sole installed and selected-skill writer; the hook owns only guards, serialization, observation, and receipts.
+- [Phase 22]: Certify the 1.10.0 floor from immutable official tag/package metadata while proving live behavior against active/current 1.12.0.
+- [Phase 22]: Bind runtime receipts to installed generation and selected fingerprint under one atomic PID:start-identity symlink lock.
+
+### Roadmap Evolution
+
+- Phase 22 added: Capability Projection Reconciliation
 
 ### Pending Todos
 
@@ -75,9 +87,9 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-08-30T21:09:49.659Z
-Stopped at: Phase 19 planned — ready to execute
-Resume file: .planning/phases/19-native-resolver-contract-and-failure-boundary/19-CONTEXT.md
+Last session: 2026-09-02T22:09:04.079Z
+Stopped at: Completed 22-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

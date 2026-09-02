@@ -83,6 +83,7 @@ installed path before removing Patch 2 while preserving Patch 1.
 **Plans:** 1 plan
 
 Plans:
+
 - [ ] 21-01-PLAN.md — Prove the active global resolver against live Beads, then retire Patch 2 transactionally while preserving Patch 1.
 
 ## Progress
@@ -94,3 +95,23 @@ Plans:
 | 19. Native Resolver Contract and Failure Boundary | 0/TBD | Not started | - |
 | 20. Additive Identity Migration and Compatibility | 1/1 | Complete    | 2026-09-01 |
 | 21. Installed Cutover and Patch 2 Retirement | 0/TBD | Not started | - |
+
+### Phase 22: Capability Projection Reconciliation
+
+**Goal:** Installer updates reconcile every selected runtime skill projection with the one active global Beads capability generation without touching user-owned or unrelated capability content.
+**Requirements:** GitHub issue #9
+**Depends on:** Phase 21
+**Success Criteria** (what must be TRUE):
+
+1. A legacy marker-owned stale projection is replaced through gsd-core's native
+   installed-capability surface, and every selected command is accepted by the
+   active CLI; retired `execute-plan` is absent.
+2. Projection receipts are bound to the active global capability generation,
+   serialized across runtimes, and repeated updates are byte-idempotent.
+3. User-owned skills, non-GSD skills, genuinely installed other capabilities,
+   and unrelated runtime state remain intact.
+**Plans:** 1/1 plans executed
+
+Plans:
+
+- [x] 22-01-PLAN.md
