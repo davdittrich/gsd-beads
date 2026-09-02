@@ -222,8 +222,9 @@ Hook participants serialize ledger observation through publication with one syml
 complete target is `PID:process-start-identity`. Identity comes from `/proc/$pid/stat` field 22
 after the final process-name parenthesis, with a guarded single-value `ps -o lstart=` fallback.
 Unavailable self identity prevents acquisition; an unvalidated or matching live owner is treated
-as busy and retried by a later SessionStart. The owner removes the lock only while its complete
-token still matches.
+as busy and retried by a later SessionStart. A dead, reused, or malformed owner permits one atomic
+rename to a token-checked quarantine and one reacquire attempt; a lost race preserves the rival
+token and quarantine. The owner removes the lock only while its complete token still matches.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.

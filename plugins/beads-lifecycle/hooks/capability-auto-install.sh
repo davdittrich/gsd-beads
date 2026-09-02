@@ -363,15 +363,52 @@ if ln -s "$OWNER_TOKEN" "$LOCK_PATH" 2>/dev/null; then
   LOCK_OWNED=1
 else
   CONTENDER_TOKEN="$(readlink "$LOCK_PATH" 2>/dev/null)"
+  STALE_LOCK=0
   if [[ "$CONTENDER_TOKEN" =~ ^([1-9][0-9]*):(.*)$ ]]; then
-    CONTENDER_IDENTITY="$(process_identity "${BASH_REMATCH[1]}")"
-    if [ "$?" -eq 0 ] && [ "$CONTENDER_IDENTITY" = "${BASH_REMATCH[2]}" ]; then
+    CONTENDER_PID="${BASH_REMATCH[1]}"
+    RECORDED_IDENTITY="${BASH_REMATCH[2]}"
+    CONTENDER_IDENTITY="$(process_identity "$CONTENDER_PID")"
+    CONTENDER_STATUS=$?
+    if [ "$CONTENDER_STATUS" -eq 0 ] && [ "$CONTENDER_IDENTITY" = "$RECORDED_IDENTITY" ]; then
+      echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
+      exit 0
+    elif [ "$CONTENDER_STATUS" -eq 0 ]; then
+      STALE_LOCK=1
+    elif [ "${GSD_AUTO_INSTALL_PROC_ROOT:-/proc}" = "/proc" ] \
+      && [ ! -e "/proc/$CONTENDER_PID" ]; then
+      STALE_LOCK=1
+    elif kill -0 "$CONTENDER_PID" 2>/dev/null; then
+      echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
+      exit 0
+    else
       echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
       exit 0
     fi
+  else
+    STALE_LOCK=1
   fi
-  echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
-  exit 0
+
+  QUARANTINE="$LOCK_PATH.stale.$$.$RANDOM"
+  if [ "$STALE_LOCK" -ne 1 ] || ! mv -f "$LOCK_PATH" "$QUARANTINE" 2>/dev/null; then
+    echo "capability-auto-install: projection lock recovery failed for $CAP_ID; projection not recorded" >&2
+    exit 0
+  fi
+  QUARANTINED_TOKEN="$(readlink "$QUARANTINE" 2>/dev/null)"
+  if [ "$QUARANTINED_TOKEN" != "$CONTENDER_TOKEN" ]; then
+    echo "capability-auto-install: projection lock recovery failed for $CAP_ID; projection not recorded" >&2
+    exit 0
+  fi
+  if ! ln -s "$OWNER_TOKEN" "$LOCK_PATH" 2>/dev/null; then
+    echo "capability-auto-install: projection lock recovery failed for $CAP_ID; projection not recorded" >&2
+    exit 0
+  fi
+  LOCK_OWNED=1
+  if [ "$(readlink "$QUARANTINE" 2>/dev/null)" != "$CONTENDER_TOKEN" ]; then
+    release_projection_lock
+    echo "capability-auto-install: projection lock recovery failed for $CAP_ID; projection not recorded" >&2
+    exit 0
+  fi
+  rm -f "$QUARANTINE" 2>/dev/null
 fi
 trap 'release_projection_lock' EXIT
 trap 'exit 0' HUP INT TERM

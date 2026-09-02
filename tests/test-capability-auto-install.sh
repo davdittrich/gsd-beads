@@ -710,9 +710,13 @@ IFS= read -r REPORTED_PID < "$LIVE_FIFO"
 [ "$REPORTED_PID" = "$UNRESOLVED_PID" ] || fail "case19: live pid handoff mismatch"
 mkdir -p "$(dirname "$STATE_FILE")"
 ln -s "$UNRESOLVED_PID:unknown-start" "$STATE_FILE.lock"
-cat > "$TEST_BIN/ps" <<'STUB'
+cat > "$TEST_BIN/ps" <<STUB
 #!/usr/bin/env bash
-printf '%s\n' first second
+if [[ "\$*" == *"-p $UNRESOLVED_PID"* ]]; then
+  printf '%s\n' first second
+else
+  printf '%s\n' 'Mon Sep  2 20:00:00 2026'
+fi
 STUB
 chmod +x "$TEST_BIN/ps"
 GSD_AUTO_INSTALL_PROC_ROOT="$SCRATCH/no-proc"
@@ -736,7 +740,7 @@ mkdir -p "$(dirname "$STATE_FILE")"
 ln -s 'malformed-owner-token' "$STATE_FILE.lock"
 cat > "$TEST_BIN/mv" <<STUB
 #!/usr/bin/env bash
-if [ "\$1" = "$STATE_FILE.lock" ]; then
+if [ "\$2" = "$STATE_FILE.lock" ]; then
   rm -f "$STATE_FILE.lock"
   ln -s 'replacement-owner-token' "$STATE_FILE.lock"
 fi
@@ -751,6 +755,32 @@ RACE_QUARANTINE="$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*'
 [ -L "$RACE_QUARANTINE" ] && [ "$(readlink "$RACE_QUARANTINE")" = replacement-owner-token ] \
   || fail "case20: replacement token was not preserved in quarantine"
 pass "case20: token mismatch preserves replacement quarantine and stops"
+teardown
+
+### Case 21: failed single reacquire preserves the rival and stale quarantine ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+ln -s 'malformed-owner-token' "$STATE_FILE.lock"
+cat > "$TEST_BIN/ln" <<STUB
+#!/usr/bin/env bash
+if [ "\$3" = "$STATE_FILE.lock" ] && [ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ]; then
+  /usr/bin/ln -s 'rival-owner-token' "$STATE_FILE.lock"
+  exit 1
+fi
+exec /usr/bin/ln "\$@"
+STUB
+chmod +x "$TEST_BIN/ln"
+run_script beads
+grep -q 'projection lock recovery failed' "$STDERR_FILE" \
+  || fail "case21: failed reacquire did not report bounded recovery failure"
+[ "$(readlink "$STATE_FILE.lock")" = rival-owner-token ] \
+  || fail "case21: failed reacquire removed the rival owner"
+RIVAL_QUARANTINE="$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*' -print)"
+[ -L "$RIVAL_QUARANTINE" ] && [ "$(readlink "$RIVAL_QUARANTINE")" = malformed-owner-token ] \
+  || fail "case21: failed reacquire removed the stale quarantine"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case21: failed reacquire reached a native writer"
+pass "case21: one failed reacquire preserves rival and quarantine state"
 teardown
 
 echo "ALL PASS"
