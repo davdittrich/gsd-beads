@@ -84,6 +84,8 @@ STUB
 
   STDOUT_FILE="$SCRATCH/stdout"
   STDERR_FILE="$SCRATCH/stderr"
+  TEST_PYTHONPATH=""
+  R1_LOCK_SPY_LOG=""
 }
 
 seed_selected() {
@@ -148,7 +150,8 @@ teardown() {
 run_script() {
   HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="${GSD_RUNTIME:-}" \
-    GSD_AUTO_INSTALL_PROC_ROOT="${GSD_AUTO_INSTALL_PROC_ROOT:-}" PATH="$TEST_BIN:/usr/bin:/bin" \
+    PYTHONPATH="${TEST_PYTHONPATH:-}" R1_LOCK_SPY_LOG="${R1_LOCK_SPY_LOG:-}" \
+    PATH="$TEST_BIN:/usr/bin:/bin" \
     bash "$SCRIPT" "$1" >"$STDOUT_FILE" 2>"$STDERR_FILE"
   STATUS=$?
 }
@@ -563,85 +566,90 @@ grep -q 'runtime selection failed' "$STDERR_FILE" \
 pass "case11: unknown custom root fails closed without guessing a runtime"
 teardown
 
-### Case 12: missing procfs uses one guarded nonempty ps identity ###
+### Case 12: acquisition is one kernel flock inherited across same-process re-exec ###
 setup 0
 seed_selected "$SKILLS_ROOT"
-cat > "$TEST_BIN/ps" <<'STUB'
-#!/usr/bin/env bash
-printf '%s\n' 'Mon Sep  2 20:00:00 2026'
-STUB
-chmod +x "$TEST_BIN/ps"
-GSD_AUTO_INSTALL_PROC_ROOT="$SCRATCH/no-proc"
-run_script beads
-unset GSD_AUTO_INSTALL_PROC_ROOT
-[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
-  || fail "case12: guarded ps fallback did not acquire and complete"
-[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
-  || fail "case12: owner-matched cleanup left the lock"
-pass "case12: procfs absence uses the guarded single-value ps fallback"
-teardown
-
-### Case 13: unusable procfs and multi-value ps fail before acquisition ###
-setup 0
-seed_selected "$SKILLS_ROOT"
-cat > "$TEST_BIN/ps" <<'STUB'
-#!/usr/bin/env bash
-printf '%s\n' first second
-STUB
-chmod +x "$TEST_BIN/ps"
-GSD_AUTO_INSTALL_PROC_ROOT="$SCRATCH/no-proc"
-run_script beads
-unset GSD_AUTO_INSTALL_PROC_ROOT
-grep -q 'process identity unavailable' "$STDERR_FILE" \
-  || fail "case13: missing identity diagnostic"
-[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case13: identity failure reached a native writer"
-[ ! -e "$STATE_FILE" ] && [ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
-  || fail "case13: identity failure mutated lock or ledger state"
-pass "case13: neither identity source prevents lock and native mutation"
-teardown
-
-### Case 14: final-parenthesis proc identity keeps a live odd-name owner busy ###
-setup 0
-seed_selected "$SKILLS_ROOT"
-IDENTITY_FIFO="$SCRATCH/identity.fifo"
-mkfifo "$IDENTITY_FIFO"
-python3 - "$IDENTITY_FIFO" <<'PY' &
-import ctypes
-import os
-import signal
-import sys
-
-ctypes.CDLL(None).prctl(15, b"name ) with )", 0, 0, 0)
-with open(sys.argv[1], "w") as stream:
-    stream.write(f"{os.getpid()}\n")
-signal.pause()
-PY
-ODD_PID=$!
-IFS= read -r REPORTED_ODD_PID < "$IDENTITY_FIFO"
-[ "$REPORTED_ODD_PID" = "$ODD_PID" ] || fail "case14: holder pid handoff mismatch"
-ODD_IDENTITY="$(python3 - "$ODD_PID" <<'PY'
-import pathlib
-import sys
-
-text = pathlib.Path(f"/proc/{sys.argv[1]}/stat").read_text()
-print(text.rsplit(") ", 1)[1].split()[19])
-PY
-)"
 mkdir -p "$(dirname "$STATE_FILE")"
-ln -s "$ODD_PID:$ODD_IDENTITY" "$STATE_FILE.lock"
+: > "$STATE_FILE.lock"
+SPY_DIR="$SCRATCH/lock-spy"
+mkdir -p "$SPY_DIR"
+cat > "$SPY_DIR/sitecustomize.py" <<'PY'
+import fcntl
+import os
+
+_log_path = os.environ["R1_LOCK_SPY_LOG"]
+_real_flock = fcntl.flock
+_real_set_inheritable = os.set_inheritable
+_real_execvpe = os.execvpe
+
+def _append(value):
+    with open(_log_path, "a", encoding="utf-8") as stream:
+        stream.write(value + "\n")
+
+def _flock(fd, operation):
+    _append(f"flock:{operation}")
+    return _real_flock(fd, operation)
+
+def _set_inheritable(fd, inheritable):
+    _append(f"inheritable:{int(inheritable)}")
+    return _real_set_inheritable(fd, inheritable)
+
+def _execvpe(file, args, env):
+    _append(f"execvpe:{file}")
+    return _real_execvpe(file, args, env)
+
+fcntl.flock = _flock
+os.set_inheritable = _set_inheritable
+os.execvpe = _execvpe
+PY
+R1_LOCK_SPY_LOG="$SCRATCH/lock-spy.log"
+TEST_PYTHONPATH="$SPY_DIR"
 run_script beads
-grep -q 'projection transaction busy' "$STDERR_FILE" \
-  || fail "case14: matching odd-name owner was not treated as live"
-[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case14: live owner contention reached a native writer"
-[ "$(readlink "$STATE_FILE.lock")" = "$ODD_PID:$ODD_IDENTITY" ] \
-  || fail "case14: contender changed the live owner token"
-kill "$ODD_PID"
-wait "$ODD_PID" 2>/dev/null || true
-rm -f "$STATE_FILE.lock"
-pass "case14: procfs identity parses field 22 after the final parenthesis"
+[ "$STATUS" -eq 0 ] || fail "case12: exit status $STATUS, expected 0"
+[ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case12: lock path is not a persistent regular file"
+[ "$(grep -cx 'flock:6' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
+  || fail "case12: acquisition did not perform exactly one nonblocking exclusive flock"
+[ "$(grep -cx 'inheritable:1' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
+  || fail "case12: acquired descriptor was not made inheritable once"
+[ "$(grep -cx 'execvpe:bash' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
+  || fail "case12: acquisition did not re-exec the hook in the same process"
+pass "case12: one kernel flock spans same-process hook re-exec"
 teardown
 
-### Case 15: one complete symlink token serializes cross-runtime hook writers ###
+### Case 13: symlink lock targets fail closed without native writes ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+LOCK_SENTINEL="$SCRATCH/lock-sentinel"
+printf '%s\n' preserved > "$LOCK_SENTINEL"
+ln -s "$LOCK_SENTINEL" "$STATE_FILE.lock"
+run_script beads
+[ "$STATUS" -eq 0 ] || fail "case13: exit status $STATUS, expected 0"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case13: unsafe lock emitted stdout"
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: projection lock failed for beads; projection not recorded' ] \
+  || fail "case13: unsafe symlink diagnostic was not fixed and bounded"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case13: unsafe lock reached a native writer"
+[ -L "$STATE_FILE.lock" ] && [ "$(cat "$LOCK_SENTINEL")" = preserved ] \
+  || fail "case13: unsafe lock target was changed"
+pass "case13: symlink lock targets fail closed"
+teardown
+
+### Case 14: non-regular lock targets fail closed without native writes ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$STATE_FILE.lock"
+run_script beads
+[ "$STATUS" -eq 0 ] || fail "case14: exit status $STATUS, expected 0"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case14: unsafe lock emitted stdout"
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: projection lock failed for beads; projection not recorded' ] \
+  || fail "case14: non-regular lock diagnostic was not fixed and bounded"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case14: unsafe lock reached a native writer"
+[ -d "$STATE_FILE.lock" ] || fail "case14: unsafe lock directory was changed"
+pass "case14: non-regular lock targets fail closed"
+teardown
+
+### Case 15: one regular kernel lock serializes cross-runtime hook writers ###
 setup 0
 seed_selected "$SKILLS_ROOT"
 seed_selected "$CLAUDE_SKILLS_ROOT"
@@ -667,162 +675,87 @@ HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" 
 FIRST_HOOK_PID=$!
 IFS= read -r READY_SIGNAL < "$READY_FIFO"
 [ "$READY_SIGNAL" = ready ] || fail "case15: first hook did not reach the deterministic rendezvous"
-[ -L "$STATE_FILE.lock" ] || fail "case15: acquisition did not atomically publish a symlink token"
-case "$(readlink "$STATE_FILE.lock")" in
-  [0-9]*:*) ;;
-  *) fail "case15: lock exposed an incomplete owner token" ;;
-esac
+[ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case15: live owner did not hold a regular lock file"
 WRITERS_BEFORE="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
 export GSD_RUNTIME=claude
 run_script beads
 unset GSD_RUNTIME
-grep -q 'projection transaction busy' "$STDERR_FILE" \
-  || fail "case15: cross-runtime contender was not bounded by the shared lock"
+[ "$STATUS" -eq 0 ] || fail "case15: contender exit status $STATUS, expected 0"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case15: contender emitted stdout"
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: projection transaction busy for beads; projection not recorded' ] \
+  || fail "case15: contender diagnostic was not fixed and bounded"
 [ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq "$WRITERS_BEFORE" ] \
   || fail "case15: live contender reached a native writer"
 printf '%s\n' release > "$RELEASE_FIFO"
 wait "$FIRST_HOOK_PID"
-[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
-  || fail "case15: completed owner did not release its matching token"
+[ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case15: completed owner did not preserve the regular lock inode"
 run_script beads
 [ -z "$(cat "$STDOUT_FILE")" ] && [ -z "$(cat "$STDERR_FILE")" ] \
   || fail "case15: later invocation did not converge silently"
-pass "case15: live hook ownership serializes runtime participants without polling"
+pass "case15: kernel lock serializes runtime participants without polling"
 teardown
 
-### Case 16: a positively dead owner is quarantined and recovered once ###
+### Case 16: SIGKILL releases the inherited hook lock without stale recovery ###
 setup 0
 seed_selected "$SKILLS_ROOT"
-mkdir -p "$(dirname "$STATE_FILE")"
-ln -s '99999999:dead-start' "$STATE_FILE.lock"
+CRASH_READY_FIFO="$SCRATCH/crash-ready.fifo"
+CRASH_RELEASE_FIFO="$SCRATCH/crash-release.fifo"
+CRASH_DONE_FIFO="$SCRATCH/crash-done.fifo"
+CRASH_ONCE="$SCRATCH/crash-once"
+mkfifo "$CRASH_READY_FIFO" "$CRASH_RELEASE_FIFO" "$CRASH_DONE_FIFO"
+cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$STUB_LOG"
+if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
+if [ "\$*" = 'capability install $BUNDLE_DIR --scope global --yes' ] && [ ! -e "$CRASH_ONCE" ]; then
+  : > "$CRASH_ONCE"
+  printf '%s\n' ready > "$CRASH_READY_FIFO"
+  IFS= read -r _release < "$CRASH_RELEASE_FIFO"
+  printf '%s\n' done > "$CRASH_DONE_FIFO"
+fi
+exit 0
+STUB
+chmod +x "$BIN_DIR/gsd-tools.cjs"
+HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
+  PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads >"$SCRATCH/crash.out" 2>"$SCRATCH/crash.err" &
+CRASH_HOOK_PID=$!
+IFS= read -r CRASH_READY < "$CRASH_READY_FIFO"
+[ "$CRASH_READY" = ready ] || fail "case16: holder did not reach the deterministic rendezvous"
+kill -KILL "$CRASH_HOOK_PID"
+wait "$CRASH_HOOK_PID" 2>/dev/null || true
 run_script beads
+[ "$STATUS" -eq 0 ] || fail "case16: invocation after SIGKILL exited $STATUS"
 [ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
-  || fail "case16: dead owner did not recover"
-[ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq 2 ] \
-  || fail "case16: dead-owner recovery did not invoke each native writer exactly once"
-[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
-  || fail "case16: recovered transaction left a lock"
+  || fail "case16: kernel did not release the hook lock after SIGKILL"
+printf '%s\n' release > "$CRASH_RELEASE_FIFO"
+IFS= read -r CRASH_DONE < "$CRASH_DONE_FIFO"
+[ "$CRASH_DONE" = done ] || fail "case16: orphaned stub did not finish"
+[ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
+  || fail "case16: post-crash lock path is not a persistent regular file"
 [ -z "$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*' -print)" ] \
-  || fail "case16: recovered transaction left its owned quarantine"
-pass "case16: positively dead ownership recovers through one bounded takeover"
+  || fail "case16: crash path created stale recovery artifacts"
+pass "case16: SIGKILL releases the hook lock without stale recovery"
 teardown
 
-### Case 17: a reused live PID with mismatched identity is stale ###
+### Case 17: hostile Python/helper failure emits one fixed lock diagnostic ###
 setup 0
 seed_selected "$SKILLS_ROOT"
-mkdir -p "$(dirname "$STATE_FILE")"
-ln -s "$$:definitely-not-this-process-start" "$STATE_FILE.lock"
-run_script beads
-[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
-  || fail "case17: mismatched live identity did not recover"
-[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
-  || fail "case17: reused-PID recovery left a lock"
-pass "case17: resolved start-identity mismatch permits one takeover"
-teardown
-
-### Case 18: a malformed complete token is stale ###
-setup 0
-seed_selected "$SKILLS_ROOT"
-mkdir -p "$(dirname "$STATE_FILE")"
-ln -s 'malformed-owner-token' "$STATE_FILE.lock"
-run_script beads
-[ "$(cat "$STDOUT_FILE")" = 'Auto-installed capability: beads (user scope)' ] \
-  || fail "case18: malformed token did not recover"
-[ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
-  || fail "case18: malformed-token recovery left a lock"
-pass "case18: malformed ownership permits one bounded takeover"
-teardown
-
-### Case 19: an unresolvable existing live identity is busy, never stale ###
-setup 0
-seed_selected "$SKILLS_ROOT"
-LIVE_FIFO="$SCRATCH/live.fifo"
-mkfifo "$LIVE_FIFO"
-python3 - "$LIVE_FIFO" <<'PY' &
-import os
-import signal
-import sys
-
-with open(sys.argv[1], "w") as stream:
-    stream.write(f"{os.getpid()}\n")
-signal.pause()
-PY
-UNRESOLVED_PID=$!
-IFS= read -r REPORTED_PID < "$LIVE_FIFO"
-[ "$REPORTED_PID" = "$UNRESOLVED_PID" ] || fail "case19: live pid handoff mismatch"
-mkdir -p "$(dirname "$STATE_FILE")"
-ln -s "$UNRESOLVED_PID:unknown-start" "$STATE_FILE.lock"
-cat > "$TEST_BIN/ps" <<STUB
+cat > "$TEST_BIN/python3" <<'STUB'
 #!/usr/bin/env bash
-if [[ "\$*" == *"-p $UNRESOLVED_PID"* ]]; then
-  printf '%s\n' first second
-else
-  printf '%s\n' 'Mon Sep  2 20:00:00 2026'
-fi
+printf '%s\n' 'Traceback: hostile helper detail' '/secret/helper/path' >&2
+exit 77
 STUB
-chmod +x "$TEST_BIN/ps"
-GSD_AUTO_INSTALL_PROC_ROOT="$SCRATCH/no-proc"
+chmod +x "$TEST_BIN/python3"
 run_script beads
-unset GSD_AUTO_INSTALL_PROC_ROOT
-grep -q 'projection transaction busy' "$STDERR_FILE" \
-  || fail "case19: unresolvable live identity was not treated as busy"
-[ "$(readlink "$STATE_FILE.lock")" = "$UNRESOLVED_PID:unknown-start" ] \
-  || fail "case19: unresolvable live owner was stolen"
-[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case19: unresolvable owner reached a native writer"
-kill "$UNRESOLVED_PID"
-wait "$UNRESOLVED_PID" 2>/dev/null || true
-rm -f "$STATE_FILE.lock"
-pass "case19: unavailable contender identity preserves the live token"
-teardown
-
-### Case 20: replacement between observation and rename is preserved ###
-setup 0
-seed_selected "$SKILLS_ROOT"
-mkdir -p "$(dirname "$STATE_FILE")"
-ln -s 'malformed-owner-token' "$STATE_FILE.lock"
-cat > "$TEST_BIN/mv" <<STUB
-#!/usr/bin/env bash
-if [ "\$2" = "$STATE_FILE.lock" ]; then
-  rm -f "$STATE_FILE.lock"
-  ln -s 'replacement-owner-token' "$STATE_FILE.lock"
-fi
-exec /usr/bin/mv "\$@"
-STUB
-chmod +x "$TEST_BIN/mv"
-run_script beads
-grep -q 'projection lock recovery failed' "$STDERR_FILE" \
-  || fail "case20: replacement race did not report bounded recovery failure"
-[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case20: replacement race reached a native writer"
-RACE_QUARANTINE="$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*' -print)"
-[ -L "$RACE_QUARANTINE" ] && [ "$(readlink "$RACE_QUARANTINE")" = replacement-owner-token ] \
-  || fail "case20: replacement token was not preserved in quarantine"
-pass "case20: token mismatch preserves replacement quarantine and stops"
-teardown
-
-### Case 21: failed single reacquire preserves the rival and stale quarantine ###
-setup 0
-seed_selected "$SKILLS_ROOT"
-mkdir -p "$(dirname "$STATE_FILE")"
-ln -s 'malformed-owner-token' "$STATE_FILE.lock"
-cat > "$TEST_BIN/ln" <<STUB
-#!/usr/bin/env bash
-if [ "\$3" = "$STATE_FILE.lock" ] && [ ! -e "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ]; then
-  /usr/bin/ln -s 'rival-owner-token' "$STATE_FILE.lock"
-  exit 1
-fi
-exec /usr/bin/ln "\$@"
-STUB
-chmod +x "$TEST_BIN/ln"
-run_script beads
-grep -q 'projection lock recovery failed' "$STDERR_FILE" \
-  || fail "case21: failed reacquire did not report bounded recovery failure"
-[ "$(readlink "$STATE_FILE.lock")" = rival-owner-token ] \
-  || fail "case21: failed reacquire removed the rival owner"
-RIVAL_QUARANTINE="$(find "$(dirname "$STATE_FILE")" -maxdepth 1 -name '*.stale.*' -print)"
-[ -L "$RIVAL_QUARANTINE" ] && [ "$(readlink "$RIVAL_QUARANTINE")" = malformed-owner-token ] \
-  || fail "case21: failed reacquire removed the stale quarantine"
-[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case21: failed reacquire reached a native writer"
-pass "case21: one failed reacquire preserves rival and quarantine state"
+[ "$STATUS" -eq 0 ] || fail "case17: exit status $STATUS, expected 0"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case17: hostile helper emitted stdout"
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: projection lock failed for beads; projection not recorded' ] \
+  || fail "case17: hostile helper detail escaped the fixed diagnostic"
+[ "$(wc -l < "$STUB_LOG")" -eq 1 ] || fail "case17: lock helper failure reached a native writer"
+pass "case17: hostile lock-helper output is bounded"
 teardown
 
 install_fingerprint_rendezvous_python() {
