@@ -1187,8 +1187,13 @@ wait "$AFTER_FINAL_HOOK_PID"
   || fail "case23b: after-observation publication did not complete"
 [ -z "$(cat "$SCRATCH/after-final.err")" ] \
   || fail "case23b: after-observation publication emitted stderr"
-STALE_LEDGER="$(cat "$STATE_FILE")"
+STALE_LEDGER_FINGERPRINT="$(awk '{print $4}' "$STATE_FILE")"
+MUTATED_FINGERPRINT="$(fixture_tree_hash "$SKILLS_ROOT" \
+  gsd-beads-recall gsd-beads-status gsd-beads-sync gsd-beads-migrate-todos)"
+[ "$STALE_LEDGER_FINGERPRINT" != "$MUTATED_FINGERPRINT" ] \
+  || fail "case23b: post-observation mutation did not invalidate the published row"
 WRITERS_BEFORE="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
+REPLACES_BEFORE_REPAIR="$(grep -c '^replace' "$R2_PUBLISH_SPY_LOG")"
 R2_REPLACE_READY=""
 R2_REPLACE_RELEASE=""
 run_script beads
@@ -1198,14 +1203,21 @@ run_script beads
   || fail "case23b: next SessionStart did not invoke both native writers"
 cmp -s "$BUNDLE_DIR/skills/beads-status/SKILL.md" "$SKILLS_ROOT/gsd-beads-status/SKILL.md" \
   || fail "case23b: next SessionStart did not restore selected bytes"
-[ "$(cat "$STATE_FILE")" != "$STALE_LEDGER" ] \
-  || fail "case23b: next SessionStart did not replace the stale receipt"
+[ "$(grep -c '^replace' "$R2_PUBLISH_SPY_LOG")" -eq $((REPLACES_BEFORE_REPAIR + 1)) ] \
+  || fail "case23b: next SessionStart did not republish the repaired receipt"
+REPAIRED_FINGERPRINT="$(fixture_tree_hash "$SKILLS_ROOT" \
+  gsd-beads-recall gsd-beads-status gsd-beads-sync gsd-beads-migrate-todos)"
+[ "$(awk '{print $4}' "$STATE_FILE")" = "$REPAIRED_FINGERPRINT" ] \
+  || fail "case23b: repaired receipt does not match the restored selected surface"
 WRITERS_AFTER_REPAIR="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
+REPLACES_AFTER_REPAIR="$(grep -c '^replace' "$R2_PUBLISH_SPY_LOG")"
 run_script beads
 [ -z "$(cat "$STDOUT_FILE")" ] && [ -z "$(cat "$STDERR_FILE")" ] \
   || fail "case23b: repaired state did not converge silently"
 [ "$(grep -Ec '^capability (install|set)' "$STUB_LOG")" -eq "$WRITERS_AFTER_REPAIR" ] \
   || fail "case23b: repaired rerun invoked a native writer"
+[ "$(grep -c '^replace' "$R2_PUBLISH_SPY_LOG")" -eq "$REPLACES_AFTER_REPAIR" ] \
+  || fail "case23b: repaired rerun republished the receipt"
 pass "case23b: post-observation external drift is invalidated and repaired next start"
 teardown
 

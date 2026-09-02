@@ -208,15 +208,18 @@ The hook uses that runtime's gsd-core CLI, requires its public `query skills-roo
 the canonical runtime destination, then delegates all selected-skill writing, transformation, and
 owned pruning to native `capability install` plus runtime-targeted `capability set`. It never copies
 skills between runtimes. Same-name destinations must be absent or real directories carrying the
-exact Beads owner marker, so unmarked user skills, sibling capabilities, unrelated files, and the
-unselected runtime remain outside the hook's write authority.
+exact Beads owner marker in a regular non-symlink file, so unmarked user skills, sibling
+capabilities, unrelated files, and the unselected runtime remain outside the hook's write authority.
 
 Verified completion is cached in
 `${GSD_HOME:-$HOME}/.gsd/capability-auto-install-beads.projections`. Each sorted `projection-v2`
 row records one runtime, the installed bundle generation, and the observed selected-surface
-fingerprint. The first verified update atomically replaces the legacy `.hash` receipt; a failure
-keeps prior state available for a later SessionStart. A matching fast path still recomputes the
-installed generation and selected fingerprint, but invokes neither native writer.
+fingerprint. The publisher rejects nonregular canonical targets, creates an unpredictable
+same-directory temporary with Python's `NamedTemporaryFile`, flushes and file-syncs it, then uses
+`os.replace` for atomic publication. Only after that succeeds does it remove an eligible regular,
+non-symlink legacy `.hash` receipt; every earlier failure preserves both prior receipts for a later
+SessionStart. A matching fast path still recomputes the installed generation and selected
+fingerprint, but invokes neither native writer.
 
 Hook participants serialize ledger observation through publication with one nonblocking exclusive
 `fcntl.flock` on a persistent, owner-controlled regular lock file. The acquiring Python process
@@ -226,9 +229,11 @@ an unlocked handoff. Contenders return one bounded busy diagnostic; unsafe lock 
 failures return one bounded lock-failure diagnostic. Native writers and helper children do not
 inherit the descriptor, and normal exit, signals, or crashes release it in the kernel without PID
 inspection, stale-owner recovery, lock deletion, or quarantine files.
-The lock coordinates these hook participants, not administrators or direct gsd-core commands, so
-the hook immediately rechecks both installed generation and observed selected fingerprint before
-publishing. External drift leaves the prior ledger and legacy retry receipt unchanged.
+The lock coordinates these hook participants, not administrators or direct gsd-core commands. The
+hook immediately rechecks both installed generation and observed selected fingerprint before
+publishing, so already-visible external drift leaves prior receipt state unchanged. A direct writer
+that races after that final observation is outside the advisory-lock boundary; its receipt mismatch
+is detected and repaired through native reconciliation on the next SessionStart.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.

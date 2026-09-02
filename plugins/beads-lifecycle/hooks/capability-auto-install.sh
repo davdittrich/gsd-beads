@@ -22,7 +22,7 @@ BUNDLE_DIR="$PLUGIN_ROOT/.gsd/capabilities/$CAP_ID"
 # paths plus file bytes. Relative framing avoids absolute-root drift and
 # concatenation collisions.
 canonical_tree_hash() {
-  python3 - "$@" 9>&- <<'PY'
+  python3 - "$@" 9>&- 2>/dev/null <<'PY'
 import hashlib
 import os
 import pathlib
@@ -48,14 +48,17 @@ except (OSError, ValueError):
     raise SystemExit(1)
 
 digest = hashlib.sha256()
-for relative in sorted(entries):
-    path = entries[relative]
-    name = os.fsencode(relative)
-    kind = b"d" if path.is_dir() else b"f"
-    digest.update(kind + len(name).to_bytes(8, "big") + name)
-    if kind == b"f":
-        data = path.read_bytes()
-        digest.update(len(data).to_bytes(8, "big") + data)
+try:
+    for relative in sorted(entries):
+        path = entries[relative]
+        name = os.fsencode(relative)
+        kind = b"d" if path.is_dir() else b"f"
+        digest.update(kind + len(name).to_bytes(8, "big") + name)
+        if kind == b"f":
+            data = path.read_bytes()
+            digest.update(len(data).to_bytes(8, "big") + data)
+except OSError:
+    raise SystemExit(1)
 print(digest.hexdigest())
 PY
 }
@@ -227,7 +230,7 @@ then
 fi
 unset GSD_AUTO_INSTALL_LOCK_FD GSD_AUTO_INSTALL_SKILLS_ROOT
 
-SELECTED_SKILL_NAMES="$(python3 - "$BUNDLE_DIR/capability.json" 9>&- <<'PY'
+SELECTED_SKILL_NAMES="$(python3 - "$BUNDLE_DIR/capability.json" 9>&- 2>/dev/null <<'PY'
 import json
 import pathlib
 import re
@@ -269,14 +272,15 @@ guard_skill_ownership() {
     _marker="$_dest/.gsd-capability-skill"
     if [ -e "$_dest" ] || [ -L "$_dest" ]; then
       [ -d "$_dest" ] && [ ! -L "$_dest" ] || return 1
-      [ -f "$_marker" ] && [ "$(cat "$_marker" 9>&- 2>/dev/null)" = "$CAP_ID" ] || return 1
+      [ -f "$_marker" ] && [ ! -L "$_marker" ] \
+        && [ "$(cat "$_marker" 9>&- 2>/dev/null)" = "$CAP_ID" ] || return 1
     fi
   done
 }
 
 verify_selected_projection() {
   python3 - "$BUNDLE_DIR/capability.json" "$SKILLS_ROOT" \
-    "${GSD_HOME:-$HOME}/.gsd/capabilities/$CAP_ID/scripts/sync.py" "$CAP_ID" 9>&- <<'PY'
+    "${GSD_HOME:-$HOME}/.gsd/capabilities/$CAP_ID/scripts/sync.py" "$CAP_ID" 9>&- 2>/dev/null <<'PY'
 import json
 import pathlib
 import re
@@ -354,7 +358,7 @@ selected_fingerprint() {
 
 ledger_has_current_row() {
   python3 - "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
-    "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" 9>&- <<'PY'
+    "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" 9>&- 2>/dev/null <<'PY'
 import pathlib
 import re
 import sys
@@ -375,44 +379,159 @@ raise SystemExit(0 if expected in rows else 1)
 PY
 }
 
-publish_ledger() {
-  local _tmp="$LEDGER.$$" _legacy_tmp="$LEGACY_STATE_FILE.$$"
-  python3 - "$LEDGER" "$_tmp" "$ACTIVE_RUNTIME" "$INSTALLED_GENERATION" \
-    "$SELECTED_FINGERPRINT" 9>&- <<'PY'
-import pathlib
-import re
+ledger_target_is_safe() {
+  python3 - "$LEDGER" 9>&- 2>/dev/null <<'PY'
+import os
+import stat
 import sys
 
-ledger, target = map(pathlib.Path, sys.argv[1:3])
+path = sys.argv[1]
+try:
+    metadata = os.lstat(path)
+except FileNotFoundError:
+    raise SystemExit(0)
+except OSError:
+    raise SystemExit(1)
+if (
+    not stat.S_ISREG(metadata.st_mode)
+    or metadata.st_uid != os.geteuid()
+    or metadata.st_nlink != 1
+):
+    raise SystemExit(1)
+PY
+}
+
+publish_ledger() {
+  python3 - "$LEDGER" "$LEGACY_STATE_FILE" "$ACTIVE_RUNTIME" \
+    "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" 9>&- 2>/dev/null <<'PY'
+import os
+import pathlib
+import re
+import stat
+import sys
+import tempfile
+
+ledger, legacy = map(pathlib.Path, sys.argv[1:3])
 runtime, generation, fingerprint = sys.argv[3:]
 pattern = re.compile(r"projection-v2 (claude|codex) ([0-9a-f]{64}) ([0-9a-f]{64})")
 rows = {}
+
+
+def read_existing_rows():
+    flags = os.O_RDONLY | os.O_NONBLOCK
+    try:
+        flags |= os.O_NOFOLLOW
+    except AttributeError:
+        raise OSError
+    try:
+        descriptor = os.open(ledger, flags)
+    except FileNotFoundError:
+        return []
+    try:
+        metadata = os.fstat(descriptor)
+        path_metadata = os.stat(ledger, follow_symlinks=False)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or not stat.S_ISREG(path_metadata.st_mode)
+            or metadata.st_dev != path_metadata.st_dev
+            or metadata.st_ino != path_metadata.st_ino
+            or metadata.st_uid != os.geteuid()
+            or metadata.st_nlink != 1
+        ):
+            raise OSError
+        with os.fdopen(descriptor, encoding="utf-8") as stream:
+            descriptor = -1
+            return stream.read().splitlines()
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+
+def target_is_safe():
+    try:
+        metadata = os.lstat(ledger)
+    except FileNotFoundError:
+        return True
+    return (
+        stat.S_ISREG(metadata.st_mode)
+        and metadata.st_uid == os.geteuid()
+        and metadata.st_nlink == 1
+    )
+
+
+def cleanup_temporary(path, identity):
+    if path is None:
+        return
+    try:
+        metadata = os.lstat(path)
+        if (
+            stat.S_ISREG(metadata.st_mode)
+            and (metadata.st_dev, metadata.st_ino) == identity
+        ):
+            os.unlink(path)
+    except OSError:
+        pass
+
+
+temporary_path = None
+temporary_identity = None
 try:
-    old_rows = ledger.read_text().splitlines() if ledger.is_file() and not ledger.is_symlink() else []
-    for row in old_rows:
+    for row in read_existing_rows():
         match = pattern.fullmatch(row)
         if match and match.group(2) == generation and match.group(1) != runtime:
             rows[match.group(1)] = row
     rows[runtime] = f"projection-v2 {runtime} {generation} {fingerprint}"
-    target.write_text("".join(f"{rows[key]}\n" for key in sorted(rows)))
-except OSError:
+    serialized = "".join(f"{rows[key]}\n" for key in sorted(rows))
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        encoding="utf-8",
+        dir=ledger.parent,
+        prefix=f".{ledger.name}.",
+        delete=False,
+    ) as stream:
+        temporary_path = pathlib.Path(stream.name)
+        metadata = os.fstat(stream.fileno())
+        temporary_identity = (metadata.st_dev, metadata.st_ino)
+        stream.write(serialized)
+        stream.flush()
+        os.fsync(stream.fileno())
+    if not target_is_safe():
+        raise OSError
+    os.replace(temporary_path, ledger)
+    temporary_path = None
+except (OSError, UnicodeError):
+    cleanup_temporary(temporary_path, temporary_identity)
     raise SystemExit(1)
-PY
-  [ "$?" -eq 0 ] || return 1
 
-  if [ -e "$LEGACY_STATE_FILE" ] || [ -L "$LEGACY_STATE_FILE" ]; then
-    [ -f "$LEGACY_STATE_FILE" ] && [ ! -L "$LEGACY_STATE_FILE" ] || return 1
-    mv -f "$LEGACY_STATE_FILE" "$_legacy_tmp" 2>/dev/null || return 1
-  fi
-  if ! mv -f "$_tmp" "$LEDGER" 2>/dev/null; then
-    [ ! -e "$_legacy_tmp" ] || mv -f "$_legacy_tmp" "$LEGACY_STATE_FILE" 2>/dev/null
-    return 1
-  fi
-  rm -f "$_legacy_tmp" 2>/dev/null
+try:
+    metadata = os.lstat(legacy)
+except OSError:
+    metadata = None
+if (
+    metadata is not None
+    and stat.S_ISREG(metadata.st_mode)
+    and not stat.S_ISLNK(metadata.st_mode)
+    and metadata.st_uid == os.geteuid()
+    and metadata.st_nlink == 1
+):
+    try:
+        os.unlink(legacy)
+    except OSError:
+        pass
+PY
 }
+
+if ! ledger_target_is_safe; then
+  echo "capability-auto-install: ledger publish failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+  exit 0
+fi
 
 SOURCE_GENERATION="$(canonical_tree_hash "$BUNDLE_DIR")"
 SOURCE_STATUS=$?
+if [ "$SOURCE_STATUS" -ne 0 ]; then
+  echo "capability-auto-install: source generation verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+  exit 0
+fi
 INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
 INSTALLED_STATUS=$?
 SELECTED_FINGERPRINT="$(selected_fingerprint)"
@@ -466,11 +585,9 @@ if [ "$INSTALL_STATUS" -eq 0 ]; then
       echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
       exit 0
     fi
-    mkdir -p "$STATE_DIR" 2>/dev/null
     if publish_ledger; then
       printf 'Auto-installed capability: %s (user scope)\n' "$CAP_ID"
     else
-      rm -f "$LEDGER.$$" "$LEGACY_STATE_FILE.$$" 2>/dev/null
       echo "capability-auto-install: ledger publish failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
     fi
   else
