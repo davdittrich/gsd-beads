@@ -8,7 +8,7 @@ set -u
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SCRIPT="$REPO_ROOT/plugins/beads-lifecycle/hooks/capability-auto-install.sh"
 REAL_PYTHON="$(command -v python3)"
-GSD_CORE_REPO="$REPO_ROOT/../gsd-core"
+GSD_CORE_REPO="${GSD_CORE_REPO:-$REPO_ROOT/../gsd-core}"
 ACTIVE_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 ACTIVE_GSD_TOOLS="$ACTIVE_CODEX_HOME/gsd-core/bin/gsd-tools.cjs"
 
@@ -1221,6 +1221,33 @@ run_script beads
 pass "case23b: post-observation external drift is invalidated and repaired next start"
 teardown
 
+### Case 24a: CI pins and proves the current public runtime before smoke ###
+CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
+$REAL_PYTHON - "$CI_WORKFLOW" <<'PY' \
+  || fail "case24a: CI does not provision and prove the pinned gsd-core 1.12.0 runtime before smoke"
+import pathlib
+import sys
+
+text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+ordered = (
+    "repository: open-gsd/gsd-core",
+    "ref: v1.12.0",
+    "fetch-depth: 0",
+    "path: .ci/gsd-core",
+    "@opengsd/gsd-core@1.12.0",
+    "--codex --global --config-dir",
+    "runtime-identity --raw",
+    '"packageName":"@opengsd/gsd-core"',
+    '"version":"1.12.0"',
+    "GSD_CORE_REPO=",
+    "bash tests/test-capability-auto-install.sh",
+)
+positions = tuple(text.find(token) for token in ordered)
+if -1 in positions or positions != tuple(sorted(positions)):
+    raise SystemExit(1)
+PY
+pass "case24a: CI pins and proves gsd-core 1.12.0 before the smoke harness"
+
 ### Case 24: immutable floor provenance plus real current two-capability proof ###
 REAL_ROOT="$(mktemp -d /dev/shm/gsd-beads-210-real.XXXXXX)" \
   || fail "case24: could not allocate bounded /dev/shm scratch"
@@ -1331,6 +1358,8 @@ manifest = json.loads(path.read_text())
 manifest["version"] = "0.6.1"
 path.write_text(json.dumps(manifest, indent=2) + "\n")
 PY
+printf '\npython3 "$SYNC_PY" check-patch execute-plan\n' \
+  >> "$GENERATION_A/skills/beads-recall/SKILL.md"
 mkdir -p "$SIBLING_BUNDLE/skills/phase22-sibling"
 $REAL_PYTHON - "$SIBLING_BUNDLE/capability.json" <<'PY'
 import json
@@ -1435,6 +1464,12 @@ GENERATION_A_HASH="$(fixture_tree_hash "$ACTUAL_INSTALLED")" \
   || fail "case24: could not hash installed generation A"
 GENERATION_A_SELECTED="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT" "${SELECTED_PATHS[@]}")" \
   || fail "case24: could not hash selected generation A"
+GENERATION_B_SELECTED="$(fixture_tree_hash "$EXPECTED_SKILLS_ROOT" "${SELECTED_PATHS[@]}")" \
+  || fail "case24: could not hash transformed generation B"
+[ "$GENERATION_A_SELECTED" != "$GENERATION_B_SELECTED" ] \
+  || fail "case24: generation A selected fingerprint is not genuinely stale"
+grep -q 'check-patch execute-plan' "$ACTUAL_SKILLS_ROOT/gsd-beads-recall/SKILL.md" \
+  || fail "case24: generation A lacks the retired selected command"
 printf 'projection-v2 codex %s %s\n' "$GENERATION_A_HASH" "$GENERATION_A_SELECTED" \
   > "$ACTUAL_LEDGER"
 printf '%s\n' legacy-generation-a > "$ACTUAL_LEGACY"
@@ -1607,7 +1642,7 @@ EVIDENCE_ROOT="$ACTUAL_SKILLS_ROOT"
 rm -rf "$REAL_ROOT"
 [ ! -e "$REAL_ROOT" ] || fail "case24: bounded real scratch was not removed"
 SCRATCH=""
-pass "case24: floor=$FLOOR_SHA package=$FLOOR_PACKAGE current=$ACTIVE_IDENTITY_KEY public-root=$EVIDENCE_ROOT commands=$COMMAND_PREFIXES sibling=preserved oracle=matched no-skip scratch=clean"
+pass "case24: floor=$FLOOR_SHA package=$FLOOR_PACKAGE current=$ACTIVE_IDENTITY_KEY public-root=$EVIDENCE_ROOT stale-a=repaired commands=$COMMAND_PREFIXES sibling=preserved oracle=matched no-skip scratch=clean"
 
 echo "ALL PASS"
 exit 0
