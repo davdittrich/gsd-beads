@@ -204,16 +204,23 @@ PY
   exit 0
 fi
 
-if [ "$GSD_AUTO_INSTALL_LOCK_FD" != 9 ] || ! python3 - "$LOCK_PATH" 9 2>/dev/null <<'PY'
+LOCK_CHILD_STATUS=0
+if [ "$GSD_AUTO_INSTALL_LOCK_FD" != 9 ]; then
+  LOCK_CHILD_STATUS=76
+else
+  python3 - "$LOCK_PATH" 9 2>/dev/null <<'PY' || LOCK_CHILD_STATUS=$?
+import errno
+import fcntl
 import os
 import stat
 import sys
 
 try:
     path_entry = os.stat(sys.argv[1], follow_symlinks=False)
-    descriptor = os.fstat(int(sys.argv[2]))
+    fd = int(sys.argv[2])
+    descriptor = os.fstat(fd)
 except (OSError, TypeError, ValueError):
-    raise SystemExit(1)
+    raise SystemExit(76)
 if (
     not stat.S_ISREG(path_entry.st_mode)
     or not stat.S_ISREG(descriptor.st_mode)
@@ -222,10 +229,21 @@ if (
     or descriptor.st_uid != os.geteuid()
     or descriptor.st_nlink != 1
 ):
-    raise SystemExit(1)
+    raise SystemExit(76)
+try:
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+except OSError as error:
+    if error.errno in (errno.EACCES, errno.EAGAIN):
+        raise SystemExit(75)
+    raise SystemExit(76)
 PY
-then
-  echo "capability-auto-install: projection lock failed for $CAP_ID; projection not recorded" >&2
+fi
+if [ "$LOCK_CHILD_STATUS" -ne 0 ]; then
+  if [ "$LOCK_CHILD_STATUS" -eq 75 ]; then
+    echo "capability-auto-install: projection transaction busy for $CAP_ID; projection not recorded" >&2
+  else
+    echo "capability-auto-install: projection lock failed for $CAP_ID; projection not recorded" >&2
+  fi
   exit 0
 fi
 unset GSD_AUTO_INSTALL_LOCK_FD GSD_AUTO_INSTALL_SKILLS_ROOT
