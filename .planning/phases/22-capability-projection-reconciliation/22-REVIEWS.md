@@ -175,14 +175,25 @@ None.
 
 `OPEN_THREATS: NOT_REASSESSED`
 
-The executor landed the approved test-first remediation pairs R1
+The executor landed the approved behavior-first remediation pairs R1
 `1122e95`→`009226c`, R2 `70ae2fc`→`bdd1227`, and R3
-`2eb1c2d`→`9271dea`. The final public harness reached `ALL PASS`; the full
+`2eb1c2d`→`9271dea`, then the forged-FD RED/GREEN pair
+`6edc999`→`eea65ea`. The final public harness reached `ALL PASS`; the full
 capability suite ran 292 tests with `OK` and no skips; Bash syntax, manifest
 JSON, five-file diff hygiene, and `/dev/shm` cleanup passed. Bead
 `gsd-beads-210` remains open.
 
+The behavior regressions preceded their production fixes, but historical
+GREEN commits were not perfectly test-immutable: R1 GREEN corrected the crash
+fixture's process-group ownership, and R2 GREEN corrected the post-observation
+mismatch oracle plus the manifest-derived migrated-skill path. Those
+test-oracle corrections are disclosed in the Summary; they did not add the
+production behavior under test. The forged-FD pair is strictly test-only RED
+then hook-only GREEN.
+
 This section records executor evidence only. It does not supersede or
 self-certify the prior security/code-review findings. A fresh independent
-review must reassess the eight historical blockers and three threats against
-the remediated HEAD before Phase 22 receives a review or security verdict.
+review must reassess the historical blockers and threats, including the
+forged locked-child environment finding remediated at `eea65ea`, against the
+current HEAD before Phase 22 receives a review or security verdict. The
+writer-generation warning remains intentionally unaddressed in this change.

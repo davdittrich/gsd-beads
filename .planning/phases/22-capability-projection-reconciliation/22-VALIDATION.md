@@ -49,7 +49,8 @@ revised: "2026-09-03"
 
 | Slice | Case | Deterministic oracle / failure condition |
 |---|---|---|
-| R1 | Acquisition window | One public invocation either holds a fully acquired kernel lock or does no projection work; there is no separately published owner metadata to observe half-written. Spy exactly one nonblocking acquisition. |
+| R1 | Acquisition window | One public invocation either holds a fully acquired kernel lock or does no projection work; there is no separately published owner metadata to observe half-written. Spy the wrapper acquisition and the locked child's harmless confirmation on the same inherited open-file description. |
+| R1 | Forged locked-child state | With a real participant holding the lock, a separate FD 9 opened on the correct inode plus forged internal environment cannot enter gsd-tools or publish. With no owner, the same descriptor acquires through the child check before projection. |
 | R1 | Live contention | Pause the lock holder at the existing deterministic native-call barrier, invoke a contender, and require immediate exit zero, one exact busy line, zero contender install/set/publish calls, and unchanged ledger. |
 | R1 | Crash release | Terminate the re-executed lock holder, then invoke again. The second call acquires and completes without stale detection, quarantine, polling, sleep, or retry logic. |
 | R1 | Unsafe lock/helper diagnostics | Symlink and nonregular lock targets plus missing/raising Python helper emit exactly one fixed line, expose no hostile multiline stderr, traceback, or uncontrolled path, invoke no native mutation, and exit zero. |

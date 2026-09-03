@@ -229,7 +229,10 @@ Hook participants serialize ledger observation through publication with one nonb
 `fcntl.flock` on a persistent, owner-controlled regular lock file. The acquiring Python process
 validates the opened descriptor against the non-symlink path, duplicates it to a fixed inheritable
 descriptor, and re-execs this same hook so the kernel lock spans the complete transaction without
-an unlocked handoff. Contenders return one bounded busy diagnostic; unsafe lock targets or helper
+an unlocked handoff. Locked-child mode validates the inherited descriptor and repeats the
+nonblocking exclusive `flock`: this is harmless on the genuinely inherited open-file description,
+acquires an uncontended externally opened descriptor, and rejects forged child state while another
+participant owns the lock. Contenders return one bounded busy diagnostic; unsafe lock targets or helper
 failures return one bounded lock-failure diagnostic. Native writers and helper children do not
 inherit the descriptor, and normal exit, signals, or crashes release it in the kernel without PID
 inspection, stale-owner recovery, lock deletion, or quarantine files.

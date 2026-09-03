@@ -4,11 +4,11 @@ milestone: v1.4
 current_phase: 22
 current_phase_name: Capability Projection Reconciliation
 status: verifying
-stopped_at: Completed 22-01-PLAN.md remediation; independent review pending
-last_updated: "2026-09-03T00:08:52.157Z"
+stopped_at: Completed forged-FD lock remediation; independent review pending
+last_updated: "2026-09-03T00:40:35.083Z"
 last_activity: 2026-09-03
 last_activity_desc: Phase 22 remediation complete — independent review pending
-state_head: 9271dea35a822e442ee2ba7fca55457a8f5761c4
+state_head: eea65ea470bff333111718de2a4499e50657097a
 progress:
   total_phases: 4
   completed_phases: 3
@@ -52,7 +52,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
-| Phase 22 P01 | 237 min | 1 tasks | 5 files |
+| Phase 22 P01 | 267 min | 1 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -68,6 +68,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 - [Phase 22]: Certify the 1.10.0 floor from immutable official tag/package metadata while proving live behavior against active/current 1.12.0.
 - [Phase 22]: Bind runtime receipts to installed generation and selected fingerprint under one inherited nonblocking kernel flock held across the complete hook transaction.
 - [Phase 22]: Publish the canonical receipt through a secure same-directory temporary and atomic replacement; preserve legacy evidence until publication succeeds.
+- [Phase 22]: Treat inherited child state as untrusted until FD 9 itself confirms or acquires the nonblocking kernel flock.
 
 ### Roadmap Evolution
 
@@ -91,8 +92,8 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-03T00:08:52.124Z
-Stopped at: Completed 22-01-PLAN.md remediation; independent review pending
+Last session: 2026-09-03T00:40:35.053Z
+Stopped at: Completed forged-FD lock remediation; independent review pending
 Resume file: None
 
 ## Operator Next Steps

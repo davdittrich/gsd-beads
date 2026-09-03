@@ -14,9 +14,9 @@ provides:
 affects: [capability-install, session-start, selected-skills, gsd-core-runtime]
 
 actuals:
-  tokens: 27212
+  tokens: 28313
   tasks: 1
-  commits: 19
+  commits: 21
 
 tech-stack:
   added: []
@@ -33,7 +33,7 @@ key-files:
 
 key-decisions:
   - "Keep gsd-core as the sole installed and selected-skill writer; the hook owns guards, serialization, observation, and receipts only."
-  - "Hold one nonblocking fcntl lock across same-process hook re-exec and the complete observe/install/set/verify/publish transaction."
+  - "Hold one kernel lock across same-process hook re-exec; the wrapper acquires it and locked-child mode confirms it on the same open-file description before the transaction."
   - "Publish through a secure same-directory NamedTemporaryFile and os.replace; preserve legacy state until canonical publication succeeds."
   - "Separate immutable 1.10.0 compatibility-floor provenance from the pinned public 1.12.0 current-runtime behavior gate."
 
@@ -71,7 +71,7 @@ coverage:
         status: pass
     human_judgment: false
 
-duration: 237 min
+duration: 267 min
 completed: 2026-09-03
 status: complete
 ---
@@ -82,9 +82,9 @@ status: complete
 
 ## Performance
 
-- **Duration:** 237 min across the historical implementation, review, and remediation
+- **Duration:** 267 min across the historical implementation, review, and remediation
 - **Started:** 2026-09-02T20:13:11Z
-- **Completed:** 2026-09-03T00:09:49Z
+- **Completed:** 2026-09-03T00:40:14Z
 - **Tasks:** 1
 - **Files modified:** 5
 
@@ -92,6 +92,7 @@ status: complete
 
 - Delegated all installed and selected-skill mutation to the active runtime's public gsd-core capability surface while preserving sibling, user-owned, unrelated, and unselected-runtime content.
 - Replaced custom PID/process-start stale-lock recovery with one nonblocking kernel `fcntl.flock` inherited across same-process hook re-exec and automatically released on exit, signal, or crash.
+- Closed the locked-child environment bypass by requiring FD 9 to acquire or confirm that same nonblocking flock before any gsd-core call; a forged descriptor cannot pass while a genuine participant owns the lock.
 - Hardened marker ownership and canonical ledger publication with non-symlink/type/inode checks, secure same-directory temporary creation, flush plus file `fsync`, atomic `os.replace`, and post-success-only legacy cleanup.
 - Proved genuinely stale selected content is repaired from Generation A to B through public gsd-core 1.12.0 install/set, independently matched the transformed oracle, and retained exact immutable v1.10.0 compatibility-floor provenance.
 - Pinned CI to official gsd-core `v1.12.0`, installed exact public `@opengsd/gsd-core@1.12.0` into runner-temporary `CODEX_HOME`, checked runtime identity, and exported the tagged source fixture before the smoke harness.
@@ -119,6 +120,8 @@ The one cohesive task preserves the full TDD chronology:
 17. **R2 secure-publication GREEN** — `bdd1227`
 18. **R3 unpinned-CI/genuine-generation RED** — `2eb1c2d`
 19. **R3 pinned-current-runtime GREEN** — `9271dea`
+20. **Forged locked-child descriptor RED** — `6edc999`
+21. **Locked-child flock confirmation GREEN** — `eea65ea`
 
 ## Verification Evidence
 
@@ -127,8 +130,9 @@ The one cohesive task preserves the full TDD chronology:
   - R2: `FAIL: case18: symlink marker did not produce the fixed ownership diagnostic`
   - R3: `FAIL: case24a: CI does not provision and prove the pinned gsd-core 1.12.0 runtime before smoke`
 - Every following GREEN reran that same whole harness and reached `ALL PASS`.
+- The follow-up forged-FD RED failed at `case12` because forged locked-child state entered projection while a real owner held the lock. GREEN proves held-owner rejection, harmless confirmation of the genuinely inherited open-file description, and acquisition by an uncontended externally opened descriptor.
 - The final real fixture proved official `v1.10.0` commit `68a04ccf8ef74803bdb651e12c3b85b218bbccdf`, tagged package `@opengsd/gsd-core@1.10.0`, active/current `@opengsd/gsd-core@1.12.0`, genuine stale-A repair, selected-command execution, retired-command rejection, transformed-oracle equality, sibling/user/unrelated/unselected preservation, silent idempotence, no skip, and clean scratch.
-- Full capability suite: `Ran 292 tests in 8.528s`, `OK`, no skips.
+- Full capability suite: `Ran 292 tests in 8.761s`, `OK`, no skips.
 - Both Bash syntax checks, manifest JSON parsing, scoped five-file `git diff --check`, and `/dev/shm` cleanup passed.
 - The suite's known `.gsd-capabilities.json` timestamp side effect was restored exactly; no generated Phase 22 scratch remains.
 
@@ -146,6 +150,7 @@ The one cohesive task preserves the full TDD chronology:
 - The lock file persists as an owner-controlled regular file. Kernel descriptor lifetime, not PID metadata or stale takeover, controls ownership.
 - Canonical publication never uses predictable temporary names or rollback renames. A failed replacement preserves prior canonical and legacy bytes.
 - The advisory lock coordinates this hook's participants only. Non-cooperating direct writers are bounded by final observation and next-start receipt invalidation, not falsely claimed as atomically excluded.
+- Internal locked-child environment variables are not lock authority: the child must successfully call `flock(LOCK_EX | LOCK_NB)` on the validated descriptor before proceeding.
 
 ## Deviations from Plan
 
@@ -164,9 +169,9 @@ The revised R1-R3 remediation plan itself was executed without scope or mechanis
 
 ## TDD Gate Compliance
 
-- Historical Slices 1-6 retain six ordered RED→GREEN production pairs; historical Slice 7 remains truthfully classified as verification-only.
-- Remediation adds exactly three ordered whole-public-harness RED→GREEN pairs: R1 `1122e95`→`009226c`, R2 `70ae2fc`→`bdd1227`, and R3 `2eb1c2d`→`9271dea`.
-- No regression was skipped, fabricated, or combined with its implementation commit.
+- Historical Slices 1-6 retain six behavior-first RED→GREEN production pairs; historical Slice 7 remains truthfully classified as verification-only.
+- Remediation adds three ordered whole-public-harness behavior RED→GREEN pairs: R1 `1122e95`→`009226c`, R2 `70ae2fc`→`bdd1227`, and R3 `2eb1c2d`→`9271dea`. The later forged-FD correction adds strict test-only RED `6edc999` followed by hook-only GREEN `eea65ea`.
+- Historical R1 and R2 GREEN commits also contain the test-oracle corrections listed below. Therefore the chronology is behavior-first but not perfectly test-immutable; no skipped or fabricated regression is claimed.
 
 ## Issues Encountered
 
@@ -189,7 +194,7 @@ Plan 22-01 implementation and automated execution gates are complete. Bead `gsd-
 ## Self-Check: PASSED
 
 - All five implementation files and the three updated Phase 22 evidence artifacts exist.
-- All nineteen task commits resolve as Git commits in the current history.
+- All twenty-one task commits resolve as Git commits in the current history.
 - Summary completion metadata, actuals, independent-review boundary, and validation false-state are present and diff-clean.
 
 ---
