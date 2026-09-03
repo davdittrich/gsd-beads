@@ -111,6 +111,7 @@ Plans:
 3. User-owned skills, non-GSD skills, genuinely installed other capabilities,
    and unrelated runtime state remain intact.
 **Plans:** 1/1 plans executed
+**Verification:** Independent code/security review pending after R1-R3 remediation.
 
 Plans:
 

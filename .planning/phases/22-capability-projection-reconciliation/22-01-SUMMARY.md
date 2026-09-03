@@ -2,26 +2,25 @@
 phase: 22-capability-projection-reconciliation
 plan: 01
 subsystem: beads-lifecycle
-tags: [gsd-core, capability-projection, native-install, generation-ledger, process-lock]
+tags: [gsd-core, capability-projection, fcntl, atomic-publication, native-install]
 
 requires:
   - phase: 21-installed-cutover-and-patch-2-retirement
     provides: Native installed capability authority with the retired execute-plan surface absent
 provides:
-  - One-runtime native capability reconciliation through the active gsd-core surface
-  - Generation-bound selected-projection certification in a shared v2 ledger
-  - Crash-stale hook serialization with final external-writer drift rejection
-  - Real current-runtime two-capability transformation and preservation proof
+  - Runtime-native Beads capability reconciliation serialized by an inherited kernel lock
+  - Secure generation/fingerprint receipt publication with ownership-preserving failure behavior
+  - Immutable gsd-core 1.10.0 floor evidence and pinned public 1.12.0 current-runtime CI proof
 affects: [capability-install, session-start, selected-skills, gsd-core-runtime]
 
 actuals:
-  tokens: 21915
+  tokens: 27212
   tasks: 1
-  commits: 14
+  commits: 19
 
 tech-stack:
   added: []
-  patterns: [native-projection-authority, generation-bound-receipt, atomic-process-identity-lock]
+  patterns: [native-projection-authority, inherited-fcntl-lock, generation-bound-receipt, secure-atomic-replace]
 
 key-files:
   created: []
@@ -30,184 +29,154 @@ key-files:
     - plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json
     - tests/test-capability-auto-install.sh
     - README.md
+    - .github/workflows/ci.yml
 
 key-decisions:
-  - "Keep gsd-core as the sole installed and selected-skill writer; the hook owns only guards, serialization, observation, and receipts."
-  - "Certify the 1.10.0 floor from its immutable official tag/package metadata while proving live behavior against the active/current 1.12.0 runtime."
-  - "Bind each runtime receipt to both the installed generation and observed selected-surface fingerprint under one atomic PID:start-identity symlink lock."
+  - "Keep gsd-core as the sole installed and selected-skill writer; the hook owns guards, serialization, observation, and receipts only."
+  - "Hold one nonblocking fcntl lock across same-process hook re-exec and the complete observe/install/set/verify/publish transaction."
+  - "Publish through a secure same-directory NamedTemporaryFile and os.replace; preserve legacy state until canonical publication succeeds."
+  - "Separate immutable 1.10.0 compatibility-floor provenance from the pinned public 1.12.0 current-runtime behavior gate."
 
 patterns-established:
   - "Native writer boundary: resolve one runtime-owned public CLI and never copy or prune selected skills in plugin code."
-  - "Bounded recovery: one stale-token quarantine and one reacquire attempt, with unresolved identities treated as busy."
-  - "Receipt publication: recheck installed and selected hashes immediately before atomic ledger publication."
+  - "Receipt authority: bind each runtime row to installed generation and observed post-native-set selected fingerprint."
+  - "Direct-writer boundary: reject drift visible at final observation; repair a later external race from receipt mismatch on the next SessionStart."
 
-requirements-completed: ["GitHub issue #9"]
+requirements-completed:
+  - "GitHub issue #9"
 
 coverage:
   - id: D1
-    description: "Stale selected Beads projections reconcile through native install/set while same-name user content and unrelated state remain unchanged."
+    description: "Stale selected Beads projections reconcile through native install/set while same-name user content, siblings, and unrelated state remain unchanged."
     requirement: "GitHub issue #9"
     verification:
       - kind: integration
-        ref: "tests/test-capability-auto-install.sh#cases 1-11 and 24"
+        ref: "tests/test-capability-auto-install.sh#cases 1-11, 24"
         status: pass
     human_judgment: false
   - id: D2
-    description: "The shared v2 receipt is generation/fingerprint-bound and serialized by crash-recoverable process identity ownership."
+    description: "The shared generation/fingerprint receipt is serialized by inherited kernel flock and securely published without risking prior canonical or legacy state."
     requirement: "GitHub issue #9"
     verification:
       - kind: integration
-        ref: "tests/test-capability-auto-install.sh#cases 7 and 12-23"
+        ref: "tests/test-capability-auto-install.sh#cases 7, 12-23b"
         status: pass
     human_judgment: false
   - id: D3
-    description: "The immutable 1.10.0 floor and active/current 1.12.0 two-capability transformed surface pass without skips or residual scratch."
+    description: "Immutable 1.10.0 floor evidence and clean-CI public 1.12.0 reconciliation use a genuinely stale selected Generation A."
     requirement: "GitHub issue #9"
     verification:
       - kind: e2e
-        ref: "tests/test-capability-auto-install.sh#case 24"
+        ref: "tests/test-capability-auto-install.sh#cases 24a, 24"
         status: pass
     human_judgment: false
 
-duration: 115 min
+duration: 237 min
 completed: 2026-09-03
 status: complete
 ---
 
 # Phase 22 Plan 01: Capability Projection Reconciliation Summary
 
-The SessionStart hook now delegates one-runtime repair to gsd-core's native
-install/set surface, certifies the observed generation and selected projection
-under a crash-recoverable shared lock, and proves the contract against the real
-current 1.12.0 runtime with a genuine sibling capability.
+**Runtime-native Beads projection repair with inherited kernel serialization, secure atomic receipts, and distinct gsd-core 1.10.0 floor versus public 1.12.0 current-runtime proof**
 
 ## Performance
 
-- **Duration:** 115 min
+- **Duration:** 237 min across the historical implementation, review, and remediation
 - **Started:** 2026-09-02T20:13:11Z
-- **Completed:** 2026-09-02T22:08:00Z
+- **Completed:** 2026-09-03T00:09:49Z
 - **Tasks:** 1
-- **Files modified:** 4
+- **Files modified:** 5
 
 ## Accomplishments
 
-- Replaced the unlocked legacy receipt with canonical sorted `projection-v2`
-  rows bound to installed-generation and selected-surface SHA-256 fingerprints.
-- Serialized all hook-participant work with an atomically published
-  `PID:process-start-identity` symlink token, conservative live contention, and
-  one bounded crash-stale recovery attempt.
-- Kept gsd-core as the sole projection writer, guarded user-owned same-name
-  skills, checked exact owner markers and installed CLI commands, and rejected
-  `execute-plan` before certification.
-- Proved immutable v1.10.0 floor provenance and a no-skip active/current 1.12.0
-  native install/set run with independent transformed output, sibling/user/
-  unrelated/unselected preservation, and a byte-stable silent repeat.
+- Delegated all installed and selected-skill mutation to the active runtime's public gsd-core capability surface while preserving sibling, user-owned, unrelated, and unselected-runtime content.
+- Replaced custom PID/process-start stale-lock recovery with one nonblocking kernel `fcntl.flock` inherited across same-process hook re-exec and automatically released on exit, signal, or crash.
+- Hardened marker ownership and canonical ledger publication with non-symlink/type/inode checks, secure same-directory temporary creation, flush plus file `fsync`, atomic `os.replace`, and post-success-only legacy cleanup.
+- Proved genuinely stale selected content is repaired from Generation A to B through public gsd-core 1.12.0 install/set, independently matched the transformed oracle, and retained exact immutable v1.10.0 compatibility-floor provenance.
+- Pinned CI to official gsd-core `v1.12.0`, installed exact public `@opengsd/gsd-core@1.12.0` into runner-temporary `CODEX_HOME`, checked runtime identity, and exported the tagged source fixture before the smoke harness.
 
 ## Task Commits
 
-The single task was committed in strict implementation slices:
+The one cohesive task preserves the full TDD chronology:
 
-1. **Runtime projection contract RED** - `f72c625` (test)
-2. **Native runtime surface GREEN** - `2f9a6be` (feat)
-3. **Unsafe selected projections RED** - `d13cdfa` (test)
-4. **Observed selected surface GREEN** - `7477587` (feat)
-5. **Generation-bound ledger RED** - `5255002` (test)
-6. **Generation-bound certification GREEN** - `79e54a8` (feat)
-7. **Process-identity ownership RED** - `11ecca3` (test)
-8. **Serialized projection transaction GREEN** - `d18ab6b` (feat)
-9. **Crash-stale recovery RED** - `90cac24` (test)
-10. **Bounded stale recovery GREEN** - `0f91f16` (feat)
-11. **External-writer drift RED** - `b41cca7` (test)
-12. **Final drift rejection GREEN** - `2d66fc7` (feat)
-13. **Immutable-floor and real-current proof** - `887e671` (test)
+1. **Runtime projection contract RED** — `f72c625`
+2. **Native runtime surface GREEN** — `2f9a6be`
+3. **Unsafe selected projections RED** — `d13cdfa`
+4. **Observed selected surface GREEN** — `7477587`
+5. **Generation-bound ledger RED** — `5255002`
+6. **Generation-bound certification GREEN** — `79e54a8`
+7. **Process-identity ownership RED** — `11ecca3`
+8. **Serialized projection transaction GREEN** — `d18ab6b`
+9. **Crash-stale recovery RED** — `90cac24`
+10. **Bounded stale recovery GREEN** — `0f91f16`
+11. **External-writer drift RED** — `b41cca7`
+12. **Final drift rejection GREEN** — `2d66fc7`
+13. **Immutable-floor/current-runtime proof** — `887e671` (verification-only test; no production delta)
+14. **R1 insecure-locking RED** — `1122e95`
+15. **R1 inherited-kernel-lock GREEN** — `009226c`
+16. **R2 unsafe-publication RED** — `70ae2fc`
+17. **R2 secure-publication GREEN** — `bdd1227`
+18. **R3 unpinned-CI/genuine-generation RED** — `2eb1c2d`
+19. **R3 pinned-current-runtime GREEN** — `9271dea`
 
-## Verification
+## Verification Evidence
 
-- Exact compound gate: PASS, then repeated unchanged for the tracer feedback
-  gate: PASS.
-- Focused public-hook suite: 24/24 cases, `ALL PASS`, twice.
-- Full capability suite: 292/292 tests, `OK`, twice.
-- Real CLI evidence: official `v1.10.0` peeled to
-  `68a04ccf8ef74803bdb651e12c3b85b218bbccdf`; tagged package was
-  `@opengsd/gsd-core@1.10.0`; active/current identity was
-  `@opengsd/gsd-core@1.12.0`.
-- Real selected CLI accepted ten declared prefixes and rejected
-  `execute-plan`; transformed Beads and genuine sibling trees matched the
-  independent native oracle after normalizing only its fixture-local config
-  prefix.
-- `bash -n`, manifest JSON parsing, scoped `git diff --check`, forbidden
-  projector scan, stub/skip scan, and `/dev/shm` cleanup all passed.
+- Every R1-R3 RED ran the exact whole public harness and failed nonzero at a newly introduced case before its test-only commit:
+  - R1: `FAIL: case12: lock path is not a persistent regular file`
+  - R2: `FAIL: case18: symlink marker did not produce the fixed ownership diagnostic`
+  - R3: `FAIL: case24a: CI does not provision and prove the pinned gsd-core 1.12.0 runtime before smoke`
+- Every following GREEN reran that same whole harness and reached `ALL PASS`.
+- The final real fixture proved official `v1.10.0` commit `68a04ccf8ef74803bdb651e12c3b85b218bbccdf`, tagged package `@opengsd/gsd-core@1.10.0`, active/current `@opengsd/gsd-core@1.12.0`, genuine stale-A repair, selected-command execution, retired-command rejection, transformed-oracle equality, sibling/user/unrelated/unselected preservation, silent idempotence, no skip, and clean scratch.
+- Full capability suite: `Ran 292 tests in 8.528s`, `OK`, no skips.
+- Both Bash syntax checks, manifest JSON parsing, scoped five-file `git diff --check`, and `/dev/shm` cleanup passed.
+- The suite's known `.gsd-capabilities.json` timestamp side effect was restored exactly; no generated Phase 22 scratch remains.
 
 ## Files Created/Modified
 
-- `plugins/beads-lifecycle/hooks/capability-auto-install.sh` - Native
-  one-runtime reconciliation, ownership/command verification, v2 ledger,
-  process-identity lock, bounded stale recovery, and final drift recheck.
-- `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json` - Exact
-  `>=1.10.0` gsd-core compatibility floor.
-- `tests/test-capability-auto-install.sh` - Twenty-four public cases including
-  deterministic contention/recovery and the real current two-capability proof.
-- `README.md` - Operator contract for runtime selection, native authority,
-  receipts, locking, recovery, drift detection, and preservation.
+- `plugins/beads-lifecycle/hooks/capability-auto-install.sh` — Active-runtime resolution, inherited kernel lock, native reconciliation, ownership checks, final observations, and secure receipt publication.
+- `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json` — Exact `gsd >=1.10.0` compatibility floor.
+- `tests/test-capability-auto-install.sh` — Public hook, internal-call spies, concurrency/crash, secure publication, external-writer, genuine-generation, exact-runtime, preservation, command, idempotence, and CI-order regressions.
+- `README.md` — Executable lock, publication, recovery, ownership, and compatibility/current-runtime contract.
+- `.github/workflows/ci.yml` — Pinned tagged-source checkout plus public gsd-core 1.12.0 provision-and-identify gate before the smoke suite.
 
 ## Decisions Made
 
-- Runtime selection is explicit `codex`/`claude` first, then unambiguous plugin
-  cache ownership; no path or sibling-runtime fallback is permitted.
-- Selected output is observed after native `capability set`; production never
-  derives transformed expected bytes from raw installed skill bytes.
-- Missing contender identity is live/busy, not stale. Recovery is allowed only
-  for a malformed token, positively dead PID, or resolved identity mismatch.
+- Production observes runtime-selected bytes; it does not attempt to derive transformed expected output or maintain a second projection writer.
+- The lock file persists as an owner-controlled regular file. Kernel descriptor lifetime, not PID metadata or stale takeover, controls ownership.
+- Canonical publication never uses predictable temporary names or rollback renames. A failed replacement preserves prior canonical and legacy bytes.
+- The advisory lock coordinates this hook's participants only. Non-cooperating direct writers are bounded by final observation and next-start receipt invalidation, not falsely claimed as atomically excluded.
 
 ## Deviations from Plan
 
-### User-approved evidence correction
+### Approved evidence correction
 
-- **Issue:** Released gsd-core v1.10.0 predates the `runtime-identity` verb, so
-  requiring that CLI to self-report 1.10.0 was impossible.
-- **Approved correction:** Prove the compatibility floor from official tag
-  `v1.10.0`, immutable commit `68a04ccf...`, and tagged package version
-  `1.10.0`; independently prove current executable behavior through active
-  gsd-core 1.12.0.
-- **What does it bias?** NONE. Minimum-version provenance and current runtime
-  behavior are separated without weakening any projection or preservation
-  assertion.
+- Released gsd-core v1.10.0 predates `runtime-identity`. The user-approved correction proves the floor from official tag `v1.10.0`, immutable commit `68a04ccf...`, and tagged package version `1.10.0`, then independently proves current behavior through public gsd-core 1.12.0.
+- **What does it bias?** NONE. Floor provenance and current executable behavior remain separate and exact.
 
-### Slice 7 fail-fast result
+### Approved historical Slice 7 correction
 
-- The first real-tree comparison exposed a fixture-only confound: gsd-core
-  embeds the isolated runtime config root in the transformed status skill.
-  Normalizing only that independently produced fixture-local prefix made the
-  arms differ solely in projection generation.
-- The corrected Slice 7 assertion passed immediately because Slices 1-6 had
-  already implemented the behavior. No fictitious RED or unnecessary
-  production change was created.
+- The real subject and independent oracle embed distinct fixture config roots. Only a test-owned oracle copy normalizes its absolute root to the subject root; subject output, production fingerprints, installed/source data, and preservation controls remain untouched.
+- Slice 7 stayed verification-only/test-only because the corrected assertion was already green against Slices 1-6; no fabricated RED or production change was created.
+- **What does it bias?** NONE. The correction removes only the fixture-local path confound.
 
-**Total deviations:** 1 user-approved evidence correction and 1 transparent
-per-slice TDD exception; neither changed production scope or mechanism.
+The revised R1-R3 remediation plan itself was executed without scope or mechanism deviation.
 
 ## TDD Gate Compliance
 
-- Plan-level RED and GREEN gates are present and ordered in six implementation
-  pairs (`f72c625` through `2d66fc7`).
-- Slice 7 is a test-only real-runtime proof at `887e671`; its corrected test
-  passed against the completed earlier slices, so it has no separate GREEN
-  production commit.
+- Historical Slices 1-6 retain six ordered RED→GREEN production pairs; historical Slice 7 remains truthfully classified as verification-only.
+- Remediation adds exactly three ordered whole-public-harness RED→GREEN pairs: R1 `1122e95`→`009226c`, R2 `70ae2fc`→`bdd1227`, and R3 `2eb1c2d`→`9271dea`.
+- No regression was skipped, fabricated, or combined with its implementation commit.
 
 ## Issues Encountered
 
-- The complete Python suite refreshes only the `updatedAt` field in the tracked
-  root `.gsd-capabilities.json`. A Python-only reproduction confirmed this is a
-  pre-existing out-of-scope verification side effect; the file was restored
-  exactly after both successful gates.
-- A copied compiled CLI without its source/runtime support tree cannot execute
-  native capability materialization. The final fixture uses a current source
-  archive with the exact active 1.12.0 compiled `bin` overlay inside
-  `/dev/shm`, then removes the bounded tree.
+- The R1 crash fixture initially terminated only its shell parent rather than the inherited lock-holding child. The GREEN commit corrected the deterministic fixture to own and terminate the process group; production locking mechanism did not change.
+- R2 exposed two independent oracle defects during GREEN: native repair legitimately restored the same selected bytes after a post-observation race, so mismatch had to be asserted between the published row and actual state; and one selected path used `gsd-migrate-todos` instead of manifest-declared `gsd-beads-migrate-todos`. Both fixture assertions were corrected before the passing commit; secure publisher behavior was unchanged.
+- The final full suite passed, then sandboxed Git denied its first exact-file cleanup attempt. The targeted `.gsd-capabilities.json` restore was rerun with authorized Git index access and confirmed clean; no test was rerun or reclassified.
 
 ## Known Stubs
 
-None.
+None. Empty shell variables found by the stub scan are deterministic test-state resets, not shipped placeholders.
 
 ## User Setup Required
 
@@ -215,14 +184,13 @@ None.
 
 ## Next Phase Readiness
 
-Phase 22's task bead `gsd-beads-210` is closed with the exact test evidence.
-No implementation blocker, skipped verification, push, or Dolt sync remains.
+Plan 22-01 implementation and automated execution gates are complete. Bead `gsd-beads-210` intentionally remains open for independent code/security verification. This Summary records execution evidence and does not self-certify the Phase 22 review or security verdict.
 
 ## Self-Check: PASSED
 
-- All four implementation files and this summary exist.
-- All thirteen task commits resolve in Git in the recorded order.
-- No tracked file deletion or residual Phase 22 scratch path was found.
+- All five implementation files and the three updated Phase 22 evidence artifacts exist.
+- All nineteen task commits resolve as Git commits in the current history.
+- Summary completion metadata, actuals, independent-review boundary, and validation false-state are present and diff-clean.
 
 ---
 
