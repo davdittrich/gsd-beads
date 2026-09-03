@@ -110,8 +110,9 @@ Plans:
    serialized across runtimes, and repeated updates are byte-idempotent.
 3. User-owned skills, non-GSD skills, genuinely installed other capabilities,
    and unrelated runtime state remain intact.
-**Plans:** 1/1 plans executed
-**Verification:** Independent code/security review pending after R1-R3 remediation.
+**Plans:** 1/1 plans complete
+**Verification:** PASSED at `ed547388ecfc3fa8ce7d35cbed795337b02c4bb4`;
+code review PASS, security SECURED (7/7 closed), goal verification 7/7.
 
 Plans:
 
