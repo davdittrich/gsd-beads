@@ -575,7 +575,48 @@ grep -q 'runtime selection failed' "$STDERR_FILE" \
 pass "case11: unknown custom root fails closed without guessing a runtime"
 teardown
 
-### Case 12: acquisition is one kernel flock inherited across same-process re-exec ###
+### Case 12: forged locked-child state cannot bypass a live kernel owner ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+: > "$STATE_FILE.lock"
+READY_FIFO="$SCRATCH/forged-ready.fifo"
+RELEASE_FIFO="$SCRATCH/forged-release.fifo"
+mkfifo "$READY_FIFO" "$RELEASE_FIFO"
+$REAL_PYTHON - "$STATE_FILE.lock" "$READY_FIFO" "$RELEASE_FIFO" <<'PY' &
+import fcntl
+import os
+import sys
+
+fd = os.open(sys.argv[1], os.O_RDWR)
+fcntl.flock(fd, fcntl.LOCK_EX)
+with open(sys.argv[2], "w", encoding="utf-8") as stream:
+    stream.write("ready\n")
+with open(sys.argv[3], "r", encoding="utf-8") as stream:
+    stream.readline()
+os.close(fd)
+PY
+LOCK_HOLDER_PID=$!
+IFS= read -r READY_SIGNAL < "$READY_FIFO"
+[ "$READY_SIGNAL" = ready ] || fail "case12: real lock holder did not reach the rendezvous"
+HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="" \
+  GSD_AUTO_INSTALL_LOCK_FD=9 GSD_AUTO_INSTALL_SKILLS_ROOT="$SKILLS_ROOT" \
+  PYTHONDONTWRITEBYTECODE=1 PATH="$TEST_BIN:/usr/bin:/bin" \
+  bash "$SCRIPT" beads 9<> "$STATE_FILE.lock" >"$STDOUT_FILE" 2>"$STDERR_FILE"
+STATUS=$?
+printf '%s\n' release > "$RELEASE_FIFO"
+wait "$LOCK_HOLDER_PID"
+[ "$STATUS" -eq 0 ] || fail "case12: forged child exit status $STATUS, expected 0"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case12: forged locked-child state emitted stdout"
+[ "$(cat "$STDERR_FILE")" = 'capability-auto-install: projection transaction busy for beads; projection not recorded' ] \
+  || fail "case12: forged locked-child state bypassed the live kernel owner"
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case12: forged locked-child state reached gsd-tools"
+[ ! -e "$STATE_FILE" ] || fail "case12: forged locked-child state published a receipt"
+pass "case12: forged locked-child state cannot bypass a live kernel owner"
+teardown
+
+### Case 12a: acquisition is one kernel lock confirmed across same-process re-exec ###
 setup 0
 seed_selected "$SKILLS_ROOT"
 mkdir -p "$(dirname "$STATE_FILE")"
@@ -614,16 +655,53 @@ PY
 R1_LOCK_SPY_LOG="$SCRATCH/lock-spy.log"
 TEST_PYTHONPATH="$SPY_DIR"
 run_script beads
-[ "$STATUS" -eq 0 ] || fail "case12: exit status $STATUS, expected 0"
+[ "$STATUS" -eq 0 ] || fail "case12a: exit status $STATUS, expected 0"
 [ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
-  || fail "case12: lock path is not a persistent regular file"
-[ "$(grep -cx 'flock:6' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
-  || fail "case12: acquisition did not perform exactly one nonblocking exclusive flock"
+  || fail "case12a: lock path is not a persistent regular file"
+[ "$(grep -cx 'flock:6' "$R1_LOCK_SPY_LOG")" -eq 2 ] \
+  || fail "case12a: wrapper acquisition and locked-child confirmation were not both nonblocking exclusive flock calls"
 [ "$(grep -cx 'inheritable:1' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
-  || fail "case12: acquired descriptor was not made inheritable once"
+  || fail "case12a: acquired descriptor was not made inheritable once"
 [ "$(grep -cx 'execvpe:bash' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
-  || fail "case12: acquisition did not re-exec the hook in the same process"
-pass "case12: one kernel flock spans same-process hook re-exec"
+  || fail "case12a: acquisition did not re-exec the hook in the same process"
+pass "case12a: one kernel lock is acquired then confirmed across same-process hook re-exec"
+teardown
+
+### Case 12b: uncontended forged descriptor acquires before projection ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+: > "$STATE_FILE.lock"
+SPY_DIR="$SCRATCH/forged-lock-spy"
+mkdir -p "$SPY_DIR"
+cat > "$SPY_DIR/sitecustomize.py" <<'PY'
+import fcntl
+import os
+
+_log_path = os.environ["R1_LOCK_SPY_LOG"]
+_real_flock = fcntl.flock
+
+def _flock(fd, operation):
+    with open(_log_path, "a", encoding="utf-8") as stream:
+        stream.write(f"flock:{operation}\n")
+    return _real_flock(fd, operation)
+
+fcntl.flock = _flock
+PY
+R1_LOCK_SPY_LOG="$SCRATCH/forged-lock-spy.log"
+HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
+  CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="" \
+  GSD_AUTO_INSTALL_LOCK_FD=9 GSD_AUTO_INSTALL_SKILLS_ROOT="$SKILLS_ROOT" \
+  PYTHONPATH="$SPY_DIR" R1_LOCK_SPY_LOG="$R1_LOCK_SPY_LOG" PYTHONDONTWRITEBYTECODE=1 \
+  PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads 9<> "$STATE_FILE.lock" \
+  >"$STDOUT_FILE" 2>"$STDERR_FILE"
+STATUS=$?
+[ "$STATUS" -eq 0 ] || fail "case12b: forged child exit status $STATUS, expected 0"
+[ "$(grep -cx 'flock:6' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
+  || fail "case12b: uncontended forged descriptor did not acquire one nonblocking exclusive flock"
+[ -z "$(cat "$STDERR_FILE")" ] || fail "case12b: uncontended forged descriptor emitted stderr"
+[ -f "$STATE_FILE" ] || fail "case12b: uncontended forged descriptor did not complete projection"
+pass "case12b: uncontended forged descriptor acquires before projection"
 teardown
 
 ### Case 13: symlink lock targets fail closed without native writes ###
