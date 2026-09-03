@@ -4769,12 +4769,29 @@ class TestShipPreGenericDispatch(unittest.TestCase):
         "gsd-tools.cjs / node not found, or Plan 02's ship:pre gates not yet in capability.json",
     )
     def test_beads_gate_hooks_excluded_step_hook_retained_when_ship_gate_false(self):
-        project_root = sync.find_project_root(Path(__file__).resolve().parent)
-        config_path = project_root / ".planning" / "config.json"
-        original_text = config_path.read_text(encoding="utf-8")
-        config = json.loads(original_text)
-        try:
-            # Running this pytest process writes __pycache__/*.pyc under this
+        source_root = sync.find_project_root(Path(__file__).resolve().parent)
+        capability_source = (
+            source_root / "plugins/beads-lifecycle/.gsd/capabilities/beads"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            config_path = project_root / ".planning" / "config.json"
+            config_path.parent.mkdir()
+            config = {"beads": {"enabled": True}}
+            config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+            isolated_home = project_root / "home"
+            isolated_home.mkdir()
+            isolated_env = {
+                **os.environ,
+                "HOME": str(isolated_home),
+                "GSD_HOME": str(isolated_home),
+            }
+            registry_path = project_root / ".gsd-capabilities.json"
+            overlay_manifest = project_root / ".gsd/capabilities/beads/capability.json"
+            self.assertFalse(registry_path.exists())
+            self.assertFalse(overlay_manifest.exists())
+
+            # Running this test process writes __pycache__/*.pyc under this
             # bundle (sync.py's and this file's own import) -- the capability
             # loader's project-scope consent is a whole-bundle content hash, so
             # that write silently deactivates beads before this test's own
@@ -4787,7 +4804,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
                     str(_gsd_tools_path()),
                     "capability",
                     "install",
-                    "./plugins/beads-lifecycle/.gsd/capabilities/beads",
+                    str(capability_source),
                     "--scope",
                     "project",
                     "--yes",
@@ -4796,8 +4813,17 @@ class TestShipPreGenericDispatch(unittest.TestCase):
                 capture_output=True,
                 text=True,
                 timeout=30,
+                env=isolated_env,
             )
             self.assertEqual(reconsent.returncode, 0, reconsent.stderr)
+            self.assertTrue(registry_path.is_file())
+            self.assertTrue(overlay_manifest.is_file())
+            self.assertEqual(
+                json.loads(overlay_manifest.read_text(encoding="utf-8")),
+                json.loads(
+                    (capability_source / "capability.json").read_text(encoding="utf-8")
+                ),
+            )
 
             config.setdefault("beads", {})["ship_gate"] = False
             config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
@@ -4808,6 +4834,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
                 text=True,
                 timeout=30,
                 cwd=str(project_root),
+                env=isolated_env,
             )
             self.assertEqual(result.returncode, 0, result.stderr)
             payload = json.loads(result.stdout)
@@ -4824,8 +4851,6 @@ class TestShipPreGenericDispatch(unittest.TestCase):
             ]
             self.assertEqual(gate_hooks, [])
             self.assertGreaterEqual(len(step_hooks), 1)
-        finally:
-            config_path.write_text(original_text, encoding="utf-8")
 
 
 class TestCheckShipmdPatch(unittest.TestCase):
