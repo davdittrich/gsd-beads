@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0
+
+### Added
+- **Runtime-owned native capability projection.** Each Claude or Codex SessionStart now projects
+  only that runtime's selected Beads skills through gsd-core's native writer, records the installed
+  generation and selected-surface fingerprint, publishes the shared receipt atomically, and
+  serializes concurrent publishers with an inherited kernel lock. ([GH#9](https://github.com/davdittrich/gsd-beads/issues/9))
+
 ## 0.6.2
 
 ### Fixed

@@ -63,7 +63,7 @@ invalidate a live session's plugin cache mid-run ([davdittrich/gsd-beads#8](http
 root cause upstream in [openai/codex#31383](https://github.com/openai/codex/issues/31383)).
 
 ```bash
-codex plugin marketplace add davdittrich/gsd-beads --ref v1.5.2
+codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.0
 codex plugin add beads-lifecycle@gsd-beads
 ```
 
