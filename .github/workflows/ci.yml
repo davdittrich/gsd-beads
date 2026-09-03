@@ -16,8 +16,28 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
+      - name: Check out pinned gsd-core fixture
+        uses: actions/checkout@v7
+        with:
+          repository: open-gsd/gsd-core
+          ref: v1.12.0
+          fetch-depth: 0
+          path: .ci/gsd-core
+
+      - name: Provision pinned public gsd-core runtime
+        run: |
+          set -euo pipefail
+          GSD_CI_CODEX_HOME="$RUNNER_TEMP/gsd-codex"
+          npx --yes @opengsd/gsd-core@1.12.0 \
+            --codex --global --config-dir "$GSD_CI_CODEX_HOME" --profile=full
+          GSD_IDENTITY="$(node "$GSD_CI_CODEX_HOME/gsd-core/bin/gsd-tools.cjs" runtime-identity --raw)"
+          GSD_EXPECTED_IDENTITY='{"packageName":"@opengsd/gsd-core","version":"1.12.0"}'
+          test "$GSD_IDENTITY" = "$GSD_EXPECTED_IDENTITY"
+          echo "CODEX_HOME=$GSD_CI_CODEX_HOME" >> "$GITHUB_ENV"
+          echo "GSD_CORE_REPO=$GITHUB_WORKSPACE/.ci/gsd-core" >> "$GITHUB_ENV"
+
       - name: Capability auto-install smoke test
-        run: bash tests/test-capability-auto-install.sh
+        run: TMPDIR=/dev/shm bash tests/test-capability-auto-install.sh
 
       # test_sync.py mocks `bd`'s subprocess calls but not bd_available(), which
       # probes shutil.which("bd") -- without a real binary on PATH roughly a

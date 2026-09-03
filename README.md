@@ -42,6 +42,10 @@ the single source of truth for task state, so no duplicated task-state bookkeepi
 - Python 3 (standard library only)
 - gsd-core >= 1.10.0
 
+The manifest keeps 1.10.0 as the compatibility floor. The real reconciliation fixture and CI
+separately pin public gsd-core 1.12.0 as the current runtime identity; that current-runtime gate
+does not raise the declared floor.
+
 ## Install
 
 Claude Code:
