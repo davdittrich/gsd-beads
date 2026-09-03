@@ -1280,7 +1280,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.6.2")
+        self.assertEqual(manifest["version"], "0.7.0")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -1296,8 +1296,40 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         root = self.CAPABILITY_PATH.parents[5]
         changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
         readme = (root / "README.md").read_text(encoding="utf-8")
+        plugin = json.loads(
+            (root / "plugins/beads-lifecycle/.claude-plugin/plugin.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        registry = json.loads(
+            (root / ".gsd-capabilities.json").read_text(encoding="utf-8")
+        )
+        marketplace = json.loads(
+            (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+        )
+        codex_pin = [
+            line
+            for line in readme.splitlines()
+            if line.startswith("codex plugin marketplace add davdittrich/gsd-beads")
+        ]
         prose = " ".join(readme.split())
-        self.assertIn("## 0.6.1", changelog)
+        expected_versions = {
+            "plugin": (plugin["version"], "1.6.0"),
+            "capability": (self._manifest()["version"], "0.7.0"),
+            "registry": (registry["entries"]["beads"]["version"], "0.7.0"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.0"),
+            "README Codex pin": (
+                codex_pin,
+                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.0"],
+            ),
+        }
+        for surface, (actual, expected) in expected_versions.items():
+            with self.subTest(surface=surface):
+                self.assertEqual(actual, expected)
+        beads_entry = next(
+            entry for entry in marketplace["plugins"] if entry["name"] == "beads-lifecycle"
+        )
+        self.assertNotIn("version", beads_entry)
         self.assertIn("taskContentResolver", changelog)
         self.assertIn("Patch 2", changelog)
         self.assertIn("description, read_first, verify, acceptance_criteria, and done", readme)
