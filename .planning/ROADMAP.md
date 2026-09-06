@@ -121,10 +121,14 @@ Plans:
 ### Phase 23: Extend SOTA definition in sota-numerics and refactor plugin to comply
 
 **Goal:** Extend the sota-numerics plugin's definition of SOTA beyond numerical correctness so it also instructs generated code to be internally and project consistent, unambiguous, complete, efficient, carry agent-facing prose that follows the writing-for-agents standard, and stay token-efficient when the generated code is executed; then refactor the plugin's own content to fully comply with that extended definition.
-**Requirements**: TBD
+**Requirements**: none in REQUIREMENTS.md — traced to 23-CONTEXT.md decisions D-01..D-27 (all 27 covered)
 **Depends on:** Phase 22
-**Plans:** 0 plans
+**Plans:** 5 plans
 
 Plans:
 
-- [ ] TBD (run /gsd-plan-phase 23 to break down)
+- [ ] 23-01-PLAN.md — Executor role slice: tracer on `quiet`, then `legible` and efficiency, echoed in the verifier and ship fragments and README (wave 1)
+- [ ] 23-02-PLAN.md — Planner role slice: prune the checker restatement, define `with the grain` and plan completeness, echo in verifier and ship (wave 2)
+- [ ] 23-03-PLAN.md — Manifests to 0.2.0 with rewritten descriptions, gate-script prose refactor, gate contract frozen (wave 3)
+- [ ] 23-04-PLAN.md — NOTES.md prune-only and README claim tracing plus legible-standard prose pass (wave 3)
+- [ ] 23-05-PLAN.md — Internal review, publish by merging to main, annotated tag v0.2.0 (wave 4, has a decision checkpoint)
