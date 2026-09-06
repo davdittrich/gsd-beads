@@ -334,7 +334,7 @@ None — existing test infrastructure (Python unittest + 2 bash smoke scripts) a
 
 ## Security Domain
 
-`security_enforcement` is absent from `.planning/config.json` in `gsd-beads` [VERIFIED: /home/dd/projects/gsd-beads/.planning/config.json — no `security_enforcement` key present], so it is treated as enabled per the default rule. In practice almost every ASVS category is inapplicable: this phase edits advisory Markdown prompt text, two `description` strings, and a version number — no authentication, session, access-control, or cryptographic surface is touched, and the one component with a real trust boundary (`check-alternatives.py`, which parses untrusted `PLAN.md` content) is explicitly out of scope (D-01) and unmodified.
+`security_enforcement` is present and set to `true` in `.planning/config.json` in `gsd-beads` [VERIFIED 2026-09-06 by the orchestrator: `"security_enforcement": true` at line 50; RESEARCH.md originally recorded the key as absent, which was wrong — the conclusion that enforcement is on is unchanged], so the security contribution hook is active. In practice almost every ASVS category is inapplicable: this phase edits advisory Markdown prompt text, two `description` strings, and a version number — no authentication, session, access-control, or cryptographic surface is touched, and the one component with a real trust boundary (`check-alternatives.py`, which parses untrusted `PLAN.md` content) is explicitly out of scope (D-01) and unmodified.
 
 ### Applicable ASVS Categories
 
