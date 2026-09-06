@@ -137,11 +137,14 @@ Plans:
 **Wave 3** *(blocked on Wave 2 completion)*
 
 - [ ] 23-03-PLAN.md — Manifests to 0.2.0 with rewritten descriptions, gate-script prose refactor, gate contract frozen (wave 3)
-- [ ] 23-04-PLAN.md — NOTES.md prune-only and README claim tracing plus legible-standard prose pass (wave 3)
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 23-05-PLAN.md — Internal review, publish by merging to main, annotated tag v0.2.0 (wave 4, has a decision checkpoint)
+- [ ] 23-04-PLAN.md — NOTES.md prune-only and README claim tracing plus legible-standard prose pass (wave 4)
+
+**Wave 5** *(blocked on Wave 4 completion)*
+
+- [ ] 23-05-PLAN.md — Internal review, publish by merging to main, annotated tag v0.2.0 (wave 5, has a decision checkpoint)
 
 **Cross-cutting constraints:**
 
