@@ -117,3 +117,14 @@ code review PASS, security SECURED (7/7 closed), goal verification 7/7.
 Plans:
 
 - [x] 22-01-PLAN.md
+
+### Phase 23: Extend SOTA definition in sota-numerics and refactor plugin to comply
+
+**Goal:** Extend the sota-numerics plugin's definition of SOTA beyond numerical correctness so it also instructs generated code to be internally and project consistent, unambiguous, complete, efficient, carry agent-facing prose that follows the writing-for-agents standard, and stay token-efficient when the generated code is executed; then refactor the plugin's own content to fully comply with that extended definition.
+**Requirements**: TBD
+**Depends on:** Phase 22
+**Plans:** 0 plans
+
+Plans:
+
+- [ ] TBD (run /gsd-plan-phase 23 to break down)
