@@ -434,3 +434,37 @@ Worth recording why the command is not greppable in `23-04-PLAN.md`: `beads.sync
 ### One divergent finding promoted
 
 The "linked worktree, not a clone" observation is upheld and is more consequential than its LOW framing suggests. `.worktrees/sota-numerics-release-013/.git` is a gitdir pointer to `.worktrees/sota-numerics-issue-1/.git/worktrees/sota-numerics-release-013`; the two share one object store and one ref namespace, and HEAD is on `chore/release-0.1.3`, not `main`. CONTEXT D-22's "clone" wording is wrong, and any plan step that creates a branch affects the sibling worktree. This must be corrected in the replan.
+
+---
+
+## Cycle 2 Review — Claude lane only
+
+The `--antigravity` lane did not produce a section this cycle, and the review agent returned no `CYCLE_SUMMARY` line and did not commit an update to this file. The orchestrator recorded the cycle below from the agent's return and verified every finding against source before acting on it. Treat this as a one-lane cycle: the consensus gate does not apply, so a single reviewer's HIGH counts.
+
+The reviewer noted that narrative tool output in its session passed through a lossy prose-compression layer that drops short words, and worked around it by reading `bd show --json` and comparing with `grep -qF`. That is the right call when the thing under test is a byte-exact pinned literal, and it is why this cycle's findings are trustworthy despite the missing lane.
+
+### Confirmed fixed
+
+- **HIGH 1 (pinned prose).** All three seats carry the pinned sentence byte-for-byte in their verify scripts (`gsd-beads-sac.4`, `.9`, `.12`). The baseline files check out: `README.md` holds the marker and the contract sentence and does NOT hold the forbidden `Each parsed entry must contain:`, and `check-alternatives.py`'s docstring holds both pinned phrases.
+- **D-08 arithmetic.** `planner-sota.md` is 13 lines pre-execution; the `[8,10]` bound and the `LOST RULE` literal loop are consistent with the budget.
+- **Wave frontmatter.** 1→2→3→4→5 with no same-wave `files_modified` overlap.
+
+### HIGH — acceptance criteria were left behind when the verify gates were fixed
+
+Verified by the orchestrator against raw `bd show --json`, not renders. The cycle 1 revision corrected each `<verify>` block but left the sibling `<acceptance_criteria>` stating the old, defective contract:
+
+- `gsd-beads-sac.4` — AC demanded `wc -l` print **exactly 10** while the gate enforced `[8,10]`. Exact equality is the precise failure mode cycle 1 removed: a correct prune landing at 8 or 9 passes the gate and fails the written contract.
+- `gsd-beads-sac.10` — AC still demanded `git diff --numstat origin/main -- NOTES.md` report **0 added lines**. That is the instrument HIGH 3 removed, in the same ticket whose own verify rationale explains why it had to go. Any executor taking the Action's explicit permission to reword a surviving sentence fails AC while passing the gate. AC's line bound `(60,115)` also disagreed with the gate's `[65,95]`.
+- `gsd-beads-sac.12` — AC said README is **at most 260** with no floor; the gate enforces `[200,240]`.
+
+Fixed directly in bd rather than through another planner cycle: each AC now states the same bound as its gate, and `sac.10`'s numstat criterion is replaced by the vocabulary-containment property with a note recording what it replaced and why. No `<verify>` block was touched.
+
+### MEDIUM-HIGH — ROADMAP.md wave grouping was stale
+
+`.planning/ROADMAP.md` still grouped `23-03` and `23-04` under one Wave 3, contradicting `23-04`'s own `depends_on: [23-02, 23-03]`. An orchestrator dispatching by the roadmap grouping rather than plan frontmatter would have started them concurrently.
+
+Root cause is a tool defect, not a planning error: `gsd_run query roadmap.annotate-dependencies 23` returned `{"updated": true, "waves": 5}` while leaving the four-wave grouping in place. It annotates once and silently ignores later structural change. Corrected by hand; filed as `gsd-beads-789`.
+
+### Adjudicated count after the orchestrator's fixes
+
+`current_high = 0`, `current_actionable = 0`. Both cycle 2 findings are closed in bd and ROADMAP.md rather than deferred.
