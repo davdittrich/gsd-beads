@@ -392,3 +392,45 @@ Manual pairwise checks (advisory, per instruction — SAME fact on both sides re
 
 One drift flagged (ROADMAP.md/PLAN.md requirement-coverage gap on D-06, above). This pass is
 advisory only per instruction and contributes to neither `current_high` nor `current_actionable`.
+
+---
+
+## Orchestrator Adjudication — Cycle 1
+
+The three HIGHs reported by the review agent were re-checked against source by the orchestrator before any replan, because a false HIGH fed into a `--reviews` replan produces a worse plan than no review at all. Verdicts and the evidence for each:
+
+### HIGH 1 — Pinned-prose test collision: UPHELD
+
+`tests/test_check_alternatives.py`'s `TestDocumentedSyntax.test_readme_and_planner_name_exact_mixed_contract` hard-pins two literals and asserts both survive in BOTH `README.md` and `.gsd/capabilities/sota-numerics/fragments/planner-sota.md`:
+
+- the marker `### Internal design alternatives`
+- the sentence `Internal entries need no external citation or date, do not count toward the two mechanism alternatives, and cannot lend evidence to a mechanism entry.`
+
+Confirmed by reading the test body directly, and by `grep -c` returning 1 in each of the two files. Plan 02 Task 1's Action instructs merging that exact sentence into another line during the prune, and its `LOST RULE` grep list checks only `Internal design alternatives`, never the sentence. The suite goes red on execution. The finding stands and must be planned around.
+
+### HIGH 2 — Mirror-tree digest "not reproducible": REJECTED
+
+The digest reproduces exactly. Run twice by the orchestrator on 2026-09-06 using the plans' own command verbatim:
+
+```
+cd "${GSD_HOME:-$HOME}/.gsd/capabilities/sota-numerics" && find . -type f | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1
+3ea50c85d28641b249ab71ce11374468652c9ff0388b64c464205a10e99e413e
+```
+
+That is byte-identical to the digest the five plans cite. The review's re-derivation compared four DIFFERENT hashing methods (sorted `sha256sum`, concatenated `cat`, deterministic tar, git-tree hash) and reported that they disagree with each other. They do — different methods produce different digests by construction. Method-independence is not the property a recursion guard needs; reproducibility of one named command is, and that holds.
+
+This HIGH is excluded from `current_high`. It is retained here rather than deleted, per the no-silent-drop rule. **No replan may weaken or remove the digest guard on the strength of this finding.**
+
+### HIGH 3 — Self-contradictory prune gate in Plan 04 Task 1: UPHELD
+
+`git diff --numstat` reports an edited line as one addition and one deletion. The gate exits non-zero when `$1 > 0`, while the same task's Action explicitly permits rewording surviving sentences to keep them readable after a cut. Any executor that takes the permission trips the gate on a file that legitimately shrank. Confirmed present in `bd show gsd-beads-sac.10`.
+
+Worth recording why the command is not greppable in `23-04-PLAN.md`: `beads.sync_mode` is `authoritative`, so `beads-sync` moved task bodies into bd and left `<!-- beads: content synced to bd -->` stubs in the plan. bd holds the authoritative task content. The reviewer reading it via `bd show` was reading the real plan, not a stale copy.
+
+### Adjudicated count
+
+`current_high = 2` (HIGH 1, HIGH 3). `current_actionable = 11`, unchanged.
+
+### One divergent finding promoted
+
+The "linked worktree, not a clone" observation is upheld and is more consequential than its LOW framing suggests. `.worktrees/sota-numerics-release-013/.git` is a gitdir pointer to `.worktrees/sota-numerics-issue-1/.git/worktrees/sota-numerics-release-013`; the two share one object store and one ref namespace, and HEAD is on `chore/release-0.1.3`, not `main`. CONTEXT D-22's "clone" wording is wrong, and any plan step that creates a branch affects the sibling worktree. This must be corrected in the replan.
