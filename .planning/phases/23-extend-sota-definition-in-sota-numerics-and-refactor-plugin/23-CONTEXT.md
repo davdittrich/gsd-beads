@@ -123,10 +123,10 @@ Out of scope: the `plan:post` gate's checking logic, the `beads-lifecycle` and `
 <deferred>
 ## Deferred Ideas
 
-Two findings surfaced during scouting. Neither is in scope for Phase 23, and neither should be dropped without a ticket.
+Two findings surfaced during scouting. Neither is in scope for Phase 23; both are tracked.
 
-- `.worktrees/sota-numerics-issue-1` and `.worktrees/sota-numerics-release-013` are clones of the `sota-numerics` repository sitting untracked inside the `gsd-beads` working tree. `git status` lists `.worktrees/` as untracked, so a `git add -A` in `gsd-beads` would commit another project's history into this one. Fix is either a `.gitignore` entry or relocation.
-- `0.1.3` was published without a git tag, so the repository has no immutable marker for that version and the marketplace serves whatever `main` holds. D-27 tags this release; the convention for past and future releases is still unwritten.
+- `.worktrees/sota-numerics-issue-1` and `.worktrees/sota-numerics-release-013` are clones of the `sota-numerics` repository sitting untracked inside the `gsd-beads` working tree. `git status` lists `.worktrees/` as untracked, so a `git add -A` in `gsd-beads` would commit another project's history into this one. Fix is either a `.gitignore` entry or relocation. Tracked as `gsd-beads-9tg`.
+- `0.1.3` was published without a git tag, so the repository has no immutable marker for that version and the marketplace serves whatever `main` holds. D-27 tags this release; the convention for past and future releases is still unwritten. Tracked as `gsd-beads-oh1`.
 
 </deferred>
 
