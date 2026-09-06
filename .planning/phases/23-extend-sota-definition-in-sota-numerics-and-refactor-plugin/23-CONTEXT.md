@@ -57,7 +57,10 @@ Out of scope: the `plan:post` gate's checking logic, the `beads-lifecycle` and `
 
 - **D-22:** Work in the existing clone at `.worktrees/sota-numerics-release-013`, on a new branch cut from `origin/main`. Verified 2026-09-06: that clone's checkout and `origin/main` are both at `eccad87`, so it is current.
 - **D-23:** Version becomes `0.2.0` in both `.claude-plugin/plugin.json` and `.gsd/capabilities/sota-numerics/capability.json`, kept in sync. Minor bump: the instruction surface grows and prompt behavior changes, while the gate contract does not.
-- **D-24:** OPEN — publish authority. See Open Questions.
+- **D-24:** The phase ends at published `0.2.0`. Answered by the user on 2026-09-06.
+- **D-25:** Because the marketplace entry points at the repository URL rather than at a tag, merging to `main` is the publish. There is no separate release step, so everything that must be true of a release must be true before the merge.
+- **D-26:** Publish ordering. Internal review and every fix it accepts land on the branch before the pull request opens, so an external reviewer's first pass sees a finished diff rather than a known-incomplete one. CI must be green on the exact commit that reaches `main`. Any claim the release makes about behavior must trace to code, not to an assertion in the pull request body.
+- **D-27:** Tag the published commit `v0.2.0`. `0.1.3` left no immutable marker for what was served; this phase does not repeat that.
 
 ### Claude's Discretion
 
@@ -66,17 +69,6 @@ Out of scope: the `plan:post` gate's checking logic, the `beads-lifecycle` and `
 - Commit granularity within the branch.
 
 </decisions>
-
-<open_questions>
-## Open Questions
-
-- **Q-01 (blocks the end of the phase, not its start):** Does Phase 23 end at a reviewed pull request against `sota-numerics` `main`, or does it merge and publish `0.2.0`?
-
-  This matters more than it usually would. `0.1.3` shipped with no git tag, and the `gsd-beads` marketplace entry points at the repository URL rather than at a tag, so merging to `main` *is* publishing to every consumer. There is no separate release step to authorize later.
-
-  Planning and implementation can proceed without the answer; only the final step depends on it.
-
-</open_questions>
 
 <specifics>
 ## Specific Ideas
@@ -134,7 +126,7 @@ Out of scope: the `plan:post` gate's checking logic, the `beads-lifecycle` and `
 Two findings surfaced during scouting. Neither is in scope for Phase 23, and neither should be dropped without a ticket.
 
 - `.worktrees/sota-numerics-issue-1` and `.worktrees/sota-numerics-release-013` are clones of the `sota-numerics` repository sitting untracked inside the `gsd-beads` working tree. `git status` lists `.worktrees/` as untracked, so a `git add -A` in `gsd-beads` would commit another project's history into this one. Fix is either a `.gitignore` entry or relocation.
-- `0.1.3` was published without a git tag, so the repository has no immutable marker for any released version and the marketplace serves whatever `main` holds. Worth a tagging convention.
+- `0.1.3` was published without a git tag, so the repository has no immutable marker for that version and the marketplace serves whatever `main` holds. D-27 tags this release; the convention for past and future releases is still unwritten.
 
 </deferred>
 
