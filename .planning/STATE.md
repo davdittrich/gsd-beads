@@ -4,16 +4,16 @@ milestone: v1.4
 current_phase: 23
 current_phase_name: Extend SOTA definition in sota-numerics and refactor plugin to comply
 status: executing
-stopped_at: Completed 23-03-PLAN.md
-last_updated: "2026-09-07T01:26:17.311Z"
+stopped_at: Completed 23-04-PLAN.md
+last_updated: "2026-09-07T01:47:37.522Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 23 execution started
-state_head: aabcf7812bb8065373d0c91edb23bfa78896e700
+state_head: 4e4d61e1e5a266b1b3cb0558da96a80bb1116325
 progress:
   total_phases: 5
   completed_phases: 4
   total_plans: 10
-  completed_plans: 8
+  completed_plans: 9
 milestone_name: Native Task Content Resolution
 ---
 
@@ -30,7 +30,7 @@ task state; zero duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 23 (Extend SOTA definition in sota-numerics and refactor plugin to comply) — EXECUTING
-Plan: 4 of 5
+Plan: 5 of 5
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 23 execution started
 
@@ -56,6 +56,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 | Phase 23 P01 | 45min | 3 tasks | 4 files |
 | Phase 23 P02 | 20min | 3 tasks | 4 files |
 | Phase 23 P03 | 20min | 3 tasks | 3 files |
+| Phase 23 P04 | 35min | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -78,6 +79,8 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 - [Phase 23]: ship-precision-advisory.md's confirm sentence extended in place for with-the-grain claims rather than adding a new line
 - [Phase 23]: capability.json/plugin.json bumped to 0.2.0 with rewritten descriptions naming the extended SOTA definition while still declaring exactly one gate at plan:post; gate contract and contributions array stay byte-identical to origin/main.
 - [Phase 23]: check-alternatives.py's docstrings/comments rewritten to replace RESEARCH.md/REVIEWS/CONTEXT.md/threat-ID pointers with the claims they stood for; docstring-stripped AST proves zero executable lines changed.
+- [Phase 23]: Phase 23 Plan 04: pruned NOTES.md from 115 to 88 lines via sentence-level deletion/merge (never bulk cut), removing only passages README already states; vocabulary containment (not git diff --numstat) is the enforcement mechanism since numstat penalized correct rewording
+- [Phase 23]: Phase 23 Plan 04: traced all 12 mechanically-checkable README behavioral claims to capability.json/check-alternatives.py, found and corrected 2 accuracy gaps (verifier row missing completeness flags, ship row missing legibility claim)
 
 ### Roadmap Evolution
 
@@ -102,8 +105,8 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-07T01:26:17.273Z
-Stopped at: Completed 23-03-PLAN.md
+Last session: 2026-09-07T01:47:37.484Z
+Stopped at: Completed 23-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps

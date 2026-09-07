@@ -123,7 +123,7 @@ Plans:
 **Goal:** Extend the sota-numerics plugin's definition of SOTA beyond numerical correctness so it also instructs generated code to be internally and project consistent, unambiguous, complete, efficient, carry agent-facing prose that follows the writing-for-agents standard, and stay token-efficient when the generated code is executed; then refactor the plugin's own content to fully comply with that extended definition.
 **Requirements**: none in REQUIREMENTS.md — traced to 23-CONTEXT.md decisions D-01..D-27 (all 27 covered)
 **Depends on:** Phase 22
-**Plans:** 3/5 plans executed
+**Plans:** 4/5 plans executed
 
 Plans:
 **Wave 1**
@@ -140,7 +140,7 @@ Plans:
 
 **Wave 4** *(blocked on Wave 3 completion)*
 
-- [ ] 23-04-PLAN.md — NOTES.md prune-only and README claim tracing plus legible-standard prose pass (wave 4)
+- [x] 23-04-PLAN.md — NOTES.md prune-only and README claim tracing plus legible-standard prose pass (wave 4)
 
 **Wave 5** *(blocked on Wave 4 completion)*
 
