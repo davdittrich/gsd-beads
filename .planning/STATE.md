@@ -86,6 +86,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 
 - Phase 22 added: Capability Projection Reconciliation
 - Phase 23 added: Extend SOTA definition in sota-numerics and refactor plugin to comply
+- Phase 24 added: Remediate sota-numerics 0.2.0 release blockers and publish (absorbs Phase 23's removed 23-05 publish plan per amendment A-04)
 
 ### Pending Todos
 
@@ -93,6 +94,16 @@ None.
 
 ### Blockers/Concerns
 
+- Phase 23 plan 23-05 Task 2 decision checkpoint answered `hold` on 2026-09-07.
+  The `feat/extended-sota-definition` branch of davdittrich/sota-numerics is NOT
+  merged to main and NOT tagged. Merging publishes to every installer through the
+  marketplace `source.url` entry. Phase 23 amendment A-04 removed plan 23-05 and
+  moved the publish into Phase 24 as that phase's final wave, so phase order stays
+  ascending and no later phase gates an earlier one. Blocking findings, the four
+  review reports and the restated publish decisions live in
+  `.planning/phases/24-remediate-sota-numerics-0-2-0-release-blockers/`. bd issues
+  `gsd-beads-sac.14`, `.15` and `.16` stay open and are re-homed by Phase 24's
+  publish plan; the `hold` answer is a comment on `.14`.
 - Phase 19 planning must inspect the current live Beads acceptance-criteria
   representation before locking normalization fixtures.
 - Phase 21 requires fresh active-registry, installed-byte, database-discovery,
@@ -105,9 +116,9 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-07T01:47:37.484Z
-Stopped at: Completed 23-04-PLAN.md
-Resume file: None
+Last session: 2026-09-07
+Stopped at: 23-05 Task 2 checkpoint answered `hold`; Phase 23 closed at branch-ready (A-04), publish moved into Phase 24, which is being planned
+Resume file: .planning/phases/24-remediate-sota-numerics-0-2-0-release-blockers/
 
 ## Operator Next Steps
 

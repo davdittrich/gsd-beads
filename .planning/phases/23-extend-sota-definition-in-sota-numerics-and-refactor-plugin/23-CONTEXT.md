@@ -190,3 +190,19 @@ Two findings surfaced during scouting. Neither is in scope for Phase 23; both ar
 
 *Phase: 23-extend-sota-definition-in-sota-numerics-and-refactor-plugin*
 *Context gathered: 2026-09-06*
+
+- **A-04 (amends D-24 and relocates D-25 through D-27), 2026-09-07.** D-24 ended this
+  phase at published `0.2.0`, and plan 23-05 carried the publish as wave 5. The four-lens
+  review of the branch returned DO NOT SHIP and the user answered the 23-05 Task 2
+  decision checkpoint with `hold`, so the publish now depends on remediation work that
+  did not exist when this phase was planned. Placing that remediation in a later phase
+  while the publish stayed here would have inverted GSD's own ordering: every roadmap
+  reader — `roadmap analyze`, the manager dashboard, `execute-phase` — walks phases
+  ascending, so a Phase 24 that gates Phase 23's last wave is a dependency the tooling
+  cannot express and will recommend against. This phase therefore ends at branch-ready:
+  waves 1 through 4, the content work, are its whole scope. Plan `23-05-PLAN.md` is
+  removed from this phase (recoverable at commit `c2198f0`) and the publish, including
+  its decision checkpoint and the D-25, D-26 and D-27 constraints, moves to Phase 24 as
+  that phase's final wave. The bd tasks `gsd-beads-sac.14`, `.15` and `.16` stay open and
+  are re-homed by Phase 24's plan rather than closed, so the checkpoint's recorded `hold`
+  answer stays attached to the same issue it was answered on.
