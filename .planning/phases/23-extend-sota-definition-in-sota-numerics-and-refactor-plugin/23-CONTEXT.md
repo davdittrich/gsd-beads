@@ -70,19 +70,23 @@ Out of scope: the `plan:post` gate's checking logic, the `beads-lifecycle` and `
 
 ### Amendments
 
-Three decisions above were breached during execution. Each breach was justified and
+Four decisions above were breached during execution. Each breach was justified and
 maintainer-approved at the time, but none was written down, and this section fixes that.
-The original D-01, D-18 and D-19 text is left exactly as written — these are amendments,
-not rewrites.
+The original D-01, D-18, D-19 and D-21 text is left exactly as written — these are
+amendments, not rewrites.
 
-Recording them is not bookkeeping. 34 of the 93 commits on this branch touch a 248-line
-guard and a 921-line test file, against 11 on the fragments that are the phase's declared
+Every count below was re-derived at `3e9fa2e` and is stated against that commit, because
+the branch is still moving: a count with no commit behind it is how this section went
+stale the first time. At `3e9fa2e`, 37 of the 106 commits on this branch touch a 244-line
+guard and an 893-line test file, against 14 on the fragments that are the phase's declared
 scope. The release's one arbitrary-code-execution defect landed inside that unrecorded
 expansion. An unrecorded scope change is precisely where review attention does not go,
 which is how a green suite shipped it.
 
 - **A-01 (amends D-01), 2026-09-07.** D-01 froze the gate: no new checks, no changed
-  `capability.json` gate. The gate changed in four ways. Cause: `${PHASE_DIR}` was spliced
+  `capability.json` gate. The gate changed in four ways under D-01, and has changed
+  further since as review found more defects; the current set is the commit history on
+  `capability.json` and `check-alternatives.py`, not a number cached here. Cause: `${PHASE_DIR}` was spliced
   into a command handed to `sh -c`, so a phase directory name could execute as shell source,
   and one payload class exited `0` while doing so — the blocking gate reported success on a
   phase that had just run arbitrary code. No manifest-side quoting could close it, because
@@ -90,8 +94,9 @@ which is how a green suite shipped it.
   is now constant and `check-alternatives.py` resolves the phase from `.planning/STATE.md`.
   The other three changes: an empty phase argument exits `2` rather than scanning the
   working directory; fenced code blocks no longer count as plan content; one UTF-8 decode
-  message names the offending plan. Measured scope of the change: of this release's 68
-  tests, 52 pass unchanged against the 0.1.3 checker and 16 fail. The fenced-block fix
+  message names the offending plan. Measured scope of the change, at `3e9fa2e`: of this
+  release's 89 checker tests, 61 pass unchanged against the 0.1.3 checker on `origin/main`
+  and 28 fail. The fenced-block fix
   changes verdicts — a plan that passed under 0.1.3 may now fail. Residual coupling to
   gsd-core's step ordering, and the upstream fix, are recorded in the capability's
   `NOTES.md` §6 and tracked as `gsd-beads-g72`.
@@ -103,9 +108,14 @@ which is how a green suite shipped it.
   was a bypass, and justified rejecting an alternative with a claim about single-quote
   behaviour that is false. The current §6 is written against measurements.
 
-- **A-03 (amends D-19), 2026-09-07.** D-19 allowed `hooks/*.sh` and `tests/` message
-  touch-ups only. `hooks/capability-auto-install.sh` went from 99 lines to 248 and
-  `tests/test-capability-auto-install.sh` is a new 921-line file. Cause: the `SessionStart`
+- **A-03 (amends D-19 and D-21), 2026-09-07.** D-19 allowed `hooks/*.sh` and `tests/` message
+  touch-ups only, and D-21 allowed no test infrastructure for prose at all. Both were
+  breached by the same expansion: `hooks/capability-auto-install.sh` went from 99 lines to
+  244, and `tests/test-capability-auto-install.sh` is a new 893-line file whose case `D0`
+  parses README.md's refusal table and asserts it is the same set the hook emits — prose
+  infrastructure, in a file `origin/main` does not have. (`origin/main`'s own
+  `test_check_alternatives.py` already asserted on README.md, so those assertions are not
+  evidence of this breach; the new file is.) Cause: the `SessionStart`
   and `SubagentStart` auto-install installs the bundle at global scope, publishing it to
   every project on the machine, and it would do so from an uncommitted development
   worktree. The guard refuses to install bytes the bundle's own upstream cannot be shown to
