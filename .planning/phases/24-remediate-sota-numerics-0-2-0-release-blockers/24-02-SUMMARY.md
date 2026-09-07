@@ -160,6 +160,14 @@ None — no external service configuration required.
 - Plan 24-08 has the exact re-run command and both commit-hash roles it needs to re-prove agreement immediately before merging `feat/extended-sota-definition` to `main` on `sota-numerics`.
 - D-12 is closed for this wave; D-19 (merge is the publish, entry points at repository not tag) is unaffected and still holds.
 
+## Self-Check: PASSED
+
+- FOUND: `.claude-plugin/marketplace.json`
+- FOUND: `.planning/phases/24-remediate-sota-numerics-0-2-0-release-blockers/24-02-SUMMARY.md`
+- FOUND commit `64b038d` (Task 1, this repo)
+- FOUND commit `9cf3453` (Task 2, this repo)
+- FOUND commit `2321b74` (worktree HEAD, `.worktrees/sota-numerics-release-013`, unchanged by this plan)
+
 ---
 *Phase: 24-remediate-sota-numerics-0-2-0-release-blockers*
 *Completed: 2026-09-07*

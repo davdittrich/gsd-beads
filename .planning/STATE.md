@@ -4,16 +4,16 @@ milestone: v1.4
 current_phase: 24
 current_phase_name: Remediate sota-numerics 0.2.0 release blockers and publish
 status: executing
-stopped_at: Completed 24-01-PLAN.md
-last_updated: "2026-09-07T20:55:49.359Z"
+stopped_at: Completed 24-02-PLAN.md
+last_updated: "2026-09-07T21:06:07.501Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 24 execution started
-state_head: b07cdeddfff84981ea5861fb6f931f211194f532
+state_head: 9cf3453dc5f62cdc82f96116d244bcd970d907e3
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 18
-  completed_plans: 10
+  completed_plans: 11
 milestone_name: Native Task Content Resolution
 ---
 
@@ -30,7 +30,7 @@ task state; zero duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 24 (Remediate sota-numerics 0.2.0 release blockers and publish) — EXECUTING
-Plan: 2 of 9
+Plan: 3 of 9
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 24 execution started
 
@@ -58,6 +58,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 | Phase 23 P03 | 20min | 3 tasks | 3 files |
 | Phase 23 P04 | 35min | 3 tasks | 2 files |
 | Phase 24 P01 | n/a (continued across context compaction) | 3 tasks | 2 files |
+| Phase 24 P02 | 5min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -87,6 +88,8 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 - [Phase 24]: gsd-tools TDD gate (check tdd-red-evidence) is Node-TAP-format only; both RED phases ran python3 -m unittest -v directly, translated faithfully into TAP shape with verbatim transcript appended.
 - [Phase 24]: mask_leading_frontmatter runs first inside mask_fenced_regions, before fence/comment/indented-code masking, since frontmatter is a document-level boundary.
 - [Phase 24]: PLAN_FRONTMATTER_RE requires an actual closing --- or ... line; an unclosed opening --- is left unmasked (fail-safe direction).
+- [Phase 24]: D-12: synced sota-numerics marketplace description with feat/extended-sota-definition's plugin.json byte-for-byte (commit 64b038d), read live from the worktree rather than transcribed
+- [Phase 24]: D-12/D-19: pinned the comparison command and both commit hashes in 24-02-SUMMARY.md so plan 24-08 re-runs the check at merge time rather than trusting this wave's result
 
 ### Roadmap Evolution
 
@@ -122,8 +125,8 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-07T20:55:49.314Z
-Stopped at: Completed 24-01-PLAN.md
+Last session: 2026-09-07T21:05:57.375Z
+Stopped at: Completed 24-02-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
