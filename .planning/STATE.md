@@ -4,16 +4,16 @@ milestone: v1.4
 current_phase: 24
 current_phase_name: Remediate sota-numerics 0.2.0 release blockers and publish
 status: executing
-stopped_at: Completed 24-02-PLAN.md
-last_updated: "2026-09-07T21:06:07.501Z"
+stopped_at: Completed 24-03-PLAN.md
+last_updated: "2026-09-07T21:46:44.569Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 24 execution started
-state_head: 9cf3453dc5f62cdc82f96116d244bcd970d907e3
+state_head: d91ed19f0e9a9eeead50cc21f55df7537d0db821
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 18
-  completed_plans: 11
+  completed_plans: 12
 milestone_name: Native Task Content Resolution
 ---
 
@@ -30,7 +30,7 @@ task state; zero duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 24 (Remediate sota-numerics 0.2.0 release blockers and publish) — EXECUTING
-Plan: 3 of 9
+Plan: 4 of 9
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 24 execution started
 
@@ -59,6 +59,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 | Phase 23 P04 | 35min | 3 tasks | 2 files |
 | Phase 24 P01 | n/a (continued across context compaction) | 3 tasks | 2 files |
 | Phase 24 P02 | 5min | 2 tasks | 2 files |
+| Phase 24 P03 | n/a (continued across context compaction) | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -90,6 +91,9 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 - [Phase 24]: PLAN_FRONTMATTER_RE requires an actual closing --- or ... line; an unclosed opening --- is left unmasked (fail-safe direction).
 - [Phase 24]: D-12: synced sota-numerics marketplace description with feat/extended-sota-definition's plugin.json byte-for-byte (commit 64b038d), read live from the worktree rather than transcribed
 - [Phase 24]: D-12/D-19: pinned the comparison command and both commit hashes in 24-02-SUMMARY.md so plan 24-08 re-runs the check at merge time rather than trusting this wave's result
+- [Phase 24]: BULLET_RE/TABLE_ROW_RE leading indentation bounded to [ \t]{0,3} (CommonMark's own zero-to-three-space top-level range), closing D-03's unbounded-indentation fail-open
+- [Phase 24]: resolve_current_phase_dir's frontmatter branch changed from search() (first-match) to findall() with an exactly-one check, mirroring the body branch's pre-existing rule, closing D-04
+- [Phase 24]: D-05 cumulative verdict diff for the whole D-01-through-D-04 change set counts 4 fail-open shapes closed, not the 3 D-05 originally named; the frontmatter-masking shape (D-01, 24-01) is named explicitly as the fourth
 
 ### Roadmap Evolution
 
@@ -125,8 +129,8 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-07T21:05:57.375Z
-Stopped at: Completed 24-02-PLAN.md
+Last session: 2026-09-07T21:46:44.527Z
+Stopped at: Completed 24-03-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
