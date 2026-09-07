@@ -1,19 +1,19 @@
 ---
-gsd_state_version: 1.0
+gsd_state_version: "1.0"
 milestone: v1.4
-current_phase: 23
-current_phase_name: Extend SOTA definition in sota-numerics and refactor plugin to comply
+current_phase: 24
+current_phase_name: Remediate sota-numerics 0.2.0 release blockers and publish
 status: executing
-stopped_at: Completed 23-04-PLAN.md
-last_updated: "2026-09-07T01:47:37.522Z"
+stopped_at: Completed 24-01-PLAN.md
+last_updated: "2026-09-07T20:55:49.359Z"
 last_activity: 2026-09-07
-last_activity_desc: Phase 23 execution started
-state_head: 4e4d61e1e5a266b1b3cb0558da96a80bb1116325
+last_activity_desc: Phase 24 execution started
+state_head: b07cdeddfff84981ea5861fb6f931f211194f532
 progress:
-  total_phases: 5
+  total_phases: 6
   completed_phases: 4
-  total_plans: 10
-  completed_plans: 9
+  total_plans: 18
+  completed_plans: 10
 milestone_name: Native Task Content Resolution
 ---
 
@@ -25,14 +25,14 @@ See: .planning/PROJECT.md (updated 2026-08-30)
 
 **Core value:** gsd's lifecycle writes to and reads from `bd` exclusively for
 task state; zero duplicated task-state bookkeeping survives in `.planning/`.
-**Current focus:** Phase 23 — Extend SOTA definition in sota-numerics and refactor plugin to comply
+**Current focus:** Phase 24 — Remediate sota-numerics 0.2.0 release blockers and publish
 
 ## Current Position
 
-Phase: 23 (Extend SOTA definition in sota-numerics and refactor plugin to comply) — EXECUTING
-Plan: 5 of 5
+Phase: 24 (Remediate sota-numerics 0.2.0 release blockers and publish) — EXECUTING
+Plan: 2 of 9
 Status: Ready to execute
-Last activity: 2026-09-07 — Phase 23 execution started
+Last activity: 2026-09-07 — Phase 24 execution started
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -57,6 +57,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 | Phase 23 P02 | 20min | 3 tasks | 4 files |
 | Phase 23 P03 | 20min | 3 tasks | 3 files |
 | Phase 23 P04 | 35min | 3 tasks | 2 files |
+| Phase 24 P01 | n/a (continued across context compaction) | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -81,6 +82,11 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 - [Phase 23]: check-alternatives.py's docstrings/comments rewritten to replace RESEARCH.md/REVIEWS/CONTEXT.md/threat-ID pointers with the claims they stood for; docstring-stripped AST proves zero executable lines changed.
 - [Phase 23]: Phase 23 Plan 04: pruned NOTES.md from 115 to 88 lines via sentence-level deletion/merge (never bulk cut), removing only passages README already states; vocabulary containment (not git diff --numstat) is the enforcement mechanism since numstat penalized correct rewording
 - [Phase 23]: Phase 23 Plan 04: traced all 12 mechanically-checkable README behavioral claims to capability.json/check-alternatives.py, found and corrected 2 accuracy gaps (verifier row missing completeness flags, ship row missing legibility claim)
+- [Phase 24]: D-05's fixture corpus interpreted as corpus B (the Python suite): fixture verdict changes show directly as PASS/FAIL, not a separate hand-run comparison.
+- [Phase 24]: Task 1's literal ticket fixture (heading+entries all indented) does not reproduce D-02 fail-open pre-fix; corrected fixture adopted as primary RED/GREEN test, ticket's literal fixture kept as a second regression pin.
+- [Phase 24]: gsd-tools TDD gate (check tdd-red-evidence) is Node-TAP-format only; both RED phases ran python3 -m unittest -v directly, translated faithfully into TAP shape with verbatim transcript appended.
+- [Phase 24]: mask_leading_frontmatter runs first inside mask_fenced_regions, before fence/comment/indented-code masking, since frontmatter is a document-level boundary.
+- [Phase 24]: PLAN_FRONTMATTER_RE requires an actual closing --- or ... line; an unclosed opening --- is left unmasked (fail-safe direction).
 
 ### Roadmap Evolution
 
@@ -116,9 +122,9 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-07
-Stopped at: Phase 24 planned — 9 plans, 8 waves, plan check passed, 24 bd issues under epic gsd-beads-25vc. Nothing executed yet.
-Resume file: .planning/phases/24-remediate-sota-numerics-0-2-0-release-blockers/
+Last session: 2026-09-07T20:55:49.314Z
+Stopped at: Completed 24-01-PLAN.md
+Resume file: None
 
 ## Operator Next Steps
 

@@ -239,6 +239,14 @@ None — no external service configuration required.
 - `24-08`'s mirror-restoration step should account for the live sidecar value observed here (`da4da96a...`), which matches neither this plan's pre- nor post-edit computed hash — the mirror is in some other, unaccounted-for state.
 - Requirements D-01, D-02, D-05, D-06, D-17, D-18 are complete for this plan's scope; D-06 (new gate-behaviour fixtures) and D-05 (before/after evidence) are fully evidenced above.
 
+## Self-Check: PASSED
+
+- FOUND: `.planning/phases/24-remediate-sota-numerics-0-2-0-release-blockers/24-01-SUMMARY.md`
+- FOUND: `[worktree] .gsd/capabilities/sota-numerics/scripts/check-alternatives.py`
+- FOUND: `[worktree] tests/test_check_alternatives.py`
+- FOUND commit `b07cded` (orchestrator repo)
+- FOUND commits `4849937`, `c6a52a2`, `5dc6b7a`, `2321b74` (worktree repo)
+
 ---
 *Phase: 24-remediate-sota-numerics-0-2-0-release-blockers*
 *Completed: 2026-09-07*

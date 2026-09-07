@@ -152,11 +152,11 @@ Plans:
 **Goal:** Close every blocking finding raised by the four-lens review of the `feat/extended-sota-definition` branch, then publish 0.2.0. The gate stops passing documents that omit an Alternatives Considered section, its diagnostics stay token-bounded, every README and CHANGELOG claim resolves against the code it describes, the cross-repo marketplace description matches the plugin manifest, and the agent-facing prose is unambiguous and internally consistent. Publishing is the last wave of this phase: merging to main serves the new bytes to every installer, so the decision checkpoint that guards it is answered after the remediation waves verify, never before.
 **Requirements**: none in REQUIREMENTS.md — traced to the review reports in this phase directory (REVIEW-CRITICAL-FINAL.md, REVIEW-PONYTAIL-FINAL.md, REVIEW-AGY-FINAL.md, REVIEW-PROSE-TOKENS.md) and to 24-CONTEXT.md decisions D-01..D-24
 **Depends on:** Phase 23
-**Plans:** 0/9 plans executed
+**Plans:** 1/9 plans executed
 
 Plans:
 
-- [ ] 24-01-PLAN.md — wave 1 — tracer: an indented-code-block section stops crediting a plan, frontmatter is masked, and the regression baseline is captured before any parser edit (D-02, D-05, D-06, D-18)
+- [x] 24-01-PLAN.md — wave 1 — tracer: an indented-code-block section stops crediting a plan, frontmatter is masked, and the regression baseline is captured before any parser edit (D-02, D-05, D-06, D-18)
 - [ ] 24-02-PLAN.md — wave 1 — marketplace description in `gsd-beads` brought back into agreement with the branch manifest (D-12)
 - [ ] 24-03-PLAN.md — wave 2 — bullet indentation bounded to the CommonMark range, frontmatter phase parse made unambiguous, cumulative regression diff recorded (D-03, D-04, D-05)
 - [ ] 24-04-PLAN.md — wave 3 — diagnostics bounded: quoted spans elided, violations reported as path, line and reason, one remediation line per run (D-07, D-08)
