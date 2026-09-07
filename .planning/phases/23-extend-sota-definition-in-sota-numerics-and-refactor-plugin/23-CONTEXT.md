@@ -68,6 +68,52 @@ Out of scope: the `plan:post` gate's checking logic, the `beads-lifecycle` and `
 - Which specific lines of `planner-sota.md` get pruned to make room.
 - Commit granularity within the branch.
 
+### Amendments
+
+Three decisions above were breached during execution. Each breach was justified and
+maintainer-approved at the time, but none was written down, and this section fixes that.
+The original D-01, D-18 and D-19 text is left exactly as written — these are amendments,
+not rewrites.
+
+Recording them is not bookkeeping. 34 of the 93 commits on this branch touch a 248-line
+guard and a 921-line test file, against 11 on the fragments that are the phase's declared
+scope. The release's one arbitrary-code-execution defect landed inside that unrecorded
+expansion. An unrecorded scope change is precisely where review attention does not go,
+which is how a green suite shipped it.
+
+- **A-01 (amends D-01), 2026-09-07.** D-01 froze the gate: no new checks, no changed
+  `capability.json` gate. The gate changed in four ways. Cause: `${PHASE_DIR}` was spliced
+  into a command handed to `sh -c`, so a phase directory name could execute as shell source,
+  and one payload class exited `0` while doing so — the blocking gate reported success on a
+  phase that had just run arbitrary code. No manifest-side quoting could close it, because
+  every `sh` quoting context ends on a delimiter a directory name may contain. The command
+  is now constant and `check-alternatives.py` resolves the phase from `.planning/STATE.md`.
+  The other three changes: an empty phase argument exits `2` rather than scanning the
+  working directory; fenced code blocks no longer count as plan content; one UTF-8 decode
+  message names the offending plan. Measured scope of the change: of this release's 68
+  tests, 52 pass unchanged against the 0.1.3 checker and 16 fail. The fenced-block fix
+  changes verdicts — a plan that passed under 0.1.3 may now fail. Residual coupling to
+  gsd-core's step ordering, and the upstream fix, are recorded in the capability's
+  `NOTES.md` §6 and tracked as `gsd-beads-g72`.
+
+- **A-02 (amends D-18), 2026-09-07.** D-18 allowed `NOTES.md` pruning only. It gained an
+  entire new §6. Cause: D-18 assumed NOTES.md's divergence set was complete, and the gate
+  splice above was a deliberate divergence that had never been recorded. §6 has since been
+  replaced outright, because its first version described the splice as fail-closed when it
+  was a bypass, and justified rejecting an alternative with a claim about single-quote
+  behaviour that is false. The current §6 is written against measurements.
+
+- **A-03 (amends D-19), 2026-09-07.** D-19 allowed `hooks/*.sh` and `tests/` message
+  touch-ups only. `hooks/capability-auto-install.sh` went from 99 lines to 248 and
+  `tests/test-capability-auto-install.sh` is a new 921-line file. Cause: the `SessionStart`
+  and `SubagentStart` auto-install installs the bundle at global scope, publishing it to
+  every project on the machine, and it would do so from an uncommitted development
+  worktree. The guard refuses to install bytes the bundle's own upstream cannot be shown to
+  hold. The test file is the partition that pins its control flow; two later defects — a
+  discarded `ls-files` exit status and an unenumerated `git status` blinding mechanism —
+  were found and closed inside that expansion rather than by it, which is the argument both
+  for the guard and for having recorded its scope sooner.
+
 </decisions>
 
 <specifics>
