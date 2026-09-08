@@ -4,16 +4,16 @@ milestone: v1.4
 current_phase: 24
 current_phase_name: Remediate sota-numerics 0.2.0 release blockers and publish
 status: executing
-stopped_at: Completed 24-05-PLAN.md
-last_updated: "2026-09-08T08:50:39.499Z"
+stopped_at: Completed 24-06-PLAN.md
+last_updated: "2026-09-08T09:04:02.244Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 24 execution started
-state_head: 86a00d70055445d5bce520620937d83b57f8beea
+state_head: d067d09caf7fec408b1760262df5e50f2cf81da7
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 18
-  completed_plans: 14
+  completed_plans: 15
 milestone_name: Native Task Content Resolution
 ---
 
@@ -30,7 +30,7 @@ task state; zero duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 24 (Remediate sota-numerics 0.2.0 release blockers and publish) — EXECUTING
-Plan: 6 of 9
+Plan: 7 of 9
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 24 execution started
 
@@ -62,6 +62,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 | Phase 24 P03 | n/a (continued across context compaction) | 3 tasks | 3 files |
 | Phase 24 P04 | 50min | 3 tasks | 3 files |
 | Phase 24-remediate-sota-numerics-0-2-0-release-blockers P05 | ~70min | 3 tasks | 7 files |
+| Phase 24 P06 | ~20min | 3 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -100,6 +101,9 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 - [Phase 24]: GREEN commits for this TDD plan use type fix(24-04) not feat(24-04), matching the fix-type precedent 24-01/24-03 already set in this phase for bug-fix-shaped TDD work; documented in SUMMARY's TDD Gate Compliance section since the tdd.md gate-check grep looks for feat().
 - [Phase 24]: Anchored hooks/gsd-tools.sh's provider-resolution rung to CLAUDE_PLUGIN_ROOT (host-set) or BASH_SOURCE[0]'s own directory instead of git rev-parse --show-toplevel at the caller's cwd, closing D-13's hostile-repository code-execution finding.
 - [Phase 24]: Deleted the plan:post gate's enclosing-repository resolution rung in capability.json outright rather than anchoring it (a sh -c command string has no file of its own to anchor to), closing D-14.
+- [Phase 24]: [Phase 24]: CHANGELOG's verdict-change paragraph rewritten as prose naming behaviour categories instead of a subtraction with the counts cut out, closing D-09 alongside deleting check-alternatives.py's stale 76/10 corpus-size clause
+- [Phase 24]: [Phase 24]: favor/favour settled on favour (en-GB) via a fresh corpus-wide measurement -- the drifted word itself was a 1-1 tie, so behaviour/behavior (6-0) was measured to establish the corpus convention before changing it, closing D-11
+- [Phase 24]: [Phase 24]: opened gsd-beads-h1pb for the plan:post-dispatch-vs-post_planning_gaps coupling as a new ticket rather than reusing gsd-beads-g72, since NOTES.md section 6 now records it as a second, larger residual case, not the same argv-splice defect
 
 ### Roadmap Evolution
 
@@ -135,8 +139,8 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-08T08:50:39.457Z
-Stopped at: Completed 24-05-PLAN.md
+Last session: 2026-09-08T09:04:02.200Z
+Stopped at: Completed 24-06-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
