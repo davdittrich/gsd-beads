@@ -119,6 +119,12 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 
 None.
 
+### Quick Tasks Completed
+
+| Quick ID | Date | Description | Status |
+|----------|------|--------------|--------|
+| 260908-gzq | 2026-09-08 | Fix sota-numerics check-alternatives.py three low-severity fail-closed edge cases (gsd-beads-25vc.21.1) | Complete — 3 commits (`0adf316`, `5d99557`, `e5ff8d3`) on feat/extended-sota-definition in .worktrees/sota-numerics-release-013 |
+
 ### Blockers/Concerns
 
 - Phase 23 plan 23-05 Task 2 decision checkpoint answered `hold` on 2026-09-07.
