@@ -39,3 +39,10 @@ __pycache__/
 .gsd/*
 !.gsd/capabilities/
 .gsd/capabilities/*
+.sober/
+.agents/
+
+# Foreign package clones for cross-repo quick tasks (gsd-beads-9tg) —
+# under the project root per this repo's worktree-placement convention,
+# but not gsd-beads' own history; never track their contents.
+.worktrees/
