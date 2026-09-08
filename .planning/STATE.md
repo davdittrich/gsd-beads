@@ -4,16 +4,16 @@ milestone: v1.4
 current_phase: 24
 current_phase_name: Remediate sota-numerics 0.2.0 release blockers and publish
 status: executing
-stopped_at: Completed 24-04-PLAN.md
-last_updated: "2026-09-08T08:15:40.240Z"
+stopped_at: Completed 24-05-PLAN.md
+last_updated: "2026-09-08T08:50:39.499Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 24 execution started
-state_head: b06f5d680bf425b53bd54b1cf78a13b3ada9b631
+state_head: 86a00d70055445d5bce520620937d83b57f8beea
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 18
-  completed_plans: 13
+  completed_plans: 14
 milestone_name: Native Task Content Resolution
 ---
 
@@ -30,7 +30,7 @@ task state; zero duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 24 (Remediate sota-numerics 0.2.0 release blockers and publish) — EXECUTING
-Plan: 5 of 9
+Plan: 6 of 9
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 24 execution started
 
@@ -61,6 +61,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 | Phase 24 P02 | 5min | 2 tasks | 2 files |
 | Phase 24 P03 | n/a (continued across context compaction) | 3 tasks | 3 files |
 | Phase 24 P04 | 50min | 3 tasks | 3 files |
+| Phase 24-remediate-sota-numerics-0-2-0-release-blockers P05 | ~70min | 3 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -97,6 +98,8 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 - [Phase 24]: D-05 cumulative verdict diff for the whole D-01-through-D-04 change set counts 4 fail-open shapes closed, not the 3 D-05 originally named; the frontmatter-masking shape (D-01, 24-01) is named explicitly as the fourth
 - [Phase 24]: Scoped the 200-char stderr line backstop to only plan-document-derived print sites (per-violation lines, remediation line), not STATE.md/CLI usage-error messages, matching the threat model's named boundary and avoiding truncation of unrelated existing test assertions.
 - [Phase 24]: GREEN commits for this TDD plan use type fix(24-04) not feat(24-04), matching the fix-type precedent 24-01/24-03 already set in this phase for bug-fix-shaped TDD work; documented in SUMMARY's TDD Gate Compliance section since the tdd.md gate-check grep looks for feat().
+- [Phase 24]: Anchored hooks/gsd-tools.sh's provider-resolution rung to CLAUDE_PLUGIN_ROOT (host-set) or BASH_SOURCE[0]'s own directory instead of git rev-parse --show-toplevel at the caller's cwd, closing D-13's hostile-repository code-execution finding.
+- [Phase 24]: Deleted the plan:post gate's enclosing-repository resolution rung in capability.json outright rather than anchoring it (a sh -c command string has no file of its own to anchor to), closing D-14.
 
 ### Roadmap Evolution
 
@@ -132,8 +135,8 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-08T08:15:40.199Z
-Stopped at: Completed 24-04-PLAN.md
+Last session: 2026-09-08T08:50:39.457Z
+Stopped at: Completed 24-05-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
