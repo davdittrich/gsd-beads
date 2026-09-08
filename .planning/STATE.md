@@ -4,16 +4,16 @@ milestone: v1.4
 current_phase: 24
 current_phase_name: Remediate sota-numerics 0.2.0 release blockers and publish
 status: executing
-stopped_at: Completed 24-03-PLAN.md
-last_updated: "2026-09-07T21:46:44.569Z"
+stopped_at: Completed 24-04-PLAN.md
+last_updated: "2026-09-08T08:15:40.240Z"
 last_activity: 2026-09-07
 last_activity_desc: Phase 24 execution started
-state_head: d91ed19f0e9a9eeead50cc21f55df7537d0db821
+state_head: b06f5d680bf425b53bd54b1cf78a13b3ada9b631
 progress:
   total_phases: 6
   completed_phases: 4
   total_plans: 18
-  completed_plans: 12
+  completed_plans: 13
 milestone_name: Native Task Content Resolution
 ---
 
@@ -30,7 +30,7 @@ task state; zero duplicated task-state bookkeeping survives in `.planning/`.
 ## Current Position
 
 Phase: 24 (Remediate sota-numerics 0.2.0 release blockers and publish) — EXECUTING
-Plan: 4 of 9
+Plan: 5 of 9
 Status: Ready to execute
 Last activity: 2026-09-07 — Phase 24 execution started
 
@@ -60,6 +60,7 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 | Phase 24 P01 | n/a (continued across context compaction) | 3 tasks | 2 files |
 | Phase 24 P02 | 5min | 2 tasks | 2 files |
 | Phase 24 P03 | n/a (continued across context compaction) | 3 tasks | 3 files |
+| Phase 24 P04 | 50min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -94,6 +95,8 @@ Historical baseline: `.planning/STATE-ARCHIVE.md`
 - [Phase 24]: BULLET_RE/TABLE_ROW_RE leading indentation bounded to [ \t]{0,3} (CommonMark's own zero-to-three-space top-level range), closing D-03's unbounded-indentation fail-open
 - [Phase 24]: resolve_current_phase_dir's frontmatter branch changed from search() (first-match) to findall() with an exactly-one check, mirroring the body branch's pre-existing rule, closing D-04
 - [Phase 24]: D-05 cumulative verdict diff for the whole D-01-through-D-04 change set counts 4 fail-open shapes closed, not the 3 D-05 originally named; the frontmatter-masking shape (D-01, 24-01) is named explicitly as the fourth
+- [Phase 24]: Scoped the 200-char stderr line backstop to only plan-document-derived print sites (per-violation lines, remediation line), not STATE.md/CLI usage-error messages, matching the threat model's named boundary and avoiding truncation of unrelated existing test assertions.
+- [Phase 24]: GREEN commits for this TDD plan use type fix(24-04) not feat(24-04), matching the fix-type precedent 24-01/24-03 already set in this phase for bug-fix-shaped TDD work; documented in SUMMARY's TDD Gate Compliance section since the tdd.md gate-check grep looks for feat().
 
 ### Roadmap Evolution
 
@@ -129,8 +132,8 @@ See `.planning/REQUIREMENTS.md` Out of Scope; no v1.4 requirement is deferred.
 
 ## Session Continuity
 
-Last session: 2026-09-07T21:46:44.527Z
-Stopped at: Completed 24-03-PLAN.md
+Last session: 2026-09-08T08:15:40.199Z
+Stopped at: Completed 24-04-PLAN.md
 Resume file: None
 
 ## Operator Next Steps
