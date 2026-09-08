@@ -152,7 +152,7 @@ Plans:
 **Goal:** Close every blocking finding raised by the four-lens review of the `feat/extended-sota-definition` branch, then publish 0.2.0. The gate stops passing documents that omit an Alternatives Considered section, its diagnostics stay token-bounded, every README and CHANGELOG claim resolves against the code it describes, the cross-repo marketplace description matches the plugin manifest, and the agent-facing prose is unambiguous and internally consistent. Publishing is the last wave of this phase: merging to main serves the new bytes to every installer, so the decision checkpoint that guards it is answered after the remediation waves verify, never before.
 **Requirements**: none in REQUIREMENTS.md — traced to the review reports in this phase directory (REVIEW-CRITICAL-FINAL.md, REVIEW-PONYTAIL-FINAL.md, REVIEW-AGY-FINAL.md, REVIEW-PROSE-TOKENS.md) and to 24-CONTEXT.md decisions D-01..D-24
 **Depends on:** Phase 23
-**Plans:** 8/9 plans executed
+**Plans:** 9/9 plans complete
 
 Plans:
 
@@ -164,4 +164,4 @@ Plans:
 - [x] 24-06-PLAN.md — wave 5 — counts nothing recomputes deleted, spelling settled by measurement, NOTES residual completed with the key that can stop the gate dispatching (D-09, D-11)
 - [x] 24-07-PLAN.md — wave 6 — whole-README claim trace: every behavioural claim paired with the code deciding it, every documented command run or recorded as unrun (D-10)
 - [x] 24-08-PLAN.md — wave 7 — every review thread and every internal finding given a disposition, with a ticket for each deferral, then the regression evidence re-established (D-15, D-16)
-- [ ] 24-09-PLAN.md — wave 8 — blocking release decision, merge at re-proved preconditions, annotated tag, mirror restored from released bytes (D-19..D-24)
+- [x] 24-09-PLAN.md — wave 8 — blocking release decision, merge at re-proved preconditions, annotated tag, mirror restored from released bytes (D-19..D-24)
