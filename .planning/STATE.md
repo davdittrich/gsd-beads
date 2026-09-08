@@ -126,6 +126,7 @@ None.
 | 260908-gzq | 2026-09-08 | Fix sota-numerics check-alternatives.py three low-severity fail-closed edge cases (gsd-beads-25vc.21.1) | Complete — 3 commits (`0adf316`, `5d99557`, `e5ff8d3`) on feat/extended-sota-definition in .worktrees/sota-numerics-release-013 |
 | 260908-h0c | 2026-09-08 | Fix sota-numerics hooks/capability-auto-install.sh bundle_hash injection, missing timeout, symlink-following sidecar write (gsd-beads-25vc.21.2) | Complete — 3 commits (`110ffc6`, `5c8ee95`, `cc014e1`) on feat/extended-sota-definition in .worktrees/sota-numerics-release-013; residual filed as gsd-beads-25vc.21.6 |
 | 260908-h0l | 2026-09-08 | Add sota-numerics test coverage for hooks.json SubagentStart, pycache leak in real_gsd_state, case-insensitive PLAN.md glob (gsd-beads-25vc.21.3) | Complete — 3 commits (`b87a661`, `cd8b5b6`, `d36678d`) on feat/extended-sota-definition in .worktrees/sota-numerics-release-013; case-insensitivity claim verified false against gsd-core 1.13.0 source, recorded in NOTES.md section 7 |
+| 260908-h0m | 2026-09-08 | Ponytail cleanup of sota-numerics check-alternatives.py and capability-auto-install.sh test/doc duplication (gsd-beads-25vc.21.4) | Complete — 3 commits (`ca6dca2`, `252c2cc`, `2f4d52a`) on feat/extended-sota-definition in .worktrees/sota-numerics-release-013; landed P1-1, P1-2, P1-3, P2-4, P2-5, P2-9, declined P2-6 (deferred to author), P2-7/P2-8 already-resolved; baseline re-verified at actual start HEAD (131 tests, not the plan's stale 125) |
 
 ### Blockers/Concerns
 
