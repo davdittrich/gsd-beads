@@ -56,6 +56,17 @@ class TestLifecycleDispatchCommandPosition(unittest.TestCase):
         out = _run("cd /repo; gsd_run loop render-hooks plan:pre --raw")
         self.assertEqual(out, "plan:pre /tmp")
 
+    def test_real_multiline_assignment_style_invocation_still_matches(self):
+        # gsd-core's own workflows (e.g. ship.md, verify-work.md) always
+        # trigger this way: `$(...)` on its own line after a prior
+        # statement. The `(` immediately preceding the tools token already
+        # satisfies COMMAND_POSITION regardless of the preceding newline, so
+        # this is unaffected by dropping bare newline from the class.
+        out = _run(
+            'cd "$dir"\nEXECUTE_POST_HOOKS_JSON=$(gsd_run loop render-hooks execute:wave:post --raw)'
+        )
+        self.assertEqual(out, "execute:wave:post /tmp")
+
     def test_backtick_quoted_prose_no_longer_false_triggers(self):
         out = _run(
             'bd comment add gsd-beads-1 --body "seen via `gsd_run loop '

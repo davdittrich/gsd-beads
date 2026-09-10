@@ -3874,6 +3874,71 @@ class TestHaltedSummary(unittest.TestCase):
         self.assertEqual(closed_ids, {"tracer-wave1.1", "tracer-wave1.2"})
 
     @mock.patch("subprocess.run")
+    def test_double_quoted_halted_status_still_halts(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                '---\nstatus: "halted"\n---\n', encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_single_quoted_halted_status_still_halts(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: 'halted'\n---\n", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_blocked_status_is_not_a_completion_record_at_all(self, mock_run):
+        # #3345 parity: `status: blocked` is a failure record, not a
+        # completion record -- gsd-core's own has_summary:false treatment.
+        # It must behave exactly like no SUMMARY.md existing, not like a
+        # halted (still-summarized) plan.
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: blocked\n---\n", encoding="utf-8"
+            )
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+        self.assertIn("skipped 0 task(s)", captured.getvalue())
+
+    @mock.patch("subprocess.run")
+    def test_halted_plan_never_authorizes_resolves_issues_marker_close(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _no_beads_id_plan_text("07"), True)]
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_text(
+                '---\nstatus: halted\nresolves_issues: ["gsd-beads-he1"]\n---\n',
+                encoding="utf-8",
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
     def test_summary_with_no_status_field_closes_all_tasks_as_before(self, mock_run):
         # Default _write_wave_workspace SUMMARY.md is bare "status: complete\n"
         # already (regression case); this asserts a SUMMARY with no
