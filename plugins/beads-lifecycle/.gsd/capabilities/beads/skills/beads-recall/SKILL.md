@@ -66,13 +66,16 @@ fi
 python3 "$SYNC_PY" beads-recall <phase directory>
 ```
 
-This scans every open, non-epic bd issue and matches it against this phase's expected scope by
-two techniques: a cross-phase `<beads-id>` reverse lookup against every `PLAN.md`'s `<files>`
-element, falling back to a `bd list --desc-contains` substring match for an issue with no
-matching `<beads-id>` anywhere. The result is written to
+This scans every open, non-epic bd issue (one `bd list` call) and matches it against this phase's
+expected scope by two techniques: a cross-phase `<beads-id>` reverse lookup against every
+`PLAN.md`'s `<files>` element, falling back to an in-process, case-insensitive substring match of
+each phase-mention token against the issue's description already returned by that same `bd list`
+call (GH#11 -- no per-issue/per-token `bd` subprocess). The result is written to
 `{phase_dir}/{padded_phase}-BEADS-RECALL.md` -- always, even when zero issues are open (D-04). An
 issue matching neither technique is listed under a separate "Unscoped" heading, never dropped
-(D-02).
+(D-02). If the `bd list` call itself fails or times out, the file is overwritten with a
+`recall_status: failed` / `recall_error: "..."` frontmatter marker and a one-line warning body,
+instead of being left untouched and indistinguishable from a fresh run (GH#11).
 
 ## Step 3.5 -- verify the local gsd-core patch (independent reapply check, CR-01)
 
@@ -122,14 +125,14 @@ on the patch it verifies.
 ## Step 4 -- Report
 
 Print the one-line summary `sync.py` printed to stdout: either
-`BEADS-RECALL.md written: <n> matched, <m> unscoped (<t> open issue(s) total)` or the B6/D-08 skip
-notice `bd unavailable -- sync skipped`.
+`BEADS-RECALL.md written: <n> matched, <m> unscoped (<t> open issue(s) total)`, the B6/D-08 skip
+notice `bd unavailable -- sync skipped`, or (GH#11) `BEADS-RECALL.md write failed: <reason>` when
+the upfront `bd list` call itself failed or timed out.
 
 ## Anti-Patterns
 
 1. DO NOT resolve an issue's file scope by matching its title -- scope binds through the
-   `<beads-id>` reverse lookup or a `bd list --desc-contains` substring match, never a title
-   string.
+   `<beads-id>` reverse lookup or an in-process description-substring match, never a title string.
 2. DO NOT assemble a `bd` invocation as a shell string -- every `bd` call is a typed argv list
    passed to `subprocess.run([...])` with shell execution left disabled (N4, threat T-02-01).
 3. DO NOT skip the config gate.
@@ -138,3 +141,6 @@ notice `bd unavailable -- sync skipped`.
 5. DO NOT skip Step 3.5 or swallow its "⚠" warning -- it is the only Patch 1 loss
    *detector* in this capability. Step 2d in `beads-status` is confirmation-only because its
    own `ship:pre` call site depends on the patch it verifies.
+6. DO NOT re-query `bd` per issue or per phase-mention token for the description fallback -- match
+   against the description each issue's single upfront `bd list` response already carries (GH#11:
+   was 1813 subprocesses / ~9 min on a real repo).

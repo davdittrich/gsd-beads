@@ -2276,6 +2276,13 @@ def _render_beads_recall_body(matched, unscoped):
 
 
 PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
+# GH#11 secondary observation: PATH_TOKEN_RE's dotted-extension heuristic also
+# catches a bare version number (e.g. "2.39", a CmdStan version) since digits
+# are `\w`. A token made of only digits and dots can never be a real path or
+# file extension, so it is dropped before it reaches phase_mentions -- it
+# would otherwise substring-match unrelated issue descriptions in
+# desc_contains_match, one spurious query/match per numeric mention.
+NUMERIC_ONLY_TOKEN_RE = re.compile(r"^[\d.]+$")
 
 
 def extract_phase_mentions(roadmap_path, phase_num, context_path):
@@ -2301,6 +2308,8 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
 
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
+        if NUMERIC_ONLY_TOKEN_RE.match(token):
+            continue
         if token not in seen:
             seen.append(token)
     return seen
@@ -2321,19 +2330,21 @@ def scope_match(issue_id, files_index, phase_mentions):
     return None
 
 
-def desc_contains_match(issue_id, phase_mentions):
-    """Technique-2 fallback for an issue absent from files_index: one
-    `bd list --id <issue_id> --desc-contains <token> --json -n 0` per
-    phase_mentions token, short-circuit on first hit."""
+def desc_contains_match(issue, phase_mentions):
+    """GH#11: technique-2 fallback for an issue absent from files_index.
+    Was one `bd list --id <id> --desc-contains <token> --json -n 0`
+    subprocess per phase_mentions token -- O(issues x tokens) bd calls
+    (1813 measured on the reporter's repo, ~9 minutes, blowing the
+    per-call BD_TIMEOUT in aggregate even though each call individually
+    was fast). `issue`'s description is already in memory: beads_recall's
+    single upfront `bd list` fetched every open issue's full record before
+    this function is ever called, so re-querying it here just re-derives
+    data the caller already holds. Case-insensitive substring match,
+    in-process, zero subprocesses -- same match semantics as
+    `--desc-contains`, short-circuit on first hit."""
+    description = (issue.get("description") or "").casefold()
     for token in phase_mentions:
-        result = run_bd(["bd", "list", "--id", issue_id, "--desc-contains", token, "--json", "-n", "0"])
-        if result.returncode != 0:
-            continue
-        try:
-            rows = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            continue
-        if rows:
+        if token.casefold() in description:
             return "description"
     return None
 
@@ -2359,20 +2370,55 @@ def beads_recall(phase_dir_arg):
     phase_dir = Path(phase_dir_arg).resolve()
     project_root = find_project_root(phase_dir)
     padded_phase = phase_dir.name.split("-", 1)[0]
+    out_path = phase_dir / f"{padded_phase}-BEADS-RECALL.md"
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    result = run_bd(_beads_recall_argv())
+    bd_error = None
+    try:
+        result = run_bd(_beads_recall_argv())
+    except subprocess.TimeoutExpired:
+        bd_error = f"bd list timed out after {BD_TIMEOUT}s"
+        result = None
+
     issues = []
-    if result.returncode == 0:
-        try:
-            issues = json.loads(result.stdout)
-        except json.JSONDecodeError:
-            issues = []
+    if bd_error is None:
+        if result.returncode == 0:
+            try:
+                issues = json.loads(result.stdout)
+            except json.JSONDecodeError as exc:
+                bd_error = f"bd list returned unparseable JSON ({exc})"
+        else:
+            bd_error = f"bd list exited {result.returncode}: {result.stderr.strip()}"
+
+    if bd_error is not None:
+        # GH#11: a failed/timed-out recall must not leave the previous run's
+        # BEADS-RECALL.md in place looking indistinguishable from a fresh
+        # one (the caller has no reason to check `generated_at`). Write an
+        # explicit failure marker over it instead of skipping the write.
+        frontmatter = (
+            "---\n"
+            f"phase: {phase_dir.name}\n"
+            f'generated_from: "{" ".join(_beads_recall_argv())}"\n'
+            f"generated_at: {generated_at}\n"
+            "recall_status: failed\n"
+            f'recall_error: "{bd_error}"\n'
+            "---\n\n"
+        )
+        out_text = (
+            frontmatter
+            + f"# Beads Recall: Phase {phase_dir.name}\n\n"
+            + f"Recall failed this run: {bd_error}. This file was not regenerated -- "
+            "do not treat it as current.\n"
+        )
+        out_path.write_text(out_text, encoding="utf-8")
+        print(f"BEADS-RECALL.md write failed: {bd_error}")
+        return 0
 
     # Two-technique scope match (D-01 revised): reverse <beads-id> lookup
-    # against every phase's PLAN.md <files> element first, falling back to a
-    # bd list --desc-contains substring match for an issue with no matching
-    # <beads-id> anywhere. Neither technique matching is not an error -- the
-    # issue simply stays Unscoped (D-02), never dropped.
+    # against every phase's PLAN.md <files> element first, falling back to
+    # an in-process description-substring match (GH#11) for an issue with no
+    # matching <beads-id> anywhere. Neither technique matching is not an
+    # error -- the issue simply stays Unscoped (D-02), never dropped.
     roadmap_path = confined(project_root, ".planning", "ROADMAP.md")
     context_path = phase_dir / f"{padded_phase}-CONTEXT.md"
     try:
@@ -2387,14 +2433,13 @@ def beads_recall(phase_dir_arg):
         issue_id = issue.get("id", "")
         via = scope_match(issue_id, files_index, phase_mentions)
         if via is None:
-            via = desc_contains_match(issue_id, phase_mentions)
+            via = desc_contains_match(issue, phase_mentions)
         if via:
             matched.append((issue, via))
         else:
             unscoped.append(issue)
 
     body = _render_beads_recall_body(matched, unscoped)
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     frontmatter = (
         "---\n"
         f"phase: {phase_dir.name}\n"
@@ -2403,8 +2448,6 @@ def beads_recall(phase_dir_arg):
         "---\n\n"
     )
     out_text = frontmatter + f"# Beads Recall: Phase {phase_dir.name}\n\n" + body
-
-    out_path = phase_dir / f"{padded_phase}-BEADS-RECALL.md"
     out_path.write_text(out_text, encoding="utf-8")
 
     print(
