@@ -2354,8 +2354,12 @@ def _write_beads_recall_failure(phase_dir, reason):
     indistinguishable from a fresh one -- called from every beads_recall
     exit path that doesn't reach a real scope-matched result, including
     the bd-unavailable path (D-08's existing fail-open shape covered the
-    STATE.md blocker but not this file). Best-effort: phase_dir not
-    existing yet is not itself an escalation."""
+    STATE.md blocker but not this file). Deliberately does not suppress
+    a write failure (coderabbit review, PR #12): swallowing it here would
+    leave whatever was on disk before -- possibly a stale `recall_status:
+    ok` -- trusted as current, the exact bug this function exists to
+    close. Same unguarded write the success path in beads_recall already
+    uses."""
     padded_phase = phase_dir.name.split("-", 1)[0]
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     frontmatter = (
@@ -2374,10 +2378,7 @@ def _write_beads_recall_failure(phase_dir, reason):
         + f"No recall data for this run ({reason_line}). Any previous recall was discarded; "
         "re-run beads-recall before trusting phase scope.\n"
     )
-    try:
-        (phase_dir / f"{padded_phase}-BEADS-RECALL.md").write_text(out_text, encoding="utf-8")
-    except OSError:
-        pass
+    (phase_dir / f"{padded_phase}-BEADS-RECALL.md").write_text(out_text, encoding="utf-8")
 
 
 def beads_recall(phase_dir_arg):

@@ -4203,6 +4203,31 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
                 self.assertNotIn("No open issues found.", text)
 
     @mock.patch("subprocess.run")
+    def test_failure_marker_write_error_propagates_not_swallowed(self, mock_run):
+        """coderabbit review (PR #12): if writing the failure marker itself
+        raises OSError, that must propagate -- not be silently suppressed
+        with a stale `recall_status: ok` file left trusted as current."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "list", "--status"]:
+                return _completed(1, stderr="database is locked")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        mock_run.side_effect = _side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+            out_path.write_text("stale content from a prior successful run\n", encoding="utf-8")
+
+            with mock.patch.object(Path, "write_text", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    sync.beads_recall(str(phase_dir))
+
+            self.assertEqual(out_path.read_text(encoding="utf-8"), "stale content from a prior successful run\n")
+
+    @mock.patch("subprocess.run")
     def test_bd_list_error_message_with_quotes_stays_valid_yaml_frontmatter(self, mock_run):
         """GH#11 review finding: recall_error must be JSON/YAML-safely
         quoted -- a raw f-string embed of stderr containing a `"` would
