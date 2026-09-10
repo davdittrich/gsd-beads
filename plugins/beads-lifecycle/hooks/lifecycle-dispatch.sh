@@ -41,8 +41,8 @@ esac
 # sync.py's `lifecycle_dispatch` for the part that used to be destructive).
 #
 # Three things must line up: the tools token in COMMAND POSITION (start of
-# line, or after `;`/`&`/`|`/`(`/backtick -- so a quoted `echo` cannot reach
-# it), the `loop` subcommand, and the trailing `--raw`. That still matches
+# line, or after `;`/`&`/`|`/`(` -- so a quoted `echo` cannot reach it), the
+# `loop` subcommand, and the trailing `--raw`. That still matches
 # whichever shim resolved: the `gsd_run` shell function, a `gsd-tools` on
 # PATH, or `node .../gsd-tools.cjs`.
 #
@@ -56,7 +56,14 @@ read -r POINT PROJECT_DIR <<<"$(printf '%s' "$PAYLOAD" | python3 -c '
 import json, re, sys
 
 POINTS = ("plan:pre", "plan:post", "execute:wave:pre", "execute:wave:post", "verify:post")
-COMMAND_POSITION = r"(?:^|[;&|(`\n])\s*"
+# GH#10: backtick and bare newline used to sit in this class too, so a
+# comment merely *quoting* the trigger command (a markdown code span, or a
+# `\n` inside a JSON-encoded `--body`/`--description` argument) satisfied
+# "command position" without the shell ever parsing a command boundary
+# there. Both are dropped -- ;/&/|/( still carry the same pre-existing
+# no-quote-awareness limitation, but that narrower class is out of scope
+# here (see the comment above this block).
+COMMAND_POSITION = r"(?:^|[;&|(])\s*"
 # The `gsd_run` shell function, a `gsd-tools` resolved on PATH or by absolute
 # path, or `node <path>/gsd-tools.cjs` -- the three shims the workflow preamble
 # can resolve to. `\S*?` absorbs a leading path but cannot cross whitespace, so
