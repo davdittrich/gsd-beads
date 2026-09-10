@@ -1280,7 +1280,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.7.0")
+        self.assertEqual(manifest["version"], "0.7.1")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -1315,9 +1315,9 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         prose = " ".join(readme.split())
         expected_versions = {
             "plugin": (plugin["version"], "1.6.0"),
-            "capability": (self._manifest()["version"], "0.7.0"),
-            "registry": (registry["entries"]["beads"]["version"], "0.7.0"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.0"),
+            "capability": (self._manifest()["version"], "0.7.1"),
+            "registry": (registry["entries"]["beads"]["version"], "0.7.1"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.1"),
             "README Codex pin": (
                 codex_pin,
                 ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.0"],
@@ -3850,21 +3850,16 @@ class TestFailOpen(unittest.TestCase):
         self.assertFalse(beads_md.exists())
 
 
-def _make_beads_recall_bd_side_effect(issues_json="[]\n", desc_contains_matches=frozenset()):
+def _make_beads_recall_bd_side_effect(issues_json="[]\n"):
     """A subprocess.run stand-in for beads-recall tests: the bd_available
     probe (`bd list --json -n 1`) always succeeds; the D-04 open-issue scan
     (`bd list --status ... --exclude-type epic --json -n 0`) answers with
-    issues_json; a `bd list --id <id> --desc-contains <token> ...` call
-    answers non-empty only when <id> is in desc_contains_matches (technique
-    2's per-token fallback query)."""
+    issues_json. GH#11: the description fallback is in-process (no `bd`
+    call) -- any `--desc-contains` invocation reaching here is a regression
+    and falls through to the "unexpected" branch below."""
 
     def _side_effect(argv, **kwargs):
         if argv[:3] == ["bd", "list", "--json"]:
-            return _completed(0, stdout="[]\n")
-        if "--desc-contains" in argv:
-            issue_id = argv[argv.index("--id") + 1]
-            if issue_id in desc_contains_matches:
-                return _completed(0, stdout=json.dumps([{"id": issue_id}]))
             return _completed(0, stdout="[]\n")
         if argv[:3] == ["bd", "list", "--status"]:
             return _completed(0, stdout=issues_json)
@@ -3931,7 +3926,10 @@ class TestBeadsRecall(unittest.TestCase):
             self.assertIn("bd-1", unscoped_section)
             self.assertIn("bd-2", unscoped_section)
 
-    def test_bd_unavailable_writes_no_file_and_one_notice(self):
+    def test_bd_unavailable_writes_failure_marker_and_one_notice(self):
+        """GH#11 review: bd-unavailable must not leave a stale
+        BEADS-RECALL.md untouched -- same failure-marker guarantee as a
+        failed/timed-out bd list call, not a special case that skips it."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             phase_dir = _write_recall_phase_workspace(tmp_path)
@@ -3939,6 +3937,8 @@ class TestBeadsRecall(unittest.TestCase):
                 "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
                 encoding="utf-8",
             )
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+            out_path.write_text("stale content from a prior successful run\n", encoding="utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
                 with mock.patch("shutil.which", return_value=None):
@@ -3947,11 +3947,13 @@ class TestBeadsRecall(unittest.TestCase):
                         side_effect=AssertionError("bd must not be invoked when absent"),
                     ):
                         exit_code = sync.beads_recall(str(phase_dir))
-            out_path = phase_dir / "02-BEADS-RECALL.md"
 
             self.assertEqual(exit_code, 0)
-            self.assertFalse(out_path.exists())
             self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
+            text = out_path.read_text(encoding="utf-8")
+        self.assertNotIn("stale content from a prior successful run", text)
+        self.assertIn("recall_status: failed", text)
+        self.assertIn("bd unavailable", text)
 
     @mock.patch("subprocess.run")
     def test_files_reverse_lookup_match_appears_under_matched_heading(self, mock_run):
@@ -4025,11 +4027,16 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
         whose description substring-matches a phase-mentioned token, is
         listed under the matched heading, tagged "matched via: description"."""
         issues = json.dumps(
-            [{"id": "bd-desc.1", "title": "Hand-filed issue", "status": "open"}]
+            [
+                {
+                    "id": "bd-desc.1",
+                    "title": "Hand-filed issue",
+                    "status": "open",
+                    "description": "Touches .gsd/capabilities/beads/scripts/sync.py directly.",
+                }
+            ]
         )
-        mock_run.side_effect = _make_beads_recall_bd_side_effect(
-            issues, desc_contains_matches={"bd-desc.1"}
-        )
+        mock_run.side_effect = _make_beads_recall_bd_side_effect(issues)
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _write_recall_phase_workspace(
                 Path(tmp),
@@ -4043,6 +4050,37 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
             matched_section = text.split("## Open issues touching this phase's scope", 1)[1]
             matched_section = matched_section.split("## Unscoped", 1)[0]
             self.assertIn("bd-desc.1", matched_section)
+            self.assertIn("matched via: description", matched_section)
+
+    @mock.patch("subprocess.run")
+    def test_desc_contains_fallback_match_is_case_insensitive(self, mock_run):
+        """desc_contains_match claims case-insensitive matching -- exercise
+        it with a description whose case actually differs from the
+        phase-mention token, unlike the exact-case fixture above."""
+        issues = json.dumps(
+            [
+                {
+                    "id": "bd-desc.2",
+                    "title": "Hand-filed issue",
+                    "status": "open",
+                    "description": "Touches .GSD/CAPABILITIES/BEADS/SCRIPTS/SYNC.PY directly.",
+                }
+            ]
+        )
+        mock_run.side_effect = _make_beads_recall_bd_side_effect(issues)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(
+                Path(tmp),
+                roadmap_section="Extends `.gsd/capabilities/beads/scripts/sync.py`.\n",
+            )
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+            matched_section = text.split("## Open issues touching this phase's scope", 1)[1]
+            matched_section = matched_section.split("## Unscoped", 1)[0]
+            self.assertIn("bd-desc.2", matched_section)
             self.assertIn("matched via: description", matched_section)
 
     @mock.patch("subprocess.run")
@@ -4081,6 +4119,139 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
 
             self.assertEqual(exit_code, 0)
             self.assertIn("No open issues found.", out_path.read_text(encoding="utf-8"))
+
+    def test_numeric_only_dotted_token_excluded_from_phase_mentions(self):
+        """GH#11 secondary observation: a bare version number like "2.39"
+        must not be extracted as a phase-mention token -- it would otherwise
+        substring-match unrelated issue descriptions."""
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(
+                Path(tmp),
+                roadmap_section="Requires CmdStan 2.39 and touches sync.py.\n",
+            )
+            project_root = phase_dir.parent.parent.parent
+            mentions = sync.extract_phase_mentions(
+                project_root / ".planning" / "ROADMAP.md", "02", phase_dir / "02-CONTEXT.md"
+            )
+        self.assertNotIn("2.39", mentions)
+        self.assertIn("sync.py", mentions)
+
+    @mock.patch("subprocess.run")
+    def test_desc_contains_fallback_issues_zero_bd_calls_at_scale(self, mock_run):
+        """GH#11: the description fallback must cost O(1) `bd` subprocesses
+        regardless of (issue count x mention token count) -- was O(N*M),
+        1813 calls / ~9 minutes measured on the reporter's repo. Every
+        issue here is unscoped (no <beads-id> anywhere), forcing every one
+        through the fallback; only the two calls _make_beads_recall_bd_side_effect
+        wires up (bd_available probe + the single open-issue scan) may fire."""
+        many_tokens_roadmap = "".join(f"Touches file{i}.py.\n" for i in range(40))
+        issues = json.dumps(
+            [{"id": f"bd-scale.{i}", "title": "t", "status": "open", "description": "unrelated"} for i in range(40)]
+        )
+        mock_run.side_effect = _make_beads_recall_bd_side_effect(issues)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp), roadmap_section=many_tokens_roadmap)
+            exit_code = sync.beads_recall(str(phase_dir))
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(mock_run.call_count, 2)
+
+    def test_bd_list_failure_writes_failure_marker_instead_of_stale_file(self):
+        """GH#11 (+ review findings): every way the upfront `bd list` call
+        can fail -- timeout, OSError, undecodable output, non-zero exit,
+        unparseable JSON, non-list JSON -- must route to the same
+        `recall_status: failed` marker, overwriting any stale prior-run
+        file, never silently masquerading as "zero open issues"."""
+        cases = {
+            "timeout": (
+                subprocess.TimeoutExpired(cmd=["bd"], timeout=sync.BD_TIMEOUT),
+                "timed out",
+            ),
+            "oserror": (OSError("bd: no such file or directory"), "no such file or directory"),
+            "unicode_decode_error": (
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+                "invalid start byte",
+            ),
+            "nonzero_exit": (_completed(1, stderr="database is locked"), "database is locked"),
+            "unparseable_json": (_completed(0, stdout="not json"), "unparseable JSON"),
+            "non_list_json": (_completed(0, stdout='{"not": "a list"}\n'), "non-list JSON"),
+        }
+        for name, (outcome, expected_substring) in cases.items():
+            with self.subTest(case=name):
+
+                def _side_effect(argv, **kwargs):
+                    if argv[:3] == ["bd", "list", "--json"]:
+                        return _completed(0, stdout="[]\n")
+                    if argv[:3] == ["bd", "list", "--status"]:
+                        if isinstance(outcome, BaseException):
+                            raise outcome
+                        return outcome
+                    return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        phase_dir = _write_recall_phase_workspace(Path(tmp))
+                        out_path = phase_dir / "02-BEADS-RECALL.md"
+                        out_path.write_text("stale content from a prior successful run\n", encoding="utf-8")
+
+                        exit_code = sync.beads_recall(str(phase_dir))
+
+                        self.assertEqual(exit_code, 0)
+                        text = out_path.read_text(encoding="utf-8")
+                self.assertNotIn("stale content from a prior successful run", text)
+                self.assertIn("recall_status: failed", text)
+                self.assertIn(expected_substring, text)
+                self.assertNotIn("No open issues found.", text)
+
+    @mock.patch("subprocess.run")
+    def test_failure_marker_write_error_propagates_not_swallowed(self, mock_run):
+        """coderabbit review (PR #12): if writing the failure marker itself
+        raises OSError, that must propagate -- not be silently suppressed
+        with a stale `recall_status: ok` file left trusted as current."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "list", "--status"]:
+                return _completed(1, stderr="database is locked")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        mock_run.side_effect = _side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+            out_path.write_text("stale content from a prior successful run\n", encoding="utf-8")
+
+            with mock.patch.object(Path, "write_text", side_effect=OSError("disk full")):
+                with self.assertRaises(OSError):
+                    sync.beads_recall(str(phase_dir))
+
+            self.assertEqual(out_path.read_text(encoding="utf-8"), "stale content from a prior successful run\n")
+
+    @mock.patch("subprocess.run")
+    def test_bd_list_error_message_with_quotes_stays_valid_yaml_frontmatter(self, mock_run):
+        """GH#11 review finding: recall_error must be JSON/YAML-safely
+        quoted -- a raw f-string embed of stderr containing a `"` would
+        otherwise produce malformed frontmatter."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "list", "--status"]:
+                return _completed(1, stderr='bad thing: "quoted" and\nnewline')
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        mock_run.side_effect = _side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            exit_code = sync.beads_recall(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+        frontmatter = text.split("---", 2)[1]
+        recall_error_line = next(line for line in frontmatter.splitlines() if line.startswith("recall_error:"))
+        json.loads(recall_error_line.split(":", 1)[1].strip())
 
 
 def _regen_two_task_plan_text():
