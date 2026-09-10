@@ -1314,13 +1314,13 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         ]
         prose = " ".join(readme.split())
         expected_versions = {
-            "plugin": (plugin["version"], "1.6.1"),
+            "plugin": (plugin["version"], "1.6.2"),
             "capability": (self._manifest()["version"], "0.7.2"),
             "registry": (registry["entries"]["beads"]["version"], "0.7.2"),
             "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.2"),
             "README Codex pin": (
                 codex_pin,
-                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.1"],
+                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.2"],
             ),
         }
         for surface, (actual, expected) in expected_versions.items():
