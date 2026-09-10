@@ -1280,7 +1280,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.7.1")
+        self.assertEqual(manifest["version"], "0.7.2")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -1314,13 +1314,13 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         ]
         prose = " ".join(readme.split())
         expected_versions = {
-            "plugin": (plugin["version"], "1.6.0"),
-            "capability": (self._manifest()["version"], "0.7.1"),
-            "registry": (registry["entries"]["beads"]["version"], "0.7.1"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.1"),
+            "plugin": (plugin["version"], "1.6.1"),
+            "capability": (self._manifest()["version"], "0.7.2"),
+            "registry": (registry["entries"]["beads"]["version"], "0.7.2"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.2"),
             "README Codex pin": (
                 codex_pin,
-                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.0"],
+                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.1"],
             ),
         }
         for surface, (actual, expected) in expected_versions.items():
@@ -3774,6 +3774,215 @@ class TestResolvesIssuesMarker(unittest.TestCase):
             )
             (phase_dir / "01-07-SUMMARY.md").write_bytes(b"\xff\xfe\x00\x01not valid utf-8")
             exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+
+class TestHaltedSummary(unittest.TestCase):
+    """GH#10: a SUMMARY.md declaring `status: halted` is a designed stop with
+    tasks intentionally left unfinished (gsd-core's plan-dependency-graph.cjs
+    contract) -- neither close_wave nor reconcile_stale_closed may treat it
+    as "every listed task done". The SUMMARY template has no per-task
+    completion field, so a halted plan's tasks are all skipped (fail
+    closed), never guessed at."""
+
+    def _close_argvs(self, mock_run):
+        return [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+
+    @mock.patch("subprocess.run")
+    def test_close_wave_skips_every_task_in_a_halted_plan(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: halted\n---\n", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_reconcile_stale_closed_skips_every_task_in_a_halted_plan(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            plan_b = (FIXTURES_DIR / "plan-wave-b.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-04", plan_a, True), ("01-05", plan_b, True)]
+            )
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: halted\n---\n", encoding="utf-8"
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        all_closed = {
+            i for argv in self._close_argvs(mock_run) for i in argv[2:argv.index("--reason")]
+        }
+        # Halted 01-04 contributes nothing; non-halted 01-05 closes as usual.
+        self.assertNotIn("tracer-wave1.1", all_closed)
+        self.assertNotIn("tracer-wave1.2", all_closed)
+        self.assertIn("tracer-wave1.3", all_closed)
+        self.assertIn("tracer-wave1.4", all_closed)
+
+    @mock.patch("subprocess.run")
+    def test_halted_status_with_trailing_yaml_comment_still_halts(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: halted # designed stop\n---\n", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_halted_status_is_case_insensitive(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: Halted\n---\n", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_explicit_status_complete_closes_all_tasks_as_before(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: complete\n---\n", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        closed_ids = {i for argv in self._close_argvs(mock_run) for i in argv[2:argv.index("--reason")]}
+        self.assertEqual(closed_ids, {"tracer-wave1.1", "tracer-wave1.2"})
+
+    @mock.patch("subprocess.run")
+    def test_double_quoted_halted_status_still_halts(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                '---\nstatus: "halted"\n---\n', encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_single_quoted_halted_status_still_halts(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: 'halted'\n---\n", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_blocked_status_is_not_a_completion_record_at_all(self, mock_run):
+        # #3345 parity: `status: blocked` is a failure record, not a
+        # completion record -- gsd-core's own has_summary:false treatment.
+        # It must behave exactly like no SUMMARY.md existing, not like a
+        # halted (still-summarized) plan.
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        captured = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: blocked\n---\n", encoding="utf-8"
+            )
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+        self.assertIn("skipped 0 task(s)", captured.getvalue())
+
+    @mock.patch("subprocess.run")
+    def test_halted_plan_never_authorizes_resolves_issues_marker_close(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _no_beads_id_plan_text("07"), True)]
+            )
+            (phase_dir / "01-07-SUMMARY.md").write_text(
+                '---\nstatus: halted\nresolves_issues: ["gsd-beads-he1"]\n---\n',
+                encoding="utf-8",
+            )
+            exit_code = sync.reconcile_stale_closed(str(phase_dir))
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_summary_with_no_status_field_closes_all_tasks_as_before(self, mock_run):
+        # Default _write_wave_workspace SUMMARY.md is bare "status: complete\n"
+        # already (regression case); this asserts a SUMMARY with no
+        # frontmatter fence at all -- the "no status field to read" case --
+        # still preserves the pre-GH#10 fallback.
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text("no frontmatter here\n", encoding="utf-8")
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        closed_ids = {i for argv in self._close_argvs(mock_run) for i in argv[2:argv.index("--reason")]}
+        self.assertEqual(closed_ids, {"tracer-wave1.1", "tracer-wave1.2"})
+
+    @mock.patch("subprocess.run")
+    def test_halted_status_without_trailing_newline_still_halts(self, mock_run):
+        # CodeRabbit (PR #13): a SUMMARY.md ending exactly at the closing
+        # `---` fence (no final newline) must still be recognized -- the
+        # prior FRONTMATTER_RE required a `---\n` fence and silently fell
+        # through to "not halted" (auto-close everything) otherwise.
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: halted\n---", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_blocked_status_without_trailing_newline_still_blocks(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: blocked\n---", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(self._close_argvs(mock_run), [])

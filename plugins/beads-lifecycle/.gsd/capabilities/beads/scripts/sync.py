@@ -61,7 +61,12 @@ TASK_OPEN_TAG_RE = re.compile(_TASK_OPEN_PATTERN)
 # a real executed PLAN.md, 16-RESEARCH.md Priority 3). Matched against the
 # whole plan text, not a TASK_RE block, unlike every regex above.
 OBJECTIVE_RE = re.compile(r"<objective>(.*?)</objective>", re.DOTALL)
-FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.DOTALL)
+FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---(?:\r?\n|\Z)", re.DOTALL)
+# GH#10: same `status` key gsd-core's plan-dependency-graph.cjs reads from a
+# SUMMARY.md's frontmatter to decide halt-propagation -- this must stay the
+# one place this capability decides the same thing, so the two readers of
+# the identical artifact can never contradict each other again.
+STATUS_RE = re.compile(r"^status:\s*(.*)$", re.MULTILINE)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 BEADS_EPIC_DECL_RE = re.compile(r"^beads_epic[ \t]*:(.*)$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
@@ -1679,12 +1684,20 @@ def _resolve_marked_issue_ids(phase_dir):
     at all. Each raw id parse_resolves_issues extracts is admitted only when
     it fullmatches SAFE_BD_ID_RE; anything else is dropped and counted in
     rejected_count rather than ever reaching a `bd close` argv.
+
+    GH#10: a halted or blocked plan's `resolves_issues:` claim is never
+    trusted either -- neither status is a genuine, unretracted completion
+    record (see find_completed_task_ids), so a marker named there is
+    excluded from this candidate set the same way its own tasks are.
     """
     ids = set()
     rejected = 0
     for plan_id, plan_path in discover_plan_files(phase_dir).items():
         summary_path = plan_path.with_name(f"{plan_id}-SUMMARY.md")
         if not summary_path.exists():
+            continue
+        status = _read_summary_status(summary_path)
+        if _is_halted_status(status) or _is_blocked_status(status):
             continue
         try:
             text = summary_path.read_text(encoding="utf-8")
@@ -1731,14 +1744,67 @@ def _task_authority_error(task):
     return None
 
 
+def _normalize_summary_status(value):
+    """Strip a YAML scalar's surrounding quotes and a trailing unquoted `#
+    comment`, mirroring what gsd-core's real YAML parser (extractFrontmatter)
+    does before `isHaltedStatus`/`isBlockedStatus` ever see the value (GH#10
+    review: an unquoted-only reader misreads `status: "halted"` as not
+    halted). Returns None for a non-string input."""
+    if not isinstance(value, str):
+        return None
+    value = re.sub(r"\s+#.*$", "", value).strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        value = value[1:-1]
+    return value
+
+
+def _is_halted_status(value):
+    """Mirror gsd-core's plan-dependency-graph.cjs `isHaltedStatus`: case-
+    insensitive comparison after normalization -- so this reader's
+    definition of "halted" can never drift from the JS side's (GH#10)."""
+    normalized = _normalize_summary_status(value)
+    return normalized is not None and normalized.lower() == "halted"
+
+
+def _is_blocked_status(value):
+    """Mirror gsd-core's plan-dependency-graph.cjs `isBlockedStatus` (#3345):
+    `status: blocked` is a failure record, not a completion record --
+    deliberately distinct from `status: halted`, which still counts as
+    summarized (GH#10)."""
+    normalized = _normalize_summary_status(value)
+    return normalized is not None and normalized.lower() == "blocked"
+
+
+def _read_summary_status(summary_path):
+    """Return a SUMMARY.md's frontmatter `status` raw value, or None if the
+    file is missing/unreadable/malformed or carries no `status` key."""
+    try:
+        text = summary_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    fm_match = FRONTMATTER_RE.match(text)
+    if not fm_match:
+        return None
+    status_match = STATUS_RE.search(fm_match.group(1))
+    return status_match.group(1) if status_match else None
+
+
 def find_completed_task_ids(phase_dir, plan_id):
     """Return (task_ids, skipped_count) for one plan in a wave.
 
     Completion is plan-granular: a plan whose SUMMARY.md exists has finished
     every one of its tasks (gsd-core's own completion marker -- see
-    wave_granularity_fact); a plan with no SUMMARY.md yet contributes
-    nothing. Within a completed plan, a task with no <beads-id> (never
-    synced, e.g. a checkpoint task) is counted skipped rather than raised.
+    wave_granularity_fact) UNLESS that SUMMARY declares `status: halted` or
+    `status: blocked` (GH#10). `blocked` (#3345) is a failure record, not a
+    completion record at all -- gsd-core's own has_summary:false treatment,
+    so it contributes nothing here either, same as no SUMMARY.md existing.
+    `halted` is a designed stop that intentionally left tasks unfinished; the
+    SUMMARY template carries no per-task completion field, so a halted plan
+    cannot be disambiguated task-by-task -- every one of its tasks is
+    skipped (fail closed) rather than guessed at. A plan with no SUMMARY.md
+    yet contributes nothing. Within a completed (non-halted, non-blocked)
+    plan, a task with no <beads-id> (never synced, e.g. a checkpoint task)
+    is counted skipped rather than raised.
     """
     plan_path = discover_plan_files(phase_dir).get(plan_id)
     if plan_path is None:
@@ -1746,12 +1812,17 @@ def find_completed_task_ids(phase_dir, plan_id):
     summary_path = plan_path.with_name(f"{plan_id}-SUMMARY.md")
     if not summary_path.exists():
         return [], 0
+    status = _read_summary_status(summary_path)
+    if _is_blocked_status(status):
+        return [], 0
     try:
         _, _, tasks = parse_plan(plan_path)
     except PlanParseError as exc:
         raise ValueError(
             f"completed-task authority invalid in {plan_path.name}: {exc}"
         ) from exc
+    if _is_halted_status(status):
+        return [], len(tasks)
     ids = []
     skipped = 0
     for task in tasks:
@@ -1842,7 +1913,7 @@ def close_wave(phase_dir_arg, plan_ids):
     per_plan = ", ".join(f"{pid}:{n}" for pid, n in plan_counts)
     print(
         f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) ({per_plan}); "
-        f"skipped {skipped_total} task(s) with no beads-id"
+        f"skipped {skipped_total} task(s) (no beads-id or plan halted)"
     )
     return 0
 
@@ -1907,7 +1978,7 @@ def reconcile_stale_closed(phase_dir_arg):
 
     print(
         f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) in {phase_dir.name}; "
-        f"skipped {skipped_total} task(s) with no beads-id; "
+        f"skipped {skipped_total} task(s) (no beads-id or plan halted); "
         f"closed {len(marked_to_close)} marker issue(s), rejected {rejected}"
     )
     return 0
