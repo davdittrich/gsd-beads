@@ -61,7 +61,7 @@ TASK_OPEN_TAG_RE = re.compile(_TASK_OPEN_PATTERN)
 # a real executed PLAN.md, 16-RESEARCH.md Priority 3). Matched against the
 # whole plan text, not a TASK_RE block, unlike every regex above.
 OBJECTIVE_RE = re.compile(r"<objective>(.*?)</objective>", re.DOTALL)
-FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---\r?\n", re.DOTALL)
+FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---(?:\r?\n|\Z)", re.DOTALL)
 # GH#10: same `status` key gsd-core's plan-dependency-graph.cjs reads from a
 # SUMMARY.md's frontmatter to decide halt-propagation -- this must stay the
 # one place this capability decides the same thing, so the two readers of

@@ -3955,6 +3955,38 @@ class TestHaltedSummary(unittest.TestCase):
         closed_ids = {i for argv in self._close_argvs(mock_run) for i in argv[2:argv.index("--reason")]}
         self.assertEqual(closed_ids, {"tracer-wave1.1", "tracer-wave1.2"})
 
+    @mock.patch("subprocess.run")
+    def test_halted_status_without_trailing_newline_still_halts(self, mock_run):
+        # CodeRabbit (PR #13): a SUMMARY.md ending exactly at the closing
+        # `---` fence (no final newline) must still be recognized -- the
+        # prior FRONTMATTER_RE required a `---\n` fence and silently fell
+        # through to "not halted" (auto-close everything) otherwise.
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: halted\n---", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
+    @mock.patch("subprocess.run")
+    def test_blocked_status_without_trailing_newline_still_blocks(self, mock_run):
+        mock_run.side_effect = _make_close_wave_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: blocked\n---", encoding="utf-8"
+            )
+            exit_code = sync.close_wave(str(phase_dir), ["01-04"])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(self._close_argvs(mock_run), [])
+
 
 class TestFailOpen(unittest.TestCase):
     """B6: bd absent, or every bd invocation failing, degrades to exit 0, one
