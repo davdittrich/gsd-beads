@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1
+
+### Fixed
+- **`beads-recall`'s description-substring fallback spawned one `bd` subprocess per (open issue, phase-mention token) pair, so `plan:pre` timed out and silently left a stale `BEADS-RECALL.md`.** Measured at 1813 subprocess calls (~9 minutes) on a real repo, past `run_bd`'s aggregate timeout budget even though each call individually was fast. `desc_contains_match` now matches in-process, case-insensitively, against each issue's description already returned by `beads_recall`'s single upfront `bd list` call -- zero subprocesses, independent of issue or token count. A bare version number (e.g. a CmdStan version like `2.39`) is no longer extracted as a phase-mention token, removing a source of spurious description matches. A failed or timed-out recall (including `bd` being unavailable) now overwrites `BEADS-RECALL.md` with an explicit `recall_status: failed` marker instead of leaving a stale prior-run file in place looking fresh; `fragments/recall-pointer.md` now tells the planner to check that key before trusting the file. ([GH#11](https://github.com/davdittrich/gsd-beads/issues/11))
+
 ## 0.7.0
 
 ### Added

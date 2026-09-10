@@ -2276,13 +2276,9 @@ def _render_beads_recall_body(matched, unscoped):
 
 
 PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
-# GH#11 secondary observation: PATH_TOKEN_RE's dotted-extension heuristic also
-# catches a bare version number (e.g. "2.39", a CmdStan version) since digits
-# are `\w`. A token made of only digits and dots can never be a real path or
-# file extension, so it is dropped before it reaches phase_mentions -- it
-# would otherwise substring-match unrelated issue descriptions in
-# desc_contains_match, one spurious query/match per numeric mention.
-NUMERIC_ONLY_TOKEN_RE = re.compile(r"^[\d.]+$")
+# GH#11: digits are `\w`, so a bare version number ("2.39") matches
+# PATH_TOKEN_RE too but is never a path/extension -- excluded below.
+NUMERIC_ONLY_TOKEN_RE = re.compile(r"[\d.]+")
 
 
 def extract_phase_mentions(roadmap_path, phase_num, context_path):
@@ -2308,7 +2304,7 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
 
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
-        if NUMERIC_ONLY_TOKEN_RE.match(token):
+        if NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
             continue
         if token not in seen:
             seen.append(token)
@@ -2330,7 +2326,7 @@ def scope_match(issue_id, files_index, phase_mentions):
     return None
 
 
-def desc_contains_match(issue, phase_mentions):
+def desc_contains_match(issue, folded_phase_mentions):
     """GH#11: technique-2 fallback for an issue absent from files_index.
     Was one `bd list --id <id> --desc-contains <token> --json -n 0`
     subprocess per phase_mentions token -- O(issues x tokens) bd calls
@@ -2339,14 +2335,49 @@ def desc_contains_match(issue, phase_mentions):
     was fast). `issue`'s description is already in memory: beads_recall's
     single upfront `bd list` fetched every open issue's full record before
     this function is ever called, so re-querying it here just re-derives
-    data the caller already holds. Case-insensitive substring match,
-    in-process, zero subprocesses -- same match semantics as
-    `--desc-contains`, short-circuit on first hit."""
+    data the caller already holds. `folded_phase_mentions` is pre-
+    casefolded by the caller (once per run, not once per issue) --
+    case-insensitive literal substring, in-process, zero subprocesses,
+    short-circuit on first hit. Stricter than bd's own `--desc-contains`,
+    which is SQL LIKE-backed and treats `_`/`%` as wildcards; this is a
+    documented, deliberate narrowing, not a semantic-parity claim."""
     description = (issue.get("description") or "").casefold()
-    for token in phase_mentions:
-        if token.casefold() in description:
+    for token in folded_phase_mentions:
+        if token in description:
             return "description"
     return None
+
+
+def _write_beads_recall_failure(phase_dir, reason):
+    """GH#11: overwrite BEADS-RECALL.md with an explicit `recall_status:
+    failed` marker instead of leaving a previous run's file in place,
+    indistinguishable from a fresh one -- called from every beads_recall
+    exit path that doesn't reach a real scope-matched result, including
+    the bd-unavailable path (D-08's existing fail-open shape covered the
+    STATE.md blocker but not this file). Best-effort: phase_dir not
+    existing yet is not itself an escalation."""
+    padded_phase = phase_dir.name.split("-", 1)[0]
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    frontmatter = (
+        "---\n"
+        f"phase: {phase_dir.name}\n"
+        f'generated_from: "{" ".join(_beads_recall_argv())}"\n'
+        f"generated_at: {generated_at}\n"
+        "recall_status: failed\n"
+        f"recall_error: {json.dumps(reason)}\n"
+        "---\n\n"
+    )
+    reason_line = " ".join(reason.split())  # collapse embedded newlines (T-01: reason may carry bd stderr)
+    out_text = (
+        frontmatter
+        + f"# Beads Recall: Phase {phase_dir.name}\n\n"
+        + f"No recall data for this run ({reason_line}). Any previous recall was discarded; "
+        "re-run beads-recall before trusting phase scope.\n"
+    )
+    try:
+        (phase_dir / f"{padded_phase}-BEADS-RECALL.md").write_text(out_text, encoding="utf-8")
+    except OSError:
+        pass
 
 
 def beads_recall(phase_dir_arg):
@@ -2356,8 +2387,9 @@ def beads_recall(phase_dir_arg):
     close_wave, never a new fail-open variant."""
     if not bd_available():
         print(NOTICE)
+        phase_dir = Path(phase_dir_arg).resolve()
         try:
-            project_root = find_project_root(Path(phase_dir_arg).resolve())
+            project_root = find_project_root(phase_dir)
         except ValueError:
             project_root = None
         if project_root is not None:
@@ -2365,62 +2397,40 @@ def beads_recall(phase_dir_arg):
                 confined(project_root, ".planning", "STATE.md"),
                 "bd unavailable -- beads-recall skipped (B6/D-08)",
             )
+        _write_beads_recall_failure(phase_dir, "bd unavailable")
+        print("BEADS-RECALL.md recall failed: bd unavailable")
         return 0
 
     phase_dir = Path(phase_dir_arg).resolve()
     project_root = find_project_root(phase_dir)
     padded_phase = phase_dir.name.split("-", 1)[0]
-    out_path = phase_dir / f"{padded_phase}-BEADS-RECALL.md"
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     bd_error = None
     try:
         result = run_bd(_beads_recall_argv())
-    except (subprocess.TimeoutExpired, OSError) as exc:
-        # Same exception pair bd_available() treats as "bd unavailable"
-        # (sync.py's own established fail-open shape) -- an OSError here
-        # (e.g. the `bd` binary vanishing mid-run) must reach this failure-
-        # marker path too, not escape uncaught past the one thing this fix
-        # exists to guarantee: a visible signal instead of a stale file.
-        bd_error = f"bd list failed ({exc})" if isinstance(exc, OSError) else f"bd list timed out after {BD_TIMEOUT}s"
-        result = None
+    except (subprocess.TimeoutExpired, OSError, UnicodeDecodeError) as exc:
+        # bd_available()'s own exception pair, plus UnicodeDecodeError for
+        # undecodable stdout under text=True -- a `bd list` running long,
+        # the binary vanishing mid-run, or bad output encoding must all
+        # reach the failure-marker path below, not escape uncaught past it.
+        bd_error = f"bd list failed: {exc}"
 
     issues = []
     if bd_error is None:
         if result.returncode == 0:
             try:
                 issues = json.loads(result.stdout)
-            except json.JSONDecodeError as exc:
-                bd_error = f"bd list returned unparseable JSON ({exc})"
+            except ValueError as exc:  # json.JSONDecodeError is a ValueError subclass
+                bd_error = f"bd list returned unparseable JSON: {exc}"
             else:
                 if not isinstance(issues, list):
                     bd_error = f"bd list returned non-list JSON ({type(issues).__name__})"
-                    issues = []
         else:
             bd_error = f"bd list exited {result.returncode}: {result.stderr.strip()}"
 
     if bd_error is not None:
-        # GH#11: a failed/timed-out recall must not leave the previous run's
-        # BEADS-RECALL.md in place looking indistinguishable from a fresh
-        # one (the caller has no reason to check `generated_at`). Write an
-        # explicit failure marker over it instead of skipping the write.
-        frontmatter = (
-            "---\n"
-            f"phase: {phase_dir.name}\n"
-            f'generated_from: "{" ".join(_beads_recall_argv())}"\n'
-            f"generated_at: {generated_at}\n"
-            "recall_status: failed\n"
-            f"recall_error: {json.dumps(bd_error)}\n"
-            "---\n\n"
-        )
-        out_text = (
-            frontmatter
-            + f"# Beads Recall: Phase {phase_dir.name}\n\n"
-            + f"Recall failed this run: {bd_error}. This file was not regenerated -- "
-            "do not treat it as current.\n"
-        )
-        out_path.write_text(out_text, encoding="utf-8")
-        print(f"BEADS-RECALL.md write failed: {bd_error}")
+        _write_beads_recall_failure(phase_dir, bd_error)
+        print(f"BEADS-RECALL.md recall failed: {bd_error}")
         return 0
 
     # Two-technique scope match (D-01 revised): reverse <beads-id> lookup
@@ -2434,6 +2444,7 @@ def beads_recall(phase_dir_arg):
         phase_mentions = extract_phase_mentions(roadmap_path, padded_phase, context_path)
     except (OSError, ValueError):
         phase_mentions = []
+    folded_phase_mentions = [token.casefold() for token in phase_mentions]
     files_index = collect_all_task_files(project_root)
 
     matched = []
@@ -2442,21 +2453,24 @@ def beads_recall(phase_dir_arg):
         issue_id = issue.get("id", "")
         via = scope_match(issue_id, files_index, phase_mentions)
         if via is None:
-            via = desc_contains_match(issue, phase_mentions)
+            via = desc_contains_match(issue, folded_phase_mentions)
         if via:
             matched.append((issue, via))
         else:
             unscoped.append(issue)
 
     body = _render_beads_recall_body(matched, unscoped)
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     frontmatter = (
         "---\n"
         f"phase: {phase_dir.name}\n"
         f'generated_from: "{" ".join(_beads_recall_argv())}"\n'
         f"generated_at: {generated_at}\n"
+        "recall_status: ok\n"
         "---\n\n"
     )
     out_text = frontmatter + f"# Beads Recall: Phase {phase_dir.name}\n\n" + body
+    out_path = phase_dir / f"{padded_phase}-BEADS-RECALL.md"
     out_path.write_text(out_text, encoding="utf-8")
 
     print(

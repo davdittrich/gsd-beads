@@ -1280,7 +1280,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.7.0")
+        self.assertEqual(manifest["version"], "0.7.1")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -1315,9 +1315,9 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         prose = " ".join(readme.split())
         expected_versions = {
             "plugin": (plugin["version"], "1.6.0"),
-            "capability": (self._manifest()["version"], "0.7.0"),
-            "registry": (registry["entries"]["beads"]["version"], "0.7.0"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.0"),
+            "capability": (self._manifest()["version"], "0.7.1"),
+            "registry": (registry["entries"]["beads"]["version"], "0.7.1"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.1"),
             "README Codex pin": (
                 codex_pin,
                 ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.0"],
@@ -3926,7 +3926,10 @@ class TestBeadsRecall(unittest.TestCase):
             self.assertIn("bd-1", unscoped_section)
             self.assertIn("bd-2", unscoped_section)
 
-    def test_bd_unavailable_writes_no_file_and_one_notice(self):
+    def test_bd_unavailable_writes_failure_marker_and_one_notice(self):
+        """GH#11 review: bd-unavailable must not leave a stale
+        BEADS-RECALL.md untouched -- same failure-marker guarantee as a
+        failed/timed-out bd list call, not a special case that skips it."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp_path = Path(tmp)
             phase_dir = _write_recall_phase_workspace(tmp_path)
@@ -3934,6 +3937,8 @@ class TestBeadsRecall(unittest.TestCase):
                 "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
                 encoding="utf-8",
             )
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+            out_path.write_text("stale content from a prior successful run\n", encoding="utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
                 with mock.patch("shutil.which", return_value=None):
@@ -3942,11 +3947,13 @@ class TestBeadsRecall(unittest.TestCase):
                         side_effect=AssertionError("bd must not be invoked when absent"),
                     ):
                         exit_code = sync.beads_recall(str(phase_dir))
-            out_path = phase_dir / "02-BEADS-RECALL.md"
 
             self.assertEqual(exit_code, 0)
-            self.assertFalse(out_path.exists())
             self.assertEqual(captured.getvalue().count(sync.NOTICE), 1)
+            text = out_path.read_text(encoding="utf-8")
+        self.assertNotIn("stale content from a prior successful run", text)
+        self.assertIn("recall_status: failed", text)
+        self.assertIn("bd unavailable", text)
 
     @mock.patch("subprocess.run")
     def test_files_reverse_lookup_match_appears_under_matched_heading(self, mock_run):
@@ -4046,6 +4053,37 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
             self.assertIn("matched via: description", matched_section)
 
     @mock.patch("subprocess.run")
+    def test_desc_contains_fallback_match_is_case_insensitive(self, mock_run):
+        """desc_contains_match claims case-insensitive matching -- exercise
+        it with a description whose case actually differs from the
+        phase-mention token, unlike the exact-case fixture above."""
+        issues = json.dumps(
+            [
+                {
+                    "id": "bd-desc.2",
+                    "title": "Hand-filed issue",
+                    "status": "open",
+                    "description": "Touches .GSD/CAPABILITIES/BEADS/SCRIPTS/SYNC.PY directly.",
+                }
+            ]
+        )
+        mock_run.side_effect = _make_beads_recall_bd_side_effect(issues)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(
+                Path(tmp),
+                roadmap_section="Extends `.gsd/capabilities/beads/scripts/sync.py`.\n",
+            )
+            exit_code = sync.beads_recall(str(phase_dir))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+            matched_section = text.split("## Open issues touching this phase's scope", 1)[1]
+            matched_section = matched_section.split("## Unscoped", 1)[0]
+            self.assertIn("bd-desc.2", matched_section)
+            self.assertIn("matched via: description", matched_section)
+
+    @mock.patch("subprocess.run")
     def test_unmatched_issue_stays_unscoped_never_dropped(self, mock_run):
         """An issue matching neither technique 1 nor technique 2 stays under
         Unscoped -- D-02, never omitted from the file entirely."""
@@ -4117,106 +4155,52 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
         self.assertEqual(exit_code, 0)
         self.assertEqual(mock_run.call_count, 2)
 
-    @mock.patch("subprocess.run")
-    def test_bd_list_timeout_writes_failure_marker_instead_of_stale_file(self, mock_run):
-        """GH#11: a timed-out recall must not leave a prior run's
-        BEADS-RECALL.md in place looking indistinguishable from a fresh one
-        -- it must be overwritten with an explicit failure marker."""
+    def test_bd_list_failure_writes_failure_marker_instead_of_stale_file(self):
+        """GH#11 (+ review findings): every way the upfront `bd list` call
+        can fail -- timeout, OSError, undecodable output, non-zero exit,
+        unparseable JSON, non-list JSON -- must route to the same
+        `recall_status: failed` marker, overwriting any stale prior-run
+        file, never silently masquerading as "zero open issues"."""
+        cases = {
+            "timeout": (
+                subprocess.TimeoutExpired(cmd=["bd"], timeout=sync.BD_TIMEOUT),
+                "timed out",
+            ),
+            "oserror": (OSError("bd: no such file or directory"), "no such file or directory"),
+            "unicode_decode_error": (
+                UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte"),
+                "invalid start byte",
+            ),
+            "nonzero_exit": (_completed(1, stderr="database is locked"), "database is locked"),
+            "unparseable_json": (_completed(0, stdout="not json"), "unparseable JSON"),
+            "non_list_json": (_completed(0, stdout='{"not": "a list"}\n'), "non-list JSON"),
+        }
+        for name, (outcome, expected_substring) in cases.items():
+            with self.subTest(case=name):
 
-        def _side_effect(argv, **kwargs):
-            if argv[:3] == ["bd", "list", "--json"]:
-                return _completed(0, stdout="[]\n")
-            if argv[:3] == ["bd", "list", "--status"]:
-                raise subprocess.TimeoutExpired(cmd=argv, timeout=sync.BD_TIMEOUT)
-            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+                def _side_effect(argv, **kwargs):
+                    if argv[:3] == ["bd", "list", "--json"]:
+                        return _completed(0, stdout="[]\n")
+                    if argv[:3] == ["bd", "list", "--status"]:
+                        if isinstance(outcome, BaseException):
+                            raise outcome
+                        return outcome
+                    return _completed(1, stderr=f"unexpected bd invocation: {argv}")
 
-        mock_run.side_effect = _side_effect
-        with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_recall_phase_workspace(Path(tmp))
-            out_path = phase_dir / "02-BEADS-RECALL.md"
-            out_path.write_text("stale content from a prior successful run\n", encoding="utf-8")
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        phase_dir = _write_recall_phase_workspace(Path(tmp))
+                        out_path = phase_dir / "02-BEADS-RECALL.md"
+                        out_path.write_text("stale content from a prior successful run\n", encoding="utf-8")
 
-            exit_code = sync.beads_recall(str(phase_dir))
+                        exit_code = sync.beads_recall(str(phase_dir))
 
-            self.assertEqual(exit_code, 0)
-            text = out_path.read_text(encoding="utf-8")
-        self.assertNotIn("stale content from a prior successful run", text)
-        self.assertIn("recall_status: failed", text)
-        self.assertIn("timed out", text)
-
-    @mock.patch("subprocess.run")
-    def test_bd_list_oserror_writes_failure_marker_not_uncaught_crash(self, mock_run):
-        """GH#11 review finding: bd_available() treats OSError the same as
-        TimeoutExpired (the `bd` binary vanishing mid-run); beads_recall's
-        own bd-list call must too, instead of crashing past the marker
-        write this fix exists to guarantee."""
-
-        def _side_effect(argv, **kwargs):
-            if argv[:3] == ["bd", "list", "--json"]:
-                return _completed(0, stdout="[]\n")
-            if argv[:3] == ["bd", "list", "--status"]:
-                raise OSError("bd: no such file or directory")
-            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
-
-        mock_run.side_effect = _side_effect
-        with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_recall_phase_workspace(Path(tmp))
-            out_path = phase_dir / "02-BEADS-RECALL.md"
-
-            exit_code = sync.beads_recall(str(phase_dir))
-
-            self.assertEqual(exit_code, 0)
-            text = out_path.read_text(encoding="utf-8")
-        self.assertIn("recall_status: failed", text)
-        self.assertIn("bd: no such file or directory", text)
-
-    @mock.patch("subprocess.run")
-    def test_bd_list_nonzero_exit_writes_failure_marker(self, mock_run):
-        """A non-zero `bd list` exit must route to the failure marker, not
-        silently masquerade as "zero open issues" (the pre-fix behavior)."""
-
-        def _side_effect(argv, **kwargs):
-            if argv[:3] == ["bd", "list", "--json"]:
-                return _completed(0, stdout="[]\n")
-            if argv[:3] == ["bd", "list", "--status"]:
-                return _completed(1, stderr="database is locked")
-            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
-
-        mock_run.side_effect = _side_effect
-        with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_recall_phase_workspace(Path(tmp))
-            out_path = phase_dir / "02-BEADS-RECALL.md"
-
-            exit_code = sync.beads_recall(str(phase_dir))
-
-            self.assertEqual(exit_code, 0)
-            text = out_path.read_text(encoding="utf-8")
-        self.assertIn("recall_status: failed", text)
-        self.assertIn("database is locked", text)
-        self.assertNotIn("No open issues found.", text)
-
-    @mock.patch("subprocess.run")
-    def test_bd_list_unparseable_json_writes_failure_marker(self, mock_run):
-        """Malformed JSON from `bd list` must route to the failure marker,
-        not raise past it or silently proceed as zero issues."""
-
-        def _side_effect(argv, **kwargs):
-            if argv[:3] == ["bd", "list", "--json"]:
-                return _completed(0, stdout="[]\n")
-            if argv[:3] == ["bd", "list", "--status"]:
-                return _completed(0, stdout="not json")
-            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
-
-        mock_run.side_effect = _side_effect
-        with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_recall_phase_workspace(Path(tmp))
-            out_path = phase_dir / "02-BEADS-RECALL.md"
-
-            exit_code = sync.beads_recall(str(phase_dir))
-
-            self.assertEqual(exit_code, 0)
-            text = out_path.read_text(encoding="utf-8")
-        self.assertIn("recall_status: failed", text)
+                        self.assertEqual(exit_code, 0)
+                        text = out_path.read_text(encoding="utf-8")
+                self.assertNotIn("stale content from a prior successful run", text)
+                self.assertIn("recall_status: failed", text)
+                self.assertIn(expected_substring, text)
+                self.assertNotIn("No open issues found.", text)
 
     @mock.patch("subprocess.run")
     def test_bd_list_error_message_with_quotes_stays_valid_yaml_frontmatter(self, mock_run):
@@ -4241,8 +4225,8 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
             self.assertEqual(exit_code, 0)
             text = out_path.read_text(encoding="utf-8")
         frontmatter = text.split("---", 2)[1]
-        self.assertIn("recall_error:", frontmatter)
-        json.loads([line for line in frontmatter.splitlines() if line.startswith("recall_error:")][0].split(":", 1)[1].strip())
+        recall_error_line = next(line for line in frontmatter.splitlines() if line.startswith("recall_error:"))
+        json.loads(recall_error_line.split(":", 1)[1].strip())
 
 
 def _regen_two_task_plan_text():

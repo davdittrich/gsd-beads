@@ -43,8 +43,8 @@ This step is `onError: skip` at `plan:pre` -- a recall dispatch never fails a ph
 `bd` usability is not checked here directly -- it is delegated to `sync.py beads-recall`, which
 locates the binary and runs one cheap read command as its first action (B6/D-08). If `bd` is
 absent, failing, or locked, `sync.py` prints the one required notice line, appends an entry to
-`.planning/STATE.md` under `### Blockers/Concerns`, and exits 0 without writing
-`BEADS-RECALL.md`.
+`.planning/STATE.md` under `### Blockers/Concerns`, overwrites `BEADS-RECALL.md` with the
+`recall_status: failed` marker (GH#11 -- never leaves a stale prior-run file in place), and exits 0.
 
 ## Step 3 -- Recall dispatch
 
@@ -68,14 +68,14 @@ python3 "$SYNC_PY" beads-recall <phase directory>
 
 This scans every open, non-epic bd issue (one `bd list` call) and matches it against this phase's
 expected scope by two techniques: a cross-phase `<beads-id>` reverse lookup against every
-`PLAN.md`'s `<files>` element, falling back to an in-process, case-insensitive substring match of
-each phase-mention token against the issue's description already returned by that same `bd list`
-call (GH#11 -- no per-issue/per-token `bd` subprocess). The result is written to
-`{phase_dir}/{padded_phase}-BEADS-RECALL.md` -- always, even when zero issues are open (D-04). An
-issue matching neither technique is listed under a separate "Unscoped" heading, never dropped
-(D-02). If the `bd list` call itself fails or times out, the file is overwritten with a
-`recall_status: failed` / `recall_error: "..."` frontmatter marker and a one-line warning body,
-instead of being left untouched and indistinguishable from a fresh run (GH#11).
+`PLAN.md`'s `<files>` element, falling back to a case-insensitive substring match against the
+issue's description from that same call (GH#11 -- no per-issue/per-token `bd` subprocess). The
+result is written to `{phase_dir}/{padded_phase}-BEADS-RECALL.md` -- always, even when zero
+issues are open (D-04). An issue matching neither technique is listed under a separate "Unscoped"
+heading, never dropped (D-02). If the `bd list` call itself fails or times out, the file is
+overwritten with a `recall_status: failed` / `recall_error: "..."` marker instead of being left
+untouched and indistinguishable from a fresh run (GH#11) -- a successful run carries
+`recall_status: ok` instead, so a consumer can check one key either way.
 
 ## Step 3.5 -- verify the local gsd-core patch (independent reapply check, CR-01)
 
@@ -124,15 +124,15 @@ on the patch it verifies.
 
 ## Step 4 -- Report
 
-Print the one-line summary `sync.py` printed to stdout: either
-`BEADS-RECALL.md written: <n> matched, <m> unscoped (<t> open issue(s) total)`, the B6/D-08 skip
-notice `bd unavailable -- sync skipped`, or (GH#11) `BEADS-RECALL.md write failed: <reason>` when
-the upfront `bd list` call itself failed or timed out.
+Print the one-line summary `sync.py` printed to stdout: `BEADS-RECALL.md written: <n> matched,
+<m> unscoped (<t> open issue(s) total)` on success, or `BEADS-RECALL.md recall failed: <reason>`
+(GH#11) when `bd` was unavailable or the upfront `bd list` call itself failed or timed out --
+`BEADS-RECALL.md` was still written in the failure case too, carrying `recall_status: failed`.
 
 ## Anti-Patterns
 
 1. DO NOT resolve an issue's file scope by matching its title -- scope binds through the
-   `<beads-id>` reverse lookup or an in-process description-substring match, never a title string.
+   `<beads-id>` reverse lookup or a description-substring match, never a title string.
 2. DO NOT assemble a `bd` invocation as a shell string -- every `bd` call is a typed argv list
    passed to `subprocess.run([...])` with shell execution left disabled (N4, threat T-02-01).
 3. DO NOT skip the config gate.
@@ -141,6 +141,3 @@ the upfront `bd list` call itself failed or timed out.
 5. DO NOT skip Step 3.5 or swallow its "⚠" warning -- it is the only Patch 1 loss
    *detector* in this capability. Step 2d in `beads-status` is confirmation-only because its
    own `ship:pre` call site depends on the patch it verifies.
-6. DO NOT re-query `bd` per issue or per phase-mention token for the description fallback -- match
-   against the description each issue's single upfront `bd list` response already carries (GH#11:
-   was 1813 subprocesses / ~9 min on a real repo).
