@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.2
+
+### Fixed
+- **`close_wave`/`reconcile_stale_closed` auto-closed every task in a `status: halted` plan, including tasks the halt deliberately left open.** `find_completed_task_ids` decided plan completion from `SUMMARY.md` existence alone, never reading its `status` frontmatter. It now mirrors gsd-core's `plan-dependency-graph.cjs` contract: `status: halted` skips the whole plan's tasks (the `SUMMARY` template has no per-task completion field to disambiguate which ones are actually done), and `status: blocked` (#3345, a failure record) is treated as no completion record at all, same as no `SUMMARY.md` existing. A `resolves_issues:` marker from a halted or blocked plan is no longer trusted to close a standalone issue either. Quoted status values (`status: "halted"`) are unquoted before comparison. ([GH#10](https://github.com/davdittrich/gsd-beads/issues/10))
+- **`hooks/lifecycle-dispatch.sh` re-fired lifecycle dispatch from a Bash call that only quoted the trigger command in prose.** Its `COMMAND_POSITION` regex included backtick and bare newline as valid command-start positions, both of which occur inside quoted markdown code spans or a JSON-decoded multi-line `--body`/`--description` argument without the shell ever parsing a real command boundary there. Both are now dropped from the character class. ([GH#10](https://github.com/davdittrich/gsd-beads/issues/10))
+
 ## 0.7.1
 
 ### Fixed
