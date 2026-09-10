@@ -2376,8 +2376,13 @@ def beads_recall(phase_dir_arg):
     bd_error = None
     try:
         result = run_bd(_beads_recall_argv())
-    except subprocess.TimeoutExpired:
-        bd_error = f"bd list timed out after {BD_TIMEOUT}s"
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        # Same exception pair bd_available() treats as "bd unavailable"
+        # (sync.py's own established fail-open shape) -- an OSError here
+        # (e.g. the `bd` binary vanishing mid-run) must reach this failure-
+        # marker path too, not escape uncaught past the one thing this fix
+        # exists to guarantee: a visible signal instead of a stale file.
+        bd_error = f"bd list failed ({exc})" if isinstance(exc, OSError) else f"bd list timed out after {BD_TIMEOUT}s"
         result = None
 
     issues = []
@@ -2387,6 +2392,10 @@ def beads_recall(phase_dir_arg):
                 issues = json.loads(result.stdout)
             except json.JSONDecodeError as exc:
                 bd_error = f"bd list returned unparseable JSON ({exc})"
+            else:
+                if not isinstance(issues, list):
+                    bd_error = f"bd list returned non-list JSON ({type(issues).__name__})"
+                    issues = []
         else:
             bd_error = f"bd list exited {result.returncode}: {result.stderr.strip()}"
 
@@ -2401,7 +2410,7 @@ def beads_recall(phase_dir_arg):
             f'generated_from: "{" ".join(_beads_recall_argv())}"\n'
             f"generated_at: {generated_at}\n"
             "recall_status: failed\n"
-            f'recall_error: "{bd_error}"\n'
+            f"recall_error: {json.dumps(bd_error)}\n"
             "---\n\n"
         )
         out_text = (

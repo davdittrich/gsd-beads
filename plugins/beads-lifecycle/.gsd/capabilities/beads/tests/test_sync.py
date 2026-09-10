@@ -4144,6 +4144,106 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
         self.assertIn("recall_status: failed", text)
         self.assertIn("timed out", text)
 
+    @mock.patch("subprocess.run")
+    def test_bd_list_oserror_writes_failure_marker_not_uncaught_crash(self, mock_run):
+        """GH#11 review finding: bd_available() treats OSError the same as
+        TimeoutExpired (the `bd` binary vanishing mid-run); beads_recall's
+        own bd-list call must too, instead of crashing past the marker
+        write this fix exists to guarantee."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "list", "--status"]:
+                raise OSError("bd: no such file or directory")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        mock_run.side_effect = _side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            exit_code = sync.beads_recall(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+        self.assertIn("recall_status: failed", text)
+        self.assertIn("bd: no such file or directory", text)
+
+    @mock.patch("subprocess.run")
+    def test_bd_list_nonzero_exit_writes_failure_marker(self, mock_run):
+        """A non-zero `bd list` exit must route to the failure marker, not
+        silently masquerade as "zero open issues" (the pre-fix behavior)."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "list", "--status"]:
+                return _completed(1, stderr="database is locked")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        mock_run.side_effect = _side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            exit_code = sync.beads_recall(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+        self.assertIn("recall_status: failed", text)
+        self.assertIn("database is locked", text)
+        self.assertNotIn("No open issues found.", text)
+
+    @mock.patch("subprocess.run")
+    def test_bd_list_unparseable_json_writes_failure_marker(self, mock_run):
+        """Malformed JSON from `bd list` must route to the failure marker,
+        not raise past it or silently proceed as zero issues."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "list", "--status"]:
+                return _completed(0, stdout="not json")
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        mock_run.side_effect = _side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            exit_code = sync.beads_recall(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+        self.assertIn("recall_status: failed", text)
+
+    @mock.patch("subprocess.run")
+    def test_bd_list_error_message_with_quotes_stays_valid_yaml_frontmatter(self, mock_run):
+        """GH#11 review finding: recall_error must be JSON/YAML-safely
+        quoted -- a raw f-string embed of stderr containing a `"` would
+        otherwise produce malformed frontmatter."""
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "list", "--status"]:
+                return _completed(1, stderr='bad thing: "quoted" and\nnewline')
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        mock_run.side_effect = _side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            out_path = phase_dir / "02-BEADS-RECALL.md"
+
+            exit_code = sync.beads_recall(str(phase_dir))
+
+            self.assertEqual(exit_code, 0)
+            text = out_path.read_text(encoding="utf-8")
+        frontmatter = text.split("---", 2)[1]
+        self.assertIn("recall_error:", frontmatter)
+        json.loads([line for line in frontmatter.splitlines() if line.startswith("recall_error:")][0].split(":", 1)[1].strip())
+
 
 def _regen_two_task_plan_text():
     """Two-task fixture carrying `beads_epic: regen-epic` and both tasks
