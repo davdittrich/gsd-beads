@@ -4,7 +4,7 @@
   "entries": {
     "beads": {
       "id": "beads",
-      "version": "0.7.2",
+      "version": "0.7.3",
       "source": "./plugins/beads-lifecycle/.gsd/capabilities/beads",
       "integrity": "",
       "files": [
