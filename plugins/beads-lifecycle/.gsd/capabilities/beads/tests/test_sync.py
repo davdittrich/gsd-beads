@@ -950,6 +950,34 @@ class TestStripTaskBodies(unittest.TestCase):
         stripped_block = _task_block(stripped, 1)
         self.assertEqual(original_block, stripped_block)
 
+    def test_legacy_html_comment_pointer_is_left_byte_identical(self):
+        """GH#14 review (agy): a block already carrying the pre-fix
+        HTML-comment pointer (`<!-- beads: content synced to bd -- see
+        \\`bd show <id>\\` -->`, no literal <action>) is left untouched, not
+        further corrupted, if its id is ever passed to strip_task_bodies
+        again -- the new TASK_POINTER_PREFIX is a substring of the legacy
+        comment, so the pre-strip marker check treats it as already-done.
+        This is a documented pre-existing-data gap, not a regression: D-07
+        (forward-only stripped_ids) means a plan's already-bound ids are
+        never re-passed to strip_task_bodies during normal sync, so a
+        legacy-format block synced before this fix stays exactly as broken
+        (missing literal <action>) as it already was -- it is not made
+        worse, and healing it is a separate, explicitly out-of-scope
+        migration concern (GH#14 fixes newly-stripped tasks only)."""
+        text = """<tasks>
+
+<task type="auto">
+  <name>Task 1: Legacy-format task</name>
+  <beads-id>fixture-1</beads-id>
+  <files>src/example.py</files>
+  <!-- beads: content synced to bd -- see `bd show fixture-1` -->
+</task>
+
+</tasks>
+"""
+        stripped = sync.strip_task_bodies(text, {"fixture-1"})
+        self.assertEqual(text, stripped)
+
     def test_strippable_tracer_task_is_stripped_like_auto(self):
         text = _strip_test_plan_text()
         stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
@@ -983,17 +1011,79 @@ class TestStripTaskBodies(unittest.TestCase):
         stripped_block = _task_block(stripped, 5)
         self.assertEqual(original_block, stripped_block)
 
-    def test_stripped_block_gains_exactly_one_pointer_comment(self):
+    def test_stripped_block_gains_exactly_one_action_pointer(self):
         text = _strip_test_plan_text()
         stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
         block = _task_block(stripped, 0)
         self.assertEqual(block.count(sync.TASK_POINTER_PREFIX), 1)
-        self.assertIn("`bd show fixture-1`", block)
+        self.assertEqual(block.count("<action>"), 1)
+        # GH#14 review: the pointer must be the literal <action> element's
+        # content, not merely present somewhere else in the block.
+        self.assertIn(
+            f"<action>{sync.TASK_POINTER_PREFIX}fixture-1`.</action>", block
+        )
 
     def test_idempotent_second_pass_is_byte_identical_to_first(self):
         text = _strip_test_plan_text()
         once = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
         twice = sync.strip_task_bodies(once, _STRIP_TEST_STRIPPED_IDS)
+        thrice = sync.strip_task_bodies(twice, _STRIP_TEST_STRIPPED_IDS)
+        self.assertEqual(once, twice)
+        self.assertEqual(twice, thrice)
+
+    def test_idempotent_second_pass_with_no_blank_line_before_close_tag(self):
+        """GH#14 review (agy): a block whose stripped elements leave no
+        blank line before </task> must not accumulate whitespace drift
+        across repeated strip_task_bodies passes."""
+        text = """---
+phase: 01-substrate
+plan: 01
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - src/example.py
+autonomous: true
+requirements: [B1]
+---
+
+<objective>
+Compact-format fixture -- no blank line before </task> (GH#14 review).
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Compact task</name>
+  <beads-id>fixture-1</beads-id>
+  <files>src/example.py</files><action>Implement the thing.</action></task>
+
+</tasks>
+"""
+        ids = {"fixture-1"}
+        once = sync.strip_task_bodies(text, ids)
+        twice = sync.strip_task_bodies(once, ids)
+        thrice = sync.strip_task_bodies(twice, ids)
+        self.assertEqual(once, twice)
+        self.assertEqual(twice, thrice)
+
+    def test_idempotent_second_pass_with_crlf_line_endings(self):
+        """GH#14 review (agy): CRLF-formatted plans must not drift across
+        repeated strip_task_bodies passes."""
+        text = (
+            "<tasks>\r\n\r\n"
+            '<task type="auto">\r\n'
+            "  <name>Task 1</name>\r\n"
+            "  <beads-id>fixture-1</beads-id>\r\n"
+            "  <files>src/example.py</files>\r\n"
+            "  <action>Implement the thing.</action>\r\n"
+            "  <verify>python3 -m py_compile src/example.py</verify>\r\n"
+            "</task>\r\n\r\n"
+            "</tasks>\r\n"
+        )
+        ids = {"fixture-1"}
+        once = sync.strip_task_bodies(text, ids)
+        twice = sync.strip_task_bodies(once, ids)
         self.assertEqual(once, twice)
 
     def test_plan_level_sections_are_byte_identical(self):
@@ -7017,14 +7107,18 @@ class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        # GH#14: pointer lives inside a literal <action> element.
+        # GH#14: pointer lives inside a literal <action> element, not
+        # merely present somewhere else in the written plan.
+        self.assertIn(f"<action>{sync.TASK_POINTER_PREFIX}", written)
         self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_no_config_file_behaves_like_authoritative(self):
         exit_code, written = self._run_create_issues(None)
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        # GH#14: pointer lives inside a literal <action> element.
+        # GH#14: pointer lives inside a literal <action> element, not
+        # merely present somewhere else in the written plan.
+        self.assertIn(f"<action>{sync.TASK_POINTER_PREFIX}", written)
         self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_retired_off_value_behaves_like_authoritative(self):
@@ -7036,7 +7130,9 @@ class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
         exit_code, written = self._run_create_issues(json.dumps({"beads": {"sync_mode": "off"}}))
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        # GH#14: pointer lives inside a literal <action> element.
+        # GH#14: pointer lives inside a literal <action> element, not
+        # merely present somewhere else in the written plan.
+        self.assertIn(f"<action>{sync.TASK_POINTER_PREFIX}", written)
         self.assertNotIn("<action>Implement the thing.</action>", written)
 
 
@@ -7113,7 +7209,9 @@ class TestSyncModeAdjacencyAndEncoding(unittest.TestCase):
         exit_code, written = self._run_create_issues(sync_mode_value)
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        # GH#14: pointer lives inside a literal <action> element.
+        # GH#14: pointer lives inside a literal <action> element, not
+        # merely present somewhere else in the written plan.
+        self.assertIn(f"<action>{sync.TASK_POINTER_PREFIX}", written)
         self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_case_variant_of_mirror_strips_like_authoritative(self):
