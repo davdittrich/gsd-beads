@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.4
+
+### Fixed
+- **`lifecycle_dispatch` resolved every lifecycle point exclusively from `STATE.md`'s `current_phase`, so a caller planning or reviewing a later phase while an earlier phase remained current dispatched against the wrong phase (recall, issue creation, status reconciliation all landed on the executing phase, not the requested one).** `lifecycle_dispatch(point, phase_dir_arg=None)` and the CLI now accept an optional explicit phase directory or bare phase token (`"2"`, `"01.5"`), resolved through the same zero-padded prefix match `STATE.md`'s fallback already uses. Explicit input is confined beneath the discovered project's `.planning/phases` before any verb runs; traversal, symlink escape, a nonexistent path, or non-string input all fail open (stderr, exit 0), matching the existing `onError: skip` contract. Omitting the argument preserves the prior `STATE.md`-only behavior byte-for-byte. Automatic `PostToolUse` hook dispatch is unchanged -- `hooks/lifecycle-dispatch.sh` still carries no phase context, tracked upstream at [open-gsd/gsd-core#4030](https://github.com/open-gsd/gsd-core/issues/4030). ([GH#5](https://github.com/davdittrich/gsd-beads/issues/5))
+
 ## 0.7.3
 
 ### Fixed
