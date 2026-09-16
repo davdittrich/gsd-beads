@@ -1659,14 +1659,26 @@ def strip_task_bodies(text, stripped_ids):
         # blocks entirely, the same way checkpoint/no-type blocks already
         # are, removes the drift instead of relying on the strip+reinsert
         # cycle reaching a fixed point.
-        if TASK_POINTER_PREFIX in block:
+        # CodeRabbit: match the complete pointer for THIS issue_id, not a
+        # bare TASK_POINTER_PREFIX substring -- the prefix alone could
+        # appear in ordinary action prose, or (a copy-pasted block) name a
+        # different issue's pointer, in either case wrongly skipping a
+        # block that still needs stripping.
+        expected_pointer = f"<action>{TASK_POINTER_PREFIX}{issue_id}`.</action>"
+        legacy_pointer = f"<!-- {TASK_POINTER_PREFIX}{issue_id}` -->"
+        if expected_pointer in block or legacy_pointer in block:
             continue
         new_block = block
+        # CodeRabbit: preserve the block's own line ending -- the prior
+        # collapse regex and hardcoded "\n" pointer terminator left CRLF
+        # blank lines uncollapsed and mixed a bare "\n" into an otherwise
+        # CRLF-terminated block.
+        line_ending = "\r\n" if "\r\n" in block else "\n"
         for element_re in _STRIP_ELEMENT_RES:
             new_block = element_re.sub("", new_block)
         # Collapse the blank lines those removals leave.
-        new_block = re.sub(r"[ \t]*\n(?:[ \t]*\n)+", "\n", new_block)
-        pointer = f"  <action>{TASK_POINTER_PREFIX}{issue_id}`.</action>\n"
+        new_block = re.sub(r"[ \t]*\r?\n(?:[ \t]*\r?\n)+", line_ending, new_block)
+        pointer = f"  <action>{TASK_POINTER_PREFIX}{issue_id}`.</action>{line_ending}"
         close_idx = new_block.index("</task>")
         new_block = new_block[:close_idx] + pointer + new_block[close_idx:]
         text = text[: m.start()] + new_block + text[m.end() :]

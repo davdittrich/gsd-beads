@@ -950,6 +950,45 @@ class TestStripTaskBodies(unittest.TestCase):
         stripped_block = _task_block(stripped, 1)
         self.assertEqual(original_block, stripped_block)
 
+    def test_action_text_merely_containing_the_prefix_is_still_stripped(self):
+        """CodeRabbit: skipping on a bare TASK_POINTER_PREFIX substring
+        match (rather than the complete pointer for THIS issue_id) could
+        wrongly leave a block unstripped -- either because ordinary action
+        prose happens to contain the prefix, or because a copy-pasted
+        block's <action> pointer names a DIFFERENT issue's id. Both must
+        still be stripped and get a correct, current-issue pointer."""
+        text = """<tasks>
+
+<task type="auto">
+  <name>Task 1: Prefix-in-prose task</name>
+  <beads-id>fixture-1</beads-id>
+  <files>src/example.py</files>
+  <action>beads: content synced to bd -- see `bd show <id>` for the real usage, this is just prose.</action>
+</task>
+
+<task type="auto">
+  <name>Task 2: Wrong-issue pointer task</name>
+  <beads-id>fixture-2</beads-id>
+  <files>src/example.py</files>
+  <action>beads: content synced to bd -- see `bd show fixture-999`.</action>
+</task>
+
+</tasks>
+"""
+        stripped = sync.strip_task_bodies(text, {"fixture-1", "fixture-2"})
+        block1 = _task_block(stripped, 0)
+        block2 = _task_block(stripped, 1)
+        self.assertIn(
+            "<action>beads: content synced to bd -- see `bd show fixture-1`.</action>",
+            block1,
+        )
+        self.assertNotIn("this is just prose", block1)
+        self.assertIn(
+            "<action>beads: content synced to bd -- see `bd show fixture-2`.</action>",
+            block2,
+        )
+        self.assertNotIn("fixture-999", block2)
+
     def test_legacy_html_comment_pointer_is_left_byte_identical(self):
         """GH#14 review (agy): a block already carrying the pre-fix
         HTML-comment pointer (`<!-- beads: content synced to bd -- see
@@ -1068,8 +1107,12 @@ Compact-format fixture -- no blank line before </task> (GH#14 review).
         self.assertEqual(twice, thrice)
 
     def test_idempotent_second_pass_with_crlf_line_endings(self):
-        """GH#14 review (agy): CRLF-formatted plans must not drift across
-        repeated strip_task_bodies passes."""
+        """GH#14 review (agy + CodeRabbit): CRLF-formatted plans must not
+        drift across repeated strip_task_bodies passes, AND the first pass
+        itself must not mix a bare "\\n" pointer terminator into an
+        otherwise CRLF-terminated block (CodeRabbit: the marker-skip guard
+        made every prior CRLF assertion here check pass-2-onward only,
+        never pass 1's own output)."""
         text = (
             "<tasks>\r\n\r\n"
             '<task type="auto">\r\n'
@@ -1083,6 +1126,8 @@ Compact-format fixture -- no blank line before </task> (GH#14 review).
         )
         ids = {"fixture-1"}
         once = sync.strip_task_bodies(text, ids)
+        self.assertNotIn("\n", once.replace("\r\n", ""))
+        self.assertIn("<action>beads: content synced to bd -- see `bd show fixture-1`.</action>\r\n", once)
         twice = sync.strip_task_bodies(once, ids)
         self.assertEqual(once, twice)
 
