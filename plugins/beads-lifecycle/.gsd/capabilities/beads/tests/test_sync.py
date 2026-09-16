@@ -6429,6 +6429,40 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         recall.assert_called_once_with(str(requested_phase_dir))
 
+    def test_explicit_phase_token_resolves_like_state_prefix_match(self):
+        """A bare phase token ("8", not a directory name) resolves the same
+        way STATE.md's current_phase does: zero-padded prefix match against
+        .planning/phases/NN-*."""
+        with self._in_workspace() as state_phase_dir:
+            requested_phase_dir = state_phase_dir.parent / "08-requested"
+            requested_phase_dir.mkdir()
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
+                 mock.patch.object(sync, "check_shipmd_patch", return_value=0), \
+                 mock.patch.object(sync, "check_sync_mode_value", return_value=0):
+                for token in ("8", "08"):
+                    with self.subTest(token=token):
+                        exit_code = sync.lifecycle_dispatch("plan:pre", token)
+                        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            recall.call_args_list,
+            [mock.call(str(requested_phase_dir))] * 2,
+        )
+
+    def test_explicit_phase_dir_rejects_phases_root_itself(self):
+        with self._in_workspace() as state_phase_dir:
+            phases_root = state_phase_dir.parent
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall:
+                exit_code = sync.lifecycle_dispatch("plan:pre", str(phases_root))
+        self.assertEqual(exit_code, 0)
+        recall.assert_not_called()
+
+    def test_explicit_phase_dir_non_string_fails_open(self):
+        with self._in_workspace():
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall:
+                exit_code = sync.lifecycle_dispatch("plan:pre", 8)
+        self.assertEqual(exit_code, 0)
+        recall.assert_not_called()
+
     def test_explicit_phase_dir_rejects_escape_without_dispatch(self):
         with self._in_workspace() as state_phase_dir:
             escaped_dir = state_phase_dir.parents[2]
@@ -6506,6 +6540,12 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
         dispatch.assert_called_once_with(
             "plan:pre", "/project/.planning/phases/08-demo"
         )
+
+    def test_lifecycle_dispatch_cli_omitted_phase_dir_defaults_to_none(self):
+        with mock.patch.object(sync, "lifecycle_dispatch", return_value=0) as dispatch:
+            exit_code = sync.main(["lifecycle-dispatch", "plan:pre"])
+        self.assertEqual(exit_code, 0)
+        dispatch.assert_called_once_with("plan:pre", None)
 
     def test_plan_post_syncs_every_plan_in_the_phase(self):
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'

@@ -1189,18 +1189,31 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
         try:
             phases_root = confined(project_root, ".planning", "phases")
             supplied = Path(phase_dir_arg)
-            if not supplied.is_absolute():
-                supplied = (
-                    phases_root / supplied
-                    if len(supplied.parts) == 1
-                    else project_root / supplied
-                )
-            phase_dir = supplied.resolve()
-            if phase_dir.parent != phases_root or not phase_dir.is_dir():
-                raise ValueError(
-                    f"phase directory must be a direct child of {phases_root}"
-                )
-        except (OSError, RuntimeError, ValueError) as exc:
+            phase_dir = None
+            # A bare token ("2", "01.5") is resolved the same way STATE.md's
+            # current_phase is: zero-padded prefix match against phases_root's
+            # children. Falls through to the literal-name/path check below
+            # when nothing matches, so an exact directory name (or full path)
+            # still resolves as before.
+            if not supplied.is_absolute() and len(supplied.parts) == 1 and phases_root.is_dir():
+                padded = phase_dir_prefix(supplied.name)
+                for candidate in sorted(phases_root.iterdir()):
+                    if candidate.is_dir() and candidate.name.split("-", 1)[0] == padded:
+                        phase_dir = candidate
+                        break
+            if phase_dir is None:
+                if not supplied.is_absolute():
+                    supplied = (
+                        phases_root / supplied
+                        if len(supplied.parts) == 1
+                        else project_root / supplied
+                    )
+                phase_dir = supplied.resolve()
+                if phase_dir.parent != phases_root or not phase_dir.is_dir():
+                    raise ValueError(
+                        f"phase directory must be a direct child of {phases_root}"
+                    )
+        except (OSError, RuntimeError, ValueError, TypeError) as exc:
             print(
                 f"lifecycle-dispatch {point}: invalid explicit phase directory "
                 f"({exc}) -- skipped",
@@ -1213,11 +1226,12 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
         # in it. `hooks/lifecycle-dispatch.sh` promotes stdout to Claude's
         # context and leaves stderr in the debug log, so a benign skip stays
         # diagnosable without becoming per-call noise in the transcript.
-        print(
-            f"lifecycle-dispatch {point}: no phase directory resolved from STATE.md's "
-            "current_phase -- skipped",
-            file=sys.stderr,
+        reason = (
+            "no phase directory resolved from STATE.md's current_phase"
+            if phase_dir_arg is None
+            else f"explicit phase directory {phase_dir_arg!r} does not resolve to a directory"
         )
+        print(f"lifecycle-dispatch {point}: {reason} -- skipped", file=sys.stderr)
         return 0
 
     try:
