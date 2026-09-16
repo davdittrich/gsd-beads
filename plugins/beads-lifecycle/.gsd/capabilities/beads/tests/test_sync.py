@@ -919,12 +919,15 @@ class TestStripTaskBodies(unittest.TestCase):
             "read_first",
             "precondition",
             "behavior",
-            "action",
             "verify",
             "acceptance_criteria",
             "done",
         ):
             self.assertNotIn(f"<{tag}>", block, f"<{tag}> should have been stripped")
+        # GH#14: <action> is replaced by a pointer, not removed outright --
+        # gsd-core's structural validator requires a literal <action>.
+        self.assertIn("<action>", block)
+        self.assertNotIn("Implement the thing.", block)
 
     def test_strippable_auto_task_keeps_identity_and_routing_elements(self):
         text = _strip_test_plan_text()
@@ -952,7 +955,9 @@ class TestStripTaskBodies(unittest.TestCase):
         stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
         block = _task_block(stripped, 2)
         self.assertIn('<task type="tracer">', block)
-        self.assertNotIn("<action>", block)
+        # GH#14: <action> is replaced by a pointer, not removed outright.
+        self.assertIn("<action>", block)
+        self.assertNotIn("Wire the thin slice end to end.", block)
         self.assertNotIn("<verify>", block)
         self.assertNotIn("<done>", block)
         self.assertIn("<beads-id>fixture-3</beads-id>", block)
@@ -7012,13 +7017,15 @@ class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
+        # GH#14: pointer lives inside a literal <action> element.
+        self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_no_config_file_behaves_like_authoritative(self):
         exit_code, written = self._run_create_issues(None)
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
+        # GH#14: pointer lives inside a literal <action> element.
+        self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_retired_off_value_behaves_like_authoritative(self):
         """codex MEDIUM (17-REVIEWS.md, BINDING per 17-02-PLAN.md's
@@ -7029,7 +7036,8 @@ class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
         exit_code, written = self._run_create_issues(json.dumps({"beads": {"sync_mode": "off"}}))
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
+        # GH#14: pointer lives inside a literal <action> element.
+        self.assertNotIn("<action>Implement the thing.</action>", written)
 
 
 class TestSyncModeDeclarationParity(unittest.TestCase):
@@ -7105,7 +7113,8 @@ class TestSyncModeAdjacencyAndEncoding(unittest.TestCase):
         exit_code, written = self._run_create_issues(sync_mode_value)
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
+        # GH#14: pointer lives inside a literal <action> element.
+        self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_case_variant_of_mirror_strips_like_authoritative(self):
         self._assert_strips_like_authoritative("Mirror")

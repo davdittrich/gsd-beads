@@ -1598,12 +1598,16 @@ _STRIP_ELEMENT_RES = (
     ACCEPTANCE_CRITERIA_RE,
     DONE_RE,
 )
-# The fixed-shape pointer comment a stripped block gains, naming the beads
-# id and the retrieval command. Only the prefix (not the whole line, since
-# the id varies per task) is checked for idempotency: a second
-# strip_task_bodies pass over an already-stripped block recognizes this
-# prefix and does not stack a second pointer.
-TASK_POINTER_PREFIX = "<!-- beads: content synced to bd -- see `bd show "
+# The fixed-shape pointer a stripped block gains, naming the beads id and
+# the retrieval command. Wrapped in a literal <action> element -- not an
+# HTML comment -- so gsd-core's structural validator (which requires a
+# literal <action> in any non-checkpoint task, GH#14) still sees the task
+# as structurally complete once its content lives in bd. ACTION_RE is
+# itself in _STRIP_ELEMENT_RES, so a second strip_task_bodies pass removes
+# this pointer along with any other <action> content before the
+# not-in-new_block check below re-adds it identically -- idempotent by
+# construction, not by prefix-matching.
+TASK_POINTER_PREFIX = "beads: content synced to bd -- see `bd show "
 
 
 def strip_task_bodies(text, stripped_ids):
@@ -1611,7 +1615,9 @@ def strip_task_bodies(text, stripped_ids):
     stripped_ids into a pointer -- its opening tag, `<name>`, `<beads-id>`
     and `<files>` survive byte-identical; every content element
     (`read_first` through `done`) is removed and replaced by one
-    fixed-shape pointer comment naming the beads id. Every other task type
+    fixed-shape `<action>` pointer naming the beads id (GH#14: a literal
+    `<action>` element must remain so gsd-core's structural validator does
+    not treat the task as incomplete). Every other task type
     -- every `checkpoint:*` variant, and a block with no `type` attribute at
     all -- is left byte-identical (D-03): an unrecognized type also fails
     toward keeping content, never toward deleting it.
@@ -1649,7 +1655,7 @@ def strip_task_bodies(text, stripped_ids):
         # accumulating more blank lines than the first pass produced.
         new_block = re.sub(r"[ \t]*\n(?:[ \t]*\n)+", "\n", new_block)
         if TASK_POINTER_PREFIX not in new_block:
-            pointer = f"  {TASK_POINTER_PREFIX}{issue_id}` -->\n"
+            pointer = f"  <action>{TASK_POINTER_PREFIX}{issue_id}`.</action>\n"
             close_idx = new_block.index("</task>")
             new_block = new_block[:close_idx] + pointer + new_block[close_idx:]
         text = text[: m.start()] + new_block + text[m.end() :]
