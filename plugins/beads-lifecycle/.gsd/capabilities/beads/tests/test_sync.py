@@ -5145,7 +5145,23 @@ class TestShipPreGenericDispatch(unittest.TestCase):
         )
 
     @staticmethod
-    def _run_predicate(phase_dir, field, equals):
+    def _fake_project_dir(tmp):
+        """gsd-tools.cjs's `check predicate` validates --phase-dir stays
+        inside --project-dir (security.cjs's AbsoluteInsideRoot policy),
+        and --project-dir itself must contain a `.planning/` directory. A
+        bare tempfile.TemporaryDirectory() under system /tmp satisfies
+        neither, so it fails with 'path escapes its allowed directory'.
+        Give it a `.planning/` marker so tmp is a legitimate, fully
+        isolated project root in its own right -- no scratch data ever
+        touches the real repo, so this cannot pick up the real project's
+        ancestor .planning/.beads state (unlike GH#7's bd-workspace concern,
+        `check predicate` does no ancestor discovery of its own; it only
+        reads the exact --phase-dir it is given)."""
+        (Path(tmp) / ".planning").mkdir()
+        return tmp
+
+    @staticmethod
+    def _run_predicate(project_dir, phase_dir, field, equals):
         predicate = json.dumps(
             {
                 "kind": "artifact-frontmatter-equals",
@@ -5162,6 +5178,8 @@ class TestShipPreGenericDispatch(unittest.TestCase):
                 "predicate",
                 "--predicate",
                 predicate,
+                "--project-dir",
+                str(project_dir),
                 "--phase-dir",
                 str(phase_dir),
                 "--raw",
@@ -5177,12 +5195,13 @@ class TestShipPreGenericDispatch(unittest.TestCase):
     )
     def test_predicate_blocks_on_nonzero_blocking_open(self):
         with tempfile.TemporaryDirectory() as tmp:
+            project_dir = self._fake_project_dir(tmp)
             phase_dir = Path(tmp) / "03-enforcement"
             phase_dir.mkdir()
             (phase_dir / "03-BEADS.md").write_text(
                 self._beads_md_text(blocking_open=1), encoding="utf-8"
             )
-            result = self._run_predicate(phase_dir, "blocking_open", 0)
+            result = self._run_predicate(project_dir, phase_dir, "blocking_open", 0)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
@@ -5195,13 +5214,14 @@ class TestShipPreGenericDispatch(unittest.TestCase):
     )
     def test_predicate_passes_on_zero_blocking_open_and_diverged(self):
         with tempfile.TemporaryDirectory() as tmp:
+            project_dir = self._fake_project_dir(tmp)
             phase_dir = Path(tmp) / "03-enforcement"
             phase_dir.mkdir()
             (phase_dir / "03-BEADS.md").write_text(
                 self._beads_md_text(blocking_open=0, diverged=0), encoding="utf-8"
             )
-            result_blocking = self._run_predicate(phase_dir, "blocking_open", 0)
-            result_diverged = self._run_predicate(phase_dir, "diverged", 0)
+            result_blocking = self._run_predicate(project_dir, phase_dir, "blocking_open", 0)
+            result_diverged = self._run_predicate(project_dir, phase_dir, "diverged", 0)
 
         self.assertEqual(result_blocking.returncode, 0, result_blocking.stderr)
         self.assertEqual(result_diverged.returncode, 0, result_diverged.stderr)
@@ -5214,6 +5234,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
     )
     def test_fail_open_precheck_skips_missing_artifact_before_evaluator_would_block(self):
         with tempfile.TemporaryDirectory() as tmp:
+            project_dir = self._fake_project_dir(tmp)
             phase_dir = Path(tmp) / "03-enforcement"
             phase_dir.mkdir()
 
@@ -5230,7 +5251,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
             # (b) calling the real evaluator anyway independently confirms it
             # fails CLOSED (block: true) on the same missing artifact -- proving
             # the pre-check in (a) is load-bearing, not redundant.
-            result = self._run_predicate(phase_dir, "blocking_open", 0)
+            result = self._run_predicate(project_dir, phase_dir, "blocking_open", 0)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
