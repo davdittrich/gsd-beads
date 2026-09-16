@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.3
+
+### Fixed
+- **A `tracker-id`-bound task's stripped block had no literal `<action>` element, so gsd-core's structural plan validator (`verify.plan-structure`) rejected every synced task as incomplete even though its content was fully resolvable through `bd`.** `strip_task_bodies` now wraps the bd pointer in a literal `<action>...</action>` element instead of an HTML comment. Idempotency comes from checking the pointer marker on the block before any stripping runs and skipping an already-stripped block entirely (the same way checkpoint/no-type blocks already are), not from a strip-then-reinsert cycle happening to reach a fixed point — the earlier post-strip check was tautological and could drift on non-blank-line-terminated task blocks. ([GH#14](https://github.com/davdittrich/gsd-beads/issues/14))
+- **`TestShipPreGenericDispatch`'s live `check predicate` tests used a bare system-`/tmp` directory as `--phase-dir`, which gsd-tools.cjs's path sandbox (`--phase-dir` must resolve inside a `--project-dir` that itself has `.planning/`) correctly rejects as escaping its allowed directory.** Each temp dir now gets its own `.planning/` marker, making it a fully isolated project root in its own right, with `--project-dir` passed explicitly.
+
 ## 0.7.2
 
 ### Fixed

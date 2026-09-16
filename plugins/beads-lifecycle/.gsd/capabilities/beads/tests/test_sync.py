@@ -919,12 +919,15 @@ class TestStripTaskBodies(unittest.TestCase):
             "read_first",
             "precondition",
             "behavior",
-            "action",
             "verify",
             "acceptance_criteria",
             "done",
         ):
             self.assertNotIn(f"<{tag}>", block, f"<{tag}> should have been stripped")
+        # GH#14: <action> is replaced by a pointer, not removed outright --
+        # gsd-core's structural validator requires a literal <action>.
+        self.assertIn("<action>", block)
+        self.assertNotIn("Implement the thing.", block)
 
     def test_strippable_auto_task_keeps_identity_and_routing_elements(self):
         text = _strip_test_plan_text()
@@ -947,12 +950,81 @@ class TestStripTaskBodies(unittest.TestCase):
         stripped_block = _task_block(stripped, 1)
         self.assertEqual(original_block, stripped_block)
 
+    def test_action_text_merely_containing_the_prefix_is_still_stripped(self):
+        """CodeRabbit: skipping on a bare TASK_POINTER_PREFIX substring
+        match (rather than the complete pointer for THIS issue_id) could
+        wrongly leave a block unstripped -- either because ordinary action
+        prose happens to contain the prefix, or because a copy-pasted
+        block's <action> pointer names a DIFFERENT issue's id. Both must
+        still be stripped and get a correct, current-issue pointer."""
+        text = """<tasks>
+
+<task type="auto">
+  <name>Task 1: Prefix-in-prose task</name>
+  <beads-id>fixture-1</beads-id>
+  <files>src/example.py</files>
+  <action>beads: content synced to bd -- see `bd show <id>` for the real usage, this is just prose.</action>
+</task>
+
+<task type="auto">
+  <name>Task 2: Wrong-issue pointer task</name>
+  <beads-id>fixture-2</beads-id>
+  <files>src/example.py</files>
+  <action>beads: content synced to bd -- see `bd show fixture-999`.</action>
+</task>
+
+</tasks>
+"""
+        stripped = sync.strip_task_bodies(text, {"fixture-1", "fixture-2"})
+        block1 = _task_block(stripped, 0)
+        block2 = _task_block(stripped, 1)
+        self.assertIn(
+            "<action>beads: content synced to bd -- see `bd show fixture-1`.</action>",
+            block1,
+        )
+        self.assertNotIn("this is just prose", block1)
+        self.assertIn(
+            "<action>beads: content synced to bd -- see `bd show fixture-2`.</action>",
+            block2,
+        )
+        self.assertNotIn("fixture-999", block2)
+
+    def test_legacy_html_comment_pointer_is_left_byte_identical(self):
+        """GH#14 review (agy): a block already carrying the pre-fix
+        HTML-comment pointer (`<!-- beads: content synced to bd -- see
+        \\`bd show <id>\\` -->`, no literal <action>) is left untouched, not
+        further corrupted, if its id is ever passed to strip_task_bodies
+        again -- the new TASK_POINTER_PREFIX is a substring of the legacy
+        comment, so the pre-strip marker check treats it as already-done.
+        This is a documented pre-existing-data gap, not a regression: D-07
+        (forward-only stripped_ids) means a plan's already-bound ids are
+        never re-passed to strip_task_bodies during normal sync, so a
+        legacy-format block synced before this fix stays exactly as broken
+        (missing literal <action>) as it already was -- it is not made
+        worse, and healing it is a separate, explicitly out-of-scope
+        migration concern (GH#14 fixes newly-stripped tasks only)."""
+        text = """<tasks>
+
+<task type="auto">
+  <name>Task 1: Legacy-format task</name>
+  <beads-id>fixture-1</beads-id>
+  <files>src/example.py</files>
+  <!-- beads: content synced to bd -- see `bd show fixture-1` -->
+</task>
+
+</tasks>
+"""
+        stripped = sync.strip_task_bodies(text, {"fixture-1"})
+        self.assertEqual(text, stripped)
+
     def test_strippable_tracer_task_is_stripped_like_auto(self):
         text = _strip_test_plan_text()
         stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
         block = _task_block(stripped, 2)
         self.assertIn('<task type="tracer">', block)
-        self.assertNotIn("<action>", block)
+        # GH#14: <action> is replaced by a pointer, not removed outright.
+        self.assertIn("<action>", block)
+        self.assertNotIn("Wire the thin slice end to end.", block)
         self.assertNotIn("<verify>", block)
         self.assertNotIn("<done>", block)
         self.assertIn("<beads-id>fixture-3</beads-id>", block)
@@ -978,17 +1050,85 @@ class TestStripTaskBodies(unittest.TestCase):
         stripped_block = _task_block(stripped, 5)
         self.assertEqual(original_block, stripped_block)
 
-    def test_stripped_block_gains_exactly_one_pointer_comment(self):
+    def test_stripped_block_gains_exactly_one_action_pointer(self):
         text = _strip_test_plan_text()
         stripped = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
         block = _task_block(stripped, 0)
         self.assertEqual(block.count(sync.TASK_POINTER_PREFIX), 1)
-        self.assertIn("`bd show fixture-1`", block)
+        self.assertEqual(block.count("<action>"), 1)
+        # GH#14 review: the pointer must be the literal <action> element's
+        # content, not merely present somewhere else in the block.
+        self.assertIn(
+            f"<action>{sync.TASK_POINTER_PREFIX}fixture-1`.</action>", block
+        )
 
     def test_idempotent_second_pass_is_byte_identical_to_first(self):
         text = _strip_test_plan_text()
         once = sync.strip_task_bodies(text, _STRIP_TEST_STRIPPED_IDS)
         twice = sync.strip_task_bodies(once, _STRIP_TEST_STRIPPED_IDS)
+        thrice = sync.strip_task_bodies(twice, _STRIP_TEST_STRIPPED_IDS)
+        self.assertEqual(once, twice)
+        self.assertEqual(twice, thrice)
+
+    def test_idempotent_second_pass_with_no_blank_line_before_close_tag(self):
+        """GH#14 review (agy): a block whose stripped elements leave no
+        blank line before </task> must not accumulate whitespace drift
+        across repeated strip_task_bodies passes."""
+        text = """---
+phase: 01-substrate
+plan: 01
+type: execute
+wave: 1
+depends_on: []
+files_modified:
+  - src/example.py
+autonomous: true
+requirements: [B1]
+---
+
+<objective>
+Compact-format fixture -- no blank line before </task> (GH#14 review).
+</objective>
+
+<tasks>
+
+<task type="auto">
+  <name>Task 1: Compact task</name>
+  <beads-id>fixture-1</beads-id>
+  <files>src/example.py</files><action>Implement the thing.</action></task>
+
+</tasks>
+"""
+        ids = {"fixture-1"}
+        once = sync.strip_task_bodies(text, ids)
+        twice = sync.strip_task_bodies(once, ids)
+        thrice = sync.strip_task_bodies(twice, ids)
+        self.assertEqual(once, twice)
+        self.assertEqual(twice, thrice)
+
+    def test_idempotent_second_pass_with_crlf_line_endings(self):
+        """GH#14 review (agy + CodeRabbit): CRLF-formatted plans must not
+        drift across repeated strip_task_bodies passes, AND the first pass
+        itself must not mix a bare "\\n" pointer terminator into an
+        otherwise CRLF-terminated block (CodeRabbit: the marker-skip guard
+        made every prior CRLF assertion here check pass-2-onward only,
+        never pass 1's own output)."""
+        text = (
+            "<tasks>\r\n\r\n"
+            '<task type="auto">\r\n'
+            "  <name>Task 1</name>\r\n"
+            "  <beads-id>fixture-1</beads-id>\r\n"
+            "  <files>src/example.py</files>\r\n"
+            "  <action>Implement the thing.</action>\r\n"
+            "  <verify>python3 -m py_compile src/example.py</verify>\r\n"
+            "</task>\r\n\r\n"
+            "</tasks>\r\n"
+        )
+        ids = {"fixture-1"}
+        once = sync.strip_task_bodies(text, ids)
+        self.assertNotIn("\n", once.replace("\r\n", ""))
+        self.assertIn("<action>beads: content synced to bd -- see `bd show fixture-1`.</action>\r\n", once)
+        twice = sync.strip_task_bodies(once, ids)
         self.assertEqual(once, twice)
 
     def test_plan_level_sections_are_byte_identical(self):
@@ -1280,7 +1420,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.7.2")
+        self.assertEqual(manifest["version"], "0.7.3")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -1314,13 +1454,13 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         ]
         prose = " ".join(readme.split())
         expected_versions = {
-            "plugin": (plugin["version"], "1.6.2"),
-            "capability": (self._manifest()["version"], "0.7.2"),
-            "registry": (registry["entries"]["beads"]["version"], "0.7.2"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.2"),
+            "plugin": (plugin["version"], "1.6.3"),
+            "capability": (self._manifest()["version"], "0.7.3"),
+            "registry": (registry["entries"]["beads"]["version"], "0.7.3"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.3"),
             "README Codex pin": (
                 codex_pin,
-                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.2"],
+                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.3"],
             ),
         }
         for surface, (actual, expected) in expected_versions.items():
@@ -5050,7 +5190,23 @@ class TestShipPreGenericDispatch(unittest.TestCase):
         )
 
     @staticmethod
-    def _run_predicate(phase_dir, field, equals):
+    def _fake_project_dir(tmp):
+        """gsd-tools.cjs's `check predicate` validates --phase-dir stays
+        inside --project-dir (security.cjs's AbsoluteInsideRoot policy),
+        and --project-dir itself must contain a `.planning/` directory. A
+        bare tempfile.TemporaryDirectory() under system /tmp satisfies
+        neither, so it fails with 'path escapes its allowed directory'.
+        Give it a `.planning/` marker so tmp is a legitimate, fully
+        isolated project root in its own right -- no scratch data ever
+        touches the real repo, so this cannot pick up the real project's
+        ancestor .planning/.beads state (unlike GH#7's bd-workspace concern,
+        `check predicate` does no ancestor discovery of its own; it only
+        reads the exact --phase-dir it is given)."""
+        (Path(tmp) / ".planning").mkdir()
+        return tmp
+
+    @staticmethod
+    def _run_predicate(project_dir, phase_dir, field, equals):
         predicate = json.dumps(
             {
                 "kind": "artifact-frontmatter-equals",
@@ -5067,6 +5223,8 @@ class TestShipPreGenericDispatch(unittest.TestCase):
                 "predicate",
                 "--predicate",
                 predicate,
+                "--project-dir",
+                str(project_dir),
                 "--phase-dir",
                 str(phase_dir),
                 "--raw",
@@ -5082,12 +5240,13 @@ class TestShipPreGenericDispatch(unittest.TestCase):
     )
     def test_predicate_blocks_on_nonzero_blocking_open(self):
         with tempfile.TemporaryDirectory() as tmp:
+            project_dir = self._fake_project_dir(tmp)
             phase_dir = Path(tmp) / "03-enforcement"
             phase_dir.mkdir()
             (phase_dir / "03-BEADS.md").write_text(
                 self._beads_md_text(blocking_open=1), encoding="utf-8"
             )
-            result = self._run_predicate(phase_dir, "blocking_open", 0)
+            result = self._run_predicate(project_dir, phase_dir, "blocking_open", 0)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
@@ -5100,13 +5259,14 @@ class TestShipPreGenericDispatch(unittest.TestCase):
     )
     def test_predicate_passes_on_zero_blocking_open_and_diverged(self):
         with tempfile.TemporaryDirectory() as tmp:
+            project_dir = self._fake_project_dir(tmp)
             phase_dir = Path(tmp) / "03-enforcement"
             phase_dir.mkdir()
             (phase_dir / "03-BEADS.md").write_text(
                 self._beads_md_text(blocking_open=0, diverged=0), encoding="utf-8"
             )
-            result_blocking = self._run_predicate(phase_dir, "blocking_open", 0)
-            result_diverged = self._run_predicate(phase_dir, "diverged", 0)
+            result_blocking = self._run_predicate(project_dir, phase_dir, "blocking_open", 0)
+            result_diverged = self._run_predicate(project_dir, phase_dir, "diverged", 0)
 
         self.assertEqual(result_blocking.returncode, 0, result_blocking.stderr)
         self.assertEqual(result_diverged.returncode, 0, result_diverged.stderr)
@@ -5119,6 +5279,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
     )
     def test_fail_open_precheck_skips_missing_artifact_before_evaluator_would_block(self):
         with tempfile.TemporaryDirectory() as tmp:
+            project_dir = self._fake_project_dir(tmp)
             phase_dir = Path(tmp) / "03-enforcement"
             phase_dir.mkdir()
 
@@ -5135,7 +5296,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
             # (b) calling the real evaluator anyway independently confirms it
             # fails CLOSED (block: true) on the same missing artifact -- proving
             # the pre-check in (a) is load-bearing, not redundant.
-            result = self._run_predicate(phase_dir, "blocking_open", 0)
+            result = self._run_predicate(project_dir, phase_dir, "blocking_open", 0)
 
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
@@ -7012,13 +7173,19 @@ class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
         )
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
+        # GH#14: pointer lives inside a literal <action> element, not
+        # merely present somewhere else in the written plan.
+        self.assertIn(f"<action>{sync.TASK_POINTER_PREFIX}", written)
+        self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_no_config_file_behaves_like_authoritative(self):
         exit_code, written = self._run_create_issues(None)
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
+        # GH#14: pointer lives inside a literal <action> element, not
+        # merely present somewhere else in the written plan.
+        self.assertIn(f"<action>{sync.TASK_POINTER_PREFIX}", written)
+        self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_retired_off_value_behaves_like_authoritative(self):
         """codex MEDIUM (17-REVIEWS.md, BINDING per 17-02-PLAN.md's
@@ -7029,7 +7196,10 @@ class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
         exit_code, written = self._run_create_issues(json.dumps({"beads": {"sync_mode": "off"}}))
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
+        # GH#14: pointer lives inside a literal <action> element, not
+        # merely present somewhere else in the written plan.
+        self.assertIn(f"<action>{sync.TASK_POINTER_PREFIX}", written)
+        self.assertNotIn("<action>Implement the thing.</action>", written)
 
 
 class TestSyncModeDeclarationParity(unittest.TestCase):
@@ -7105,7 +7275,10 @@ class TestSyncModeAdjacencyAndEncoding(unittest.TestCase):
         exit_code, written = self._run_create_issues(sync_mode_value)
         self.assertEqual(exit_code, 0)
         self.assertIn(sync.TASK_POINTER_PREFIX, written)
-        self.assertNotIn("<action>", written)
+        # GH#14: pointer lives inside a literal <action> element, not
+        # merely present somewhere else in the written plan.
+        self.assertIn(f"<action>{sync.TASK_POINTER_PREFIX}", written)
+        self.assertNotIn("<action>Implement the thing.</action>", written)
 
     def test_case_variant_of_mirror_strips_like_authoritative(self):
         self._assert_strips_like_authoritative("Mirror")

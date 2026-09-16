@@ -1598,12 +1598,16 @@ _STRIP_ELEMENT_RES = (
     ACCEPTANCE_CRITERIA_RE,
     DONE_RE,
 )
-# The fixed-shape pointer comment a stripped block gains, naming the beads
-# id and the retrieval command. Only the prefix (not the whole line, since
-# the id varies per task) is checked for idempotency: a second
-# strip_task_bodies pass over an already-stripped block recognizes this
-# prefix and does not stack a second pointer.
-TASK_POINTER_PREFIX = "<!-- beads: content synced to bd -- see `bd show "
+# The fixed-shape pointer a stripped block gains, naming the beads id and
+# the retrieval command. Wrapped in a literal <action> element -- not an
+# HTML comment -- so gsd-core's structural validator (which requires a
+# literal <action> in any non-checkpoint task, GH#14) still sees the task
+# as structurally complete once its content lives in bd. Checked against
+# the block BEFORE any stripping runs (never after): idempotency comes
+# from strip_task_bodies skipping an already-stripped block entirely, the
+# same as it already does for checkpoint/no-type blocks -- not from the
+# strip-then-reinsert cycle happening to reach a fixed point.
+TASK_POINTER_PREFIX = "beads: content synced to bd -- see `bd show "
 
 
 def strip_task_bodies(text, stripped_ids):
@@ -1611,7 +1615,9 @@ def strip_task_bodies(text, stripped_ids):
     stripped_ids into a pointer -- its opening tag, `<name>`, `<beads-id>`
     and `<files>` survive byte-identical; every content element
     (`read_first` through `done`) is removed and replaced by one
-    fixed-shape pointer comment naming the beads id. Every other task type
+    fixed-shape `<action>` pointer naming the beads id (GH#14: a literal
+    `<action>` element must remain so gsd-core's structural validator does
+    not treat the task as incomplete). Every other task type
     -- every `checkpoint:*` variant, and a block with no `type` attribute at
     all -- is left byte-identical (D-03): an unrecognized type also fails
     toward keeping content, never toward deleting it.
@@ -1641,17 +1647,40 @@ def strip_task_bodies(text, stripped_ids):
         issue_id = id_m.group(1).strip() if id_m else None
         if not issue_id or issue_id not in stripped_ids:
             continue
+        # GH#14 review: the marker must be checked on the UNMODIFIED block,
+        # before any stripping runs. Checking it post-strip is tautological
+        # (ACTION_RE, itself in _STRIP_ELEMENT_RES, already deleted any prior
+        # pointer by the time the check runs, so it can never see one) and
+        # made every pass re-strip-then-reinsert unconditionally -- for a
+        # block with no blank line before `</task>` that reinsertion is not
+        # byte-identical across passes (the collapse regex only fires on 2+
+        # blank lines, so a single stray line the removal left behind
+        # accumulates instead of collapsing). Skipping already-stripped
+        # blocks entirely, the same way checkpoint/no-type blocks already
+        # are, removes the drift instead of relying on the strip+reinsert
+        # cycle reaching a fixed point.
+        # CodeRabbit: match the complete pointer for THIS issue_id, not a
+        # bare TASK_POINTER_PREFIX substring -- the prefix alone could
+        # appear in ordinary action prose, or (a copy-pasted block) name a
+        # different issue's pointer, in either case wrongly skipping a
+        # block that still needs stripping.
+        expected_pointer = f"<action>{TASK_POINTER_PREFIX}{issue_id}`.</action>"
+        legacy_pointer = f"<!-- {TASK_POINTER_PREFIX}{issue_id}` -->"
+        if expected_pointer in block or legacy_pointer in block:
+            continue
         new_block = block
+        # CodeRabbit: preserve the block's own line ending -- the prior
+        # collapse regex and hardcoded "\n" pointer terminator left CRLF
+        # blank lines uncollapsed and mixed a bare "\n" into an otherwise
+        # CRLF-terminated block.
+        line_ending = "\r\n" if "\r\n" in block else "\n"
         for element_re in _STRIP_ELEMENT_RES:
             new_block = element_re.sub("", new_block)
-        # Collapse the blank lines those removals leave -- idempotency
-        # depends on a second pass over already-stripped text not
-        # accumulating more blank lines than the first pass produced.
-        new_block = re.sub(r"[ \t]*\n(?:[ \t]*\n)+", "\n", new_block)
-        if TASK_POINTER_PREFIX not in new_block:
-            pointer = f"  {TASK_POINTER_PREFIX}{issue_id}` -->\n"
-            close_idx = new_block.index("</task>")
-            new_block = new_block[:close_idx] + pointer + new_block[close_idx:]
+        # Collapse the blank lines those removals leave.
+        new_block = re.sub(r"[ \t]*\r?\n(?:[ \t]*\r?\n)+", line_ending, new_block)
+        pointer = f"  <action>{TASK_POINTER_PREFIX}{issue_id}`.</action>{line_ending}"
+        close_idx = new_block.index("</task>")
+        new_block = new_block[:close_idx] + pointer + new_block[close_idx:]
         text = text[: m.start()] + new_block + text[m.end() :]
     return text
 
