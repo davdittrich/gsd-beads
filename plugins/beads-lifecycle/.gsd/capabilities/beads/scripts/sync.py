@@ -9,6 +9,7 @@ PLAN.md text is authored by a different principal than the process running
 T-01-01).
 """
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -318,9 +319,13 @@ def append_state_blocker(state_path, message):
     (D-08). `message` is folded onto one line first (gh-17 F-05): a message
     built from plan text -- e.g. a task `<name>` -- carries no authored
     newlines a reader would trust, so one must never let it inject its own
-    bullet or markdown heading into STATE.md. A message already present
-    verbatim is not re-appended (gh-17 F-04): the same parse failure is
-    reachable through more than one read path in one lifecycle dispatch."""
+    bullet or markdown heading into STATE.md. Deduped on (date, message),
+    not message alone (gh-17 F-04 / review finding): the same parse failure
+    is reachable through more than one read path in one lifecycle dispatch
+    and must not double the bullet that day, but a failure that is still
+    happening a day later must still get its own dated bullet -- deduping
+    on message alone would silence a genuinely recurring failure forever
+    after its first day."""
     state_path = Path(state_path)
     if not state_path.exists():
         return
@@ -330,13 +335,13 @@ def append_state_blocker(state_path, message):
     if idx == -1:
         return
     message = " ".join(message.split())
-    if message in text:
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    bullet = f"\n\n- {date}: {message}"
+    if bullet in text:
         return
     line_end = text.find("\n", idx)
     if line_end == -1:
         line_end = len(text)
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    bullet = f"\n\n- {date}: {message}"
     state_path.write_text(text[:line_end] + bullet + text[line_end:], encoding="utf-8")
 
 
@@ -1807,12 +1812,9 @@ def _resolve_completed_task_ids(phase_dir):
     raises -- that invariant is unrelated to gh-17 and is left unchanged."""
     completed_ids = set()
     for plan_id, plan_path in discover_plan_files(phase_dir).items():
-        try:
+        with _degrade_on_parse_error(phase_dir, plan_path):
             ids, _skipped = find_completed_task_ids(phase_dir, plan_id)
-        except PlanParseError as exc:
-            _note_plan_parse_error(phase_dir, plan_path, exc)
-            continue
-        completed_ids.update(ids)
+            completed_ids.update(ids)
     return completed_ids
 
 
@@ -2165,6 +2167,16 @@ def _milestone_authority_error(project_root):
     return None
 
 
+def _fail_preflight(project_root, message):
+    """Print `message` to stderr, note it in `.planning/STATE.md` (gh-17: a
+    preflight failure here otherwise degrades this onError:skip dispatch
+    point invisibly), and return the exit code both create_issues preflight
+    failure branches share."""
+    print(message, file=sys.stderr)
+    append_state_blocker(confined(project_root, ".planning", "STATE.md"), message)
+    return 1
+
+
 def create_issues(plan_arg, allow_strip=True):
     """`allow_strip=False` keeps every `<task>` body in PLAN.md (gh-2).
     `strip_task_bodies` is a deliberate,
@@ -2197,13 +2209,9 @@ def create_issues(plan_arg, allow_strip=True):
     try:
         text, frontmatter, tasks = parse_plan(plan_path)
     except (OSError, UnicodeDecodeError, PlanParseError) as exc:
-        message = f"native tracker identity preflight failed: {exc}"
-        print(message, file=sys.stderr)
-        # gh-17: a PlanParseError here degrades this onError:skip dispatch
-        # point invisibly -- note it in STATE.md so a stale-parse regression
-        # surfaces in hours, not the 9 days it took upstream.
-        append_state_blocker(confined(project_root, ".planning", "STATE.md"), message)
-        return 1
+        return _fail_preflight(
+            project_root, f"native tracker identity preflight failed: {exc}"
+        )
     objective_m = OBJECTIVE_RE.search(text)
     objective = objective_m.group(1).strip() if objective_m else ""
 
@@ -2287,16 +2295,11 @@ def create_issues(plan_arg, allow_strip=True):
             continue
         authority_error = _plan_authority_error(sibling_path)
         if authority_error:
-            message = (
+            return _fail_preflight(
+                project_root,
                 f"cross-plan task authority preflight failed in "
-                f"{sibling_path.name}: {authority_error}"
+                f"{sibling_path.name}: {authority_error}",
             )
-            print(message, file=sys.stderr)
-            # gh-17: this preflight parses every sibling plan in the phase --
-            # one bad plan fails create-issues for all of them silently
-            # (onError:skip); note it so it doesn't go 9 days unnoticed.
-            append_state_blocker(confined(project_root, ".planning", "STATE.md"), message)
-            return 1
 
     if stored_epic_id is None and read_epic_per(project_root) == "milestone":
         authority_error = _milestone_authority_error(project_root)
@@ -2722,18 +2725,13 @@ def resolve_phase_epic(phase_dir):
     the same epic, so the first match is sufficient)."""
     for plan_path in discover_plan_files(phase_dir).values():
         try:
-            _, frontmatter, _ = parse_plan(plan_path)
+            with _degrade_on_parse_error(phase_dir, plan_path):
+                _, frontmatter, _ = parse_plan(plan_path)
+                m = BEADS_EPIC_RE.search(frontmatter)
+                if m:
+                    return m.group(1)
         except (OSError, UnicodeDecodeError):
             continue
-        except PlanParseError as exc:
-            # gh-17: same degrade-not-crash fix as _resolve_task_ordinal_map
-            # -- this used to crash regenerate_beads_md before it ever
-            # reached the ordinal-map loop.
-            _note_plan_parse_error(phase_dir, plan_path, exc)
-            continue
-        m = BEADS_EPIC_RE.search(frontmatter)
-        if m:
-            return m.group(1)
     return None
 
 
@@ -2749,19 +2747,13 @@ def _resolve_task_ordinal_map(phase_dir):
     mapping = {}
     for ordinal, plan_path in discover_plan_files(phase_dir).items():
         try:
-            _, _, tasks = parse_plan(plan_path)
+            with _degrade_on_parse_error(phase_dir, plan_path):
+                _, _, tasks = parse_plan(plan_path)
+                for task in tasks:
+                    if task["beads_id"]:
+                        mapping[task["beads_id"]] = ordinal
         except (OSError, UnicodeDecodeError):
             continue
-        except PlanParseError as exc:
-            # gh-17: an uncaught PlanParseError here used to crash
-            # regenerate_beads_md outright (execute:wave:pre/post,
-            # verify:post) -- degrade like the other two exceptions above
-            # and leave a trace instead of dying silently under onError:skip.
-            _note_plan_parse_error(phase_dir, plan_path, exc)
-            continue
-        for task in tasks:
-            if task["beads_id"]:
-                mapping[task["beads_id"]] = ordinal
     return mapping
 
 
@@ -2770,15 +2762,29 @@ def _note_plan_parse_error(phase_dir, plan_path, exc):
     (gh-17) -- swallows both a failed project_root resolution and a failed
     STATE.md write (gh-17 F-04): this runs inside an already-degrading read
     path (regenerate_beads_md/render_wave_status_block/resolve_phase_epic)
-    that must never itself raise."""
+    that must never itself raise. A failure here still prints to stderr --
+    review finding: this is already the fallback for a lost signal, and a
+    second, totally silent failure on top of it would leave zero trace
+    anywhere the plan actually failed to parse."""
+    message = f"plan parse failed in {plan_path.name}: {exc}"
     try:
         project_root = find_project_root(phase_dir)
-        append_state_blocker(
-            confined(project_root, ".planning", "STATE.md"),
-            f"plan parse failed in {plan_path.name}: {exc}",
-        )
-    except (ValueError, OSError):
-        return
+        append_state_blocker(confined(project_root, ".planning", "STATE.md"), message)
+    except (ValueError, OSError) as write_exc:
+        print(f"{message} (STATE.md note failed: {write_exc})", file=sys.stderr)
+
+
+@contextlib.contextmanager
+def _degrade_on_parse_error(phase_dir, plan_path):
+    """Suppress a PlanParseError for one plan, noting it via
+    `_note_plan_parse_error` (gh-17) -- the shared body every per-plan
+    PlanParseError degrade site below used to duplicate inline. Any other
+    exception (OSError, UnicodeDecodeError) is left to the caller's own
+    surrounding handling, unchanged."""
+    try:
+        yield
+    except PlanParseError as exc:
+        _note_plan_parse_error(phase_dir, plan_path, exc)
 
 
 def _render_beads_md_table(rows, ordinal_map, task_status_by_id):
@@ -3041,17 +3047,13 @@ def render_wave_status_block(phase_dir_arg, plan_ids):
         if plan_path is None:
             continue
         try:
-            _, _, tasks = parse_plan(plan_path)
+            with _degrade_on_parse_error(phase_dir, plan_path):
+                _, _, tasks = parse_plan(plan_path)
+                for task in tasks:
+                    if task["beads_id"]:
+                        wanted_ids.append(task["beads_id"])
         except (OSError, UnicodeDecodeError):
             continue
-        except PlanParseError as exc:
-            # gh-17: same degrade-not-crash fix as _resolve_task_ordinal_map
-            # -- this used to crash execute:wave:pre's <beads_status> block.
-            _note_plan_parse_error(phase_dir, plan_path, exc)
-            continue
-        for task in tasks:
-            if task["beads_id"]:
-                wanted_ids.append(task["beads_id"])
 
     matched = []
     if wanted_ids and beads_md_path.exists():

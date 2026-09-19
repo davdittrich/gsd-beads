@@ -5143,6 +5143,29 @@ class TestWaveStatusBlock(unittest.TestCase):
         self.assertIn("no synced issues for this wave", captured.getvalue())
 
 
+def _write_regen_workspace_with_malformed_sibling(tmp, mock_run, has_summary):
+    """Shared setup for TestPlanParseErrorDegradesInsteadOfCrashing: one
+    well-formed completed plan (01-07) plus one malformed sibling (01-08, a
+    real <task> missing its closing tag) whose own completion status is
+    controlled by `has_summary` -- distinguishes the resolve_phase_epic/
+    _resolve_task_ordinal_map path (has_summary=False) from the
+    find_completed_task_ids path (has_summary=True). Returns
+    (phase_dir, state_path)."""
+    rows = json.dumps(
+        [{"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []}]
+    )
+    mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+    malformed_text = _regen_two_task_plan_text().replace(
+        "plan: 07", "plan: 08", 1
+    ).replace("</task>", "", 1)
+    phase_dir = _write_wave_workspace(
+        Path(tmp),
+        [("01-07", _regen_two_task_plan_text(), True), ("01-08", malformed_text, has_summary)],
+        with_state=True,
+    )
+    return phase_dir, phase_dir.parent.parent / "STATE.md"
+
+
 class TestPlanParseErrorDegradesInsteadOfCrashing(unittest.TestCase):
     """gh-17 fold-in: before this fix, a PlanParseError from any one plan
     in the phase dir crashed regenerate_beads_md/render_wave_status_block
@@ -5156,20 +5179,10 @@ class TestPlanParseErrorDegradesInsteadOfCrashing(unittest.TestCase):
     def test_regenerate_beads_md_excludes_malformed_sibling_and_notes_state(
         self, mock_run
     ):
-        rows = json.dumps(
-            [{"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []}]
-        )
-        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
-        malformed_text = _regen_two_task_plan_text().replace(
-            "plan: 07", "plan: 08", 1
-        ).replace("</task>", "", 1)
         with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_wave_workspace(
-                Path(tmp),
-                [("01-07", _regen_two_task_plan_text(), True), ("01-08", malformed_text, False)],
-                with_state=True,
+            phase_dir, state_path = _write_regen_workspace_with_malformed_sibling(
+                tmp, mock_run, has_summary=False
             )
-            state_path = phase_dir.parent.parent / "STATE.md"
 
             exit_code = sync.regenerate_beads_md(str(phase_dir))
             state_text = state_path.read_text(encoding="utf-8")
@@ -5189,20 +5202,10 @@ class TestPlanParseErrorDegradesInsteadOfCrashing(unittest.TestCase):
     def test_render_wave_status_block_excludes_malformed_sibling_and_notes_state(
         self, mock_run
     ):
-        rows = json.dumps(
-            [{"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []}]
-        )
-        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
-        malformed_text = _regen_two_task_plan_text().replace(
-            "plan: 07", "plan: 08", 1
-        ).replace("</task>", "", 1)
         with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_wave_workspace(
-                Path(tmp),
-                [("01-07", _regen_two_task_plan_text(), True), ("01-08", malformed_text, False)],
-                with_state=True,
+            phase_dir, state_path = _write_regen_workspace_with_malformed_sibling(
+                tmp, mock_run, has_summary=False
             )
-            state_path = phase_dir.parent.parent / "STATE.md"
 
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
@@ -5222,20 +5225,10 @@ class TestPlanParseErrorDegradesInsteadOfCrashing(unittest.TestCase):
         PlanParseError raised there was made catchable per plan, distinct
         from the resolve_phase_epic/_resolve_task_ordinal_map paths the
         other test in this class exercises via has_summary=False."""
-        rows = json.dumps(
-            [{"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []}]
-        )
-        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
-        malformed_text = _regen_two_task_plan_text().replace(
-            "plan: 07", "plan: 08", 1
-        ).replace("</task>", "", 1)
         with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_wave_workspace(
-                Path(tmp),
-                [("01-07", _regen_two_task_plan_text(), True), ("01-08", malformed_text, True)],
-                with_state=True,
+            phase_dir, state_path = _write_regen_workspace_with_malformed_sibling(
+                tmp, mock_run, has_summary=True
             )
-            state_path = phase_dir.parent.parent / "STATE.md"
 
             exit_code = sync.regenerate_beads_md(str(phase_dir))
             state_text = state_path.read_text(encoding="utf-8")
