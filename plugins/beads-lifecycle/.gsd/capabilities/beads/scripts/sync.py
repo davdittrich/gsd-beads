@@ -467,19 +467,15 @@ def parse_beads_epic(frontmatter):
     return epic_id
 
 
-def _blank_keep_newlines(match):
-    """`re.sub` replacement wrapping `_blank` for a match object -- line
-    numbers and match offsets in the masked copy stay valid against the
-    real text (gh-17) since both preserve every `\\r`/`\\n` byte."""
-    return _blank(match.group(0))
-
-
 def _mask_code_spans(text):
     """Blank fenced code blocks and inline code spans to same-length
     whitespace (gh-17) -- a `<task>` mentioned in prose must not count as a
     real opener. Length-preserving so every match offset taken against the
     masked copy is also a valid offset into the real `text`."""
-    return INLINE_CODE_RE.sub(_blank_keep_newlines, _mask_fenced_code_blocks(text))
+    # Standards review: Middle Man -- inlined, single call site; line
+    # numbers and match offsets in the masked copy stay valid against the
+    # real text (gh-17) since `_blank` preserves every `\r`/`\n` byte.
+    return INLINE_CODE_RE.sub(lambda m: _blank(m.group(0)), _mask_fenced_code_blocks(text))
 
 
 def parse_plan(path):
@@ -2235,7 +2231,7 @@ def _milestone_authority_error(project_root):
     return None
 
 
-def _task_preflight_fail(task, reason):
+def _fail_task_preflight(task, reason):
     """Print + return 1 for a native tracker identity preflight failure on
     one task (ponytail: 8 near-identical print/return-1 blocks in
     create_issues's per-task validation loop collapsed to one call). No
@@ -2309,29 +2305,29 @@ def create_issues(plan_arg, allow_strip=True):
 
     for task in tasks:
         if not task["attributes_valid"] or task["type_attribute_count"] > 1:
-            return _task_preflight_fail(task, "task opening attributes are malformed or duplicated")
+            return _fail_task_preflight(task, "task opening attributes are malformed or duplicated")
         if len(task["beads_ids"]) > 1:
-            return _task_preflight_fail(task, "duplicate beads-id elements")
+            return _fail_task_preflight(task, "duplicate beads-id elements")
         if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
-            return _task_preflight_fail(task, f"unsafe beads-id {task['beads_id']!r}")
+            return _fail_task_preflight(task, f"unsafe beads-id {task['beads_id']!r}")
         if task["type"] not in ("auto", "tracer"):
             continue
         if not task["native_identity_readable"]:
-            return _task_preflight_fail(task, "task opening is not readable by the native parser")
+            return _fail_task_preflight(task, "task opening is not readable by the native parser")
         tracker_ids = task["tracker_ids"]
         if len(task["tracker_id_candidates"]) != len(tracker_ids) or any(
             tracker_id != tracker_id.strip() for tracker_id in tracker_ids
         ):
-            return _task_preflight_fail(task, "tracker-id attribute is not exact")
+            return _fail_task_preflight(task, "tracker-id attribute is not exact")
         if len(tracker_ids) > 1:
-            return _task_preflight_fail(task, "duplicate tracker-id attributes")
+            return _fail_task_preflight(task, "duplicate tracker-id attributes")
         if not tracker_ids:
             continue
         if not task["beads_id"]:
-            return _task_preflight_fail(task, "tracker-id has no authoritative beads-id")
+            return _fail_task_preflight(task, "tracker-id has no authoritative beads-id")
         expected = f"beads:{task['beads_id']}"
         if tracker_ids[0] != expected:
-            return _task_preflight_fail(task, f"expected {expected!r}, found {tracker_ids[0]!r}")
+            return _fail_task_preflight(task, f"expected {expected!r}, found {tracker_ids[0]!r}")
 
     for sibling_path in discover_plan_files(plan_path.parent).values():
         if sibling_path.resolve() == plan_path:
