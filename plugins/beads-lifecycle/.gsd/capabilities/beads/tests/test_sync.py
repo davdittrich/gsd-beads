@@ -1389,6 +1389,37 @@ class TestParsePlanCodeSpanMasking(unittest.TestCase):
             with self.assertRaises(sync.PlanParseError):
                 sync.parse_plan(plan_copy)
 
+    def test_unterminated_fence_does_not_silently_swallow_a_trailing_real_task(self):
+        """/code-review Spec finding: masking an unterminated fence to end
+        of document (CommonMark's own rule) blanked every real <task> after
+        a typo'd/missing closing fence, with raw_open_starts and
+        closed_open_starts both landing on the same empty set -- no
+        PlanParseError ever fired, so parse_plan silently returned zero
+        tasks. That is strictly worse than gh-17's original bug: silent
+        task loss instead of a loud, fixable crash. An unterminated fence
+        must not be masked at all."""
+        plan_text = (
+            "---\ntitle: test\n---\n\n"
+            "<objective>test</objective>\n\n"
+            "<tasks>\n\n"
+            "```\n"
+            "unterminated fence, no closing backticks anywhere\n\n"
+            '<task type="auto">\n'
+            "  <name>Real Task</name>\n"
+            "  <files>a.py</files>\n"
+            "  <read_first>a.py</read_first>\n"
+            "  <action>Implement it.</action>\n"
+            "  <verify>true</verify>\n"
+            "  <done>done</done>\n"
+            "</task>\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Real Task")
+
     def test_stray_backticks_in_different_paragraphs_do_not_pair_into_one_span(self):
         """Spec review: a code span cannot cross a blank line (CommonMark
         6.1 -- a blank line ends the paragraph). Without that boundary, an

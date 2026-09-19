@@ -71,8 +71,19 @@ def _mask_fenced_code_blocks(text):
     the next line whose only content is a run of the same character at
     least as long -- a nested outer fence (e.g. 4 backticks wrapping a
     3-backtick example) must mask the whole span, including the inner
-    example, not stop at the inner fence. An unterminated fence masks to
-    end of text, matching CommonMark's own unterminated-fence rule."""
+    example, not stop at the inner fence.
+
+    Review finding: CommonMark's own unterminated-fence rule (mask to end
+    of text) was the wrong choice here -- a plan with a typo'd/missing
+    closing fence would silently blank every real <task> after it, with
+    raw_open_starts and closed_open_starts both landing on the same empty
+    set, so no PlanParseError ever fires. That is the exact "lifecycle
+    appears to run and tracks nothing" failure class gh-17 exists to
+    prevent, just made silent instead of loud. An unterminated fence is
+    therefore NOT masked at all -- treated as ordinary text, so a stray
+    <task> literal it happens to contain is exposed and raises loudly,
+    rather than a real trailing task being swallowed silently.
+    """
     lines = text.splitlines(keepends=True)
     out = []
     i = 0
@@ -91,7 +102,11 @@ def _mask_fenced_code_blocks(text):
         end = i + 1
         while end < len(lines) and close_re.match(lines[end].rstrip("\r\n")) is None:
             end += 1
-        end = min(end + 1, len(lines))  # include the closing fence line, or run to EOF
+        if end >= len(lines):
+            out.append(lines[i])
+            i += 1
+            continue
+        end += 1  # include the closing fence line
         for line in lines[i:end]:
             out.append(_blank(line))
         i = end
