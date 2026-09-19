@@ -172,8 +172,8 @@ resolves_issues:
 
 `reconcile-stale-closed` unions every marked id across the phase's SUMMARY.md frontmatters into its
 candidate set, closes any that are still open through the same `filter_open_ids` live-status gate
-the `<beads-id>` path uses, and reports the marker-closed count and any rejected-entry count
-separately on stdout. Two properties an author can depend on:
+the `<beads-id>` path uses, and reports the marker-closed count and any rejected-entry count in one
+combined line on stdout. Two properties an author can depend on:
 
 - An id named only in the SUMMARY.md **body** (prose) is never closed -- only the frontmatter fence
   is ever searched, deliberately, so a phase that merely *mentions* a bd id (e.g. as a newly filed
@@ -347,18 +347,17 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
 5. DO NOT collapse the `execute:wave:pre` and `execute:wave:post` branches (Step 1.5) into one
    call, and DO NOT call `sync.py close-wave` from the `execute:wave:pre` branch -- closing at
    `execute:wave:pre` would close issues before this wave's executors have even started.
-6. DO NOT collapse the `verify:post` branch into either of the two `execute:wave` branches --
-   `verify:post` fires once per **phase** (not once per wave). It still never dispatches the
-   wave-scoped `close-wave` subcommand (it has no wave/plan-id context to pass), and now always
+6. DO NOT collapse the `verify:post` branch into either of the two `execute:wave` branches, and DO
+   NOT treat `reconcile-stale-closed` (verify:post's subcommand) as a replacement for
+   `execute:wave:post`'s `close-wave` dispatch, or vice versa -- they are not interchangeable in
+   either direction. `verify:post` fires once per **phase** (not once per wave); it never dispatches
+   the wave-scoped `close-wave` subcommand (it has no wave/plan-id context to pass) and always
    dispatches the phase-wide `reconcile-stale-closed` subcommand, which takes no plan-id list at
-   all -- the two subcommands are not interchangeable, and a future editor must not collapse them
-   into one call.
-6a. DO NOT treat `reconcile-stale-closed` as a replacement for the `execute:wave:post` `close-wave`
-    dispatch, or vice versa. `close-wave` stays the fast path that closes a wave's issues as soon
-    as that wave lands; `reconcile-stale-closed` is the phase-wide backstop for when that dispatch
-    was missed (D-08). Removing either one loses something real: dropping `close-wave` means every
-    issue sits open until the next `verify:post`; dropping `reconcile-stale-closed` reintroduces the
-    exact gap that left Phase 14's `gsd-beads-bu0.3`-`.6` open for eleven phases.
+   all. `close-wave` stays the fast path that closes a wave's issues as soon as that wave lands;
+   `reconcile-stale-closed` is the phase-wide backstop for when that dispatch was missed (D-08).
+   Removing either one loses something real: dropping `close-wave` means every issue sits open
+   until the next `verify:post`; dropping `reconcile-stale-closed` reintroduces the exact gap that
+   left Phase 14's `gsd-beads-bu0.3`-`.6` open for eleven phases.
 7. DO NOT embed the `<beads_status>` block's content inside a manifest-level fragment file and
    expect it to reach the executor automatically -- `execute:wave:pre` has no template slot that
    forwards fragment text into a spawned `Agent()` call's `prompt=`. Pasting the block into that

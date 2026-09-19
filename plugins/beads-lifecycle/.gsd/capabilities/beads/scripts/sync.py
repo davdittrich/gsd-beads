@@ -9,6 +9,7 @@ PLAN.md text is authored by a different principal than the process running
 T-01-01).
 """
 import argparse
+import contextlib
 import json
 import os
 import re
@@ -26,6 +27,92 @@ BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 _TASK_OPEN_PATTERN = r'''<task(?=[\s>])(?:"[^"]*"|'[^']*'|[^'">])*>'''
 RAW_TASK_OPEN_RE = re.compile(r"<task(?=[\s>])")
 TASK_RE = re.compile(_TASK_OPEN_PATTERN + r".*?</task>", re.DOTALL)
+# gh-17: a `<task>` literal quoted in prose (fenced or inline) must not count
+# as a real opener. Every span these two find is blanked to same-length
+# whitespace, so every downstream offset (task_matches spans, name_end,
+# beads_id_span, tracker_insert) still indexes correctly into the real text.
+# Line-start opening delimiter run of 3+ backticks/tildes -- CommonMark
+# requires the closing run to be the same character and >= length (`close_re`
+# below enforces the ">=" with `{len(marker),}`; under-matching a too-short
+# closer, never over-matching a too-long one, is the safe direction gh-17
+# needs). CodeRabbit: a backtick fence's info string must not itself contain
+# a backtick (CommonMark 4.5) -- otherwise a line like "````<task>`" would be
+# read as a valid fence opener when it is not one. Matched one already-split
+# line at a time (see `_mask_fenced_code_blocks`), so no MULTILINE flag and
+# no need to capture the indent (only the marker, group 1, is ever read).
+_FENCE_OPEN_RE = re.compile(r"^(?:[ \t]{0,3})(`{3,}(?!.*`)|~{3,}).*$")
+# A code span opens with a backtick run and closes at the next run of the
+# identical length (CommonMark 6.1) -- a shorter or longer run in between
+# (e.g. the single backticks inside a `` `<task>` `` double-backtick span)
+# is content, not a delimiter. CodeRabbit: both runs must be exact-boundary
+# (not a backtick adjacent to either) -- otherwise `(`+)` can backtrack to a
+# shorter opener, or `\1` can match a prefix of a longer closing run,
+# treating an unequal ``` ... `<task> ... `` sequence as one code span.
+# A code span also can't cross a blank line (CommonMark 6.1: a blank line
+# ends the paragraph) -- without that boundary, a stray backtick in one
+# paragraph can pair with an unrelated stray backtick in a later one and
+# mask everything between, including a real <task> block, with no
+# PlanParseError to catch it: silent task loss, worse than gh-17's crash.
+INLINE_CODE_RE = re.compile(
+    r"(?<!`)(`+)(?!`)(?:(?!\1)(?!\r?\n[ \t]*\r?\n).)*?(?<!`)\1(?!`)", re.DOTALL
+)
+
+
+def _blank(s):
+    """Replace every non-newline character in `s` with a space (gh-17) --
+    shared by both masking passes below so a match's length, and therefore
+    every offset taken against the masked copy, is preserved exactly."""
+    return re.sub(r"[^\r\n]", " ", s)
+
+
+def _mask_fenced_code_blocks(text):
+    """Blank every fenced code block to same-length whitespace (gh-17
+    F-01): an opening ```` ``` ```` (or `~~~`) run at line start is closed by
+    the next line whose only content is a run of the same character at
+    least as long -- a nested outer fence (e.g. 4 backticks wrapping a
+    3-backtick example) must mask the whole span, including the inner
+    example, not stop at the inner fence.
+
+    Review finding: CommonMark's own unterminated-fence rule (mask to end
+    of text) was the wrong choice here -- a plan with a typo'd/missing
+    closing fence would silently blank every real <task> after it, with
+    raw_open_starts and closed_open_starts both landing on the same empty
+    set, so no PlanParseError ever fires. That is the exact "lifecycle
+    appears to run and tracks nothing" failure class gh-17 exists to
+    prevent, just made silent instead of loud. An unterminated fence is
+    therefore NOT masked at all -- treated as ordinary text, so a stray
+    <task> literal it happens to contain is exposed and raises loudly,
+    rather than a real trailing task being swallowed silently.
+    """
+    lines = text.splitlines(keepends=True)
+    out = []
+    i = 0
+    while i < len(lines):
+        opener = _FENCE_OPEN_RE.match(lines[i].rstrip("\r\n"))
+        if opener is None:
+            out.append(lines[i])
+            i += 1
+            continue
+        marker = opener.group(1)
+        char = marker[0]
+        # CodeRabbit: the closing fence's indentation is 0-3 spaces on its
+        # own terms (CommonMark 4.5) -- it is never constrained by the
+        # opener's own indentation.
+        close_re = re.compile(rf"^[ \t]{{0,3}}{re.escape(char)}{{{len(marker)},}}[ \t]*$")
+        end = i + 1
+        while end < len(lines) and close_re.match(lines[end].rstrip("\r\n")) is None:
+            end += 1
+        if end >= len(lines):
+            out.append(lines[i])
+            i += 1
+            continue
+        end += 1  # include the closing fence line
+        for line in lines[i:end]:
+            out.append(_blank(line))
+        i = end
+    return "".join(out)
+
+
 NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
 BEADS_ID_RE = re.compile(r"<beads-id>(.*?)</beads-id>", re.DOTALL)
 FILES_RE = re.compile(r"<files>(.*?)</files>", re.DOTALL)
@@ -243,7 +330,17 @@ def bd_available():
 
 
 def append_state_blocker(state_path, message):
-    """Append one dated bullet under STATE.md's Blockers/Concerns heading (D-08)."""
+    """Append one dated bullet under STATE.md's Blockers/Concerns heading
+    (D-08). `message` is folded onto one line first (gh-17 F-05): a message
+    built from plan text -- e.g. a task `<name>` -- carries no authored
+    newlines a reader would trust, so one must never let it inject its own
+    bullet or markdown heading into STATE.md. Deduped on (date, message),
+    not message alone (gh-17 F-04 / review finding): the same parse failure
+    is reachable through more than one read path in one lifecycle dispatch
+    and must not double the bullet that day, but a failure that is still
+    happening a day later must still get its own dated bullet -- deduping
+    on message alone would silence a genuinely recurring failure forever
+    after its first day."""
     state_path = Path(state_path)
     if not state_path.exists():
         return
@@ -252,11 +349,19 @@ def append_state_blocker(state_path, message):
     idx = text.find(heading)
     if idx == -1:
         return
+    message = " ".join(message.split())
+    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    # CodeRabbit: compare the complete bullet line, not a bare substring --
+    # "failure" is a substring of an already-present "failure with details"
+    # bullet, so the naive `bullet in text` check silently dropped a
+    # genuinely distinct, shorter message.
+    bullet_line = f"- {date}: {message}"
+    if bullet_line in text.splitlines():
+        return
+    bullet = f"\n\n{bullet_line}"
     line_end = text.find("\n", idx)
     if line_end == -1:
         line_end = len(text)
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    bullet = f"\n\n- {date}: {message}"
     state_path.write_text(text[:line_end] + bullet + text[line_end:], encoding="utf-8")
 
 
@@ -277,7 +382,14 @@ def find_project_root(start):
 
 
 def confined(root, *parts):
-    """Join parts onto root and reject any resolved escape (T-01-02)."""
+    """Join parts onto root and reject any resolved escape (T-01-02).
+    Callers pass constant path components here (".planning", "STATE.md",
+    etc); the genuinely variable input in this file -- a `phase_dir`/
+    `plan_path` taken from argv -- is deliberately not routed through this
+    guard, since argv is this script's trusted principal (a human or an
+    already-trusted harness invokes the CLI directly, unlike PLAN.md text,
+    which a different, weaker principal authors -- see the module docstring
+    and T-01-02's own threat model)."""
     candidate = root.joinpath(*parts).resolve()
     try:
         candidate.relative_to(root)
@@ -355,6 +467,17 @@ def parse_beads_epic(frontmatter):
     return epic_id
 
 
+def _mask_code_spans(text):
+    """Blank fenced code blocks and inline code spans to same-length
+    whitespace (gh-17) -- a `<task>` mentioned in prose must not count as a
+    real opener. Length-preserving so every match offset taken against the
+    masked copy is also a valid offset into the real `text`."""
+    # Standards review: Middle Man -- inlined, single call site; line
+    # numbers and match offsets in the masked copy stay valid against the
+    # real text (gh-17) since `_blank` preserves every `\r`/`\n` byte.
+    return INLINE_CODE_RE.sub(lambda m: _blank(m.group(0)), _mask_fenced_code_blocks(text))
+
+
 def parse_plan(path):
     """Return (full_text, frontmatter_body, [task dict, ...]).
 
@@ -365,8 +488,13 @@ def parse_plan(path):
         text = plan_file.read()
     fm_match = FRONTMATTER_RE.match(text)
     frontmatter = fm_match.group(1) if fm_match else ""
-    raw_open_starts = [match.start() for match in RAW_TASK_OPEN_RE.finditer(text)]
-    task_matches = list(TASK_RE.finditer(text))
+    # gh-17: opener/closer counting and task-block discovery both run against
+    # the masked copy, never the real `text` -- a real, balanced <task> block
+    # quoted whole inside a fence must not be discovered as a live task, and
+    # a prose-only <task> mention must not inflate the raw-opener count.
+    masked_text = _mask_code_spans(text)
+    raw_open_starts = [match.start() for match in RAW_TASK_OPEN_RE.finditer(masked_text)]
+    task_matches = list(TASK_RE.finditer(masked_text))
     closed_open_starts = [match.start() for match in task_matches]
     if raw_open_starts != closed_open_starts:
         raise PlanParseError(
@@ -376,7 +504,10 @@ def parse_plan(path):
 
     tasks = []
     for m in task_matches:
-        block = m.group(0)
+        # Masking is length-preserving, so m's span is also valid against
+        # the real text -- slice the real text for actual task content;
+        # `m.group(0)` would return the blanked-out masked copy instead.
+        block = text[m.start() : m.end()]
         opening_tag_m = TASK_OPEN_TAG_RE.match(block)
         opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
         attributes, attributes_valid = _scan_task_attributes(opening_tag)
@@ -714,10 +845,23 @@ def resolve_task_content(issue_id):
         stripped = line.rstrip("\r\n")
         if fence is not None:
             current.append(line)
-            if re.match(rf"^{re.escape(fence)}", stripped):
+            # CodeRabbit: `re.match` only required the line to *start with*
+            # the opener -- "``` not a closer" therefore closed the fence,
+            # and a closer indented by up to 3 spaces (CommonMark-legal)
+            # was rejected. Require the whole (stripped) line to be the
+            # fence character, at least the opener's own length, with only
+            # leading indent/trailing whitespace around it -- same shape as
+            # _mask_fenced_code_blocks' close_re.
+            if re.fullmatch(rf"[ \t]{{0,3}}{re.escape(fence[0])}{{{len(fence)},}}[ \t]*", stripped):
                 fence = None
             continue
-        opening = re.match(r"^([\\x60~]{3,})", stripped)
+        # Review finding: `[\\x60~]` (double backslash, inside a raw string)
+        # matches literal `\`, `x`, `6`, `0`, `~` -- never a real backtick --
+        # so a backtick-fenced example was never masked here, and a stray
+        # run of 3+ x/6/0/\ characters was misread as a phantom fence
+        # opener. Matches sync.py's own established fence-detection idiom
+        # elsewhere (_FENCE_OPEN_RE).
+        opening = re.match(r"^(`{3,}|~{3,})", stripped)
         if opening:
             fence = opening.group(1)
             current.append(line)
@@ -1381,6 +1525,21 @@ def resolve_milestone_epic(project_root):
     return result.stdout.strip()
 
 
+def _unwrap_bd_list(payload):
+    """Return the row list from an already-json.loads'd `bd list` payload.
+    Review finding: `_bd_show_row`/`resolve_task_content` already unwrap a
+    `{"data": [...]}` envelope for `bd show`; every `bd list` reader in this
+    file assumed a bare list instead, so the two commands' response
+    handling could silently drift apart. Not currently observed from a real
+    `bd` (verified empirically: bd 1.3.0's `list` and `show` both return a
+    bare list) -- this is the same forward-compatibility posture as the
+    `show` side, applied consistently rather than only where a payload
+    happened to already be enveloped once."""
+    if isinstance(payload, dict):
+        payload = payload.get("data")
+    return payload if isinstance(payload, list) else []
+
+
 def _bd_show_row(result, expected_id):
     """Return the exact identified row, None on absence, or fail closed."""
     if result.returncode != 0:
@@ -1580,6 +1739,17 @@ def rewrite_plan(
         text = text[:start] + replacement + text[end:]
     if epic_created:
         fm_match = FRONTMATTER_RE.match(text)
+        if fm_match is None:
+            # Review finding: a frontmatter-less plan is tolerated by
+            # parse_plan/parse_beads_epic (empty frontmatter, stored_epic_id
+            # None), so resolve_epic can reach here with epic_created=True
+            # for such a plan -- `fm_match.start(1)` on None used to raise
+            # an uncaught AttributeError after bd issues were already
+            # created in create_issues, orphaning them with no <beads-id>
+            # ever written back. Synthesize a minimal frontmatter block
+            # instead of crashing.
+            text = "---\n\n---\n" + text
+            fm_match = FRONTMATTER_RE.match(text)
         insert_pos = fm_match.start(1)
         newline = "\r\n" if text.startswith("---\r\n") else "\n"
         text = text[:insert_pos] + f"beads_epic: {epic_id}{newline}" + text[insert_pos:]
@@ -1628,10 +1798,15 @@ def strip_task_bodies(text, stripped_ids):
     reverse match order over the original `text`'s offsets -- the same
     technique rewrite_plan already uses -- so no earlier offset is
     invalidated mid-pass (T-16-12).
+
+    gh-17 F-03: task boundaries are found against a masked copy, same as
+    parse_plan -- an `</task>` literal quoted in a task's own code span
+    (e.g. a plan documenting this exact tag) must not be read as that
+    task's real closing tag and truncate the block mid-strip.
     """
-    matches = list(TASK_RE.finditer(text))
+    matches = list(TASK_RE.finditer(_mask_code_spans(text)))
     for m in reversed(matches):
-        block = m.group(0)
+        block = text[m.start() : m.end()]
         opening_tag_m = TASK_OPEN_TAG_RE.match(block)
         opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
         attributes, attributes_valid = _scan_task_attributes(opening_tag)
@@ -1689,11 +1864,19 @@ def _resolve_completed_task_ids(phase_dir):
     """Return the union of every <beads-id> across every plan in phase_dir
     whose SUMMARY.md exists (B9/D-04): the completed-task-id side of the
     divergence comparison. An empty phase_dir (no plans) returns an empty
-    set."""
+    set.
+
+    CodeRabbit/gh-17: a malformed completed plan's PlanParseError is caught
+    here, per plan, so one bad plan degrades (excluded, noted in STATE.md)
+    instead of crashing regenerate_beads_md/render_wave_status_block, which
+    both call this uncaught. A completed plan's own authority violation
+    (_task_authority_error, a ValueError distinct from PlanParseError) still
+    raises -- that invariant is unrelated to gh-17 and is left unchanged."""
     completed_ids = set()
-    for plan_id in discover_plan_files(phase_dir):
-        ids, _skipped = find_completed_task_ids(phase_dir, plan_id)
-        completed_ids.update(ids)
+    for plan_id, plan_path in discover_plan_files(phase_dir).items():
+        with _degrade_on_parse_error(phase_dir, plan_path):
+            ids, _skipped = find_completed_task_ids(phase_dir, plan_id)
+            completed_ids.update(ids)
     return completed_ids
 
 
@@ -1847,7 +2030,13 @@ def find_completed_task_ids(phase_dir, plan_id):
     try:
         _, _, tasks = parse_plan(plan_path)
     except PlanParseError as exc:
-        raise ValueError(
+        # CodeRabbit/gh-17: raised as PlanParseError, not plain ValueError,
+        # so _resolve_completed_task_ids can catch it specifically and
+        # degrade (regenerate_beads_md/render_wave_status_block call it
+        # uncaught) -- PlanParseError already IS-A ValueError, so
+        # close_wave/reconcile_stale_closed's existing ValueError boundary
+        # and message-content tests are unaffected.
+        raise PlanParseError(
             f"completed-task authority invalid in {plan_path.name}: {exc}"
         ) from exc
     if _is_halted_status(status):
@@ -1892,10 +2081,12 @@ def filter_open_ids(ids):
     if result.returncode != 0:
         return list(ids)  # fail-open: status unconfirmed, attempt the close anyway
     try:
-        rows = json.loads(result.stdout)
+        rows = _unwrap_bd_list(json.loads(result.stdout))
     except json.JSONDecodeError:
         return list(ids)
-    open_ids = {r["id"] for r in rows}
+    # Review finding: every sibling row-reader in this file uses
+    # .get("id", "") for a malformed/missing key, never bare indexing.
+    open_ids = {r.get("id", "") for r in rows}
     return [i for i in ids if i in open_ids]
 
 
@@ -2040,6 +2231,31 @@ def _milestone_authority_error(project_root):
     return None
 
 
+def _fail_task_preflight(task, reason):
+    """Print + return 1 for a native tracker identity preflight failure on
+    one task (ponytail: 8 near-identical print/return-1 blocks in
+    create_issues's per-task validation loop collapsed to one call). No
+    STATE.md note here -- unlike the plan-level preflight failures
+    _fail_preflight covers, a malformed task attribute is not itself the
+    class of onError:skip-defeating regression gh-17 addresses, so this
+    keeps the exact pre-existing stderr-only behavior."""
+    print(
+        f"native tracker identity preflight failed for task {task['name']!r}: {reason}",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def _fail_preflight(project_root, message):
+    """Print `message` to stderr, note it in `.planning/STATE.md` (gh-17: a
+    preflight failure here otherwise degrades this onError:skip dispatch
+    point invisibly), and return the exit code both create_issues preflight
+    failure branches share."""
+    print(message, file=sys.stderr)
+    append_state_blocker(confined(project_root, ".planning", "STATE.md"), message)
+    return 1
+
+
 def create_issues(plan_arg, allow_strip=True):
     """`allow_strip=False` keeps every `<task>` body in PLAN.md (gh-2).
     `strip_task_bodies` is a deliberate,
@@ -2072,8 +2288,9 @@ def create_issues(plan_arg, allow_strip=True):
     try:
         text, frontmatter, tasks = parse_plan(plan_path)
     except (OSError, UnicodeDecodeError, PlanParseError) as exc:
-        print(f"native tracker identity preflight failed: {exc}", file=sys.stderr)
-        return 1
+        return _fail_preflight(
+            project_root, f"native tracker identity preflight failed: {exc}"
+        )
     objective_m = OBJECTIVE_RE.search(text)
     objective = objective_m.group(1).strip() if objective_m else ""
 
@@ -2088,81 +2305,40 @@ def create_issues(plan_arg, allow_strip=True):
 
     for task in tasks:
         if not task["attributes_valid"] or task["type_attribute_count"] > 1:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "task opening attributes are malformed or duplicated",
-                file=sys.stderr,
-            )
-            return 1
+            return _fail_task_preflight(task, "task opening attributes are malformed or duplicated")
         if len(task["beads_ids"]) > 1:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "duplicate beads-id elements",
-                file=sys.stderr,
-            )
-            return 1
+            return _fail_task_preflight(task, "duplicate beads-id elements")
         if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                f"unsafe beads-id {task['beads_id']!r}",
-                file=sys.stderr,
-            )
-            return 1
+            return _fail_task_preflight(task, f"unsafe beads-id {task['beads_id']!r}")
         if task["type"] not in ("auto", "tracer"):
             continue
         if not task["native_identity_readable"]:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "task opening is not readable by the native parser",
-                file=sys.stderr,
-            )
-            return 1
+            return _fail_task_preflight(task, "task opening is not readable by the native parser")
         tracker_ids = task["tracker_ids"]
         if len(task["tracker_id_candidates"]) != len(tracker_ids) or any(
             tracker_id != tracker_id.strip() for tracker_id in tracker_ids
         ):
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "tracker-id attribute is not exact",
-                file=sys.stderr,
-            )
-            return 1
+            return _fail_task_preflight(task, "tracker-id attribute is not exact")
         if len(tracker_ids) > 1:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "duplicate tracker-id attributes",
-                file=sys.stderr,
-            )
-            return 1
+            return _fail_task_preflight(task, "duplicate tracker-id attributes")
         if not tracker_ids:
             continue
         if not task["beads_id"]:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "tracker-id has no authoritative beads-id",
-                file=sys.stderr,
-            )
-            return 1
+            return _fail_task_preflight(task, "tracker-id has no authoritative beads-id")
         expected = f"beads:{task['beads_id']}"
         if tracker_ids[0] != expected:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                f"expected {expected!r}, found {tracker_ids[0]!r}",
-                file=sys.stderr,
-            )
-            return 1
+            return _fail_task_preflight(task, f"expected {expected!r}, found {tracker_ids[0]!r}")
 
     for sibling_path in discover_plan_files(plan_path.parent).values():
         if sibling_path.resolve() == plan_path:
             continue
         authority_error = _plan_authority_error(sibling_path)
         if authority_error:
-            print(
+            return _fail_preflight(
+                project_root,
                 f"cross-plan task authority preflight failed in "
                 f"{sibling_path.name}: {authority_error}",
-                file=sys.stderr,
             )
-            return 1
 
     if stored_epic_id is None and read_epic_per(project_root) == "milestone":
         authority_error = _milestone_authority_error(project_root)
@@ -2292,16 +2468,21 @@ def create_issues(plan_arg, allow_strip=True):
     orphan_result = run_bd(["bd", "list", "--parent", epic_id, "--all", "--json"])
     if orphan_result.returncode == 0:
         try:
-            children = json.loads(orphan_result.stdout)
+            children = _unwrap_bd_list(json.loads(orphan_result.stdout))
         except json.JSONDecodeError:
             children = []
         current_ids = {tid for tid in task_ids if tid} | collect_epic_task_ids(
             plan_path.parent, epic_id
         )
         for orphan_id in find_orphans(children, current_ids):
-            run_bd(
+            close_result = run_bd(
                 ["bd", "close", orphan_id, "--reason", "no longer maps to a plan task"]
             )
+            # Review finding: every other `bd close` call site in this file
+            # prints on a non-zero return code; this one silently swallowed
+            # a failed orphan close.
+            if close_result.returncode != 0:
+                print(f"create-issues: orphan close failed for {orphan_id}: {close_result.stderr.strip()}")
 
     prereq_last_ids = []
     for prereq_id in parse_depends_on(frontmatter):
@@ -2588,12 +2769,13 @@ def resolve_phase_epic(phase_dir):
     the same epic, so the first match is sufficient)."""
     for plan_path in discover_plan_files(phase_dir).values():
         try:
-            _, frontmatter, _ = parse_plan(plan_path)
+            with _degrade_on_parse_error(phase_dir, plan_path):
+                _, frontmatter, _ = parse_plan(plan_path)
+                m = BEADS_EPIC_RE.search(frontmatter)
+                if m:
+                    return m.group(1)
         except (OSError, UnicodeDecodeError):
             continue
-        m = BEADS_EPIC_RE.search(frontmatter)
-        if m:
-            return m.group(1)
     return None
 
 
@@ -2609,13 +2791,44 @@ def _resolve_task_ordinal_map(phase_dir):
     mapping = {}
     for ordinal, plan_path in discover_plan_files(phase_dir).items():
         try:
-            _, _, tasks = parse_plan(plan_path)
+            with _degrade_on_parse_error(phase_dir, plan_path):
+                _, _, tasks = parse_plan(plan_path)
+                for task in tasks:
+                    if task["beads_id"]:
+                        mapping[task["beads_id"]] = ordinal
         except (OSError, UnicodeDecodeError):
             continue
-        for task in tasks:
-            if task["beads_id"]:
-                mapping[task["beads_id"]] = ordinal
     return mapping
+
+
+def _note_plan_parse_error(phase_dir, plan_path, exc):
+    """Best-effort STATE.md note for a PlanParseError hit outside create_issues
+    (gh-17) -- swallows both a failed project_root resolution and a failed
+    STATE.md write (gh-17 F-04): this runs inside an already-degrading read
+    path (regenerate_beads_md/render_wave_status_block/resolve_phase_epic)
+    that must never itself raise. A failure here still prints to stderr --
+    review finding: this is already the fallback for a lost signal, and a
+    second, totally silent failure on top of it would leave zero trace
+    anywhere the plan actually failed to parse."""
+    message = f"plan parse failed in {plan_path.name}: {exc}"
+    try:
+        project_root = find_project_root(phase_dir)
+        append_state_blocker(confined(project_root, ".planning", "STATE.md"), message)
+    except (ValueError, OSError) as write_exc:
+        print(f"{message} (STATE.md note failed: {write_exc})", file=sys.stderr)
+
+
+@contextlib.contextmanager
+def _degrade_on_parse_error(phase_dir, plan_path):
+    """Suppress a PlanParseError for one plan, noting it via
+    `_note_plan_parse_error` (gh-17) -- the shared body every per-plan
+    PlanParseError degrade site below used to duplicate inline. Any other
+    exception (OSError, UnicodeDecodeError) is left to the caller's own
+    surrounding handling, unchanged."""
+    try:
+        yield
+    except PlanParseError as exc:
+        _note_plan_parse_error(phase_dir, plan_path, exc)
 
 
 def _render_beads_md_table(rows, ordinal_map, task_status_by_id):
@@ -2685,7 +2898,7 @@ def regenerate_beads_md(phase_dir_arg):
     rows = []
     if result.returncode == 0:
         try:
-            rows = json.loads(result.stdout)
+            rows = _unwrap_bd_list(json.loads(result.stdout))
         except json.JSONDecodeError:
             rows = []
 
@@ -2787,7 +3000,7 @@ def render_status_mapping(phase_dir_arg):
     rows = []
     if result.returncode == 0:
         try:
-            rows = json.loads(result.stdout)
+            rows = _unwrap_bd_list(json.loads(result.stdout))
         except json.JSONDecodeError:
             rows = []
 
@@ -2878,12 +3091,13 @@ def render_wave_status_block(phase_dir_arg, plan_ids):
         if plan_path is None:
             continue
         try:
-            _, _, tasks = parse_plan(plan_path)
+            with _degrade_on_parse_error(phase_dir, plan_path):
+                _, _, tasks = parse_plan(plan_path)
+                for task in tasks:
+                    if task["beads_id"]:
+                        wanted_ids.append(task["beads_id"])
         except (OSError, UnicodeDecodeError):
             continue
-        for task in tasks:
-            if task["beads_id"]:
-                wanted_ids.append(task["beads_id"])
 
     matched = []
     if wanted_ids and beads_md_path.exists():

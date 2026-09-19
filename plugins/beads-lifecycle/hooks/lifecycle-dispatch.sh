@@ -94,7 +94,12 @@ for point in POINTS:
 
 # Run from the project the tool call ran in -- sync.py resolves both the
 # project root and the current phase by walking up from its own cwd.
-[ -n "${CLAUDE_PROJECT_DIR:-}" ] && PROJECT_DIR="$CLAUDE_PROJECT_DIR"
+# PROJECT_DIR already carries the payload's own `cwd` (the tool call's real
+# cwd) from the python3 block above; CLAUDE_PROJECT_DIR and $PWD are both
+# fallbacks for when that field was absent, never an override of it (a
+# session-wide CLAUDE_PROJECT_DIR unconditionally winning would defeat the
+# whole point of extracting the tool call's own cwd in the first place).
+[ "${PROJECT_DIR:--}" != "-" ] || PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}"
 [ "${PROJECT_DIR:--}" != "-" ] || PROJECT_DIR="$PWD"
 [ -d "$PROJECT_DIR/.planning" ] || exit 0
 cd "$PROJECT_DIR" || exit 0

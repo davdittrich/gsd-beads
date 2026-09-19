@@ -116,7 +116,7 @@ if [ -n "${GSD_AUTO_INSTALL_LOCK_FD:-}" ]; then
   SKILLS_ROOT="${GSD_AUTO_INSTALL_SKILLS_ROOT:-}"
   SKILLS_ROOT_STATUS=0
 else
-  SKILLS_ROOT="$($GSD_TOOLS query skills-root "$ACTIVE_RUNTIME" --raw 2>/dev/null)"
+  SKILLS_ROOT="$("$GSD_TOOLS" query skills-root "$ACTIVE_RUNTIME" --raw 2>/dev/null)"
   SKILLS_ROOT_STATUS=$?
 fi
 if [ "$SKILLS_ROOT_STATUS" -ne 0 ] || [ "$SKILLS_ROOT" != "$EXPECTED_SKILLS_ROOT" ]; then
@@ -273,6 +273,11 @@ if [ "$SELECTED_SKILL_STATUS" -ne 0 ] || [ -z "$SELECTED_SKILL_NAMES" ]; then
   echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
   exit 0
 fi
+# Read once into an array and reuse it everywhere below -- each name is
+# already validated (`[a-z][a-z0-9-]*`, no glob/IFS characters possible) by
+# the python3 block above, so unquoted `for _stem in $SELECTED_SKILL_NAMES`
+# was already safe, but an array avoids relying on that invariant twice.
+readarray -t SELECTED_SKILL_ARR <<<"$SELECTED_SKILL_NAMES"
 
 gsd_tools() {
   "$GSD_TOOLS" "$@" 9>&-
@@ -284,7 +289,7 @@ gsd_tools() {
 guard_skill_ownership() {
   local _skills_root _stem _dest _marker
   _skills_root="$SKILLS_ROOT"
-  for _stem in $SELECTED_SKILL_NAMES; do
+  for _stem in "${SELECTED_SKILL_ARR[@]}"; do
     [ -d "$BUNDLE_DIR/skills/$_stem" ] && [ ! -L "$BUNDLE_DIR/skills/$_stem" ] || return 1
     _dest="$_skills_root/gsd-$_stem"
     _marker="$_dest/.gsd-capability-skill"
@@ -368,7 +373,7 @@ PY
 
 selected_fingerprint() {
   local _stem _paths=()
-  for _stem in $SELECTED_SKILL_NAMES; do
+  for _stem in "${SELECTED_SKILL_ARR[@]}"; do
     _paths+=("gsd-$_stem")
   done
   canonical_tree_hash "$SKILLS_ROOT" "${_paths[@]}"
