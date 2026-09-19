@@ -1470,6 +1470,24 @@ class TestAppendStateBlockerHardening(unittest.TestCase):
 
         self.assertEqual(text.count("same failure"), 1)
 
+    def test_shorter_distinct_message_is_not_swallowed_as_a_duplicate(self):
+        """CodeRabbit: a naive substring dedup check ("failure" in "...
+        failure with details...") wrongly treated a genuinely distinct,
+        shorter message as a duplicate of an unrelated longer one that
+        happens to start with the same words. Both must be appended."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "STATE.md"
+            state_path.write_text(
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            sync.append_state_blocker(state_path, "failure with details")
+            sync.append_state_blocker(state_path, "failure")
+            text = state_path.read_text(encoding="utf-8")
+
+        self.assertIn(": failure with details", text)
+        self.assertIn(": failure\n", text)
+
     def test_newlines_in_message_cannot_inject_a_new_heading(self):
         """gh-17 F-05: a message built from plan text (e.g. a task <name>)
         carries no newline a reader should trust -- it must not be able to
@@ -1698,6 +1716,38 @@ class TestResolveTaskContent(unittest.TestCase):
         self.assertNotIn("fenced/fake.py", body["read_first"])
         self.assertIn("```", body["description"])
         self.assertIn("fenced/fake.py", body["description"])
+
+    def test_fence_requires_a_complete_closing_line_not_just_a_prefix(self):
+        """CodeRabbit: the closing check was `re.match(rf"^{re.escape(fence)}",
+        stripped)` -- a prefix match, so "``` not a closer" closed the
+        fence early, exposing a `## Done`-looking line inside it to
+        extraction; and a validly-indented closer (0-3 spaces, CommonMark-
+        legal) was rejected, so the fence never closed at all. Neither must
+        happen: only a complete closing line (same char, >= opener length,
+        optional 0-3 space indent, trailing whitespace only) may close it."""
+        description = (
+            "Leading prose.\n\n"
+            "## Read First\n- src/a.py\n\n"
+            "## Verify\n"
+            "```\n"
+            "``` not a real closer, fence stays open\n"
+            "## Done fake-heading-inside-fence, must not extract\n"
+            "   ```\n"
+            "real verify command\n\n"
+            "## Done\nReal done text.\n"
+        )
+        result = subprocess.CompletedProcess(
+            ["bd"], 0, stdout=json.dumps([self._row(description=description)]), stderr=""
+        )
+        code, out, err, _ = self._invoke(result)
+        self.assertEqual((code, err), (0, ""))
+        body = json.loads(out)
+        # The fake "## Done" line inside the still-open fence must not be
+        # read as a real heading -- it stays literal fence content under
+        # Verify, and the real trailing "## Done" is the only extracted
+        # Done section.
+        self.assertIn("real verify command", body["verify"])
+        self.assertEqual(body["done"], "Real done text.")
 
     def test_versioned_data_envelope_succeeds(self):
         result = subprocess.CompletedProcess(

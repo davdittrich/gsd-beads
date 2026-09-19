@@ -351,9 +351,14 @@ def append_state_blocker(state_path, message):
         return
     message = " ".join(message.split())
     date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    bullet = f"\n\n- {date}: {message}"
-    if bullet in text:
+    # CodeRabbit: compare the complete bullet line, not a bare substring --
+    # "failure" is a substring of an already-present "failure with details"
+    # bullet, so the naive `bullet in text` check silently dropped a
+    # genuinely distinct, shorter message.
+    bullet_line = f"- {date}: {message}"
+    if bullet_line in text.splitlines():
         return
+    bullet = f"\n\n{bullet_line}"
     line_end = text.find("\n", idx)
     if line_end == -1:
         line_end = len(text)
@@ -844,7 +849,14 @@ def resolve_task_content(issue_id):
         stripped = line.rstrip("\r\n")
         if fence is not None:
             current.append(line)
-            if re.match(rf"^{re.escape(fence)}", stripped):
+            # CodeRabbit: `re.match` only required the line to *start with*
+            # the opener -- "``` not a closer" therefore closed the fence,
+            # and a closer indented by up to 3 spaces (CommonMark-legal)
+            # was rejected. Require the whole (stripped) line to be the
+            # fence character, at least the opener's own length, with only
+            # leading indent/trailing whitespace around it -- same shape as
+            # _mask_fenced_code_blocks' close_re.
+            if re.fullmatch(rf"[ \t]{{0,3}}{re.escape(fence[0])}{{{len(fence)},}}[ \t]*", stripped):
                 fence = None
             continue
         # Review finding: `[\\x60~]` (double backslash, inside a raw string)
