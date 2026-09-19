@@ -89,9 +89,12 @@ planning agent must never rely on it.
 
 Print the one-line summary `sync.py` printed to stdout: either
 `Synced <n> issue(s) -> epic <id>` or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
+`<n>` here is only newly-created issues -- a healthy idempotent re-run of an
+already-fully-synced plan legitimately prints `Synced 0 issue(s)`; that is
+fine, not a failure.
 If every task's stored `<beads-id>` diverged from bd, `sync.py` also prints
-`beads-sync: 0 of <n> task(s) bound` -- treat that line as a hard stop, not a
-warning to skim past: zero issues exist for this phase and the run must be
+`beads-sync: 0 of <n> task(s) bound` -- treat *that* line as a hard stop, not
+a warning to skim past: zero issues exist for this phase and the run must be
 investigated before proceeding.
 
 ## Anti-Patterns

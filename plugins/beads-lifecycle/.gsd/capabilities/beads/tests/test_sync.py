@@ -1639,6 +1639,35 @@ class TestResolveTaskContent(unittest.TestCase):
         self.assertNotIn("## Verify", body["description"])
         self.assertNotIn("## Done", body["description"])
 
+    def test_backtick_fenced_heading_lookalike_is_not_extracted(self):
+        """Review finding: `opening = re.match(r"^([\\x60~]{3,})", stripped)`
+        had a double backslash inside a raw string, so `[\\x60~]` matched
+        literal `\\`, `x`, `6`, `0`, `~` -- never a real backtick -- meaning
+        a backtick-fenced code example was never masked, and any
+        `## Read First`/`## Verify`/`## Done`-looking line inside such a
+        fence was misread as a real section break. A fenced fake heading
+        must not be extracted; the real heading after the fence must be."""
+        description = (
+            "Leading prose.\n\n"
+            "```\n"
+            "## Read First\n"
+            "- fenced/fake.py\n"
+            "```\n\n"
+            "## Read First\n- real/path.py\n\n"
+            "## Verify\nreal verify command\n\n"
+            "## Done\nReal done text.\n"
+        )
+        result = subprocess.CompletedProcess(
+            ["bd"], 0, stdout=json.dumps([self._row(description=description)]), stderr=""
+        )
+        code, out, err, _ = self._invoke(result)
+        self.assertEqual((code, err), (0, ""))
+        body = json.loads(out)
+        self.assertEqual(body["read_first"], ["real/path.py"])
+        self.assertNotIn("fenced/fake.py", body["read_first"])
+        self.assertIn("```", body["description"])
+        self.assertIn("fenced/fake.py", body["description"])
+
     def test_versioned_data_envelope_succeeds(self):
         result = subprocess.CompletedProcess(
             ["bd"], 0, stdout=json.dumps({"data": [self._row()]}), stderr=""
@@ -2109,6 +2138,37 @@ class TestDependencyMapping(unittest.TestCase):
                 self.assertNotEqual(exit_code, 0)
                 mock_run.assert_not_called()
                 self.assertEqual(after, before)
+
+
+class TestRewritePlan(unittest.TestCase):
+    """Review finding: rewrite_plan(..., epic_created=True) on a
+    frontmatter-less plan raised an uncaught AttributeError
+    (`fm_match.start(1)` on None) -- reachable because parse_plan/
+    parse_beads_epic both tolerate empty frontmatter, and resolve_epic can
+    return epic_created=True for such a plan. That crash runs after bd
+    issues are already created in create_issues, orphaning them with no
+    <beads-id> ever written back."""
+
+    def test_frontmatter_less_plan_synthesizes_a_block_instead_of_crashing(self):
+        text = '<task type="auto"><name>x</name></task>'
+
+        out = sync.rewrite_plan(text, "e-1", True, [], [])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), out)
+            _, frontmatter, _ = sync.parse_plan(plan_copy)
+        self.assertEqual(sync.parse_beads_epic(frontmatter), "e-1")
+        self.assertIn(text, out)
+
+    def test_plan_with_frontmatter_is_unaffected(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+
+        out = sync.rewrite_plan(plan_text, "e-2", True, [], [])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), out)
+            _, frontmatter, _ = sync.parse_plan(plan_copy)
+        self.assertEqual(sync.parse_beads_epic(frontmatter), "e-2")
 
 
 class TestIdentityBinding(unittest.TestCase):
@@ -3460,6 +3520,44 @@ Plan B: same shared epic as plan A, one task not yet synced.
         self.assertNotEqual(exit_code, 0)
         mock_run.assert_not_called()
         self.assertEqual(after, before)
+
+    def test_failed_orphan_close_is_printed_not_swallowed(self):
+        """Review finding: every other `bd close` call site in this file
+        prints on a non-zero return code; the orphan-close loop used to
+        swallow a failed close silently."""
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace("---\n", "---\nbeads_epic: orphan-epic\n", 1)
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
+            if argv[:2] == ["bd", "create"]:
+                return _completed(0, stdout="orphan-epic.1\n")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(
+                    0,
+                    stdout=json.dumps(
+                        [
+                            {"id": "orphan-epic.1", "status": "open"},
+                            {"id": "orphan-epic.99", "status": "open"},
+                        ]
+                    ),
+                )
+            if argv[:2] == ["bd", "close"] and argv[2] == "orphan-epic.99":
+                return _completed(1, stderr="simulated: orphan close failed")
+            if argv[:2] == ["bd", "close"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    exit_code = sync.create_issues(str(plan_copy))
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("orphan close failed for orphan-epic.99", captured.getvalue())
 
 
 def _three_task_two_synced_plan_text():
@@ -5041,6 +5139,33 @@ class TestBeadsMdRegeneration(unittest.TestCase):
             self.assertIn("diverged: 1", text)
             self.assertIn("generated_from:", text)
             self.assertIn("generated_at:", text)
+
+    @mock.patch("subprocess.run")
+    def test_enveloped_bd_list_response_is_unwrapped(self, mock_run):
+        """Review finding: `bd show`/`resolve_task_content` already unwrap a
+        `{"data": [...]}` envelope; `bd list` readers assumed a bare list
+        instead. Not observed from a real bd (bd 1.3.0 returns bare lists
+        for both), but the same forward-compatibility posture now applies
+        consistently -- an enveloped `bd list --parent` response must not
+        crash or silently zero out the table."""
+        enveloped = json.dumps(
+            {
+                "data": [
+                    {"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []},
+                ]
+            }
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(enveloped)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+            )
+            exit_code = sync.regenerate_beads_md(str(phase_dir))
+            text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("open: 1", text)
+        self.assertIn("regen-epic.1", text)
 
     @mock.patch("subprocess.run")
     def test_hand_edit_is_absent_after_next_regeneration(self, mock_run):
@@ -6971,7 +7096,7 @@ class TestLifecycleDispatchHook(unittest.TestCase):
     PLUGIN_ROOT = Path(__file__).resolve().parents[4]
     HOOK = PLUGIN_ROOT / "hooks" / "lifecycle-dispatch.sh"
 
-    def _run(self, command, cwd, claude_config_dir=None):
+    def _run(self, command, cwd, claude_config_dir=None, claude_project_dir=None):
         payload = json.dumps(
             {
                 "hook_event_name": "PostToolUse",
@@ -6987,7 +7112,10 @@ class TestLifecycleDispatchHook(unittest.TestCase):
         env["CLAUDE_PLUGIN_ROOT"] = str(self.PLUGIN_ROOT)
         if claude_config_dir is not None:
             env["CLAUDE_CONFIG_DIR"] = str(claude_config_dir)
-        env.pop("CLAUDE_PROJECT_DIR", None)
+        if claude_project_dir is not None:
+            env["CLAUDE_PROJECT_DIR"] = str(claude_project_dir)
+        else:
+            env.pop("CLAUDE_PROJECT_DIR", None)
         return subprocess.run(
             ["bash", str(self.HOOK)],
             input=payload,
@@ -7005,6 +7133,30 @@ class TestLifecycleDispatchHook(unittest.TestCase):
         post = hooks_json["hooks"]["PostToolUse"]
         self.assertEqual(post[0]["matcher"], "Bash")
         self.assertIn("lifecycle-dispatch.sh", post[0]["hooks"][0]["command"])
+
+    def test_payload_cwd_wins_over_a_differing_claude_project_dir(self):
+        """Review finding: PROJECT_DIR is set from the payload's own `cwd`
+        (the tool call's real cwd) before this env-var check ever runs;
+        CLAUDE_PROJECT_DIR must be a fallback for a missing/empty payload
+        cwd, never an override of a present one -- the whole point of
+        extracting the tool call's own cwd. A CLAUDE_PROJECT_DIR pointing at
+        a directory with no `.planning/` must not make the hook skip a real
+        gsd project the tool call actually ran in."""
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            _lifecycle_workspace(tmp_path)
+            unrelated_session_project = tmp_path / "unrelated-session-project"
+            unrelated_session_project.mkdir()
+            result = self._run(
+                "WAVE_PRE_HOOKS_JSON=$(gsd_run loop render-hooks execute:wave:pre --raw)",
+                tmp_path,
+                claude_project_dir=unrelated_session_project,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertIn(
+            "execute:wave:pre", payload["hookSpecificOutput"]["additionalContext"]
+        )
 
     def test_matching_command_emits_post_tool_use_additional_context(self):
         """A PostToolUse hook's plain stdout on exit 0 never reaches Claude; only

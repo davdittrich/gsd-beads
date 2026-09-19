@@ -362,7 +362,14 @@ def find_project_root(start):
 
 
 def confined(root, *parts):
-    """Join parts onto root and reject any resolved escape (T-01-02)."""
+    """Join parts onto root and reject any resolved escape (T-01-02).
+    Callers pass constant path components here (".planning", "STATE.md",
+    etc); the genuinely variable input in this file -- a `phase_dir`/
+    `plan_path` taken from argv -- is deliberately not routed through this
+    guard, since argv is this script's trusted principal (a human or an
+    already-trusted harness invokes the CLI directly, unlike PLAN.md text,
+    which a different, weaker principal authors -- see the module docstring
+    and T-01-02's own threat model)."""
     candidate = root.joinpath(*parts).resolve()
     try:
         candidate.relative_to(root)
@@ -825,7 +832,13 @@ def resolve_task_content(issue_id):
             if re.match(rf"^{re.escape(fence)}", stripped):
                 fence = None
             continue
-        opening = re.match(r"^([\\x60~]{3,})", stripped)
+        # Review finding: `[\\x60~]` (double backslash, inside a raw string)
+        # matches literal `\`, `x`, `6`, `0`, `~` -- never a real backtick --
+        # so a backtick-fenced example was never masked here, and a stray
+        # run of 3+ x/6/0/\ characters was misread as a phantom fence
+        # opener. Matches sync.py's own established fence-detection idiom
+        # elsewhere (_FENCE_OPEN_RE).
+        opening = re.match(r"^(`{3,}|~{3,})", stripped)
         if opening:
             fence = opening.group(1)
             current.append(line)
@@ -1489,6 +1502,21 @@ def resolve_milestone_epic(project_root):
     return result.stdout.strip()
 
 
+def _unwrap_bd_list(payload):
+    """Return the row list from an already-json.loads'd `bd list` payload.
+    Review finding: `_bd_show_row`/`resolve_task_content` already unwrap a
+    `{"data": [...]}` envelope for `bd show`; every `bd list` reader in this
+    file assumed a bare list instead, so the two commands' response
+    handling could silently drift apart. Not currently observed from a real
+    `bd` (verified empirically: bd 1.3.0's `list` and `show` both return a
+    bare list) -- this is the same forward-compatibility posture as the
+    `show` side, applied consistently rather than only where a payload
+    happened to already be enveloped once."""
+    if isinstance(payload, dict):
+        payload = payload.get("data")
+    return payload if isinstance(payload, list) else []
+
+
 def _bd_show_row(result, expected_id):
     """Return the exact identified row, None on absence, or fail closed."""
     if result.returncode != 0:
@@ -1688,6 +1716,17 @@ def rewrite_plan(
         text = text[:start] + replacement + text[end:]
     if epic_created:
         fm_match = FRONTMATTER_RE.match(text)
+        if fm_match is None:
+            # Review finding: a frontmatter-less plan is tolerated by
+            # parse_plan/parse_beads_epic (empty frontmatter, stored_epic_id
+            # None), so resolve_epic can reach here with epic_created=True
+            # for such a plan -- `fm_match.start(1)` on None used to raise
+            # an uncaught AttributeError after bd issues were already
+            # created in create_issues, orphaning them with no <beads-id>
+            # ever written back. Synthesize a minimal frontmatter block
+            # instead of crashing.
+            text = "---\n\n---\n" + text
+            fm_match = FRONTMATTER_RE.match(text)
         insert_pos = fm_match.start(1)
         newline = "\r\n" if text.startswith("---\r\n") else "\n"
         text = text[:insert_pos] + f"beads_epic: {epic_id}{newline}" + text[insert_pos:]
@@ -2019,10 +2058,12 @@ def filter_open_ids(ids):
     if result.returncode != 0:
         return list(ids)  # fail-open: status unconfirmed, attempt the close anyway
     try:
-        rows = json.loads(result.stdout)
+        rows = _unwrap_bd_list(json.loads(result.stdout))
     except json.JSONDecodeError:
         return list(ids)
-    open_ids = {r["id"] for r in rows}
+    # Review finding: every sibling row-reader in this file uses
+    # .get("id", "") for a malformed/missing key, never bare indexing.
+    open_ids = {r.get("id", "") for r in rows}
     return [i for i in ids if i in open_ids]
 
 
@@ -2167,6 +2208,21 @@ def _milestone_authority_error(project_root):
     return None
 
 
+def _task_preflight_fail(task, reason):
+    """Print + return 1 for a native tracker identity preflight failure on
+    one task (ponytail: 8 near-identical print/return-1 blocks in
+    create_issues's per-task validation loop collapsed to one call). No
+    STATE.md note here -- unlike the plan-level preflight failures
+    _fail_preflight covers, a malformed task attribute is not itself the
+    class of onError:skip-defeating regression gh-17 addresses, so this
+    keeps the exact pre-existing stderr-only behavior."""
+    print(
+        f"native tracker identity preflight failed for task {task['name']!r}: {reason}",
+        file=sys.stderr,
+    )
+    return 1
+
+
 def _fail_preflight(project_root, message):
     """Print `message` to stderr, note it in `.planning/STATE.md` (gh-17: a
     preflight failure here otherwise degrades this onError:skip dispatch
@@ -2226,69 +2282,29 @@ def create_issues(plan_arg, allow_strip=True):
 
     for task in tasks:
         if not task["attributes_valid"] or task["type_attribute_count"] > 1:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "task opening attributes are malformed or duplicated",
-                file=sys.stderr,
-            )
-            return 1
+            return _task_preflight_fail(task, "task opening attributes are malformed or duplicated")
         if len(task["beads_ids"]) > 1:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "duplicate beads-id elements",
-                file=sys.stderr,
-            )
-            return 1
+            return _task_preflight_fail(task, "duplicate beads-id elements")
         if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                f"unsafe beads-id {task['beads_id']!r}",
-                file=sys.stderr,
-            )
-            return 1
+            return _task_preflight_fail(task, f"unsafe beads-id {task['beads_id']!r}")
         if task["type"] not in ("auto", "tracer"):
             continue
         if not task["native_identity_readable"]:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "task opening is not readable by the native parser",
-                file=sys.stderr,
-            )
-            return 1
+            return _task_preflight_fail(task, "task opening is not readable by the native parser")
         tracker_ids = task["tracker_ids"]
         if len(task["tracker_id_candidates"]) != len(tracker_ids) or any(
             tracker_id != tracker_id.strip() for tracker_id in tracker_ids
         ):
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "tracker-id attribute is not exact",
-                file=sys.stderr,
-            )
-            return 1
+            return _task_preflight_fail(task, "tracker-id attribute is not exact")
         if len(tracker_ids) > 1:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "duplicate tracker-id attributes",
-                file=sys.stderr,
-            )
-            return 1
+            return _task_preflight_fail(task, "duplicate tracker-id attributes")
         if not tracker_ids:
             continue
         if not task["beads_id"]:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                "tracker-id has no authoritative beads-id",
-                file=sys.stderr,
-            )
-            return 1
+            return _task_preflight_fail(task, "tracker-id has no authoritative beads-id")
         expected = f"beads:{task['beads_id']}"
         if tracker_ids[0] != expected:
-            print(
-                f"native tracker identity preflight failed for task {task['name']!r}: "
-                f"expected {expected!r}, found {tracker_ids[0]!r}",
-                file=sys.stderr,
-            )
-            return 1
+            return _task_preflight_fail(task, f"expected {expected!r}, found {tracker_ids[0]!r}")
 
     for sibling_path in discover_plan_files(plan_path.parent).values():
         if sibling_path.resolve() == plan_path:
@@ -2429,16 +2445,21 @@ def create_issues(plan_arg, allow_strip=True):
     orphan_result = run_bd(["bd", "list", "--parent", epic_id, "--all", "--json"])
     if orphan_result.returncode == 0:
         try:
-            children = json.loads(orphan_result.stdout)
+            children = _unwrap_bd_list(json.loads(orphan_result.stdout))
         except json.JSONDecodeError:
             children = []
         current_ids = {tid for tid in task_ids if tid} | collect_epic_task_ids(
             plan_path.parent, epic_id
         )
         for orphan_id in find_orphans(children, current_ids):
-            run_bd(
+            close_result = run_bd(
                 ["bd", "close", orphan_id, "--reason", "no longer maps to a plan task"]
             )
+            # Review finding: every other `bd close` call site in this file
+            # prints on a non-zero return code; this one silently swallowed
+            # a failed orphan close.
+            if close_result.returncode != 0:
+                print(f"create-issues: orphan close failed for {orphan_id}: {close_result.stderr.strip()}")
 
     prereq_last_ids = []
     for prereq_id in parse_depends_on(frontmatter):
@@ -2854,7 +2875,7 @@ def regenerate_beads_md(phase_dir_arg):
     rows = []
     if result.returncode == 0:
         try:
-            rows = json.loads(result.stdout)
+            rows = _unwrap_bd_list(json.loads(result.stdout))
         except json.JSONDecodeError:
             rows = []
 
@@ -2956,7 +2977,7 @@ def render_status_mapping(phase_dir_arg):
     rows = []
     if result.returncode == 0:
         try:
-            rows = json.loads(result.stdout)
+            rows = _unwrap_bd_list(json.loads(result.stdout))
         except json.JSONDecodeError:
             rows = []
 
