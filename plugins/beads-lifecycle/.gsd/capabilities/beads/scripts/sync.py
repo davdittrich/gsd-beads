@@ -36,12 +36,18 @@ TASK_RE = re.compile(_TASK_OPEN_PATTERN + r".*?</task>", re.DOTALL)
 # not a shape any plan in this project actually uses, and over-matching a
 # short closer as if it closed a long opener is the failure mode gh-17
 # exists to prevent, so under-matching here is the safe direction).
-_FENCE_OPEN_RE = re.compile(r"^([ \t]{0,3})(`{3,}|~{3,})[^\n]*$", re.MULTILINE)
+# CodeRabbit: a backtick fence's info string must not itself contain a
+# backtick (CommonMark 4.5) -- otherwise a line like "````<task>`" would be
+# read as a valid fence opener when it is not one.
+_FENCE_OPEN_RE = re.compile(r"^([ \t]{0,3})(`{3,}(?!.*`)|~{3,}).*$", re.MULTILINE)
 # A code span opens with a backtick run and closes at the next run of the
 # identical length (CommonMark 6.1) -- a shorter or longer run in between
 # (e.g. the single backticks inside a `` `<task>` `` double-backtick span)
-# is content, not a delimiter.
-INLINE_CODE_RE = re.compile(r"(`+)(?:(?!\1).)*?\1", re.DOTALL)
+# is content, not a delimiter. CodeRabbit: both runs must be exact-boundary
+# (not a backtick adjacent to either) -- otherwise `(`+)` can backtrack to a
+# shorter opener, or `\1` can match a prefix of a longer closing run,
+# treating an unequal ``` ... `<task> ... `` sequence as one code span.
+INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(?:(?!\1).)*?(?<!`)\1(?!`)", re.DOTALL)
 
 
 def _mask_fenced_code_blocks(text):
@@ -61,9 +67,12 @@ def _mask_fenced_code_blocks(text):
             out.append(lines[i])
             i += 1
             continue
-        indent, marker = opener.group(1), opener.group(2)
+        marker = opener.group(2)
         char = marker[0]
-        close_re = re.compile(rf"^[ \t]{{0,{len(indent)}}}{re.escape(char)}{{{len(marker)},}}[ \t]*$")
+        # CodeRabbit: the closing fence's indentation is 0-3 spaces on its
+        # own terms (CommonMark 4.5) -- it is never constrained by the
+        # opener's own indentation.
+        close_re = re.compile(rf"^[ \t]{{0,3}}{re.escape(char)}{{{len(marker)},}}[ \t]*$")
         end = i + 1
         while end < len(lines) and close_re.match(lines[end].rstrip("\r\n")) is None:
             end += 1
@@ -1772,10 +1781,21 @@ def _resolve_completed_task_ids(phase_dir):
     """Return the union of every <beads-id> across every plan in phase_dir
     whose SUMMARY.md exists (B9/D-04): the completed-task-id side of the
     divergence comparison. An empty phase_dir (no plans) returns an empty
-    set."""
+    set.
+
+    CodeRabbit/gh-17: a malformed completed plan's PlanParseError is caught
+    here, per plan, so one bad plan degrades (excluded, noted in STATE.md)
+    instead of crashing regenerate_beads_md/render_wave_status_block, which
+    both call this uncaught. A completed plan's own authority violation
+    (_task_authority_error, a ValueError distinct from PlanParseError) still
+    raises -- that invariant is unrelated to gh-17 and is left unchanged."""
     completed_ids = set()
-    for plan_id in discover_plan_files(phase_dir):
-        ids, _skipped = find_completed_task_ids(phase_dir, plan_id)
+    for plan_id, plan_path in discover_plan_files(phase_dir).items():
+        try:
+            ids, _skipped = find_completed_task_ids(phase_dir, plan_id)
+        except PlanParseError as exc:
+            _note_plan_parse_error(phase_dir, plan_path, exc)
+            continue
         completed_ids.update(ids)
     return completed_ids
 
@@ -1930,7 +1950,13 @@ def find_completed_task_ids(phase_dir, plan_id):
     try:
         _, _, tasks = parse_plan(plan_path)
     except PlanParseError as exc:
-        raise ValueError(
+        # CodeRabbit/gh-17: raised as PlanParseError, not plain ValueError,
+        # so _resolve_completed_task_ids can catch it specifically and
+        # degrade (regenerate_beads_md/render_wave_status_block call it
+        # uncaught) -- PlanParseError already IS-A ValueError, so
+        # close_wave/reconcile_stale_closed's existing ValueError boundary
+        # and message-content tests are unaffected.
+        raise PlanParseError(
             f"completed-task authority invalid in {plan_path.name}: {exc}"
         ) from exc
     if _is_halted_status(status):

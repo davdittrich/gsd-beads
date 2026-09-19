@@ -1350,6 +1350,45 @@ class TestParsePlanCodeSpanMasking(unittest.TestCase):
         self.assertIn("<action>beads: content synced to bd -- see `bd show epic.1`.</action>", stripped)
         self.assertNotIn("<verify>", stripped)
 
+    def test_indented_closing_fence_closes_regardless_of_opener_indentation(self):
+        """CodeRabbit: a closing fence's indentation is 0-3 spaces on its
+        own terms (CommonMark 4.5), never tied to the opener's own
+        indentation -- a column-zero opener closed by an indented closer
+        must still close there, not run to end of text and mask a live
+        <task> that follows."""
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text += "\n```\nexample\n```\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+
+    def test_backtick_in_fence_info_string_is_not_a_fence_opener(self):
+        """CodeRabbit: CommonMark forbids a backtick anywhere in a backtick
+        fence's own info string -- such a line is not a valid fence opener
+        at all, so the code after it is live text, not masked."""
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text += "\n- prose mentioning ```not`a`fence on one line\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+
+    def test_unequal_length_backtick_runs_are_not_masked_as_one_span(self):
+        """CodeRabbit: `(`+)` must not backtrack to a shorter opener, and
+        `\\1` must not match a prefix of a longer closing run. A 3-backtick
+        run with no matching 3-backtick closer anywhere must not be treated
+        as a valid opener paired with a later, unrelated 2-backtick run --
+        that would hide the live <task> between them inside a bogus span."""
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text += "\n- ``` some text <task> more `` end\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with self.assertRaises(sync.PlanParseError):
+                sync.parse_plan(plan_copy)
+
 
 class TestAppendStateBlockerHardening(unittest.TestCase):
     """gh-17 F-04/F-05: append_state_blocker is the shared sink every
@@ -5142,6 +5181,37 @@ class TestPlanParseErrorDegradesInsteadOfCrashing(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("regen-epic.1", captured.getvalue())
         self.assertEqual(state_text.count("### Blockers/Concerns"), 1)
+        self.assertIn("plan parse failed in 01-08-PLAN.md", state_text)
+
+    @mock.patch("subprocess.run")
+    def test_regenerate_beads_md_excludes_malformed_completed_sibling(self, mock_run):
+        """CodeRabbit: a malformed plan whose SUMMARY.md exists (completed)
+        reaches find_completed_task_ids via _resolve_completed_task_ids,
+        which regenerate_beads_md calls uncaught -- this crashed before the
+        PlanParseError raised there was made catchable per plan, distinct
+        from the resolve_phase_epic/_resolve_task_ordinal_map paths the
+        other test in this class exercises via has_summary=False."""
+        rows = json.dumps(
+            [{"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []}]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        malformed_text = _regen_two_task_plan_text().replace(
+            "plan: 07", "plan: 08", 1
+        ).replace("</task>", "", 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-07", _regen_two_task_plan_text(), True), ("01-08", malformed_text, True)],
+                with_state=True,
+            )
+            state_path = phase_dir.parent.parent / "STATE.md"
+
+            exit_code = sync.regenerate_beads_md(str(phase_dir))
+            state_text = state_path.read_text(encoding="utf-8")
+            beads_md_exists = (phase_dir / "01-BEADS.md").exists()
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(beads_md_exists)
         self.assertIn("plan parse failed in 01-08-PLAN.md", state_text)
 
 
