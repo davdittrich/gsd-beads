@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.4
+
+### Fixed
+- **`parse_plan` counted a `<task>` literal quoted in prose (backticked or fenced) as a real opener, failing the one-to-one opener/closer invariant for the whole plan -- and, since the cross-plan authority preflight parses every sibling plan, for the whole phase.** Because every lifecycle dispatch point is `onError: skip`, the failure was invisible: `create-issues` failed for every plan in the phase, `regenerate-beads-md` crashed outright (uncaught `PlanParseError`) so `BEADS.md` silently froze, and `execute:wave:pre`'s `<beads_status>` block crashed the same way. `parse_plan` now runs the opener/closer check and task-block discovery against a length-preserving masked copy of the plan text with every fenced code block and inline code span blanked out, so a documented `<task>` literal in prose is ignored and a whole balanced example block quoted inside a fence is no longer discovered as a live task; a genuinely unbalanced/unclosed real `<task>` (outside any code span) still raises. `create_issues`'s own two preflight failure paths, and the `resolve_phase_epic`/`_resolve_task_ordinal_map`/`render_wave_status_block` reads that previously let an uncaught `PlanParseError` crash the process, now degrade to a one-line `.planning/STATE.md` `### Blockers/Concerns` note instead of failing silently or crashing. ([GH#17](https://github.com/davdittrich/gsd-beads/issues/17))
+
 ## 0.7.3
 
 ### Fixed

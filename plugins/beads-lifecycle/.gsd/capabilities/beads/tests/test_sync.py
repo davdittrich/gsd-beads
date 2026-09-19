@@ -1185,6 +1185,212 @@ class TestPhaseScopedEpic(unittest.TestCase):
         self.assertEqual(epic_a, epic_b)
 
 
+class TestParsePlanCodeSpanMasking(unittest.TestCase):
+    """gh-17: a `<task>` opener quoted in prose (fenced or inline) must not
+    count as a real opener, and a whole balanced example quoted inside a
+    fence must not be discovered as a live task -- only masking (not a
+    line-start-anchor requirement) survives a fenced whole-block example."""
+
+    def test_inline_backticked_mention_does_not_break_parse(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text += (
+            "\n- Removing the `<task>` wrapper is the only shape that trips "
+            "neither path.\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Task 1: Do the thing")
+
+    def test_fenced_whole_task_example_is_not_discovered_as_a_live_task(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace(
+            "<tasks>",
+            "<tasks>\n\n"
+            "Example of the shape:\n\n"
+            "```\n<task type=\"auto\">\n<name>Example</name>\n</task>\n```\n",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Task 1: Do the thing")
+
+    def test_genuinely_unclosed_task_outside_any_code_span_still_raises(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace("</task>", "", 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with self.assertRaises(sync.PlanParseError) as ctx:
+                sync.parse_plan(plan_copy)
+
+        self.assertIn("task structure invalid", str(ctx.exception))
+
+    @mock.patch("subprocess.run")
+    def test_backticked_mention_no_longer_fails_create_issues_for_whole_phase(
+        self, mock_run
+    ):
+        """The exact regression this bug caused (gh-17): one plan's prose
+        mention used to fail create_issues for every sibling plan in the
+        phase via the cross-plan authority preflight."""
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_a_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_b_text = plan_a_text.replace("plan: 01", "plan: 02", 1)
+        plan_b_text += "\n- Documented convention: the literal `<task>` opener.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = _write_plan_workspace(Path(tmp), plan_a_text)
+            plan_b = plan_a.parent / "01-02-PLAN.md"
+            plan_b.write_text(plan_b_text, encoding="utf-8")
+
+            exit_a = sync.create_issues(str(plan_a))
+
+        self.assertEqual(exit_a, 0)
+
+    @mock.patch("subprocess.run")
+    def test_genuine_cross_plan_parse_failure_still_blocks_and_notes_state(
+        self, mock_run
+    ):
+        """gh-17 fold-in: a real (non-code-span) cross-plan parse failure
+        must still block create_issues for the phase (unchanged invariant)
+        and must now leave a STATE.md trace instead of degrading silently
+        under the onError:skip lifecycle dispatch."""
+        mock_run.side_effect = _make_bd_side_effect()
+        plan_a_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_b_text = plan_a_text.replace("plan: 01", "plan: 02", 1).replace(
+            "</task>", "", 1
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = _write_plan_workspace(Path(tmp), plan_a_text, with_state=True)
+            plan_b = plan_a.parent / "01-02-PLAN.md"
+            plan_b.write_text(plan_b_text, encoding="utf-8")
+            state_path = plan_a.parent.parent.parent / "STATE.md"
+
+            exit_a = sync.create_issues(str(plan_a))
+            state_text = state_path.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_a, 1)
+        self.assertEqual(state_text.count("### Blockers/Concerns"), 1)
+        self.assertIn("cross-plan task authority preflight failed", state_text)
+        self.assertIn("01-02-PLAN.md", state_text)
+
+    def test_nested_fence_wrapping_a_shorter_example_fence_is_fully_masked(self):
+        """gh-17 F-01: a 4-backtick fence quoting a 3-backtick example of the
+        task shape (the natural way to show a fenced example in Markdown)
+        must mask the whole outer span, including the inner example -- not
+        stop at the inner fence and leave the inner <task> live."""
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace(
+            "<tasks>",
+            "<tasks>\n\n"
+            "````markdown\n```xml\n<task type=\"auto\">\n<name>Example</name>\n</task>\n```\n````\n",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Task 1: Do the thing")
+
+    def test_tilde_fence_whole_task_example_is_masked(self):
+        """gh-17 F-01: CommonMark's other fence character (~~~) must mask
+        the same as a backtick fence."""
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace(
+            "<tasks>",
+            "<tasks>\n\n~~~\n<task type=\"auto\">\n<name>Example</name>\n</task>\n~~~\n",
+            1,
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Task 1: Do the thing")
+
+    def test_double_backtick_inline_span_wrapping_single_backticked_task_is_masked(self):
+        """gh-17 F-02: a double-backtick inline span (the CommonMark shape
+        for quoting text that itself contains a backtick) must mask fully
+        -- a naive single-backtick regex stops at the first inner backtick
+        and leaves the wrapped <task> exposed."""
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text += "\n- Quoting the literal: `` `<task>` `` is what trips this up.\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Task 1: Do the thing")
+
+    def test_strip_task_bodies_survives_a_code_span_closing_tag_inside_the_task(self):
+        """gh-17 F-03: strip_task_bodies must locate task boundaries the
+        same masked way parse_plan does -- an `</task>` literal inside the
+        task's own code span must not be read as its real closing tag and
+        truncate the block mid-strip."""
+        text = (
+            '<task type="auto">\n'
+            "  <name>Task 1</name>\n"
+            "  <beads-id>epic.1</beads-id>\n"
+            "  <files>a.py</files>\n"
+            "  <read_first>a.py</read_first>\n"
+            "  <action>Document the closing tag: `</task>` appears in prose here.</action>\n"
+            "  <verify>true</verify>\n"
+            "  <done>done</done>\n"
+            "</task>\n"
+        )
+
+        stripped = sync.strip_task_bodies(text, {"epic.1"})
+
+        self.assertEqual(stripped.count("<task"), 1)
+        self.assertEqual(stripped.count("</task>"), 1)
+        self.assertIn("<action>beads: content synced to bd -- see `bd show epic.1`.</action>", stripped)
+        self.assertNotIn("<verify>", stripped)
+
+
+class TestAppendStateBlockerHardening(unittest.TestCase):
+    """gh-17 F-04/F-05: append_state_blocker is the shared sink every
+    PlanParseError degrade path now writes through -- its own dedup and
+    sanitization must hold regardless of which caller feeds it."""
+
+    def test_identical_message_is_not_appended_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "STATE.md"
+            state_path.write_text(
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            sync.append_state_blocker(state_path, "same failure")
+            sync.append_state_blocker(state_path, "same failure")
+            text = state_path.read_text(encoding="utf-8")
+
+        self.assertEqual(text.count("same failure"), 1)
+
+    def test_newlines_in_message_cannot_inject_a_new_heading(self):
+        """gh-17 F-05: a message built from plan text (e.g. a task <name>)
+        carries no newline a reader should trust -- it must not be able to
+        break out of its own bullet and forge a new STATE.md section."""
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "STATE.md"
+            state_path.write_text(
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            sync.append_state_blocker(
+                state_path, "task 'X'\n\n### Injected Section\n\nPayload"
+            )
+            text = state_path.read_text(encoding="utf-8")
+
+        # Folded onto the bullet's own line as inert prose, not a real
+        # second heading -- "### Injected Section" may appear as flattened
+        # text, but never at the start of its own line.
+        self.assertNotIn("\n### Injected Section", text)
+        self.assertEqual(text.count("### Blockers/Concerns"), 1)
+
+
 def _minimal_task(**overrides):
     """A hand-built task dict carrying only the fields `_task_description`
     reads, all empty/None by default -- callers override the fields under
@@ -1420,7 +1626,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.7.3")
+        self.assertEqual(manifest["version"], "0.7.4")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -1454,13 +1660,13 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         ]
         prose = " ".join(readme.split())
         expected_versions = {
-            "plugin": (plugin["version"], "1.6.3"),
-            "capability": (self._manifest()["version"], "0.7.3"),
-            "registry": (registry["entries"]["beads"]["version"], "0.7.3"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.3"),
+            "plugin": (plugin["version"], "1.6.4"),
+            "capability": (self._manifest()["version"], "0.7.4"),
+            "registry": (registry["entries"]["beads"]["version"], "0.7.4"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.7.4"),
             "README Codex pin": (
                 codex_pin,
-                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.3"],
+                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.6.4"],
             ),
         }
         for surface, (actual, expected) in expected_versions.items():
@@ -4865,6 +5071,78 @@ class TestWaveStatusBlock(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertIn("no synced issues for this wave", captured.getvalue())
+
+
+class TestPlanParseErrorDegradesInsteadOfCrashing(unittest.TestCase):
+    """gh-17 fold-in: before this fix, a PlanParseError from any one plan
+    in the phase dir crashed regenerate_beads_md/render_wave_status_block
+    outright (uncaught exception) instead of degrading like the adjacent
+    OSError/UnicodeDecodeError skip-and-continue path already in place --
+    the observed 'regenerate-beads-md failed' / 'wave-status-block failed'
+    symptoms from the issue. A malformed sibling plan must now be excluded
+    (not crash the run) and leave a STATE.md trace."""
+
+    @mock.patch("subprocess.run")
+    def test_regenerate_beads_md_excludes_malformed_sibling_and_notes_state(
+        self, mock_run
+    ):
+        rows = json.dumps(
+            [{"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []}]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        malformed_text = _regen_two_task_plan_text().replace(
+            "plan: 07", "plan: 08", 1
+        ).replace("</task>", "", 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-07", _regen_two_task_plan_text(), True), ("01-08", malformed_text, False)],
+                with_state=True,
+            )
+            state_path = phase_dir.parent.parent / "STATE.md"
+
+            exit_code = sync.regenerate_beads_md(str(phase_dir))
+            state_text = state_path.read_text(encoding="utf-8")
+            beads_md_exists = (phase_dir / "01-BEADS.md").exists()
+
+        self.assertEqual(exit_code, 0)
+        self.assertTrue(beads_md_exists)
+        self.assertEqual(state_text.count("### Blockers/Concerns"), 1)
+        self.assertIn("plan parse failed in 01-08-PLAN.md", state_text)
+        # gh-17 F-04: resolve_phase_epic and _resolve_task_ordinal_map both
+        # hit this same malformed plan inside one regenerate_beads_md call
+        # -- append_state_blocker's own dedup, not caller coordination,
+        # must keep this to exactly one bullet.
+        self.assertEqual(state_text.count("plan parse failed in 01-08-PLAN.md"), 1)
+
+    @mock.patch("subprocess.run")
+    def test_render_wave_status_block_excludes_malformed_sibling_and_notes_state(
+        self, mock_run
+    ):
+        rows = json.dumps(
+            [{"id": "regen-epic.1", "title": "Regen thing 1", "status": "open", "dependencies": []}]
+        )
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        malformed_text = _regen_two_task_plan_text().replace(
+            "plan: 07", "plan: 08", 1
+        ).replace("</task>", "", 1)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-07", _regen_two_task_plan_text(), True), ("01-08", malformed_text, False)],
+                with_state=True,
+            )
+            state_path = phase_dir.parent.parent / "STATE.md"
+
+            captured = io.StringIO()
+            with contextlib.redirect_stdout(captured):
+                exit_code = sync.render_wave_status_block(str(phase_dir), ["01-07"])
+            state_text = state_path.read_text(encoding="utf-8")
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("regen-epic.1", captured.getvalue())
+        self.assertEqual(state_text.count("### Blockers/Concerns"), 1)
+        self.assertIn("plan parse failed in 01-08-PLAN.md", state_text)
 
 
 class TestBlockingOpen(unittest.TestCase):
