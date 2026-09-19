@@ -31,15 +31,15 @@ TASK_RE = re.compile(_TASK_OPEN_PATTERN + r".*?</task>", re.DOTALL)
 # whitespace, so every downstream offset (task_matches spans, name_end,
 # beads_id_span, tracker_insert) still indexes correctly into the real text.
 # Line-start opening delimiter run of 3+ backticks/tildes -- CommonMark
-# requires the closing run to be the same character and >= length; this
-# checks exact-length-match closers only (an occasionally longer closer is
-# not a shape any plan in this project actually uses, and over-matching a
-# short closer as if it closed a long opener is the failure mode gh-17
-# exists to prevent, so under-matching here is the safe direction).
-# CodeRabbit: a backtick fence's info string must not itself contain a
-# backtick (CommonMark 4.5) -- otherwise a line like "````<task>`" would be
-# read as a valid fence opener when it is not one.
-_FENCE_OPEN_RE = re.compile(r"^([ \t]{0,3})(`{3,}(?!.*`)|~{3,}).*$", re.MULTILINE)
+# requires the closing run to be the same character and >= length (`close_re`
+# below enforces the ">=" with `{len(marker),}`; under-matching a too-short
+# closer, never over-matching a too-long one, is the safe direction gh-17
+# needs). CodeRabbit: a backtick fence's info string must not itself contain
+# a backtick (CommonMark 4.5) -- otherwise a line like "````<task>`" would be
+# read as a valid fence opener when it is not one. Matched one already-split
+# line at a time (see `_mask_fenced_code_blocks`), so no MULTILINE flag and
+# no need to capture the indent (only the marker, group 1, is ever read).
+_FENCE_OPEN_RE = re.compile(r"^(?:[ \t]{0,3})(`{3,}(?!.*`)|~{3,}).*$")
 # A code span opens with a backtick run and closes at the next run of the
 # identical length (CommonMark 6.1) -- a shorter or longer run in between
 # (e.g. the single backticks inside a `` `<task>` `` double-backtick span)
@@ -47,7 +47,21 @@ _FENCE_OPEN_RE = re.compile(r"^([ \t]{0,3})(`{3,}(?!.*`)|~{3,}).*$", re.MULTILIN
 # (not a backtick adjacent to either) -- otherwise `(`+)` can backtrack to a
 # shorter opener, or `\1` can match a prefix of a longer closing run,
 # treating an unequal ``` ... `<task> ... `` sequence as one code span.
-INLINE_CODE_RE = re.compile(r"(?<!`)(`+)(?!`)(?:(?!\1).)*?(?<!`)\1(?!`)", re.DOTALL)
+# A code span also can't cross a blank line (CommonMark 6.1: a blank line
+# ends the paragraph) -- without that boundary, a stray backtick in one
+# paragraph can pair with an unrelated stray backtick in a later one and
+# mask everything between, including a real <task> block, with no
+# PlanParseError to catch it: silent task loss, worse than gh-17's crash.
+INLINE_CODE_RE = re.compile(
+    r"(?<!`)(`+)(?!`)(?:(?!\1)(?!\r?\n[ \t]*\r?\n).)*?(?<!`)\1(?!`)", re.DOTALL
+)
+
+
+def _blank(s):
+    """Replace every non-newline character in `s` with a space (gh-17) --
+    shared by both masking passes below so a match's length, and therefore
+    every offset taken against the masked copy, is preserved exactly."""
+    return re.sub(r"[^\r\n]", " ", s)
 
 
 def _mask_fenced_code_blocks(text):
@@ -67,7 +81,7 @@ def _mask_fenced_code_blocks(text):
             out.append(lines[i])
             i += 1
             continue
-        marker = opener.group(2)
+        marker = opener.group(1)
         char = marker[0]
         # CodeRabbit: the closing fence's indentation is 0-3 spaces on its
         # own terms (CommonMark 4.5) -- it is never constrained by the
@@ -78,9 +92,11 @@ def _mask_fenced_code_blocks(text):
             end += 1
         end = min(end + 1, len(lines))  # include the closing fence line, or run to EOF
         for line in lines[i:end]:
-            out.append(re.sub(r"[^\r\n]", " ", line))
+            out.append(_blank(line))
         i = end
     return "".join(out)
+
+
 NAME_RE = re.compile(r"<name>(.*?)</name>", re.DOTALL)
 BEADS_ID_RE = re.compile(r"<beads-id>(.*?)</beads-id>", re.DOTALL)
 FILES_RE = re.compile(r"<files>(.*?)</files>", re.DOTALL)
@@ -420,10 +436,10 @@ def parse_beads_epic(frontmatter):
 
 
 def _blank_keep_newlines(match):
-    """`re.sub` replacement: blank a match to same-length whitespace,
-    preserving every `\\r`/`\\n` byte so line numbers and match offsets in
-    the masked copy stay valid against the real text (gh-17)."""
-    return re.sub(r"[^\r\n]", " ", match.group(0))
+    """`re.sub` replacement wrapping `_blank` for a match object -- line
+    numbers and match offsets in the masked copy stay valid against the
+    real text (gh-17) since both preserve every `\\r`/`\\n` byte."""
+    return _blank(match.group(0))
 
 
 def _mask_code_spans(text):

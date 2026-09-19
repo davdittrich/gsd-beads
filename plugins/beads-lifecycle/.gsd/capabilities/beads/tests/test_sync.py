@@ -1389,6 +1389,37 @@ class TestParsePlanCodeSpanMasking(unittest.TestCase):
             with self.assertRaises(sync.PlanParseError):
                 sync.parse_plan(plan_copy)
 
+    def test_stray_backticks_in_different_paragraphs_do_not_pair_into_one_span(self):
+        """Spec review: a code span cannot cross a blank line (CommonMark
+        6.1 -- a blank line ends the paragraph). Without that boundary, an
+        unrelated stray backtick in an earlier paragraph pairs with a stray
+        backtick in a later one and masks everything between as one bogus
+        span -- including a real, balanced <task> block sitting between
+        them, with no PlanParseError to catch it: silent task loss, worse
+        than the crash gh-17 was filed over."""
+        plan_text = (
+            "---\ntitle: test\n---\n\n"
+            "<objective>test</objective>\n\n"
+            "<tasks>\n\n"
+            "Stray backtick here `.\n\n"
+            '<task type="auto">\n'
+            "  <name>Task 1: Do the thing</name>\n"
+            "  <files>src/example.py</files>\n"
+            "  <read_first>src/example.py</read_first>\n"
+            "  <action>Implement the thing.</action>\n"
+            "  <verify>python3 -m py_compile src/example.py</verify>\n"
+            "  <done>The thing is implemented.</done>\n"
+            "</task>\n\n"
+            "Another stray backtick `.\n\n"
+            "</tasks>\n"
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            _, _, tasks = sync.parse_plan(plan_copy)
+
+        self.assertEqual(len(tasks), 1)
+        self.assertEqual(tasks[0]["name"], "Task 1: Do the thing")
+
 
 class TestAppendStateBlockerHardening(unittest.TestCase):
     """gh-17 F-04/F-05: append_state_blocker is the shared sink every
