@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.0
+
+### Added
+- **Every bd epic and task that `beads-sync` creates from a `PLAN.md` now carries the `gsd-sync` label.** External tools (for example the planning-with-beads ticket-template validator) could not tell PLAN.md-rendered issues from hand-written ones, so synced issues -- whose bodies are machine-rendered from task tags and parsed back by `resolve_task_content` -- were flagged as malformed tickets. `resolve_milestone_epic`, `resolve_epic` and `resolve_issue` pass `-l gsd-sync`; hand-shaped todo migrations stay unlabelled. Rendered bodies and parsing are unchanged; historical issues are not relabelled.
+
 ## 0.7.4
 
 ### Fixed
