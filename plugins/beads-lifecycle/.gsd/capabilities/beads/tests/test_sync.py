@@ -8302,5 +8302,59 @@ fi'''
             self.assertEqual([call[1] for call in calls], [list(argv) for argv in argv_cases])
 
 
+class TestGsdSyncLabel(unittest.TestCase):
+    """yyjh: every PLAN.md-rendered bd create (phase epic, milestone epic,
+    task) carries `-l gsd-sync` so external tools can identify synced issues
+    without title/heading heuristics; hand-shaped todo migrations do not."""
+
+    def _assert_all_labelled(self, mock_run, expected_types):
+        creates = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+        ]
+        types = sorted(argv[argv.index("--type") + 1] for argv in creates)
+        self.assertEqual(types, sorted(expected_types))
+        for argv in creates:
+            self.assertIn("-l", argv, argv)
+            self.assertEqual(argv[argv.index("-l") + 1], "gsd-sync", argv)
+
+    def test_phase_epic_and_task_creates_carry_gsd_sync_label(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch.object(
+                sync, "run_bd", side_effect=_make_bd_side_effect()
+            ) as mock_run:
+                exit_code = sync.create_issues(str(plan_copy), allow_strip=False)
+        self.assertEqual(exit_code, 0)
+        self._assert_all_labelled(mock_run, ["epic", "task"])
+
+    @mock.patch("subprocess.run")
+    def test_milestone_epic_create_carries_gsd_sync_label(self, mock_run):
+        mock_run.side_effect = _make_milestone_bd_side_effect()
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            _, phase_dirs = _write_milestone_workspace(
+                Path(tmp), ["01-substrate"], epic_per="milestone"
+            )
+            plan = phase_dirs["01-substrate"] / "01-01-PLAN.md"
+            plan.write_text(plan_text, encoding="utf-8")
+            exit_code = sync.create_issues(str(plan))
+        self.assertEqual(exit_code, 0)
+        self._assert_all_labelled(mock_run, ["epic", "task"])
+
+    @mock.patch("subprocess.run")
+    def test_todo_migration_create_has_no_gsd_sync_label(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        with tempfile.TemporaryDirectory() as tmp:
+            pending_dir = _write_todo_pending_workspace(Path(tmp))
+            _write_fixture_todo(pending_dir, "todo-wellformed.md")
+            self.assertEqual(sync.migrate_todos(str(pending_dir)), 0)
+        creates = [
+            c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]
+        ]
+        self.assertEqual(len(creates), 1)
+        self.assertNotIn("gsd-sync", creates[0])
+
+
 if __name__ == "__main__":
     unittest.main()

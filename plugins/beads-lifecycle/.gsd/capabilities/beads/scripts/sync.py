@@ -23,6 +23,9 @@ BD_TIMEOUT = 15  # seconds; bounded timeout on every bd subprocess call
 GIT_TIMEOUT = 15  # seconds; bounded timeout on every git subprocess call (ship_override)
 NOTICE = "bd unavailable -- sync skipped"
 BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
+# yyjh: marks every epic/task create so external tools can identify synced
+# issues without heuristics; hand-shaped todo migrations stay unlabelled.
+SYNC_LABEL = "gsd-sync"
 
 _TASK_OPEN_PATTERN = r'''<task(?=[\s>])(?:"[^"]*"|'[^']*'|[^'">])*>'''
 RAW_TASK_OPEN_RE = re.compile(r"<task(?=[\s>])")
@@ -1518,7 +1521,7 @@ def resolve_milestone_epic(project_root):
     argv = ["bd", "create", title]
     if milestone_bullet:
         argv += ["-d", _epic_description(milestone_bullet)]
-    argv += ["--type", "epic", "--silent"]
+    argv += ["-l", SYNC_LABEL, "--type", "epic", "--silent"]
     result = run_bd(argv)
     if result.returncode != 0:
         raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
@@ -1604,7 +1607,7 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, 
     argv = ["bd", "create", title]
     if description:
         argv += ["-d", description]
-    argv += ["--type", "epic", "--silent"]
+    argv += ["-l", SYNC_LABEL, "--type", "epic", "--silent"]
     result = run_bd(argv)
     if result.returncode != 0:
         raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
@@ -1657,7 +1660,7 @@ def resolve_issue(task, epic_id, ordinal_prefix, task_index):
         argv += ["-d", description]
     if task["acceptance_criteria"]:
         argv += ["--acceptance", task["acceptance_criteria"]]
-    argv += ["--type", "task", "--parent", epic_id, "--silent"]
+    argv += ["-l", SYNC_LABEL, "--type", "task", "--parent", epic_id, "--silent"]
     result = run_bd(argv)
     if result.returncode != 0:
         raise RuntimeError(f"bd create (task) failed: {result.stderr.strip()}")
