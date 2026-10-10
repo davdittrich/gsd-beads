@@ -13,6 +13,7 @@ import contextlib
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -346,6 +347,10 @@ def append_state_blocker(state_path, message):
     after its first day."""
     state_path = Path(state_path)
     if not state_path.exists():
+        return
+    if state_path.is_symlink():
+        # A planted STATE.md -> elsewhere would take this append.
+        print(f"STATE.md note skipped: {state_path} is a symlink", file=sys.stderr)
         return
     text = state_path.read_text(encoding="utf-8")
     heading = "### Blockers/Concerns"
@@ -2366,11 +2371,17 @@ def _atomic_write_text(path, content):
     """Write `content` to `path` via a same-directory temp file + os.replace,
     keeping the original mode (a plain temp file would take the umask's).
     A kill or ENOSPC leaves the previous file whole, never truncated."""
-    tmp = path.with_name(f".{path.name}.tmp")
+    # Unpredictable name, created O_EXCL|O_NOFOLLOW before the text open: a
+    # planted symlink at a guessable temp name cannot redirect the write.
+    # os.replace then swaps a planted symlink at `path` itself instead of
+    # writing through it.
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
     try:
+        os.close(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666))
         with tmp.open("w", encoding="utf-8", newline="") as handle:
             handle.write(content)
-        shutil.copymode(path, tmp)
+        if path.exists() and not path.is_symlink():
+            shutil.copymode(path, tmp)
         os.replace(tmp, path)
     except BaseException:
         tmp.unlink(missing_ok=True)
@@ -2800,7 +2811,7 @@ def _write_beads_recall_failure(phase_dir, reason):
         + f"No recall data for this run ({reason_line}). Any previous recall was discarded; "
         "re-run beads-recall before trusting phase scope.\n"
     )
-    (phase_dir / f"{padded_phase}-BEADS-RECALL.md").write_text(out_text, encoding="utf-8")
+    _atomic_write_text(phase_dir / f"{padded_phase}-BEADS-RECALL.md", out_text)
 
 
 def beads_recall(phase_dir_arg):
@@ -2894,7 +2905,7 @@ def beads_recall(phase_dir_arg):
     )
     out_text = frontmatter + f"# Beads Recall: Phase {phase_dir.name}\n\n" + body
     out_path = phase_dir / f"{padded_phase}-BEADS-RECALL.md"
-    out_path.write_text(out_text, encoding="utf-8")
+    _atomic_write_text(out_path, out_text)
 
     print(
         f"BEADS-RECALL.md written: {len(matched)} matched, {len(unscoped)} unscoped "
@@ -2907,14 +2918,17 @@ def resolve_phase_epic(phase_dir):
     """Return the `beads_epic` frontmatter value carried by the first
     `NN-NN-PLAN.md` discovered in phase_dir that has one, or None when no
     plan in this phase has ever synced (D-05: every plan in a phase shares
-    the same epic, so the first match is sufficient)."""
+    the same epic, so the first match is sufficient). Raises EpicAuthorityError
+    for an unsafe id -- returning None would read as "never synced" and make
+    a caller create a duplicate epic or delete the BEADS.md gate artifact
+    without saying why."""
     for plan_path in discover_plan_files(phase_dir).values():
         try:
             with _degrade_on_parse_error(phase_dir, plan_path):
                 _, frontmatter, _ = parse_plan(plan_path)
-                m = BEADS_EPIC_RE.search(frontmatter)
-                if m:
-                    return m.group(1)
+                epic_id = parse_beads_epic(frontmatter)
+                if epic_id is not None:
+                    return epic_id
         except (OSError, UnicodeDecodeError):
             continue
     return None
@@ -3033,7 +3047,13 @@ def regenerate_beads_md(phase_dir_arg):
     padded_phase = phase_dir.name.split("-", 1)[0]
     out_path = phase_dir / f"{padded_phase}-BEADS.md"
 
-    epic_id = resolve_phase_epic(phase_dir)
+    try:
+        epic_id = resolve_phase_epic(phase_dir)
+    except EpicAuthorityError as exc:
+        # Fail closed: a stale BEADS.md must not satisfy the ship gate.
+        out_path.unlink(missing_ok=True)
+        print(f"BEADS.md: epic identity authority failed: {exc}", file=sys.stderr)
+        return 1
 
     def write_unknown(argv):
         # Fail closed: a non-numeric sentinel never equals 0, so the
@@ -3042,7 +3062,8 @@ def regenerate_beads_md(phase_dir_arg):
         # The file keeps epic/blocking_open/diverged so ship_override can still
         # record its audit trailer.
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        out_path.write_text(
+        _atomic_write_text(
+            out_path,
             "---\n"
             f"phase: {phase_dir.name}\n"
             f"epic: {epic_id}\n"
@@ -3051,7 +3072,6 @@ def regenerate_beads_md(phase_dir_arg):
             f"generated_at: {generated_at}\n"
             "---\n\n"
             f"# BEADS.md: {phase_dir.name}\n\nbd state unknown.\n",
-            encoding="utf-8",
         )
 
     if not bd_available():
@@ -3119,7 +3139,7 @@ def regenerate_beads_md(phase_dir_arg):
     )
     body = f"# BEADS.md: {phase_dir.name}\n\n{table}\n"
 
-    out_path.write_text(frontmatter + body, encoding="utf-8")
+    _atomic_write_text(out_path, frontmatter + body)
 
     print(f"BEADS.md regenerated: {open_count} open, {closed_count} closed (epic {epic_id})")
     return 0
@@ -3180,7 +3200,11 @@ def render_status_mapping(phase_dir_arg):
 
     phase_dir = Path(phase_dir_arg).resolve()
 
-    epic_id = resolve_phase_epic(phase_dir)
+    try:
+        epic_id = resolve_phase_epic(phase_dir)
+    except EpicAuthorityError as exc:
+        print(f"beads-status: epic identity authority failed: {exc}", file=sys.stderr)
+        return 1
     if epic_id is None:
         print("no epic yet -- nothing to show")
         return 0
@@ -3384,6 +3408,14 @@ def ship_override(phase_dir_arg):
         print(f"ship-override: {exc}")
         return 1
 
+    # The counts go into a git trailer and a bd comment: digits (or the
+    # fail-closed `unknown` sentinel write_unknown emits when bd is down --
+    # exactly when an override is needed) only.
+    for key in ("blocking_open", "diverged"):
+        if not re.fullmatch(r"\d+|unknown", fields[key]):
+            print(f"ship-override: BEADS.md {key} is not a count ({fields[key]!r}) -- nothing recorded")
+            return 1
+
     trailer = (
         f"Beads-Override: ship_gate bypassed, "
         f"blocking_open={fields['blocking_open']}, diverged={fields['diverged']}"
@@ -3411,7 +3443,9 @@ def ship_override(phase_dir_arg):
         else:
             print(f"ship-override: git commit --amend failed: {result.stderr.strip()}")
 
-    if bd_available():
+    if not SAFE_BD_ID_RE.fullmatch(fields["epic"]):
+        print(f"ship-override: BEADS.md epic {fields['epic']!r} is not a bd id -- comment mirror skipped")
+    elif bd_available():
         comment_text = (
             f"ship_gate override: blocking_open={fields['blocking_open']}, "
             f"diverged={fields['diverged']}"

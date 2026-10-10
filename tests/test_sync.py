@@ -5363,7 +5363,7 @@ Fixture task carrying a <beads-id> and <files> for the reverse-lookup test.
             out_path = phase_dir / "02-BEADS-RECALL.md"
             out_path.write_text("stale content from a prior successful run\n", encoding="utf-8")
 
-            with mock.patch.object(Path, "write_text", side_effect=OSError("disk full")):
+            with mock.patch("os.replace", side_effect=OSError("disk full")):
                 with self.assertRaises(OSError):
                     sync.beads_recall(str(phase_dir))
 
@@ -9275,6 +9275,118 @@ class TestMilestoneScopedPhases(unittest.TestCase):
         orphans = text.split("## Issues with no matching plan task", 1)[1].split("## Plan tasks", 1)[0]
         self.assertNotIn("tracer-f5x.1 ", orphans)
         self.assertNotIn("tracer-f5x.1 ", text.split("## Issues with no matching plan task")[0])
+
+
+class TestArtifactWriteHardening(unittest.TestCase):
+    """gsd-beads-cjbc.11: generated artifacts never write through a planted
+    symlink, and an epic id read from disk is validated before any bd argv."""
+
+    def _victim(self, tmp):
+        victim = Path(tmp) / "victim.txt"
+        victim.write_text("precious\n", encoding="utf-8")
+        return victim
+
+    def test_beads_md_symlink_target_is_replaced_not_followed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            victim = self._victim(tmp)
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)], with_state=True
+            )
+            (phase_dir / "01-BEADS.md").symlink_to(victim)
+            with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect()):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    sync.regenerate_beads_md(str(phase_dir))
+            self.assertEqual(victim.read_text(encoding="utf-8"), "precious\n")
+            self.assertFalse((phase_dir / "01-BEADS.md").is_symlink())
+            self.assertIn("blocking_open", (phase_dir / "01-BEADS.md").read_text(encoding="utf-8"))
+
+    def test_recall_symlink_target_is_replaced_not_followed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            victim = self._victim(tmp)
+            phase_dir = _write_recall_phase_workspace(Path(tmp))
+            (phase_dir / "02-BEADS-RECALL.md").symlink_to(victim)
+            with mock.patch("subprocess.run", side_effect=_make_beads_recall_bd_side_effect("[]\n")):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    sync.beads_recall(str(phase_dir))
+            self.assertEqual(victim.read_text(encoding="utf-8"), "precious\n")
+            self.assertFalse((phase_dir / "02-BEADS-RECALL.md").is_symlink())
+
+    def test_state_md_symlink_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            victim = Path(tmp) / "victim.md"
+            victim.write_text("### Blockers/Concerns\n", encoding="utf-8")
+            state = Path(tmp) / "STATE.md"
+            state.symlink_to(victim)
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err):
+                sync.append_state_blocker(state, "boom")
+            self.assertEqual(victim.read_text(encoding="utf-8"), "### Blockers/Concerns\n")
+            self.assertIn("symlink", err.getvalue())
+
+    def test_atomic_write_ignores_planted_fixed_tmp_symlink_and_creates_new_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            victim = self._victim(tmp)
+            target = Path(tmp) / "out.md"
+            (Path(tmp) / ".out.md.tmp").symlink_to(victim)
+            sync._atomic_write_text(target, "new\n")
+            self.assertEqual(victim.read_text(encoding="utf-8"), "precious\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "new\n")
+
+    def _unsafe_epic_workspace(self, tmp):
+        text = _regen_two_task_plan_text().replace(
+            "beads_epic: regen-epic", "beads_epic: --db=/tmp/x"
+        )
+        return _write_wave_workspace(Path(tmp), [("01-07", text, True)], with_state=True)
+
+    def test_resolve_phase_epic_rejects_unsafe_id(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = self._unsafe_epic_workspace(tmp)
+            with self.assertRaises(sync.EpicAuthorityError):
+                sync.resolve_phase_epic(phase_dir)
+
+    def test_regenerate_beads_md_unsafe_epic_runs_no_bd_list_and_drops_stale_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = self._unsafe_epic_workspace(tmp)
+            (phase_dir / "01-BEADS.md").write_text("blocking_open: 0\n", encoding="utf-8")
+            with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect()) as mock_run:
+                with contextlib.redirect_stderr(io.StringIO()):
+                    exit_code = sync.regenerate_beads_md(str(phase_dir))
+            self.assertEqual(exit_code, 1)
+            self.assertFalse((phase_dir / "01-BEADS.md").exists())
+        for call in mock_run.call_args_list:
+            self.assertNotIn("--db=/tmp/x", call.args[0])
+
+    def _override(self, **kwargs):
+        calls = []
+
+        def _side_effect(argv, **kw):
+            calls.append(argv)
+            if argv[0] == "git":
+                return _completed(0)
+            return _completed(0, stdout="[]\n")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(
+                Path(tmp), _ship_override_beads_md_text(**kwargs)
+            )
+            with mock.patch("shutil.which", return_value="/usr/bin/bd"):
+                with mock.patch("subprocess.run", side_effect=_side_effect):
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        exit_code = sync.ship_override(str(phase_dir))
+        return exit_code, calls
+
+    def test_ship_override_unsafe_epic_skips_bd_argv(self):
+        exit_code, calls = self._override(epic="--db=/tmp/x")
+        self.assertFalse(any("--db=/tmp/x" in c for c in calls))
+        self.assertFalse(any(c[:2] == ["bd", "comment"] for c in calls))
+        self.assertEqual(exit_code, 0)
+
+    def test_ship_override_non_numeric_counts_refused(self):
+        exit_code, calls = self._override(blocking_open="2 Signed-off-by: x", diverged=1)
+        self.assertEqual(exit_code, 1)
+        self.assertFalse(any(c[0] == "git" for c in calls))
+        exit_code, calls = self._override(blocking_open="unknown", diverged="unknown")
+        self.assertEqual(exit_code, 0)
 
 
 if __name__ == "__main__":
