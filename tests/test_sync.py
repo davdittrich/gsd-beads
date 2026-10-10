@@ -9547,14 +9547,22 @@ class TestRenderedIssueTitles(unittest.TestCase):
 
 
 class TestPhaseMentionTokens(unittest.TestCase):
-    def test_only_slash_paths_of_four_or_more_chars_are_mentions(self):
+    def test_only_slash_paths_or_bare_filenames_are_mentions(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _write_recall_phase_workspace(
-                Path(tmp), roadmap_section="See e.g. v1.2, i.e. `src/mod.py`, example.com/docs, v1.2/notes and /.c here.\n"
+                Path(tmp),
+                roadmap_section=(
+                    "See e.g. v1.2, i.e. `src/mod.py`, example.com/docs, v1.2/notes, /.c, "
+                    "README.md, capability.json, a.b and 2.39 here.\n"
+                ),
             )
             roadmap = Path(tmp) / ".planning" / "ROADMAP.md"
             mentions = sync.extract_phase_mentions(roadmap, "02", phase_dir / "02-CONTEXT.md")
-        self.assertEqual(mentions, ["src/mod.py"])
+        # Bare filenames count (README.md, capability.json); e.g, i.e, version
+        # numbers, one-letter stems and short slash tokens do not.
+        self.assertEqual(
+            mentions, ["src/mod.py", "example.com", "README.md", "capability.json"]
+        )
 
 
 class TestRecallParseFailure(unittest.TestCase):

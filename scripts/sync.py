@@ -2813,19 +2813,21 @@ def _render_beads_recall_body(matched, unscoped):
     return "\n".join(parts)
 
 
-# A path-like token must contain a `/` (so "e.g", "i.e", "v1.2" never match);
-# enforced on the match, not in the regex, because backtracking can shorten a
-# match ("example.com/docs" -> "example.com") past the slash.
+# A path-like token must contain a `/` or be a bare filename (stem of 2+
+# word chars, 2-4 letter extension: README.md, capability.json) so "e.g",
+# "i.e", "v1.2" never match; enforced on the match, not in the regex, because
+# backtracking can shorten a match ("example.com/docs" -> "example.com").
 PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
 PATH_TOKEN_MIN_LEN = 4
 # GH#11: digits are `\w`, so a bare version number ("2.39") matches
 # PATH_TOKEN_RE too but is never a path/extension -- excluded below.
 NUMERIC_ONLY_TOKEN_RE = re.compile(r"[\d.]+")
+BARE_FILENAME_RE = re.compile(r"[\w\-]{2,}\.[A-Za-z]{2,4}")
 
 
 def extract_phase_mentions(roadmap_path, phase_num, context_path):
-    """Return deduplicated path-like tokens (a `/`-containing, dotted-
-    extension substring) mentioned in the phase's ROADMAP.md section (from
+    """Return deduplicated path-like tokens (a `/`-containing or bare-filename,
+    dotted-extension substring) mentioned in the phase's ROADMAP.md section (from
     its header to the next `### Phase` heading) plus context_path's full
     text when it exists -- the only file-scope signal available at plan:pre
     time for the phase being planned, since no PLAN.md exists yet for it
@@ -2846,7 +2848,11 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
 
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
-        if "/" not in token or len(token) < PATH_TOKEN_MIN_LEN or NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
+        if (
+            not ("/" in token or BARE_FILENAME_RE.fullmatch(token))
+            or len(token) < PATH_TOKEN_MIN_LEN
+            or NUMERIC_ONLY_TOKEN_RE.fullmatch(token)
+        ):
             continue
         if token not in seen:
             seen.append(token)
