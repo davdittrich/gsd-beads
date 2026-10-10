@@ -1834,7 +1834,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.8.1")
+        self.assertEqual(manifest["version"], "0.9.0")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -1855,9 +1855,6 @@ class TestTaskContentResolverManifest(unittest.TestCase):
                 encoding="utf-8"
             )
         )
-        registry = json.loads(
-            (root / ".gsd-capabilities.json").read_text(encoding="utf-8")
-        )
         marketplace = json.loads(
             (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
         )
@@ -1868,13 +1865,12 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         ]
         prose = " ".join(readme.split())
         expected_versions = {
-            "plugin": (plugin["version"], "1.7.1"),
-            "capability": (self._manifest()["version"], "0.8.1"),
-            "registry": (registry["entries"]["beads"]["version"], "0.8.1"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.8.1"),
+            "plugin": (plugin["version"], "1.8.0"),
+            "capability": (self._manifest()["version"], "0.9.0"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.9.0"),
             "README Codex pin": (
                 codex_pin,
-                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.7.1"],
+                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.8.0"],
             ),
         }
         for surface, (actual, expected) in expected_versions.items():
@@ -8867,17 +8863,17 @@ class TestDirectSkillSyncResolver(unittest.TestCase):
     HOOK_FILE = ROOT / "hooks" / "lifecycle-dispatch.sh"
     RELATIVE_SYNC = ".gsd/capabilities/beads/scripts/sync.py"
     PLUGIN_SYNC = "scripts/sync.py"
-    DIAGNOSTIC = "gsd-beads: sync.py not found in global, plugin, or project capability roots"
+    DIAGNOSTIC = "gsd-beads: sync.py not found in global or plugin roots"
     NO_BASE_DIAGNOSTIC = "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py"
     RESOLVER = """_B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi"""
     RAW_FENCES = (
@@ -8910,7 +8906,7 @@ fi"""
         return subprocess.run(
             [
                 "bash", "-c",
-                self.RESOLVER + '\npython3 "$SYNC_PY" "$@"',
+                self.RESOLVER + '\npython3 -I "$SYNC_PY" "$@"',
                 "resolver-test", *argv,
             ],
             cwd=env["UNRELATED_CWD"], env=env,
@@ -8991,13 +8987,28 @@ fi"""
                     checked += 1
         self.assertEqual(checked, len(self.RAW_FENCES) + 1)  # ten skill fences + the hook
 
+    def test_plugin_rung_is_empty_when_plugin_root_unset(self):
+        # An unset CLAUDE_PLUGIN_ROOT must not degrade _P to "/scripts/sync.py".
+        sources = sorted((self.ROOT / "skills").glob("*/SKILL.md"))
+        env = {k: v for k, v in os.environ.items() if k != "CLAUDE_PLUGIN_ROOT"}
+        for source in sources:
+            for line in source.read_text(encoding="utf-8").splitlines():
+                if not line.startswith("_P="):
+                    continue
+                with self.subTest(source=source.name):
+                    result = subprocess.run(
+                        ["bash", "-c", line + '\nprintf %s "$_P"'],
+                        capture_output=True, text=True, env=env, timeout=15,
+                    )
+                    self.assertEqual(result.stdout, "")
+
     def test_all_ten_fences_have_exact_static_contract(self):
         texts = {}
         for name, relative, tails in self.RAW_FENCES:
             if relative not in texts:
                 texts[relative] = self._skill_path(relative).read_text(encoding="utf-8")
             text = texts[relative]
-            commands = "\n".join(f'python3 "$SYNC_PY" {tail}' for tail in tails)
+            commands = "\n".join(f'python3 -I "$SYNC_PY" {tail}' for tail in tails)
             expected = f"```bash\n{self.RESOLVER}\n{commands}\n```"
             self.assertEqual(text.count(expected), 1, f"{name} static contract changed")
         self.assertEqual(
@@ -9005,7 +9016,7 @@ fi"""
             len(self.RAW_FENCES),
         )
         self.assertEqual(
-            sum(text.count('python3 "$SYNC_PY"') for text in texts.values()),
+            sum(text.count('python3 -I "$SYNC_PY"') for text in texts.values()),
             sum(len(tails) for _, _, tails in self.RAW_FENCES),
         )
 

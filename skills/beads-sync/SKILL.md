@@ -34,15 +34,15 @@ Run it against the PLAN.md path from `$ARGUMENTS`:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" create-issues <PLAN.md path>
+python3 -I "$SYNC_PY" create-issues <PLAN.md path>
 ```
 
 The script parses every `<task>` block in the plan, verifies every existing `<beads-id>` before any

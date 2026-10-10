@@ -63,7 +63,7 @@ invalidate a live session's plugin cache mid-run ([davdittrich/gsd-beads#8](http
 root cause upstream in [openai/codex#31383](https://github.com/openai/codex/issues/31383)).
 
 ```bash
-codex plugin marketplace add davdittrich/gsd-beads --ref v1.7.1
+codex plugin marketplace add davdittrich/gsd-beads --ref v1.8.0
 codex plugin add beads-lifecycle@gsd-beads
 ```
 
@@ -275,9 +275,11 @@ codex plugin remove beads-lifecycle@gsd-beads
 ## Caveats
 
 - **`bd` must be on `PATH`.** If it isn't, the SessionStart hook's `bd prime --hook-json`
-  call fails, and every gsd lifecycle step that reads live `bd` state degrades to a no-op
-  with a visible notice instead of crashing — beads support is fail-open by design, not a
-  hard dependency.
+  hook exits silently, and every gsd lifecycle step that reads live `bd` state degrades to a
+  no-op instead of crashing: skills print one notice, and `sync.py` appends a note under
+  `### Blockers/Concerns` in `STATE.md`. Beads support is fail-open by design, not a hard
+  dependency, with one exception: the `ship:pre` gate fails closed, so an unavailable `bd`
+  blocks shipping until `bd` is back or `ship_gate: false` records an override.
 - **On a runtime without `PostToolUse`**, the native and patched points still run; drive the three
   compatibility points with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre`
   `<beads_status>` block is phase-wide because the hook carries no wave plan-id list: a superset of

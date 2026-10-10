@@ -17,9 +17,9 @@ gsd-core's `ship.md` `preflight_checks` has no generic loop over `gsd_run loop r
 
 ### Upstream status and revert condition
 
-The `ship:pre` **gate** half is upstream: open-gsd/gsd-core#3559 (PR #3608), shipped in gsd-core v1.11.0, so v2 of the patch carries only the **step** half. (#3554, cited in earlier revisions, was closed NOT_PLANNED and tracks nothing.) A machine still carrying the v1 marker runs a redundant gate loop; `check_shipmd_patch` reporting "missing" is the signal to reapply v2.
+The `ship:pre` **gate** half is upstream: open-gsd/gsd-core#3559 (PR #3608), shipped in gsd-core v1.11.0, so v2 of the patch carries only the **step** half. (#3554, cited in earlier revisions, was closed NOT_PLANNED and tracks nothing.) A machine still carrying the v1 marker runs a redundant gate loop; `check_patch` reporting "missing" is the signal to reapply v2.
 
-Revert: once gsd-core ships a native generic `ship:pre` step dispatch, delete this patch, `check_shipmd_patch`, `beads-status` Step 2d, and `beads-recall` Step 3.5.
+Revert: once gsd-core ships a native generic `ship:pre` step dispatch, delete this patch, `check_patch`'s `ship-md` target, `beads-status` Step 2d, and `beads-recall` Step 3.5.
 
 ### Patch-loss detection
 
@@ -36,7 +36,7 @@ Inside `preflight_checks`, immediately after step 6's final line (ending `"...co
 <!-- /gsd-beads-patch:ship-pre-generic-dispatch v2 -->
 ```
 
-`sync.py`'s `check_shipmd_patch` checks for the opening marker string's presence in the live
+`sync.py`'s `check_patch` checks for the opening marker string's presence in the live
 `ship.md` to detect whether this patch survived a `gsd-core` update or capability reinstall —
 both of which can silently overwrite `ship.md` and drop the patch with no error.
 
