@@ -140,8 +140,8 @@ script the current repository ships
 resolve `sync.py` in this order: with a global install
 (`${GSD_HOME:-$HOME}/.gsd/capabilities/beads/capability.json` present, as any filesystem
 entry) its own script runs, and a missing script fails closed; otherwise the plugin copy.
-Skill fences stop there and fail closed; only the hook falls back to the project copy, so
-project-scope-only installs keep dispatching. Without an absolute `GSD_HOME` or `HOME` nothing runs. One
+Both stop there and fail closed; the project's own copy never runs, so a project-scope-only
+install does not dispatch from the hook. Without an absolute `GSD_HOME` or `HOME` nothing runs. One
 consequence for development: inside a gsd-beads checkout the skills and hook run the
 *installed* global `sync.py`, not the working tree's, so reinstall the capability after
 editing `scripts/sync.py` (the test suite exercises the working tree directly).

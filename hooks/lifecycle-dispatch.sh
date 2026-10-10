@@ -109,12 +109,18 @@ for point in POINTS:
 [ "${PROJECT_DIR:--}" != "-" ] || PROJECT_DIR="${CLAUDE_PROJECT_DIR:-}"
 [ "${PROJECT_DIR:--}" != "-" ] || PROJECT_DIR="$PWD"
 [ -d "$PROJECT_DIR/.planning" ] || exit 0
+# Resolve the plugin root to an absolute path BEFORE entering the project: a
+# relative $0 or CLAUDE_PLUGIN_ROOT resolved after the cd lands inside the
+# project, whose planted hooks/ and scripts/sync.py would then run. An
+# unresolvable root blanks the plugin rung only; a global install still runs.
+_P="$(CDPATH= cd "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}" 2>/dev/null && pwd)/scripts/sync.py"
+case "$_P" in /?*/scripts/sync.py) ;; *) _P="" ;; esac
 cd "$PROJECT_DIR" || exit 0
 
 # Keyed on the global MANIFEST, which a cloned repo cannot plant: a global
 # install runs its own script (missing => skip, never fall through); else the
-# plugin copy; the project copy only last, so project-scope-only installs keep
-# working without letting a hostile repo's sync.py run on every event.
+# plugin copy; else nothing. The project's own copy never runs: a cloned repo
+# controls it, and it would otherwise execute on every event.
 # No absolute GSD_HOME/HOME => the global manifest cannot be located, so the
 # precedence is unknowable: run nothing, even though the plugin copy would
 # resolve (a relative base would resolve inside the project we just cd'd to).
@@ -123,10 +129,8 @@ cd "$PROJECT_DIR" || exit 0
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) exit 0 ;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/sync.py"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
-elif [ -f "$_P" ]; then SYNC_PY="$_P"
-else SYNC_PY="$PROJECT_DIR/.gsd/capabilities/beads/scripts/sync.py"; fi
+else SYNC_PY="$_P"; fi
 [ -f "$SYNC_PY" ] || exit 0
 
 # Only stdout is captured. sync.py routes its benign dispatch-level skips to

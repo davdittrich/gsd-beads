@@ -8698,7 +8698,7 @@ class TestLifecycleDispatchSyncResolution(unittest.TestCase):
     """kilo.23: the hook used to run the project's own
     .gsd/capabilities/beads/scripts/sync.py first, so a cloned hostile repo
     executed its code on every render-hooks call. Selection is keyed on the
-    global manifest: global, then plugin, then project last."""
+    global manifest: global, then plugin; the project copy never runs (V5)."""
 
     HOOK = TestLifecycleDispatchHook.HOOK
     RELATIVE_SYNC = ".gsd/capabilities/beads/scripts/sync.py"
@@ -8765,13 +8765,54 @@ class TestLifecycleDispatchSyncResolution(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result)
             self.assertEqual(calls, [spies["plugin"]])
 
-    def test_project_scope_only_install_still_runs(self):
+    def test_project_copy_never_runs(self):
+        # V5: no global install and no plugin copy leaves only the project's
+        # own sync.py, which a cloned repo controls: run nothing.
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
-            spies = self._layout(base, global_manifest=False, global_script=False, plugin=False)
+            self._layout(base, global_manifest=False, global_script=False, plugin=False)
             result, calls = self._run(base, base / "missing plugin")
             self.assertEqual(result.returncode, 0, result)
-            self.assertEqual(calls, [spies["project"]])
+            self.assertEqual(calls, [])
+
+    def test_global_install_runs_with_unresolvable_plugin_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            spies = self._layout(base, plugin=False)
+            result, calls = self._run(base, base / "missing plugin")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(calls, [spies["global"]])
+
+    def test_relative_plugin_root_never_resolves_inside_project(self):
+        # V5: the plugin root was resolved after `cd "$PROJECT_DIR"`, so a
+        # relative $0 or CLAUDE_PLUGIN_ROOT landed in the project, whose
+        # planted hooks/ and scripts/sync.py then ran. Resolve before the cd.
+        cases = {"relative $0": None, "relative CLAUDE_PLUGIN_ROOT": "."}
+        for label, plugin_root in cases.items():
+            with self.subTest(case=label), tempfile.TemporaryDirectory() as tmp:
+                base = Path(tmp)
+                spies = self._layout(base, global_manifest=False, global_script=False)
+                (base / "plugin/hooks").mkdir()
+                shutil.copy2(self.HOOK, base / "plugin/hooks/lifecycle-dispatch.sh")
+                (base / "project/hooks").mkdir()
+                self._spy(base / "project", self.PLUGIN_SYNC)
+                payload = json.dumps({
+                    "tool_input": {"command": "H=$(gsd-tools loop render-hooks plan:pre --raw)"},
+                    "cwd": str(base / "project"),
+                })
+                env = dict(os.environ, GSD_HOME=str(base / "global"), HOME=str(base / "home"),
+                           SPY_LOG=str(base / "spy.log"))
+                env.pop("CLAUDE_PROJECT_DIR", None)
+                env.pop("CLAUDE_PLUGIN_ROOT", None)
+                if plugin_root is not None:
+                    env["CLAUDE_PLUGIN_ROOT"] = plugin_root
+                result = subprocess.run(["bash", "hooks/lifecycle-dispatch.sh"], input=payload,
+                                        capture_output=True, text=True, env=env,
+                                        cwd=base / "plugin", timeout=60)
+                log = base / "spy.log"
+                calls = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+                self.assertEqual(result.returncode, 0, result)
+                self.assertEqual(calls, [spies["plugin"]])
 
     def test_global_manifest_without_script_fails_closed(self):
         with tempfile.TemporaryDirectory() as tmp:
