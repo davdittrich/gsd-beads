@@ -104,4 +104,13 @@ PATH="$NOBD_BIN" CLAUDE_PLUGIN_ROOT="$STUB_ROOT" run_hook
 [ ! -s "$SCRATCH/stdout" ] || fail "case6: stdout not empty without bd: $(cat "$SCRATCH/stdout")"
 pass "case6: missing bd exits 0 with empty stdout"
 
+# Case 7: SessionStart has an explicit timeout covering the bounded lock wait.
+python3 -I - "$REPO_ROOT/hooks/hooks.json" <<'PY' || fail "case7: SessionStart timeout missing or below 60s"
+import json, sys
+hooks = json.load(open(sys.argv[1]))["hooks"]["SessionStart"]
+timeouts = [h.get("timeout") for group in hooks for h in group["hooks"]]
+sys.exit(0 if timeouts and all(isinstance(v, int) and v >= 60 for v in timeouts) else 1)
+PY
+pass "case7: SessionStart hook declares an explicit timeout"
+
 echo "ALL PASS"

@@ -116,6 +116,15 @@ case "\$*" in
       find "\$_p" \( -name __pycache__ -o -name tests \) > "$SCRATCH/staged.noise"
     fi ;;
 esac
+# Enabled state persists like gsd-core: set without a flag keeps it.
+case "\$*" in
+  "capability state --runtime "*" --raw")
+    _enabled="\$(cat "$SCRATCH/enabled" 2>/dev/null || echo true)"
+    printf '{"capabilities":[{"id":"beads","enabled":%s}]}\n' "\$_enabled"
+    exit 0 ;;
+  "capability set beads --disable "*) echo false > "$SCRATCH/enabled" ;;
+  "capability set beads --enable "*) echo true > "$SCRATCH/enabled" ;;
+esac
 exit $stub_status
 STUB
   chmod +x "$BIN_DIR/gsd-tools.cjs"
@@ -201,6 +210,7 @@ run_script() {
     R2_LEDGER_PATH="${R2_LEDGER_PATH:-}" PYTHONDONTWRITEBYTECODE=1 \
     R2_REPLACE_FAIL="${R2_REPLACE_FAIL:-}" R2_REPLACE_READY="${R2_REPLACE_READY:-}" \
     R2_REPLACE_RELEASE="${R2_REPLACE_RELEASE:-}" PATH="$TEST_BIN:/usr/bin:/bin" \
+    GSD_AUTO_INSTALL_LOCK_WAIT_SECONDS="${LOCK_WAIT_SECONDS:-0}" \
     bash "$SCRIPT" "$1" >"$STDOUT_FILE" 2>"$STDERR_FILE"
   STATUS=$?
 }
@@ -416,6 +426,8 @@ run_script beads
 grep -q 'selected command contract verification failed' "$STDERR_FILE" \
   || fail "case3d: retired selected command was certified"
 [ ! -e "$STATE_FILE" ] || fail "case3d: sidecar recorded an invalid selected command"
+[ "$(tail -n 1 "$STUB_LOG")" = "capability set beads --disable --runtime codex --scope global --config-dir $CODEX_HOME" ] \
+  || fail "case3d: failed verification left the new bundle enabled"
 pass "case3d: selected command verification rejects retired execute-plan"
 teardown
 
@@ -661,17 +673,104 @@ printf '%s\n' "\$*" >> "$STUB_LOG"
   || exit 64
 [ "\$*" = "capability set beads --runtime codex --scope global --config-dir $CODEX_HOME" ] && exit 1
 [ "\$*" = "query skills-root codex --raw" ] && printf '%s\n' "$SKILLS_ROOT"
+# Enabled state persists like gsd-core: set without a flag keeps it.
+case "\$*" in
+  "capability state --runtime "*" --raw")
+    _enabled="\$(cat "$SCRATCH/enabled" 2>/dev/null || echo true)"
+    printf '{"capabilities":[{"id":"beads","enabled":%s}]}\n' "\$_enabled"
+    exit 0 ;;
+  "capability set beads --disable "*) echo false > "$SCRATCH/enabled" ;;
+  "capability set beads --enable "*) echo true > "$SCRATCH/enabled" ;;
+esac
 exit 0
 STUB
 chmod +x "$BIN_DIR/gsd-tools.cjs"
 seed_selected "$SKILLS_ROOT"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case8: exit status $STATUS, expected 0"
-[ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case8: expected root validation, install, and surface invocations"
+[ "$(wc -l < "$STUB_LOG")" -eq 5 ] || fail "case8: expected root validation, install, surface, state, and rollback invocations"
 grep -q 'capability set failed' "$STDERR_FILE" || fail "case8: missing projection-failure diagnostic"
+[ "$(tail -n 1 "$STUB_LOG")" = "capability set beads --disable --runtime codex --scope global --config-dir $CODEX_HOME" ] \
+  || fail "case8: half-install was not rolled back with capability set --disable"
+grep -q 'capability disabled' "$STDERR_FILE" || fail "case8: rollback not reported"
+[ -f "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled" ] \
+  || fail "case8: hook did not record that it disabled the capability"
 [ ! -e "$STATE_FILE" ] || fail "case8: sidecar was created despite surface failure"
 [ "$(cat "$LEGACY_STATE_FILE")" = legacy-retry-sentinel ] || fail "case8: failed migration changed legacy retry state"
 pass "case8: projection failure warns, retries later, and never records false convergence"
+teardown
+
+### Case 8b (R22): the hook re-enables only what it disabled itself ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf '\n' >> "$BUNDLE_DIR/capability.json"
+sync_installed_fixture
+mkdir -p "$GSD_HOME/.gsd"
+: > "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled"
+run_script beads
+grep -qx "capability set beads --enable --runtime codex --scope global --config-dir $CODEX_HOME" "$STUB_LOG" \
+  || fail "case8b: hook-disabled capability was not re-enabled on the next install"
+[ ! -e "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled" ] \
+  || fail "case8b: re-enable marker survived a converged install"
+[ -f "$STATE_FILE" ] || fail "case8b: re-enabled install did not converge"
+pass "case8b: a hook rollback is undone by the next converged install"
+teardown
+
+### Case 8e (R22): a user's own --disable is never rolled back or re-enabled ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf '%s\n' false > "$SCRATCH/enabled"
+# A user-disabled capability is unprojected, so verification fails.
+rm -rf "$SKILLS_ROOT"/gsd-beads-*
+run_script beads
+run_script beads
+! grep -Eq -- '--(enable|disable)' "$STUB_LOG" || fail "case8e: hook changed a user-disabled capability: $(grep -E -- '--(enable|disable)' "$STUB_LOG")"
+[ ! -e "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled" ] \
+  || fail "case8e: hook recorded a rollback for a user-disabled capability"
+grep -q 'disabled by the user' "$STDERR_FILE" || fail "case8e: missing user-disabled note: $(cat "$STDERR_FILE")"
+pass "case8e: a user-disabled capability stays disabled with no marker"
+teardown
+
+### Case 8c (R22): an installed newer version is never downgraded ###
+for _installed_version in 9.9.9 not-a-version; do
+  setup 0
+  seed_selected "$SKILLS_ROOT"
+  "$REAL_PYTHON" -I -c 'import json,sys; p=sys.argv[1]; m=json.load(open(p)); m["version"]=sys.argv[2]; open(p,"w").write(json.dumps(m))' \
+    "$INSTALLED_BUNDLE/capability.json" "$_installed_version"
+  run_script beads
+  [ "$STATUS" -eq 0 ] || fail "case8c: exit status $STATUS, expected 0"
+  ! grep -q '^capability install' "$STUB_LOG" || fail "case8c: installed $_installed_version was replaced by an older bundle"
+  grep -q 'refusing to replace' "$STDERR_FILE" || fail "case8c: $_installed_version: missing downgrade diagnostic"
+  teardown
+done
+pass "case8c: a newer or unparsable installed version blocks reinstall"
+
+### Case 8d (R22): a held lock is waited for, boundedly ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+: > "$STATE_FILE.lock"
+"$REAL_PYTHON" -I -c 'import fcntl,os,sys,time; fd=os.open(sys.argv[1],os.O_RDWR); fcntl.flock(fd,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(1)' \
+  "$STATE_FILE.lock" "$SCRATCH/held" &
+HOLDER_PID=$!
+until [ -e "$SCRATCH/held" ]; do sleep 0.05; done
+LOCK_WAIT_SECONDS=10 run_script beads
+wait "$HOLDER_PID"
+[ -z "$(cat "$STDERR_FILE")" ] || fail "case8d: waiter gave up on a briefly held lock: $(cat "$STDERR_FILE")"
+[ -f "$STATE_FILE" ] || fail "case8d: waiter did not complete after the lock was released"
+rm -f "$STATE_FILE" "$SCRATCH/held"
+"$REAL_PYTHON" -I -c 'import fcntl,os,sys,time; fd=os.open(sys.argv[1],os.O_RDWR); fcntl.flock(fd,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(5)' \
+  "$STATE_FILE.lock" "$SCRATCH/held" &
+HOLDER_PID=$!
+until [ -e "$SCRATCH/held" ]; do sleep 0.05; done
+WAIT_START=$SECONDS
+LOCK_WAIT_SECONDS=1 run_script beads
+WAIT_ELAPSED=$((SECONDS - WAIT_START))
+kill "$HOLDER_PID" 2>/dev/null; wait "$HOLDER_PID" 2>/dev/null
+grep -q 'projection transaction busy' "$STDERR_FILE" || fail "case8d: bounded wait did not report busy"
+[ "$WAIT_ELAPSED" -ge 1 ] && [ "$WAIT_ELAPSED" -le 3 ] || fail "case8d: bounded wait took ${WAIT_ELAPSED}s, expected about 1s"
+[ ! -e "$STATE_FILE" ] || fail "case8d: timed-out waiter published"
+pass "case8d: a held lock is waited for up to the bound, then reported busy"
 teardown
 
 ### Case 9: an unmarked same-name user skill is preserved and blocks convergence ###
@@ -1888,6 +1987,21 @@ REAL_REPEAT_STATUS=$?
 real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
   capability update beads --scope global --yes > "$REAL_ROOT/update.log" 2>&1 \
   || fail "case24: capability update cannot re-fetch the recorded source: $(cat "$REAL_ROOT/update.log")"
+# R22 rollback contract on the real CLI: --disable unprojects the selected
+# skills and --enable restores them.
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability set beads --disable --runtime codex --scope global --config-dir "$ACTUAL_CODEX" \
+  > "$REAL_ROOT/disable.log" 2>&1 || fail "case24: real rollback disable failed: $(cat "$REAL_ROOT/disable.log")"
+[ ! -e "$ACTUAL_SKILLS_ROOT/gsd-beads-sync" ] || fail "case24: real disable left the selected skills projected"
+# The hook's rollback reads exactly this shape to tell a user's --disable apart.
+REAL_STATE="$(real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability state --runtime codex --config-dir "$ACTUAL_CODEX" --raw 2>/dev/null)"
+printf '%s' "$REAL_STATE" | $REAL_PYTHON -I -c 'import json,sys; c=[c for c in json.load(sys.stdin)["capabilities"] if c.get("id")=="beads"]; sys.exit(0 if [x.get("enabled") for x in c]==[False] else 1)' \
+  || fail "case24: real capability state does not report beads enabled=false after --disable"
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability set beads --enable --runtime codex --scope global --config-dir "$ACTUAL_CODEX" \
+  > "$REAL_ROOT/enable.log" 2>&1 || fail "case24: real re-enable failed: $(cat "$REAL_ROOT/enable.log")"
+[ -f "$ACTUAL_SKILLS_ROOT/gsd-beads-sync/SKILL.md" ] || fail "case24: real re-enable did not restore the selected skills"
 
 EVIDENCE_ROOT="$ACTUAL_SKILLS_ROOT"
 rm -rf "$REAL_ROOT"

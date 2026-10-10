@@ -159,8 +159,16 @@ import fcntl
 import os
 import stat
 import sys
+import time
 
 lock_path, hook_path, capability_id, skills_root = sys.argv[1:]
+# Bounded wait: a concurrent session finishes its install before this one
+# proceeds to bd prime, yet a wedged holder never stalls SessionStart past
+# 30s. The override exists for tests and can only shorten the bound.
+try:
+    wait_seconds = min(30.0, max(0.0, float(os.environ.get("GSD_AUTO_INSTALL_LOCK_WAIT_SECONDS", "30"))))
+except ValueError:
+    wait_seconds = 30.0
 try:
     flags = os.O_RDWR | os.O_CREAT | os.O_NONBLOCK | os.O_NOFOLLOW
 except AttributeError:
@@ -184,12 +192,17 @@ try:
     )
     if not valid:
         raise SystemExit(76)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as error:
-        if error.errno in (errno.EACCES, errno.EAGAIN):
-            raise SystemExit(75)
-        raise SystemExit(76)
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError as error:
+            if error.errno not in (errno.EACCES, errno.EAGAIN):
+                raise SystemExit(76)
+            if time.monotonic() >= deadline:
+                raise SystemExit(75)
+        time.sleep(0.1)
     path_entry = os.stat(lock_path, follow_symlinks=False)
     if (
         not stat.S_ISREG(path_entry.st_mode)
@@ -611,6 +624,37 @@ fi
 # Spec is always the absolute bundle dir (Pattern 2) -- a relative spec would
 # resolve against the end user's cwd, not the plugin. Prose "user scope"
 # (D-01) maps to the CLI's literal --scope global value (Pitfall 1).
+# Refuse a downgrade: two runtimes' plugin caches can carry different
+# bundle versions and share one global install, which would otherwise flip
+# on every runtime switch. An unparsable installed version fails closed.
+if [ -e "$INSTALLED_BUNDLE/capability.json" ] || [ -L "$INSTALLED_BUNDLE/capability.json" ]; then
+  if ! python3 -I - "$BUNDLE_DIR/capability.json" "$INSTALLED_BUNDLE/capability.json" 9>&- 2>/dev/null <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+def version(path):
+    path = pathlib.Path(path)
+    if path.is_symlink():
+        raise ValueError
+    value = json.loads(path.read_text())["version"]
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+(\.[0-9]+)*", value):
+        raise ValueError
+    return tuple(int(part) for part in value.split("."))
+
+try:
+    source, installed = version(sys.argv[1]), version(sys.argv[2])
+except (OSError, KeyError, TypeError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if source >= installed else 1)
+PY
+  then
+    echo "capability-auto-install: refusing to replace a newer or unreadable installed $CAP_ID with this bundle on $ACTIVE_RUNTIME; projection not recorded" >&2
+    exit 0
+  fi
+fi
+
 if ! guard_skill_ownership; then
   echo "capability-auto-install: destination ownership check failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
   exit 0
@@ -640,46 +684,78 @@ sys.exit(0 if isinstance(envelope, dict) and envelope.get("requiresConsent") is 
   exit 0
 fi
 
+# A failure after install leaves the new bundle live but unverified: disable
+# it, record that the hook did so, and name the command that undoes it. The
+# marker is written only when the capability was enabled, so a user's own
+# --disable (which also fails verification: nothing is projected) is never
+# re-enabled. `set` without a flag preserves enabled state, so the state
+# query here still reflects the user's choice.
+DISABLED_MARKER="$STATE_DIR/capability-auto-install-$CAP_ID.$ACTIVE_RUNTIME.disabled"
+roll_back() {
+  local _enabled
+  _enabled="$(GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability state --runtime "$ACTIVE_RUNTIME" \
+      --config-dir "$RUNTIME_CONFIG_DIR" --raw 2>/dev/null | python3 -I -c '
+import json, sys
+try:
+    found = [c.get("enabled") for c in json.load(sys.stdin)["capabilities"] if c.get("id") == sys.argv[1]]
+except (ValueError, KeyError, TypeError, AttributeError):
+    found = []
+print({(True,): "true", (False,): "false"}.get(tuple(found), "unknown"))
+' "$CAP_ID" 9>&- 2>/dev/null)"
+  if [ "$_enabled" = false ]; then
+    echo "capability-auto-install: $1 for $CAP_ID on $ACTIVE_RUNTIME; left as disabled by the user; projection not recorded" >&2
+    exit 0
+  fi
+  if GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --disable --runtime "$ACTIVE_RUNTIME" \
+      --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1; then
+    rm -f "$DISABLED_MARKER" 2>/dev/null
+    [ "$_enabled" = true ] && ( set -C; : > "$DISABLED_MARKER" ) 2>/dev/null
+    echo "capability-auto-install: $1 for $CAP_ID on $ACTIVE_RUNTIME; capability disabled (re-enable: $GSD_TOOLS capability set $CAP_ID --enable --runtime $ACTIVE_RUNTIME --scope global --config-dir $RUNTIME_CONFIG_DIR); projection not recorded" >&2
+  else
+    echo "capability-auto-install: $1 for $CAP_ID on $ACTIVE_RUNTIME; rollback failed, capability may be half-installed; projection not recorded" >&2
+  fi
+  exit 0
+}
+
 if [ "$INSTALL_STATUS" -eq 0 ]; then
   INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
   if [ "$?" -ne 0 ] || [ "$INSTALLED_GENERATION" != "$SOURCE_GENERATION" ]; then
-    echo "capability-auto-install: installed generation verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-    exit 0
+    roll_back "installed generation verification failed"
   fi
-  GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --runtime "$ACTIVE_RUNTIME" --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1
+  # Re-enable only a capability this hook disabled itself (rollback below);
+  # a user's own --disable carries no marker and stays disabled.
+  SET_ENABLE=()
+  [ -f "$DISABLED_MARKER" ] && [ ! -L "$DISABLED_MARKER" ] && SET_ENABLE=(--enable)
+  GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" ${SET_ENABLE[@]+"${SET_ENABLE[@]}"} --runtime "$ACTIVE_RUNTIME" --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1
   RECONCILE_STATUS=$?
   if [ "$RECONCILE_STATUS" -eq 0 ]; then
     verify_selected_projection
     VERIFY_STATUS=$?
     if [ "$VERIFY_STATUS" -eq 21 ]; then
-      echo "capability-auto-install: selected command contract verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "selected command contract verification failed"
     elif [ "$VERIFY_STATUS" -ne 0 ]; then
-      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "selected projection verification failed"
     fi
     SELECTED_FINGERPRINT="$(selected_fingerprint)"
     if [ "$?" -ne 0 ] || [[ ! "$SELECTED_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]]; then
-      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "selected projection verification failed"
     fi
     FINAL_INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
     if [ "$?" -ne 0 ] || [ "$FINAL_INSTALLED_GENERATION" != "$INSTALLED_GENERATION" ]; then
-      echo "capability-auto-install: installed generation verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "installed generation verification failed"
     fi
     FINAL_SELECTED_FINGERPRINT="$(selected_fingerprint)"
     if [ "$?" -ne 0 ] || [ "$FINAL_SELECTED_FINGERPRINT" != "$SELECTED_FINGERPRINT" ]; then
-      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "selected projection verification failed"
     fi
+    rm -f "$DISABLED_MARKER" 2>/dev/null
     if publish_ledger; then
       printf 'Auto-installed capability: %s (user scope)\n' "$CAP_ID"
     else
       echo "capability-auto-install: ledger publish failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
     fi
   else
-    echo "capability-auto-install: capability set failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+    roll_back "capability set failed"
   fi
 else
   echo "capability-auto-install: capability install failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
