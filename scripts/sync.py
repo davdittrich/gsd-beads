@@ -1729,11 +1729,17 @@ def find_orphans(children, current_ids):
     issues, so a sweep that relied on that default would re-close an
     already-closed orphan on every run and break idempotency (B5) -- the
     not-already-closed check here is the other half of that guard.
+
+    Only children carrying SYNC_LABEL are candidates (R21): a user-parented
+    follow-up under the epic is not this tool's issue and is never closed.
+    bd omits the `labels` key for an unlabeled row, which fails closed.
     """
     return [
         c["id"]
         for c in children
-        if c.get("id") not in current_ids and c.get("status") != "closed"
+        if c.get("id") not in current_ids
+        and c.get("status") != "closed"
+        and SYNC_LABEL in (c.get("labels") or [])
     ]
 
 

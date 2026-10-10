@@ -3381,7 +3381,7 @@ class TestIdempotency(unittest.TestCase):
                         [
                             {"id": "tracer-f5x.1", "status": "open"},
                             {"id": "tracer-f5x.2", "status": "open"},
-                            {"id": "tracer-f5x.99", "status": "open"},
+                            {"id": "tracer-f5x.99", "status": "open", "labels": ["gsd-sync"]},
                         ]
                     ),
                 )
@@ -3412,7 +3412,7 @@ class TestIdempotency(unittest.TestCase):
         caps output at 50 rows, hiding an orphan at row 51."""
         rows = [{"id": "tracer-f5x.1", "status": "open"}, {"id": "tracer-f5x.2", "status": "open"}]
         rows += [{"id": f"tracer-f5x.{100 + i}", "status": "closed"} for i in range(48)]
-        rows.append({"id": "tracer-f5x.99", "status": "open"})  # row 51
+        rows.append({"id": "tracer-f5x.99", "status": "open", "labels": ["gsd-sync"]})  # row 51
 
         def _side_effect(argv, **kwargs):
             if argv[:3] == ["bd", "list", "--parent"]:
@@ -3479,6 +3479,47 @@ class TestIdempotency(unittest.TestCase):
             c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
         ]
         self.assertEqual(close_calls, [])
+
+    def _orphan_sweep_closes(self, workspace):
+        """Run create_issues over plan-orphan.md with a user-parented
+        follow-up (no gsd-sync label) beside a tool-created orphan."""
+        rows = [
+            {"id": "tracer-f5x.1", "status": "open", "labels": ["gsd-sync"]},
+            {"id": "tracer-f5x.2", "status": "open", "labels": ["gsd-sync"]},
+            {"id": "tracer-f5x.50", "status": "open"},  # user follow-up, no labels key
+            {"id": "tracer-f5x.51", "status": "open", "labels": ["other"]},
+            {"id": "tracer-f5x.99", "status": "open", "labels": ["gsd-sync"]},
+        ]
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout=json.dumps(rows))
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2], "title": "Milestone v1.0: milestone"}]) + "\n")
+            if argv[:2] == ["bd", "close"] or argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-orphan.md").read_text(encoding="utf-8")
+            plan_copy = workspace(Path(tmp), plan_text)
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                sync.create_issues(str(plan_copy))
+        return [c.args[0][2] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]]
+
+    def test_orphan_sweep_leaves_user_parented_children_open_phase_mode(self):
+        closed = self._orphan_sweep_closes(_write_plan_workspace)
+        self.assertEqual(closed, ["tracer-f5x.99"])
+
+    def test_orphan_sweep_leaves_user_parented_children_open_milestone_mode(self):
+        def workspace(tmp_path, plan_text):
+            _, phase_dirs = _write_milestone_workspace(tmp_path, ["01-substrate"], epic_per="milestone")
+            plan = phase_dirs["01-substrate"] / "01-01-PLAN.md"
+            plan.write_text(plan_text, encoding="utf-8")
+            return plan
+
+        closed = self._orphan_sweep_closes(workspace)
+        self.assertEqual(closed, ["tracer-f5x.99"])
 
     def test_stale_beads_id_reports_divergence_without_recreating(self):
         def _side_effect(argv, **kwargs):
@@ -3884,7 +3925,7 @@ Plan B: same shared epic as plan A, one task not yet synced.
                     stdout=json.dumps(
                         [
                             {"id": "orphan-epic.1", "status": "open"},
-                            {"id": "orphan-epic.99", "status": "open"},
+                            {"id": "orphan-epic.99", "status": "open", "labels": ["gsd-sync"]},
                         ]
                     ),
                 )
