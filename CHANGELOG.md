@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.9.0
+
+Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
+
+### Changed (behaviour)
+- **`verify:post` is read-only.** It regenerates `BEADS.md` and closes nothing; plan completion is defined once (.6).
+- **Skills fail closed.** The resolver fence runs the installed global `sync.py`, then the plugin copy, and stops with an error when neither exists. It never runs the project's own copy. Fences run `python3 -I`, and an unset `CLAUDE_PLUGIN_ROOT` leaves the plugin rung empty (.23, .40).
+- **Auto-install narrowed.** The SessionStart hook no longer installs from a `--plugin-dir` or local path without a matching owner, rolls back half-installs, refuses downgrades, waits boundedly for the lock, and installs from a stable source path so `capability update` can re-fetch (.22, .23, .29).
+- **Ship gate fails closed.** A failed `bd list` or unavailable `bd` writes `unknown` counts, which block the gate. Blocking `ship:pre` gates carry `onError: halt`, so a gate that errors halts the ship (.2). The override prose now covers `unknown`: `ship_gate: false` records an override whenever a field is not `0` (.36).
+- **Root-manifest layout.** `capability.json` and `.claude-plugin/` sit at the repository root, so install by git URL works and the whole clone is copied (.28).
+- **Orphan sweep closes only `gsd-sync`-labelled children.** Task issues created before 0.8.0 carry no label: when one is removed from a plan it stays open and counts in `blocking_open`, so the ship gate blocks. Close such issues by hand (.21).
+- **Milestone scoping.** With `epic_per: milestone`, the orphan sweep and `blocking_open` count only the current phase's issues (.9).
+- **Release is gated.** `release.yml` runs CI at the tagged commit, requires tag == `plugin.json` version, requires the tagged commit to be an ancestor of `origin/main`, and never republishes an existing release (.4, .39). `ci.yml` runs on branch pushes and pull requests, so a tag runs CI once (.39).
+- **One skill is exposed.** The `beads-lifecycle` marketplace entry lists `skills: ["./.agents/skills/beads"]`; a real install showed 5 skills before and 1 after (.37).
+- **`.gsd-capabilities.json` is deleted.** It pointed at a removed path; the version test now reads `capability.json` and `plugin.json` (.38).
+
+- **Phase-mention tokens need a slash.** Bare filenames such as `README.md` are no longer phase mentions (.26); restoring them is open as .36.
+
+### Fixed
+- `bd list` passes `-n 0`, so rows past 50 are seen (.7). Stored task ids are verified with one `bd` call and existing edges are skipped (.14).
+- `beads_epic` is replaced rather than duplicated, and only a confirmed not-found counts as absent (.3).
+- `create_issues` persists plan identity per created issue with atomic writes (.5).
+- `migrate-todos` deletes a todo only after a confirmed bd id and survives per-file `bd` errors (.20).
+- Task stripping ignores tags quoted in code spans (.8).
+- Frontmatter parsing, table-cell escaping, recall decoding and root guards are hardened (.27). Seven `bd`-unavailable tails fold into one helper and dead `check_patch` branches go (.15).
+- Generated artifacts are never written through a symlink; epic ids and counts are validated before `bd` or `git` runs; dispatch skips an interrupted `render-hooks` call (.11).
+- SessionStart stdout stays pure hook JSON and a symlinked `.beads` is refused (.24).
+- `ship_override`, recall, dispatch and the `bd` cwd are hardened (.26).
+- Every hook and resolver `python3` runs isolated, so a planted stdlib module cannot execute (.1).
+- Docs: `blocking_open` has one definition and `bd` 1.3.1 behaviour is corrected (.25); stale step pointers and the stale `check_shipmd_patch` name are fixed, README states what happens when `bd` is missing, and the ship gate reads the `verify:post` `BEADS.md` snapshot (.16, .40); agent prose is cut (.16).
+- CI: bd tarball sha256 check, commit-pinned actions and gsd-core fixture, read-only token, session-start test, skip guard also matches `expected failures=` (.10, .12, .39). Repo hygiene (.17). Hook tests fail on hook errors (.13).
+
+
 ## 0.8.1
 
 ### Security
