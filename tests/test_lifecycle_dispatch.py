@@ -45,6 +45,8 @@ def _run(command):
         text=True,
         timeout=5,
     )
+    if result.returncode != 0:
+        raise AssertionError(f"snippet exited {result.returncode}: {result.stderr}")
     return result.stdout.strip()
 
 

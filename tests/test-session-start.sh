@@ -35,6 +35,8 @@ export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 
 run_hook() {
   ( cd "$WORKDIR" && bash "$HOOK" ) >"$SCRATCH/stdout" 2>"$SCRATCH/stderr"
+  local _status=$?
+  [ "$_status" -eq 0 ] || fail "$WORKDIR: hook exited $_status: $(cat "$SCRATCH/stderr")"
 }
 
 # Case 1: no DEST yet -> self-heal copies the shipped PRIME.md.
