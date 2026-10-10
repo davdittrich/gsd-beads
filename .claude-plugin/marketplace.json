@@ -16,7 +16,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/davdittrich/ponytail-everywhere.git",
-        "sha": "95229baa3916419416326d6ffb0695161b9ad351"
+        "sha": "e19e9e5630ecd608679a339221c216f248520750"
       },
       "description": "Lazy-ladder discipline, native Quick planner dispatch, and proportionality checks across gsd's lifecycle"
     },
@@ -25,7 +25,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/davdittrich/sota-numerics.git",
-        "sha": "5282fba552d56e0972951ee05acc4fe1a083e166"
+        "sha": "7e269d149b0f276238cded2a5aee623ebaa38fe2"
       },
       "description": "Makes GSD compare mechanisms before execution and keeps numerical precision and measured performance visible through shipping: four advisory prompts, plus a blocking plan:post gate that requires a compliant Alternatives Considered section on every plan in a phase."
     },
@@ -34,7 +34,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/davdittrich/markdown-linting.git",
-        "sha": "6368d22b48779bc10e73f8bb64b59cd6a2a8ef2a"
+        "sha": "2ec5e7e9f5e7eb4c4d04d02be4906bc58705edc3"
       },
       "description": "Wraps rumdl over .planning/, README.md, and CLAUDE.md; verify:post writes a gate-readable violation-count report, ship:pre re-measures and advises (never blocks)."
     },
@@ -43,7 +43,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/davdittrich/pr-workflow.git",
-        "sha": "cb3b5161381900b8868b2c4c5070c5d9ad30be73"
+        "sha": "0818b09fe53f68a156f0b8cb985ae447e0d4e4ac"
       },
       "description": "Wraps gh CLI to read PR/check status for the current branch; execute:wave:post writes a gate-readable PR.md report, ship:pre gates advisorily on it."
     }
