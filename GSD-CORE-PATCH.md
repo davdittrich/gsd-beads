@@ -84,17 +84,9 @@ permanent duplication. No upstream issue currently tracks that remaining half.
 a redundant gate loop alongside 1.11.0's native one; `check_shipmd_patch` reporting "missing" is
 the signal to reapply the trimmed v2, not a false alarm.
 
-### Patch-loss detection is independent of the patch itself (CR-01, 03-03 code review)
+### Patch-loss detection
 
-`beads-status/SKILL.md`'s Step 2d runs `check-patch ship-md` at `ship:pre`, but that call site is
-itself only reachable through the dispatch loop this patch installs — if a `gsd-core` update or
-capability reinstall silently strips the patch, Step 2d never runs either, so it *confirms* an
-intact patch immediately before a ship attempt but cannot *detect* a lost one. The actual detector
-is `beads-recall/SKILL.md`'s new Step 3.5, which runs the identical `check-patch ship-md` call at
-`plan:pre` — a lifecycle point dispatched by gsd-core's own native generic step-dispatch loop
-(the same kind of loop `ship:post` already has and `ship:pre` lacked before this patch), not by
-anything this patch installs. That independence is what makes Step 3.5 fire even when this patch
-has been silently dropped.
+`beads-status/SKILL.md` Step 2d runs `check-patch ship-md` at `ship:pre`, a call site reachable only through the dispatch loop this patch installs: it confirms an intact patch and cannot detect a lost one. The detector is `beads-recall/SKILL.md` Step 3.5, the same `check-patch ship-md` call at `plan:pre`, dispatched by `hooks/lifecycle-dispatch.sh` independently of this patch.
 
 ### Insertion anchor
 

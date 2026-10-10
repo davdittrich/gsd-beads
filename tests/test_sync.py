@@ -8311,7 +8311,7 @@ fi"""
         ("beads-recall:patch-check", "beads-recall/SKILL.md", ("check-patch ship-md",)),
         ("beads-migrate-todos:migrate", "beads-migrate-todos/SKILL.md", ("migrate-todos",)),
         ("beads-status:wave-status", "beads-status/SKILL.md", ("wave-status-block <phase directory> <plan id> [<plan id> ...]",)),
-        ("beads-status:reconcile-regenerate", "beads-status/SKILL.md", ("reconcile-stale-closed <phase directory>", "regenerate-beads-md <phase directory>")),
+        ("beads-status:regenerate", "beads-status/SKILL.md", ("regenerate-beads-md <phase directory>",)),
         ("beads-status:ship-override", "beads-status/SKILL.md", ("ship-override <phase directory>",)),
         ("beads-status:patch-check", "beads-status/SKILL.md", ("check-patch ship-md",)),
         ("beads-status:status", "beads-status/SKILL.md", ("status [phase directory]",)),

@@ -105,10 +105,9 @@ into a spawned `Agent()` prompt). B8's literal
 acceptance criterion is checked by grepping the real `prompt=` text an `Agent()` call receives for
 these issue ids, not by inferring it from behavior.
 
-## Step 2b -- verify:post: Reconcile stale closes, then regenerate BEADS.md
+## Step 2b -- verify:post: Regenerate BEADS.md
 
-Run two Bash calls, **in this order**, both passing only the phase directory -- there is no
-wave/plan-id list at this lifecycle point:
+Run one Bash call passing only the phase directory -- this point carries no wave or plan-id list:
 
 ```bash
 _B="${GSD_HOME:-${HOME:-}}"
@@ -122,66 +121,12 @@ if [ ! -f "$SYNC_PY" ]; then
   echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" reconcile-stale-closed <phase directory>
 python3 "$SYNC_PY" regenerate-beads-md <phase directory>
 ```
 
-**Ordering matters and is not incidental**: `reconcile-stale-closed` must run first. It is the
-phase-wide backstop for D-08 -- it closes every issue whose owning plan's `SUMMARY.md` exists but
-whose bd issue is still open, across every plan in the phase, not just the plan ids one wave's
-`close-wave` dispatch happened to carry. Running `regenerate-beads-md` before it would compute
-`blocking_open`/`diverged` from the pre-reconciliation state and hand `ship:pre`'s gates a
-projection that is one step stale -- exactly the class of gap this step exists to close.
-
-This pass is phase-wide and idempotent: `filter_open_ids` re-queries bd's live status immediately
-before closing, so it is safe to run on every `verify:post` dispatch regardless of how many times
-it has already run over this phase -- a repeat run closes nothing. It exists specifically because
-the per-wave `execute:wave:post` dispatch (Step 2 below) is empirically skippable: Phase 14's waves
-2 and 3 left four issues (`gsd-beads-bu0.3`-`.6`) open despite both plans' `SUMMARY.md` files being
-committed, because nothing after `execute:wave:post` ever re-checked wave-close state.
-
-`regenerate-beads-md` then runs second, over the now-reconciled state, printing no
-`<beads_status>` block and taking no plan-id argument, since there is no executor prompt to compose
-here and no single wave's issues to name -- it regenerates `BEADS.md`, recomputing
-`blocking_open`/`diverged` (D-03) from post-reconciliation data, so the projection going into
-`ship:pre`'s gates is fresh. Report both commands' stdout. Then stop; do not call the wave-scoped
-`close-wave` from this branch (see Anti-Pattern 6).
-
-### `resolves_issues:` marker -- reaching a standalone issue with no `<beads-id>` (260820-j6g, bd gsd-beads-72u)
-
-`reconcile-stale-closed`'s candidate set above is drawn entirely from `<beads-id>` links across a
-phase's `PLAN.md` files. A standalone problem-report bd issue -- filed independently of any task,
-never linked from a `<beads-id>` anywhere -- cannot be reached by that path *by construction*, and
-stays open forever unless someone closes it by hand.
-
-To close such an issue automatically, add a `resolves_issues:` key to the **frontmatter** of the
-completed plan's `SUMMARY.md` that fixed it (either YAML form is accepted):
-
-```yaml
-resolves_issues: ["gsd-beads-he1"]
-```
-
-or the block-list form:
-
-```yaml
-resolves_issues:
-  - "gsd-beads-he1"
-```
-
-`reconcile-stale-closed` unions every marked id across the phase's SUMMARY.md frontmatters into its
-candidate set, closes any that are still open through the same `filter_open_ids` live-status gate
-the `<beads-id>` path uses, and reports the marker-closed count and any rejected-entry count in one
-combined line on stdout. Two properties an author can depend on:
-
-- An id named only in the SUMMARY.md **body** (prose) is never closed -- only the frontmatter fence
-  is ever searched, deliberately, so a phase that merely *mentions* a bd id (e.g. as a newly filed
-  follow-up) cannot trigger a close.
-- An id bd does not recognize, or that has already been closed, is a silent no-op, not an error --
-  the same idempotency `filter_open_ids` already gives the `<beads-id>` path.
-
-**This key is the only way the backstop can reach an unlinked issue.** A phase that resolves a
-standalone problem-report issue and omits the key leaves that issue open indefinitely -- that
-sentence is what stops this gap being rediscovered a third time.
+This call rewrites `BEADS.md` from live `bd` state, recomputing `blocking_open` and `diverged` for
+`ship:pre`'s gates. It prints no `<beads_status>` block and changes nothing in `bd`. Report its stdout,
+then stop; the close dispatch belongs to `execute:wave:post` (Step 2).
 
 ## Step 2c -- ship:pre: record an override if one occurred
 
@@ -275,26 +220,19 @@ without review and never tracked anything.) The **step** half has no upstream tr
 equivalent, which is why v2 of the patch still exists; once that lands natively, this local patch
 (and this Step 2d / `GSD-CORE-PATCH.md`) should be deleted, not kept as permanent duplication.
 
-**CR-01 (03-03 code review):** Step 2d's own call site is reachable only through the dispatch loop
-the patch installs -- if a `gsd-core` update or capability reinstall silently strips the patch,
-Step 2d never runs either, so it *confirms* an intact patch but cannot *detect* a lost one. The
-actual detector is `beads-recall/SKILL.md`'s Step 3.5 (`plan:pre`, dispatched by gsd-core's own
-native generic step-dispatch loop -- independent of `ship.md`'s patched loop entirely), which keeps
-firing even when the patch has been dropped. Do not treat Step 2d alone as sufficient patch-loss
-detection.
+## Step 2 -- execute:wave:post: close completed plans' issues
 
-## Step 2 -- Batch close dispatch (execute:wave:post only)
+The `PostToolUse` hook runs `sync.py lifecycle-dispatch execute:wave:post` here, which reconciles
+the whole phase: it closes the open issues of every completed plan, so a wave whose dispatch was
+skipped heals on the next one. A plan is **complete** when its `SUMMARY.md` exists and its `status`
+frontmatter is neither `halted` nor `blocked`; a plan with no complete `SUMMARY.md` contributes
+nothing, and tasks with no `<beads-id>` are skipped without error.
 
-`execute:wave:post` fires **once per wave**, after every plan in that wave has merged, carrying
-`WAVE_PLAN_IDS` -- a space-separated list of the plan ids that completed in this wave. **This list
-may name several plans, and each of those plans may hold several tasks.** Do not narrow this to a
-single plan or a single task: a design that closes only the first id it sees silently drops every
-task past the first in any wave with more than one completed task.
-
-`bd` usability is not checked here directly -- it is delegated to `sync.py close-wave`, which
-locates the binary and runs one cheap read command as its first action (B6/D-08). If `bd` is
-absent, failing, or locked, `sync.py` prints the one required notice line, appends an entry to
-`.planning/STATE.md` under `### Blockers/Concerns`, and exits 0.
+The wave-scoped `close-wave` below is the manual form, for a runtime without `PostToolUse` or a
+direct call carrying `WAVE_PLAN_IDS` (the plan ids that completed in this wave; it may name several
+plans, each holding several tasks). `bd` usability is checked by `sync.py` itself: when `bd` is
+absent, failing, or locked it prints one notice line, appends to `.planning/STATE.md` under
+`### Blockers/Concerns`, and exits 0.
 
 Run one Bash call passing the phase directory and **every** plan id in the wave at once:
 
@@ -313,11 +251,43 @@ fi
 python3 "$SYNC_PY" close-wave <phase directory> <plan id> [<plan id> ...]
 ```
 
-This is a single-call dispatch -- the script resolves each plan id's `PLAN.md` inside the phase
-directory, treats a plan as complete only when its `SUMMARY.md` exists (a plan with no `SUMMARY.md`
-contributes nothing), collects every `<beads-id>` of a task in a completed plan (skipping any task
-with no `<beads-id>` without error), filters out ids already closed in bd, and closes every
-remaining id in one `bd close` call.
+Pass the whole `WAVE_PLAN_IDS` list to one invocation: the script resolves each plan id's `PLAN.md`, collects the `<beads-id>` of every task in a complete plan, drops ids already closed in bd, and closes the rest in one `bd close` call.
+
+### `resolves_issues:` marker -- closing a standalone issue with no `<beads-id>`
+
+`reconcile-stale-closed`'s candidate set is drawn entirely from `<beads-id>` links across a
+phase's `PLAN.md` files. A standalone problem-report bd issue -- filed independently of any task,
+never linked from a `<beads-id>` anywhere -- cannot be reached by that path *by construction*, and
+stays open forever unless someone closes it by hand.
+
+To close such an issue automatically, add a `resolves_issues:` key to the **frontmatter** of the
+completed plan's `SUMMARY.md` that fixed it (either YAML form is accepted):
+
+```yaml
+resolves_issues: ["gsd-beads-he1"]
+```
+
+or the block-list form:
+
+```yaml
+resolves_issues:
+  - "gsd-beads-he1"
+```
+
+`reconcile-stale-closed` unions every marked id across the phase's SUMMARY.md frontmatters into its
+candidate set, closes any that are still open through the same `filter_open_ids` live-status gate
+the `<beads-id>` path uses, and reports the marker-closed count and any rejected-entry count in one
+combined line on stdout. Two properties an author can depend on:
+
+- An id named only in the SUMMARY.md **body** (prose) is never closed -- only the frontmatter fence
+  is ever searched, deliberately, so a phase that merely *mentions* a bd id (e.g. as a newly filed
+  follow-up) cannot trigger a close.
+- An id bd does not recognize, or that has already been closed, is a silent no-op, not an error --
+  the same idempotency `filter_open_ids` already gives the `<beads-id>` path.
+
+**This key is the only way the backstop can reach an unlinked issue.** A phase that resolves a
+standalone problem-report issue and omits the key leaves that issue open indefinitely -- that
+sentence is what stops this gap being rediscovered a third time.
 
 ## Step 3 -- Report
 
@@ -341,17 +311,8 @@ count, or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
 5. DO NOT collapse the `execute:wave:pre` and `execute:wave:post` branches (Step 1.5) into one
    call, and DO NOT call `sync.py close-wave` from the `execute:wave:pre` branch -- closing at
    `execute:wave:pre` would close issues before this wave's executors have even started.
-6. DO NOT collapse the `verify:post` branch into either of the two `execute:wave` branches, and DO
-   NOT treat `reconcile-stale-closed` (verify:post's subcommand) as a replacement for
-   `execute:wave:post`'s `close-wave` dispatch, or vice versa -- they are not interchangeable in
-   either direction. `verify:post` fires once per **phase** (not once per wave); it never dispatches
-   the wave-scoped `close-wave` subcommand (it has no wave/plan-id context to pass) and always
-   dispatches the phase-wide `reconcile-stale-closed` subcommand, which takes no plan-id list at
-   all. `close-wave` stays the fast path that closes a wave's issues as soon as that wave lands;
-   `reconcile-stale-closed` is the phase-wide backstop for when that dispatch was missed (D-08).
-   Removing either one loses something real: dropping `close-wave` means every issue sits open
-   until the next `verify:post`; dropping `reconcile-stale-closed` reintroduces the exact gap that
-   left Phase 14's `gsd-beads-bu0.3`-`.6` open for eleven phases.
+6. DO NOT call `close-wave` from `verify:post`: it has no wave or plan-id context. `verify:post`
+   only regenerates `BEADS.md` (Step 2b).
 7. DO NOT embed the `<beads_status>` block's content inside a manifest-level fragment file and
    expect it to reach the executor automatically -- `execute:wave:pre` has no template slot that
    forwards fragment text into a spawned `Agent()` call's `prompt=`. Pasting the block into that

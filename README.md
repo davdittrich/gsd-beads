@@ -73,8 +73,8 @@ Bump `--ref` to the latest tag from `git tag --sort=-creatordate | head -1` when
 
 The capability is on by default: `beads.enabled` defaults to `true`, so a fresh install runs
 with issue tracking on. Opt out by setting `beads.enabled: false` in the project's
-`.planning/config.json` — every step below checks that gate first and no-ops with a visible
-notice when a project has opted out. See [Configuration](#configuration) below for the full key
+`.planning/config.json` — every step below checks that gate first and no-ops when a project has
+opted out (a skill prints a notice; the hook path stays silent). See [Configuration](#configuration) below for the full key
 list.
 
 gsd-core's own lifecycle commands drive `bd` state directly:
@@ -85,9 +85,10 @@ gsd-core's own lifecycle commands drive `bd` state directly:
    (a `beads_epic` frontmatter key and a `<beads-id>` element per task).
 2. `/gsd:execute-phase` — before a wave of tasks runs, `beads-status` puts that wave's live
    issue state into the orchestrator's context; after the wave finishes, it closes the `bd`
-   issues for every task the wave completed.
-3. `/gsd:verify-work` — after verification, `beads-status` refreshes the projected `BEADS.md`
-   state from `bd`.
+   issues of every completed plan in the phase (complete = `SUMMARY.md` exists and its `status`
+   is not `halted` or `blocked`).
+3. `/gsd:verify-work` — after verification, `beads-status` regenerates the projected `BEADS.md`
+   from live `bd` state (read-only: it closes nothing).
 4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
    refuse to ship while `blocking_open` or `diverged` is non-zero.
 
@@ -190,8 +191,8 @@ explicitly the boolean `false`. A missing file, a missing `beads` object, and a 
 object with no `enabled` key all fall through to the `capability.json` default of `true`, so a
 fresh install runs with tracking on.
 
-When disabled, every lifecycle step prints a visible notice and no-ops rather than fails, since
-all six steps are declared `onError: skip`.
+When disabled, every lifecycle step no-ops rather than fails, since all six steps are declared
+`onError: skip`. Skills print a notice; the hook path (`lifecycle-dispatch`) returns silently.
 
 `epic_per` is re-read fresh from `.planning/config.json` at each epic-creation call site, not
 resolved once per session, and falls back to `phase` when the file is absent, the JSON is
