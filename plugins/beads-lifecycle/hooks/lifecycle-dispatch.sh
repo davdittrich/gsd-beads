@@ -104,18 +104,16 @@ for point in POINTS:
 [ -d "$PROJECT_DIR/.planning" ] || exit 0
 cd "$PROJECT_DIR" || exit 0
 
-# gsd-core's own capability resolution order: project scope beats global, so a
-# project pinning an older bundle keeps that bundle's behavior. The plugin's
-# own tree is the last resort.
-SYNC_PY=""
-for candidate in \
-  "$PROJECT_DIR/.gsd/capabilities/beads/scripts/sync.py" \
-  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
-  "${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/.gsd/capabilities/beads/scripts/sync.py"
-do
-  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
-done
-[ -n "$SYNC_PY" ] || exit 0
+# Keyed on the global MANIFEST, which a cloned repo cannot plant: a global
+# install runs its own script (missing => skip, never fall through); else the
+# plugin copy; the project copy only last, so project-scope-only installs keep
+# working without letting a hostile repo's sync.py run on every event.
+_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_P="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/.gsd/capabilities/beads/scripts/sync.py"
+if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+elif [ -f "$_P" ]; then SYNC_PY="$_P"
+else SYNC_PY="$PROJECT_DIR/.gsd/capabilities/beads/scripts/sync.py"; fi
+[ -f "$SYNC_PY" ] || exit 0
 
 # Only stdout is captured. sync.py routes its benign dispatch-level skips to
 # stderr so they stay out of the promotion below -- a repository between

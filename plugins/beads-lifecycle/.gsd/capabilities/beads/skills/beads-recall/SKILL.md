@@ -51,16 +51,13 @@ absent, failing, or locked, `sync.py` prints the one required notice line, appen
 Run one Bash call passing the phase directory:
 
 ```bash
-SYNC_PY=""
-for candidate in \
-  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
-  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
-  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-do
-  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
-done
-if [ -z "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+elif [ -f "$_P" ]; then SYNC_PY="$_P"
+else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
+if [ ! -f "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
   exit 1
 fi
 python3 "$SYNC_PY" beads-recall <phase directory>
@@ -83,16 +80,13 @@ This step always runs after Step 3, whether or not `bd` was available for Step 3
 reads only the installed workflow file, never `bd`). Run the retained Patch 1 check:
 
 ```bash
-SYNC_PY=""
-for candidate in \
-  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \
-  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \
-  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-do
-  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
-done
-if [ -z "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+elif [ -f "$_P" ]; then SYNC_PY="$_P"
+else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
+if [ ! -f "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
   exit 1
 fi
 python3 "$SYNC_PY" check-patch ship-md

@@ -8157,24 +8157,103 @@ class TestCheckSyncModeValue(unittest.TestCase):
         self.assertEqual(len(recall_files), 1)
 
 
+class TestLifecycleDispatchSyncResolution(unittest.TestCase):
+    """kilo.23: the hook used to run the project's own
+    .gsd/capabilities/beads/scripts/sync.py first, so a cloned hostile repo
+    executed its code on every render-hooks call. Selection is keyed on the
+    global manifest: global, then plugin, then project last."""
+
+    HOOK = TestLifecycleDispatchHook.HOOK
+    RELATIVE_SYNC = ".gsd/capabilities/beads/scripts/sync.py"
+
+    def _spy(self, root):
+        path = root / self.RELATIVE_SYNC
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            "import os\n"
+            "with open(os.environ['SPY_LOG'], 'a', encoding='utf-8') as log:\n"
+            "    log.write(__file__ + '\\n')\n",
+            encoding="utf-8",
+        )
+        return path
+
+    def _run(self, base, plugin_root):
+        project = base / "project"
+        payload = json.dumps({
+            "hook_event_name": "PostToolUse",
+            "tool_name": "Bash",
+            "cwd": str(project),
+            "tool_input": {"command": "H=$(gsd-tools loop render-hooks plan:pre --raw)"},
+        })
+        env = dict(os.environ, GSD_HOME=str(base / "global"), HOME=str(base / "home"),
+                   CLAUDE_PLUGIN_ROOT=str(plugin_root), SPY_LOG=str(base / "spy.log"))
+        env.pop("CLAUDE_PROJECT_DIR", None)
+        result = subprocess.run(["bash", str(self.HOOK)], input=payload,
+                                capture_output=True, text=True, env=env, timeout=60)
+        log = base / "spy.log"
+        return result, (log.read_text(encoding="utf-8").splitlines() if log.exists() else [])
+
+    def _layout(self, base, *, global_manifest=True, global_script=True, plugin=True):
+        (base / "project/.planning").mkdir(parents=True)
+        spies = {"project": str(self._spy(base / "project"))}
+        if global_manifest:
+            manifest = base / "global/.gsd/capabilities/beads/capability.json"
+            manifest.parent.mkdir(parents=True, exist_ok=True)
+            manifest.write_text("{}\n", encoding="utf-8")
+        if global_script:
+            spies["global"] = str(self._spy(base / "global"))
+        if plugin:
+            spies["plugin"] = str(self._spy(base / "plugin"))
+        return spies
+
+    def test_global_install_beats_hostile_project(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            spies = self._layout(base)
+            result, calls = self._run(base, base / "plugin")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(calls, [spies["global"]])
+
+    def test_plugin_beats_project_without_global_manifest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            spies = self._layout(base, global_manifest=False)
+            result, calls = self._run(base, base / "plugin")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(calls, [spies["plugin"]])
+
+    def test_project_scope_only_install_still_runs(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            spies = self._layout(base, global_manifest=False, global_script=False, plugin=False)
+            result, calls = self._run(base, base / "missing plugin")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(calls, [spies["project"]])
+
+    def test_global_manifest_without_script_fails_closed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            self._layout(base, global_script=False)
+            result, calls = self._run(base, base / "plugin")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(calls, [])
+
+
 class TestDirectSkillSyncResolver(unittest.TestCase):
     """Direct skills must select sync.py exactly as lifecycle dispatch does."""
 
     ROOT = Path(__file__).resolve().parents[4]
     RELATIVE_SYNC = ".gsd/capabilities/beads/scripts/sync.py"
-    DIAGNOSTIC = "gsd-beads: sync.py not found in project, global, or plugin capability roots"
-    RESOLVER = '''SYNC_PY=""
-for candidate in \\
-  "${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py" \\
-  "${GSD_HOME:-$HOME}/.gsd/capabilities/beads/scripts/sync.py" \\
-  "${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-do
-  if [ -f "$candidate" ]; then SYNC_PY="$candidate"; break; fi
-done
-if [ -z "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in project, global, or plugin capability roots" >&2
+    DIAGNOSTIC = "gsd-beads: sync.py not found in global, plugin, or project capability roots"
+    RESOLVER = """_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+elif [ -f "$_P" ]; then SYNC_PY="$_P"
+else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
+if [ ! -f "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
   exit 1
-fi'''
+fi"""
     RAW_FENCES = (
         ("beads-sync:create-issues", "beads-sync/SKILL.md", ("create-issues <PLAN.md path>",)),
         ("beads-recall:recall", "beads-recall/SKILL.md", ("beads-recall <phase directory>",)),
@@ -8237,7 +8316,18 @@ fi'''
             sum(len(tails) for _, _, tails in self.RAW_FENCES),
         )
 
+    def _write_manifest(self, root):
+        path = root / ".gsd/capabilities/beads/capability.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text("{}\n", encoding="utf-8")
+        return path
+
     def test_resolution_precedence_and_failure_boundary(self):
+        # Precedence used to be project-first. kilo.23: a cloned hostile repo
+        # shipping .gsd/capabilities/beads/scripts/sync.py then ran its own
+        # code on every skill call. Selection is now keyed on the global
+        # MANIFEST (which a repo cannot plant): global, then plugin, then
+        # project last so project-scope-only installs keep working.
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             project, global_root, plugin = (base / "project root", base / "global root", base / "plugin root")
@@ -8247,21 +8337,32 @@ fi'''
             base_env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project), GSD_HOME=str(global_root), HOME=str(base / "home root"), CLAUDE_PLUGIN_ROOT=str(plugin), SPY_LOG=str(spy_log), UNRELATED_CWD=str(unrelated))
             project_sync = self._write_spy(project)
             global_sync = self._write_spy(global_root)
+            global_manifest = self._write_manifest(global_root)
             plugin_sync = self._write_spy(plugin)
 
-            result = self._run(base_env, "status")
-            self.assertEqual(result.returncode, 0, result)
-            self.assertEqual(self._read_calls(spy_log), [[str(project_sync), ["status"]]])
-
-            spy_log.unlink()
-            project_sync.unlink()
+            # Hostile project + global install: global runs, project never.
             result = self._run(base_env, "status")
             self.assertEqual(result.returncode, 0, result)
             self.assertEqual(self._read_calls(spy_log), [[str(global_sync), ["status"]]])
 
+            # Global manifest present but its script deleted: fail closed,
+            # never fall through to plugin or project.
             spy_log.unlink()
             global_sync.unlink()
+            result = self._run(base_env, "status")
+            self.assertEqual(result.returncode, 1, result)
+            self.assertEqual(result.stderr, self.DIAGNOSTIC + "\n")
+            self.assertFalse(spy_log.exists())
+
+            # No global manifest: plugin beats project.
+            global_manifest.unlink()
+            result = self._run(base_env, "status")
+            self.assertEqual(result.returncode, 0, result)
+            self.assertEqual(self._read_calls(spy_log), [[str(plugin_sync), ["status"]]])
+
+            spy_log.unlink()
             home_sync = self._write_spy(base / "home root")
+            home_manifest = self._write_manifest(base / "home root")
             for gsd_home in (None, ""):
                 spy_log.unlink(missing_ok=True)
                 env = dict(base_env)
@@ -8273,14 +8374,17 @@ fi'''
                 self.assertEqual(result.returncode, 0, result)
                 self.assertEqual(self._read_calls(spy_log), [[str(home_sync), ["status"]]])
 
+            # Project-scope-only install still resolves.
             spy_log.unlink()
             home_sync.unlink()
+            home_manifest.unlink()
+            plugin_sync.unlink()
             result = self._run(base_env, "status")
             self.assertEqual(result.returncode, 0, result)
-            self.assertEqual(self._read_calls(spy_log), [[str(plugin_sync), ["status"]]])
+            self.assertEqual(self._read_calls(spy_log), [[str(project_sync), ["status"]]])
 
             spy_log.unlink()
-            plugin_sync.unlink()
+            project_sync.unlink()
             (project / self.RELATIVE_SYNC).mkdir(parents=True)
             result = self._run(base_env, "status")
             self.assertEqual(result.returncode, 1, result)
