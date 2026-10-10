@@ -314,10 +314,24 @@ MILESTONE_RE = re.compile(r"^milestone:\s*(\S+)\s*$", re.MULTILINE)
 MILESTONE_NAME_RE = re.compile(r"^milestone_name:\s*(\S+)\s*$", re.MULTILINE)
 
 
+# bd finds its database from the process cwd. main() sets this to the project
+# root of its path argument for the duration of one call, so every bd call runs there (the
+# effect of `bd -C <root>` without touching any call site's argv).
+_BD_CWD = None
+
+
+def _set_bd_root(start):
+    global _BD_CWD
+    try:
+        _BD_CWD = str(find_project_root(Path(start).resolve()))
+    except (ValueError, OSError):
+        _BD_CWD = None
+
+
 def run_bd(argv, timeout=BD_TIMEOUT):
     """Run one bd subcommand from a typed argv list; shell interpretation is
     never enabled here -- see module docstring, T-01-01."""
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=_BD_CWD)
 
 
 def bd_available():
@@ -1353,12 +1367,16 @@ def lifecycle_dispatch(point):
     if point not in LIFECYCLE_DISPATCH_POINTS:
         return 0
     try:
-        project_root = find_project_root(Path.cwd())
-    except ValueError:
+        try:
+            project_root = find_project_root(Path.cwd())
+        except ValueError:
+            return 0
+        if not read_beads_enabled(project_root):
+            return 0
+        phase_dir = _resolve_default_phase_dir(project_root)
+    except Exception as exc:  # noqa: BLE001 -- onError: "skip": a deleted cwd or unreadable config must not escape
+        print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})", file=sys.stderr)
         return 0
-    if not read_beads_enabled(project_root):
-        return 0
-    phase_dir = _resolve_default_phase_dir(project_root)
     if phase_dir is None or not phase_dir.is_dir():
         # stderr, not stdout: a repository between milestones has no
         # `.planning/phases/` at all, so this fires on every render-hooks call
@@ -1410,7 +1428,20 @@ def lifecycle_dispatch(point):
                 )
                 return 0
             for plan_id in sorted(plans):
-                create_issues(str(plans[plan_id]), allow_strip=False)
+                try:
+                    rc = create_issues(str(plans[plan_id]), allow_strip=False)
+                except Exception as exc:  # noqa: BLE001 -- one bad plan must not stop the rest
+                    print(
+                        f"lifecycle-dispatch plan:post: create-issues {plan_id} skipped "
+                        f"after an unexpected failure ({exc})",
+                        file=sys.stderr,
+                    )
+                    continue
+                if rc:
+                    print(
+                        f"lifecycle-dispatch plan:post: create-issues {plan_id} exited {rc}",
+                        file=sys.stderr,
+                    )
         elif point == "execute:wave:pre":
             render_wave_status_block(str(phase_dir), sorted(discover_plan_files(phase_dir)))
         elif point == "execute:wave:post":
@@ -1426,7 +1457,8 @@ def lifecycle_dispatch(point):
                 return 0
             regenerate_beads_md(str(phase_dir))
     except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
-        print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})")
+        # stderr, not stdout: stdout is promoted into Claude's context.
+        print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})", file=sys.stderr)
     return 0
 
 
@@ -1454,7 +1486,10 @@ def get_milestone_bullet(roadmap_path, milestone):
     ROADMAP milestone bullet is the one existing verbatim statement of that
     milestone's scope, mirroring get_phase_header's no-translation
     discipline."""
-    text = Path(roadmap_path).read_text(encoding="utf-8")
+    try:
+        text = Path(roadmap_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
     section_m = re.search(
         r"^##\s+Milestones\s*$\n(.*?)(?=^##\s|\Z)", text, re.MULTILINE | re.DOTALL
     )
@@ -2649,12 +2684,18 @@ def create_issues(plan_arg, allow_strip=True):
     return 0
 
 
+_CELL_STRIP = str.maketrans("", "", "<>`")
+
+
 def _escape_table_cell(text):
     """Escape `|` and strip `\r`/`\n` from text before it enters a markdown
     table cell (T-02-03, matches gsd-core's own ship.md pattern) -- issue
     title/status text originates from a different principal (whoever filed
     it in bd) than the process rendering this generated artifact."""
-    return text.replace("|", "\\|").replace("\r", "").replace("\n", " ")
+    # `<`, `>` and backticks are dropped: titles are re-printed inside the
+    # <beads_status> executor-prompt block, which a `</beads_status>` in a
+    # title would otherwise close.
+    return text.translate(_CELL_STRIP).replace("|", "\\|").replace("\r", "").replace("\n", " ")
 
 
 def _beads_recall_argv():
@@ -2708,7 +2749,9 @@ def _render_beads_recall_body(matched, unscoped):
     return "\n".join(parts)
 
 
-PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
+# A path-like token must contain a `/` (so "e.g", "i.e", "v1.2" never match).
+PATH_TOKEN_RE = re.compile(r"(?=[\w\-./]*/)[\w\-./]+\.\w{1,4}")
+PATH_TOKEN_MIN_LEN = 4
 # GH#11: digits are `\w`, so a bare version number ("2.39") matches
 # PATH_TOKEN_RE too but is never a path/extension -- excluded below.
 NUMERIC_ONLY_TOKEN_RE = re.compile(r"[\d.]+")
@@ -2737,7 +2780,7 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
 
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
-        if NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
+        if len(token) < PATH_TOKEN_MIN_LEN or NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
             continue
         if token not in seen:
             seen.append(token)
@@ -2879,7 +2922,13 @@ def beads_recall(phase_dir_arg):
     except (OSError, ValueError):
         phase_mentions = []
     folded_phase_mentions = [token.casefold() for token in phase_mentions]
-    files_index = collect_all_task_files(project_root)
+    try:
+        files_index = collect_all_task_files(project_root)
+    except (OSError, ValueError) as exc:  # PlanParseError is a ValueError
+        reason = f"a plan could not be read for the file index: {exc}"
+        _write_beads_recall_failure(phase_dir, reason)
+        print(f"BEADS-RECALL.md recall failed: {reason}")
+        return 0
 
     matched = []
     unscoped = []
@@ -3357,31 +3406,32 @@ def _read_beads_md_frontmatter(phase_dir):
 
 
 def _head_already_pushed(project_root):
-    """True when HEAD has zero commits ahead of its upstream -- i.e. HEAD is
-    already on the remote. Amending it would rewrite a commit origin already
-    has, diverging local history with no fast-forward path (push_branch never
-    force-pushes). This happens on a ship retry after a prior run already
-    completed push_branch (e.g. a later step like `gh pr create` failed).
-    Returns False (assume safe, preserves prior behavior) when no upstream is
-    configured or either git call fails -- a targeted guard against this one
-    known failure mode, not a general git-state validator."""
+    """True when HEAD must be treated as already on the remote -- amending it
+    would rewrite a commit a remote has, diverging local history with no
+    fast-forward path (push_branch never force-pushes). This happens on a
+    ship retry after a prior run already completed push_branch.
+
+    Compared against the push target (`@{push}`: branch.<name>.pushRemote /
+    remote.pushDefault, same-name ref), not the upstream: a fork workflow
+    pushes somewhere `@{u}` never mentions. When no push target resolves but
+    an upstream does (push.default=simple with a differently named
+    upstream), the branch's own remote ref cannot be established, so refuse.
+    Returns False (assume safe) with neither configured or on a git
+    failure -- a targeted guard, not a general git-state validator."""
+
+    def git(*args):
+        return subprocess.run(
+            ["git", *args],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT,
+        )
+
     try:
-        upstream = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT,
-        )
-        if upstream.returncode != 0:
-            return False
-        ahead = subprocess.run(
-            ["git", "rev-list", "--count", "@{u}..HEAD"],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT,
-        )
+        if git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{push}").returncode != 0:
+            return git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").returncode == 0
+        ahead = git("rev-list", "--count", "@{push}..HEAD")
         if ahead.returncode != 0:
             return False
         return ahead.stdout.strip() == "0"
@@ -3430,18 +3480,25 @@ def ship_override(phase_dir_arg):
         )
         git_ok = False
     else:
-        result = subprocess.run(
-            ["git", "commit", "--amend", "--allow-empty", "--no-edit", "--trailer", trailer],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT,
-        )
-        git_ok = result.returncode == 0
-        if git_ok:
-            print(f"ship-override: recorded {trailer}")
+        try:
+            # --only with --amend and no paths: rewrite the message only,
+            # never fold whatever else is staged into HEAD.
+            result = subprocess.run(
+                ["git", "commit", "--amend", "--only", "--allow-empty", "--no-edit", "--trailer", trailer],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=GIT_TIMEOUT,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            git_ok = False
+            print(f"ship-override: git commit --amend failed: {exc}")
         else:
-            print(f"ship-override: git commit --amend failed: {result.stderr.strip()}")
+            git_ok = result.returncode == 0
+            if git_ok:
+                print(f"ship-override: recorded {trailer}")
+            else:
+                print(f"ship-override: git commit --amend failed: {result.stderr.strip()}")
 
     if not SAFE_BD_ID_RE.fullmatch(fields["epic"]):
         print(f"ship-override: BEADS.md epic {fields['epic']!r} is not a bd id -- comment mirror skipped")
@@ -3450,9 +3507,13 @@ def ship_override(phase_dir_arg):
             f"ship_gate override: blocking_open={fields['blocking_open']}, "
             f"diverged={fields['diverged']}"
         )
-        comment_result = run_bd(["bd", "comment", fields["epic"], comment_text])
-        if comment_result.returncode != 0:
-            print(f"ship-override: bd comment failed: {comment_result.stderr.strip()}")
+        try:
+            comment_result = run_bd(["bd", "comment", fields["epic"], comment_text])
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            print(f"ship-override: bd comment failed: {exc}")
+        else:
+            if comment_result.returncode != 0:
+                print(f"ship-override: bd comment failed: {comment_result.stderr.strip()}")
     else:
         print("ship-override: bd unavailable -- comment mirror skipped (B6)")
 
@@ -3566,7 +3627,11 @@ def check_native_step_dispatch(point, workflow_path_override=None):
             / "workflows"
             / filename
         )
-    if not workflow_path.exists():
+    try:
+        found = workflow_path.exists()
+    except OSError:  # e.g. PermissionError on an unsearchable parent
+        found = False
+    if not found:
         print(
             f"native-step-dispatch probe ({point}): {workflow_path} not found -- "
             "assuming not detected, lifecycle-dispatch keeps dispatching",
@@ -3635,6 +3700,14 @@ def check_native_step_dispatch(point, workflow_path_override=None):
 
 
 def main(argv=None):
+    global _BD_CWD
+    try:
+        return _main(argv)
+    finally:
+        _BD_CWD = None
+
+
+def _main(argv):
     parser = argparse.ArgumentParser(prog="sync.py")
     sub = parser.add_subparsers(dest="command", required=True)
     create_p = sub.add_parser(
@@ -3705,6 +3778,9 @@ def main(argv=None):
     )
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
+    path_arg = getattr(args, "phase_dir", None) or getattr(args, "plan_path", None)
+    if path_arg:
+        _set_bd_root(path_arg)
     if args.command == "resolve-task-content":
         return resolve_task_content(args.issue_id)
     if args.command == "create-issues":
