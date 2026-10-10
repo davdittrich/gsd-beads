@@ -126,11 +126,23 @@ with zero `bd` issues and nothing reporting it
 ([#2](https://github.com/davdittrich/gsd-beads/issues/2)).
 
 The equivalent manual invocation, for a runtime with no `PostToolUse` support or for driving a
-point by hand:
+point by hand: first set `SYNC_PY` with the resolver block from the `gsd-beads-sync` skill's
+Step 3 fence, then run
 
 ```bash
-python3 .gsd/capabilities/beads/scripts/sync.py lifecycle-dispatch plan:pre
+python3 "$SYNC_PY" lifecycle-dispatch plan:pre
 ```
+
+Never run a cwd-relative `.gsd/capabilities/beads/scripts/sync.py`: that executes whatever
+script the current repository ships
+([#20](https://github.com/davdittrich/gsd-beads/issues/20)). The hook and every skill fence
+resolve `sync.py` the same way: with a global install
+(`${GSD_HOME:-$HOME}/.gsd/capabilities/beads/capability.json` present, as any filesystem
+entry) its own script runs, and a missing script fails closed; otherwise the plugin copy;
+the project copy only last. Without an absolute `GSD_HOME` or `HOME` nothing runs. One
+consequence for development: inside a gsd-beads checkout the skills and hook run the
+*installed* global `sync.py`, not the working tree's, so reinstall the capability after
+editing `scripts/sync.py` (the test suite exercises the working tree directly).
 
 Valid points are `plan:pre`, `plan:post`, `execute:wave:pre`, `execute:wave:post` and
 `verify:post`. The verb always exits `0` — it honors the same `onError: skip` contract the hooks

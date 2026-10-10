@@ -108,9 +108,16 @@ cd "$PROJECT_DIR" || exit 0
 # install runs its own script (missing => skip, never fall through); else the
 # plugin copy; the project copy only last, so project-scope-only installs keep
 # working without letting a hostile repo's sync.py run on every event.
-_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+# No absolute GSD_HOME/HOME => the global manifest cannot be located, so the
+# precedence is unknowable: run nothing, even though the plugin copy would
+# resolve (a relative base would resolve inside the project we just cd'd to).
+# Any manifest entry -- dangling symlink or directory included -- counts as a
+# global install, whose non-file script then fails closed below.
+_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) exit 0 ;; esac
+_G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/.gsd/capabilities/beads/scripts/sync.py"
-if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="$PROJECT_DIR/.gsd/capabilities/beads/scripts/sync.py"; fi
 [ -f "$SYNC_PY" ] || exit 0

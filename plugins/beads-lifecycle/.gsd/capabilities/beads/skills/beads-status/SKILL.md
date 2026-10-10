@@ -76,9 +76,11 @@ skill, not a dispatch from gsd-core's own `steps[]` loop): follow **Step 2e** be
 Run one Bash call passing the phase directory and **every** plan id in the wave at once:
 
 ```bash
-_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
+_G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
 if [ ! -f "$SYNC_PY" ]; then
@@ -109,9 +111,11 @@ Run two Bash calls, **in this order**, both passing only the phase directory -- 
 wave/plan-id list at this lifecycle point:
 
 ```bash
-_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
+_G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
 if [ ! -f "$SYNC_PY" ]; then
@@ -186,9 +190,11 @@ Read `{padded_phase}-BEADS.md`'s `blocking_open`/`diverged` frontmatter fields a
 (`blocking_open > 0` **or** `diverged > 0`), run:
 
 ```bash
-_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
+_G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
 if [ ! -f "$SYNC_PY" ]; then
@@ -206,9 +212,11 @@ notice). Otherwise this branch is a no-op -- print nothing.
 This step always runs at `ship:pre`, independent of whether Step 2c did anything. Run:
 
 ```bash
-_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
+_G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
 if [ ! -f "$SYNC_PY" ]; then
@@ -233,9 +241,11 @@ Resolve `phase_dir` from `$ARGUMENTS` when a phase directory (or phase number) w
 would duplicate `_resolve_default_phase_dir`'s logic in a second place.
 
 ```bash
-_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
+_G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
 if [ ! -f "$SYNC_PY" ]; then
@@ -289,9 +299,11 @@ absent, failing, or locked, `sync.py` prints the one required notice line, appen
 Run one Bash call passing the phase directory and **every** plan id in the wave at once:
 
 ```bash
-_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
+_G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
 if [ ! -f "$SYNC_PY" ]; then

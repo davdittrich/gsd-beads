@@ -1879,6 +1879,18 @@ class TestTaskContentResolverManifest(unittest.TestCase):
             with self.subTest(plugin=entry["name"]):
                 self.assertRegex(entry["source"].get("sha", ""), r"\A[0-9a-f]{40}\Z")
 
+    def test_manual_dispatch_docs_use_resolver_not_cwd_relative_script(self):
+        # GH#20 / kilo.25: a cwd-relative `python3 .gsd/.../sync.py` runs
+        # whatever sync.py the current repository ships -- the exact
+        # hostile-repo path kilo.23 closed in the hook and skill fences.
+        root = self.CAPABILITY_PATH.parents[5]
+        for relative in ("README.md", "plugins/beads-lifecycle/.agents/skills/beads/PRIME.md"):
+            with self.subTest(doc=relative):
+                text = (root / relative).read_text(encoding="utf-8")
+                self.assertNotIn("python3 .gsd/capabilities/beads/scripts/sync.py", text)
+                self.assertIn('python3 "$SYNC_PY" lifecycle-dispatch', text)
+                self.assertIn("gsd-beads-sync", text)
+
     def test_prime_matches_readme_dispatch_ownership(self):
         root = self.CAPABILITY_PATH.parents[5]
         readme = (root / "README.md").read_text(encoding="utf-8")
@@ -8177,7 +8189,7 @@ class TestLifecycleDispatchSyncResolution(unittest.TestCase):
         )
         return path
 
-    def _run(self, base, plugin_root):
+    def _run(self, base, plugin_root, **env_overrides):
         project = base / "project"
         payload = json.dumps({
             "hook_event_name": "PostToolUse",
@@ -8188,6 +8200,11 @@ class TestLifecycleDispatchSyncResolution(unittest.TestCase):
         env = dict(os.environ, GSD_HOME=str(base / "global"), HOME=str(base / "home"),
                    CLAUDE_PLUGIN_ROOT=str(plugin_root), SPY_LOG=str(base / "spy.log"))
         env.pop("CLAUDE_PROJECT_DIR", None)
+        for key, value in env_overrides.items():
+            if value is None:
+                env.pop(key, None)
+            else:
+                env[key] = value
         result = subprocess.run(["bash", str(self.HOOK)], input=payload,
                                 capture_output=True, text=True, env=env, timeout=60)
         log = base / "spy.log"
@@ -8238,6 +8255,43 @@ class TestLifecycleDispatchSyncResolution(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result)
             self.assertEqual(calls, [])
 
+    def test_unusable_home_fails_closed_even_with_plugin_copy(self):
+        # Without an absolute GSD_HOME/HOME the global manifest cannot be
+        # located, so precedence is unknowable: run nothing rather than guess.
+        # GSD_HOME='.' resolves against the hook's cwd -- the hostile project,
+        # which can then plant the "global" manifest itself.
+        cases = {"HOME empty": {"GSD_HOME": None, "HOME": ""},
+                 "HOME unset": {"GSD_HOME": None, "HOME": None},
+                 "GSD_HOME relative": {"GSD_HOME": "."}}
+        for label, overrides in cases.items():
+            for plugin in (True, False):
+                with self.subTest(case=label, plugin=plugin), tempfile.TemporaryDirectory() as tmp:
+                    base = Path(tmp)
+                    self._layout(base, global_manifest=False, global_script=False, plugin=plugin)
+                    planted = base / "project/.gsd/capabilities/beads/capability.json"
+                    planted.write_text("{}\n", encoding="utf-8")
+                    result, calls = self._run(base, base / "plugin", **overrides)
+                    self.assertEqual(result.returncode, 0, result)
+                    self.assertEqual(calls, [])
+
+    def test_non_file_global_manifest_counts_as_installed(self):
+        # A dangling symlink or a directory at the manifest path still marks a
+        # global install; its missing script must fail closed, not fall through.
+        for kind in ("dangling symlink", "directory"):
+            for plugin in (True, False):
+                with self.subTest(kind=kind, plugin=plugin), tempfile.TemporaryDirectory() as tmp:
+                    base = Path(tmp)
+                    self._layout(base, global_manifest=False, global_script=False, plugin=plugin)
+                    manifest = base / "global/.gsd/capabilities/beads/capability.json"
+                    manifest.parent.mkdir(parents=True)
+                    if kind == "directory":
+                        manifest.mkdir()
+                    else:
+                        manifest.symlink_to(base / "nowhere.json")
+                    result, calls = self._run(base, base / "plugin")
+                    self.assertEqual(result.returncode, 0, result)
+                    self.assertEqual(calls, [])
+
 
 class TestDirectSkillSyncResolver(unittest.TestCase):
     """Direct skills must select sync.py exactly as lifecycle dispatch does."""
@@ -8245,9 +8299,12 @@ class TestDirectSkillSyncResolver(unittest.TestCase):
     ROOT = Path(__file__).resolve().parents[4]
     RELATIVE_SYNC = ".gsd/capabilities/beads/scripts/sync.py"
     DIAGNOSTIC = "gsd-beads: sync.py not found in global, plugin, or project capability roots"
-    RESOLVER = """_G="${GSD_HOME:-$HOME}/.gsd/capabilities/beads"
+    NO_BASE_DIAGNOSTIC = "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py"
+    RESOLVER = """_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
+_G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
-if [ -f "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
 if [ ! -f "$SYNC_PY" ]; then
@@ -8297,6 +8354,52 @@ fi"""
             json.loads(line)
             for line in spy_log.read_text(encoding="utf-8").splitlines()
         ]
+
+    def test_unlocatable_or_non_file_global_fails_closed(self):
+        # kilo.23 review: an unusable HOME/GSD_HOME or a manifest that exists
+        # but is not a regular file used to fall through to the project copy.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            project, global_root, plugin = (base / "project root", base / "global root", base / "plugin root")
+            spy_log = base / "spy.jsonl"
+            self._write_spy(project)
+            self._write_manifest(project)  # hostile repo plants a "global" manifest
+            base_env = dict(os.environ, CLAUDE_PROJECT_DIR=str(project), GSD_HOME=str(global_root), HOME=str(base / "home root"), CLAUDE_PLUGIN_ROOT=str(plugin), SPY_LOG=str(spy_log), UNRELATED_CWD=str(project))
+            cases = {
+                "HOME empty": {"GSD_HOME": None, "HOME": ""},
+                "HOME unset": {"GSD_HOME": None, "HOME": None},
+                "GSD_HOME relative": {"GSD_HOME": "."},
+            }
+            for with_plugin in (False, True):
+                if with_plugin:
+                    self._write_spy(plugin)
+                for label, overrides in cases.items():
+                    with self.subTest(case=label, plugin=with_plugin):
+                        env = dict(base_env)
+                        for key, value in overrides.items():
+                            if value is None:
+                                env.pop(key, None)
+                            else:
+                                env[key] = value
+                        result = self._run(env, "status")
+                        self.assertEqual(result.returncode, 1, result)
+                        self.assertEqual(result.stderr, self.NO_BASE_DIAGNOSTIC + "\n")
+                        self.assertFalse(spy_log.exists())
+                manifest = global_root / ".gsd/capabilities/beads/capability.json"
+                manifest.parent.mkdir(parents=True, exist_ok=True)
+                for kind in ("dangling symlink", "directory"):
+                    with self.subTest(case=kind, plugin=with_plugin):
+                        if kind == "directory":
+                            manifest.mkdir()
+                        else:
+                            manifest.symlink_to(base / "nowhere.json")
+                        try:
+                            result = self._run(base_env, "status")
+                        finally:
+                            manifest.rmdir() if kind == "directory" else manifest.unlink()
+                        self.assertEqual(result.returncode, 1, result)
+                        self.assertEqual(result.stderr, self.DIAGNOSTIC + "\n")
+                        self.assertFalse(spy_log.exists())
 
     def test_all_ten_fences_have_exact_static_contract(self):
         texts = {}
