@@ -236,7 +236,7 @@ SOLUTION_RE = re.compile(r"^##\s*Solution\s*\n(.*)", re.MULTILINE | re.DOTALL)
 SEVERITY_TO_PRIORITY = {"blocker": 0, "major": 1, "minor": 2, "cosmetic": 3}
 BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # 03-03 Task 2: the literal marker bracketing the local ship.md patch
-# (GSD-CORE-PATCH.md) -- check_shipmd_patch does a plain substring check
+# (GSD-CORE-PATCH.md) -- check_patch() does a plain substring check
 # against this, never a regex, since the marker is a fixed literal string.
 #
 # v2 (gsd-core 1.11.0): the patch shrank to step dispatch only. gsd-core
@@ -250,32 +250,26 @@ BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # now-redundant gate loop running alongside the native one, and this checker
 # reporting "missing" is the signal to reapply the trimmed v2.
 SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->"
-# 17-04 Task 3 (D-08/D-10): the table `check_patch` walks. The retained
-# ship-md target remains a literal entry rather than a registry or class.
-PATCH_CHECKS = {
-    "ship-md": {
-        "default_path_parts": ("gsd-core", "workflows", "ship.md"),
-        "marker": SHIP_MD_PATCH_MARKER,
-        "version": "v2",
-        "filename": "ship.md",
-        "not_found_msg": (
-            "⚠ {filename} not found at {path} -- cannot verify the local ship:pre dispatch "
-            "patch (only this runtime home was probed; other runtime homes such as "
-            "CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
-        ),
-        "could_not_read_msg": (
-            "⚠ {filename} at {path} could not be read ({exc}) -- cannot verify the "
-            "local ship:pre dispatch patch"
-        ),
-        "present_msg": "{filename} ship:pre step-dispatch patch: present ({version}) at {path}",
-        "missing_msg": (
-            "⚠ {filename}'s ship:pre generic STEP dispatch patch (beads, {version}) is "
-            "missing at {path} -- the ship_override step will not fire. The two ship:pre "
-            "GATES are unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR "
-            "#3608). Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
-        ),
-    },
-}
+# 17-04 Task 3 (D-08/D-10): the ship-md patch check `check_patch` reads.
+SHIP_MD_PATCH_PATH_PARTS = ("gsd-core", "workflows", "ship.md")
+SHIP_MD_PATCH_VERSION = "v2"
+SHIP_MD_FILENAME = "ship.md"
+SHIP_MD_NOT_FOUND_MSG = (
+    "⚠ {filename} not found at {path} -- cannot verify the local ship:pre dispatch "
+    "patch (only this runtime home was probed; other runtime homes such as "
+    "CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
+)
+SHIP_MD_COULD_NOT_READ_MSG = (
+    "⚠ {filename} at {path} could not be read ({exc}) -- cannot verify the "
+    "local ship:pre dispatch patch"
+)
+SHIP_MD_PRESENT_MSG = "{filename} ship:pre step-dispatch patch: present ({version}) at {path}"
+SHIP_MD_MISSING_MSG = (
+    "⚠ {filename}'s ship:pre generic STEP dispatch patch (beads, {version}) is "
+    "missing at {path} -- the ship_override step will not fire. The two ship:pre "
+    "GATES are unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR "
+    "#3608). Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
+)
 # gh-2: the lifecycle points `lifecycle_dispatch` handles -- every `steps[]`
 # entry in capability.json EXCEPT `ship:pre`, which already dispatches
 # natively through this capability's own ship.md patch. Order is the
@@ -401,6 +395,21 @@ def find_project_root(start):
             break
         current = current.parent
     raise ValueError(f"could not locate a .planning/ ancestor above {start}")
+
+
+def _skip_bd_unavailable(start, label):
+    """B6/D-08: the shared bd-unavailable fail-open tail -- print NOTICE and
+    record one STATE.md blocker naming `label` when a project root is found
+    above `start` (none found: notice only)."""
+    print(NOTICE)
+    try:
+        project_root = find_project_root(start)
+    except ValueError:
+        return
+    append_state_blocker(
+        confined(project_root, ".planning", "STATE.md"),
+        f"bd unavailable -- {label} skipped (B6/D-08)",
+    )
 
 
 def confined(root, *parts):
@@ -981,16 +990,7 @@ def migrate_todos(pending_dir_arg):
     line tells the user to check bd first.
     """
     if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(Path(pending_dir_arg).resolve())
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- migrate-todos skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(Path(pending_dir_arg).resolve(), "migrate-todos")
         return 0
 
     pending_dir = Path(pending_dir_arg)
@@ -1254,14 +1254,14 @@ def check_sync_mode_value(project_root):
     project whose `.planning/config.json` stores a `beads.sync_mode` value
     outside the declared enum -- the retired `off` value, an empty string,
     a case/whitespace variant, or a non-string type. Called from
-    `lifecycle_dispatch`'s `plan:pre` branch, beside `check_shipmd_patch`
+    `lifecycle_dispatch`'s `plan:pre` branch, beside `check_patch()`
     inside the same `try/except Exception`,
     so a failure here degrades to at most one skipped notice and cannot
     take out `beads_recall`.
 
     Prints to STDOUT -- the same stream `check_patch` uses for all four of
     its message paths (`not_found_msg`, `could_not_read_msg`, `present_msg`,
-    `missing_msg`), which `check_shipmd_patch` thin-wraps (WR-01: this
+    `missing_msg`) (WR-01: this
     function shares that convention, it is not
     the opposite of it). `hooks/lifecycle-dispatch.sh` promotes only stdout
     into `additionalContext`; the whole point of this notice is that a user
@@ -1399,7 +1399,7 @@ def lifecycle_dispatch(point):
             # itself one of the dead points, so it shared the failure mode of
             # the thing it protects. Reached from a harness hook it is finally
             # independent of gsd-core's dispatch prose altogether.
-            check_shipmd_patch()
+            check_patch()
             # 17-03 Task 2 (D-04 Case 2): stdout notice for an out-of-enum
             # beads.sync_mode value -- both plan:pre checks above and
             # here print to stdout and run inside this one try/except
@@ -2264,16 +2264,7 @@ def close_wave(phase_dir_arg, plan_ids):
         return 1
 
     if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(phase_dir)
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-status close-wave skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(phase_dir, "beads-status close-wave")
         return 0
 
     # De-duplicate while preserving order, in case the same task id is
@@ -2316,16 +2307,7 @@ def reconcile_stale_closed(phase_dir_arg):
         return 1
 
     if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(phase_dir)
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-status reconcile-stale-closed skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(phase_dir, "beads-status reconcile-stale-closed")
         return 0
 
     completed_ids = sorted(completed_ids)
@@ -2528,11 +2510,7 @@ def create_issues(plan_arg, allow_strip=True):
             return 1
 
     if not bd_available():
-        print(NOTICE)
-        append_state_blocker(
-            confined(project_root, ".planning", "STATE.md"),
-            "bd unavailable -- beads-sync skipped (B6/D-08)",
-        )
+        _skip_bd_unavailable(project_root, "beads-sync")
         return 0
 
     plan_filename_stem = plan_path.stem  # e.g. "01-01-PLAN" -> ordinal "01-01"
@@ -2892,17 +2870,8 @@ def beads_recall(phase_dir_arg):
     issues are open (D-04) -- same B6/D-08 fail-open shape as create_issues/
     close_wave, never a new fail-open variant."""
     if not bd_available():
-        print(NOTICE)
         phase_dir = Path(phase_dir_arg).resolve()
-        try:
-            project_root = find_project_root(phase_dir)
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-recall skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(phase_dir, "beads-recall")
         _write_beads_recall_failure(phase_dir, "bd unavailable")
         print("BEADS-RECALL.md recall failed: bd unavailable")
         return 0
@@ -3153,7 +3122,6 @@ def regenerate_beads_md(phase_dir_arg):
         )
 
     if not bd_available():
-        print(NOTICE)
         # A previous run's BEADS.md (e.g. blocking_open: 0) must not satisfy
         # the ship:pre gate on stale data: overwrite it with the unknown
         # sentinel, or remove it when no epic is known (a missing artifact
@@ -3162,15 +3130,7 @@ def regenerate_beads_md(phase_dir_arg):
             out_path.unlink(missing_ok=True)
         else:
             write_unknown(["bd", "unavailable"])
-        try:
-            project_root = find_project_root(phase_dir)
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-status regenerate-beads-md skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(phase_dir, "beads-status regenerate-beads-md")
         return 0
 
     if epic_id is None:
@@ -3264,16 +3224,7 @@ def render_status_mapping(phase_dir_arg):
     update/comment -- this function only reports, it never reconciles.
     """
     if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(Path(phase_dir_arg).resolve())
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-status on-demand skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(Path(phase_dir_arg).resolve(), "beads-status on-demand")
         return 0
 
     phase_dir = Path(phase_dir_arg).resolve()
@@ -3549,30 +3500,21 @@ def ship_override(phase_dir_arg):
     return 0 if git_ok else 1
 
 
-def check_patch(target, path_override=None):
-    """17-04 Task 3 (TRUTH-02): the one reader PATCH_CHECKS parameterizes,
-    serving the retained Patch 1 ship-md wrapper through one generic
-    PATCH_CHECKS-backed reader. Preserves the three-case return contract (not-found /
+def check_patch(path_override=None):
+    """17-04 Task 3 (TRUTH-02): the retained Patch 1 ship-md check. Preserves the three-case return contract (not-found /
     could-not-read / marker present-or-missing), the `CLAUDE_CONFIG_DIR`
     idiom, and naming the exact path probed in every message (WR-03).
     Read-only. Total by construction (T-17-04-02): both checks run inside
-    `lifecycle_dispatch`'s one `try/except` alongside `beads_recall`, so an
-    unrecognized `target` fails open like an unreadable file rather than
-    raising -- but names the unknown target so the two cases stay separable.
+    `lifecycle_dispatch`'s one `try/except` alongside `beads_recall`.
     """
-    entry = PATCH_CHECKS.get(target)
-    if entry is None:
-        known = ", ".join(sorted(PATCH_CHECKS))
-        print(f"unknown patch-check target '{target}' -- expected one of: {known}")
-        return 1
     if path_override:
         path = Path(path_override)
     else:
         path = Path(
             os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))
-        ).joinpath(*entry["default_path_parts"])
+        ).joinpath(*SHIP_MD_PATCH_PATH_PARTS)
     if not path.exists():
-        print(entry["not_found_msg"].format(filename=entry["filename"], path=path))
+        print(SHIP_MD_NOT_FOUND_MSG.format(filename=SHIP_MD_FILENAME, path=path))
         return 1
     # WR-02/CR-02: degrade to "cannot verify" rather than raise -- an
     # An unreadable target returns a checker result instead of raising so
@@ -3580,24 +3522,15 @@ def check_patch(target, path_override=None):
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        print(entry["could_not_read_msg"].format(filename=entry["filename"], path=path, exc=exc))
+        print(SHIP_MD_COULD_NOT_READ_MSG.format(filename=SHIP_MD_FILENAME, path=path, exc=exc))
         return 1
-    present = entry["marker"] in text
-    fmt = entry["present_msg"] if present else entry["missing_msg"]
+    present = SHIP_MD_PATCH_MARKER in text
+    fmt = SHIP_MD_PRESENT_MSG if present else SHIP_MD_MISSING_MSG
     # WR-01: stdout is deliberate here, not a convention to "fix" -- the
     # hook (hooks/lifecycle-dispatch.sh) promotes only stdout into
     # additionalContext, so a stderr line would silently vanish.
-    print(fmt.format(filename=entry["filename"], path=path, version=entry["version"]))
+    print(fmt.format(filename=SHIP_MD_FILENAME, path=path, version=SHIP_MD_PATCH_VERSION))
     return 0 if present else 1
-
-
-def check_shipmd_patch(ship_md_path_override=None):
-    """Thin wrapper over check_patch (17-04 Task 3, D-08) -- retained under
-    this exact name so the four existing test mocks and both in-file call
-    sites (beads-status Step 2d, beads-recall Step 3.5) keep working
-    unedited; D-08's CLI collapse is scoped to the public verb, not this
-    Python name (ROADMAP Criterion 5)."""
-    return check_patch("ship-md", ship_md_path_override)
 
 
 def check_native_step_dispatch(point, workflow_path_override=None):
@@ -3608,7 +3541,7 @@ def check_native_step_dispatch(point, workflow_path_override=None):
     to know so it can stand down at `plan:post`/`verify:post` rather than
     double-dispatch alongside gsd-core's own native loop.
 
-    Opposite polarity from check_shipmd_patch just above: it asks "is our
+    Opposite polarity from check_patch(): it asks "is our
     local patch still here" (missing is bad); this
     asks "does upstream now do this natively" (present means the hook is
     redundant here). Kept a SEPARATE function rather than a shared table
@@ -3785,7 +3718,7 @@ def _main(argv):
         "check-patch",
         help="Report whether the local GSD-CORE-PATCH.md ship-md patch is present",
     )
-    check_patch_p.add_argument("target", choices=sorted(PATCH_CHECKS))
+    check_patch_p.add_argument("target", choices=["ship-md"])
     check_patch_p.add_argument("--path", default=None)
     lifecycle_p = sub.add_parser(
         "lifecycle-dispatch",
@@ -3839,7 +3772,7 @@ def _main(argv):
     if args.command == "ship-override":
         return ship_override(args.phase_dir)
     if args.command == "check-patch":
-        return check_patch(args.target, args.path)
+        return check_patch(args.path)
     if args.command == "lifecycle-dispatch":
         return lifecycle_dispatch(args.point)
     if args.command == "migrate-todos":

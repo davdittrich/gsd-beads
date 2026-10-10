@@ -6405,7 +6405,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
 
 
 class TestCheckShipmdPatch(unittest.TestCase):
-    """03-03 Task 2: check_shipmd_patch is a pure read-and-warn function
+    """03-03 Task 2: check_patch is a pure read-and-warn function
     (never edits ship.md) reporting whether the local ship.md patch is
     present, absent, or the file itself is missing."""
 
@@ -6418,7 +6418,7 @@ class TestCheckShipmdPatch(unittest.TestCase):
             )
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_shipmd_patch(str(ship_md))
+                exit_code = sync.check_patch(str(ship_md))
 
         self.assertEqual(exit_code, 0)
         self.assertIn("present", captured.getvalue())
@@ -6429,7 +6429,7 @@ class TestCheckShipmdPatch(unittest.TestCase):
             ship_md.write_text("no patch marker in this file\n", encoding="utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_shipmd_patch(str(ship_md))
+                exit_code = sync.check_patch(str(ship_md))
 
         self.assertEqual(exit_code, 1)
         out = captured.getvalue()
@@ -6441,7 +6441,7 @@ class TestCheckShipmdPatch(unittest.TestCase):
             missing_path = Path(tmp) / "does-not-exist" / "ship.md"
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_shipmd_patch(str(missing_path))
+                exit_code = sync.check_patch(str(missing_path))
 
         self.assertEqual(exit_code, 1)
         self.assertIn(str(missing_path), captured.getvalue())
@@ -6455,7 +6455,7 @@ class TestCheckShipmdPatch(unittest.TestCase):
             ship_md.write_bytes(b"\xff\xfe not valid utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_shipmd_patch(str(ship_md))
+                exit_code = sync.check_patch(str(ship_md))
 
         self.assertEqual(exit_code, 1)
         self.assertIn("could not be read", captured.getvalue())
@@ -6469,7 +6469,7 @@ class TestCheckShipmdPatch(unittest.TestCase):
             ship_md.write_text(original, encoding="utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                sync.check_shipmd_patch(str(ship_md))
+                sync.check_patch(str(ship_md))
             self.assertEqual(ship_md.read_text(encoding="utf-8"), original)
 
     def test_cli_routes_through_main_and_returns_function_exit_code(self):
@@ -6504,7 +6504,7 @@ class TestPatchChecksTable(unittest.TestCase):
             ship_md.write_text(f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                sync.check_shipmd_patch(str(ship_md))
+                sync.check_patch(str(ship_md))
         self.assertIn("(v2)", captured.getvalue())
 
     def test_ship_md_missing_message_names_ship_pre_gates_unaffected(self):
@@ -6513,7 +6513,7 @@ class TestPatchChecksTable(unittest.TestCase):
             ship_md.write_text("no patch marker in this file\n", encoding="utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                sync.check_shipmd_patch(str(ship_md))
+                sync.check_patch(str(ship_md))
         out = captured.getvalue()
         self.assertIn("ship_override step will not fire", out)
         self.assertIn("ship:pre GATES are", out)
@@ -6529,7 +6529,7 @@ class TestPatchChecksTable(unittest.TestCase):
             missing_path = Path(tmp) / "does-not-exist" / "ship.md"
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                sync.check_shipmd_patch(str(missing_path))
+                sync.check_patch(str(missing_path))
         self.assertTrue(captured.getvalue().startswith("⚠ "))
 
     def test_ship_md_could_not_read_message_carries_the_marker(self):
@@ -6538,37 +6538,10 @@ class TestPatchChecksTable(unittest.TestCase):
             ship_md.write_bytes(b"\xff\xfe not valid utf-8")
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                sync.check_shipmd_patch(str(ship_md))
+                sync.check_patch(str(ship_md))
         self.assertTrue(captured.getvalue().startswith("⚠ "))
 
-    # -- 17-04 Task 3: the merged PATCH_CHECKS table's own invariants --
-
-    def test_table_has_exactly_one_ship_md_entry(self):
-        self.assertEqual(len(sync.PATCH_CHECKS), 1)
-        self.assertEqual(set(sync.PATCH_CHECKS), {"ship-md"})
-
-    def test_retained_wrapper_stays_callable(self):
-        """The retained public Python wrapper continues to serve Patch 1."""
-        self.assertTrue(callable(sync.check_shipmd_patch))
-
-    def test_unrecognized_table_key_is_fail_open_and_does_not_raise(self):
-        """BINDING codex MEDIUM: totality is required (both checks share
-        lifecycle_dispatch's one try/except with beads_recall), but an
-        unknown key's message must be distinguishable from the genuinely
-        unreadable-file case, not just silently absorbed."""
-        captured = io.StringIO()
-        with contextlib.redirect_stdout(captured):
-            exit_code = sync.check_patch("no-such-target")
-        self.assertEqual(exit_code, 1)
-        unknown_key_message = captured.getvalue()
-        self.assertIn("no-such-target", unknown_key_message)
-
-        with tempfile.TemporaryDirectory() as tmp:
-            missing_path = Path(tmp) / "does-not-exist" / "ship.md"
-            captured2 = io.StringIO()
-            with contextlib.redirect_stdout(captured2):
-                sync.check_patch("ship-md", str(missing_path))
-        self.assertNotEqual(unknown_key_message, captured2.getvalue())
+    # -- 17-04 Task 3: retired-verb checks --
 
     def test_retired_verbs_are_gone_from_the_cli(self):
         """Caller assertion: sync.main raises SystemExit (argparse's
@@ -7565,12 +7538,12 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
         after recall at plan:pre."""
         with self._in_workspace() as phase_dir:
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_shipmd_patch", return_value=0) as ship, \
+                 mock.patch.object(sync, "check_patch", return_value=0) as ship, \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0) as sm:
                 exit_code = sync.lifecycle_dispatch("plan:pre")
         self.assertEqual(exit_code, 0)
         recall.assert_called_once_with(str(phase_dir))
-        ship.assert_called_once()
+        ship.assert_called_once_with()
         sm.assert_called_once()
 
     def test_plan_post_syncs_every_plan_in_the_phase(self):
@@ -8236,7 +8209,7 @@ class TestLifecycleDispatchNativeGate(unittest.TestCase):
             try:
                 with mock.patch.object(sync, "check_native_step_dispatch", return_value=1), \
                      mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                     mock.patch.object(sync, "check_shipmd_patch", return_value=0):
+                     mock.patch.object(sync, "check_patch", return_value=0):
                     exit_code = sync.lifecycle_dispatch("plan:pre")
             finally:
                 os.chdir(prev)
@@ -9801,6 +9774,83 @@ class TestStatusMappingParseError(unittest.TestCase):
                 rc = sync.render_status_mapping(str(phase_dir))
         self.assertEqual(rc, 1)
         self.assertIn("mapping unavailable", err.getvalue())
+
+
+class TestBdUnavailableSkip(unittest.TestCase):
+    """gsd-beads-cjbc.15: every bd-unavailable entry point prints NOTICE and
+    records one STATE.md blocker naming itself (B6/D-08); pinned so the
+    shared helper cannot drift a label."""
+
+    def _run(self, call):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            plan = _write_plan_workspace(
+                root, (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8"), with_state=True
+            )
+            (root / ".planning" / "todos" / "pending").mkdir(parents=True)
+            out = io.StringIO()
+            with mock.patch.object(sync, "bd_available", return_value=False), \
+                 mock.patch.object(sync, "append_state_blocker") as blocker, \
+                 contextlib.redirect_stdout(out):
+                rc = call(plan, plan.parent, root)
+            return rc, out.getvalue(), [c.args for c in blocker.call_args_list]
+
+    def test_each_entry_point_notices_and_records_its_blocker(self):
+        cases = {
+            "migrate-todos": lambda p, d, r: sync.migrate_todos(str(r / ".planning" / "todos" / "pending")),
+            "beads-status close-wave": lambda p, d, r: sync.close_wave(str(d), []),
+            "beads-status reconcile-stale-closed": lambda p, d, r: sync.reconcile_stale_closed(str(d)),
+            "beads-sync": lambda p, d, r: sync.create_issues(str(p)),
+            "beads-recall": lambda p, d, r: sync.beads_recall(str(d)),
+            "beads-status regenerate-beads-md": lambda p, d, r: sync.regenerate_beads_md(str(d)),
+            "beads-status on-demand": lambda p, d, r: sync.render_status_mapping(str(d)),
+        }
+        for label, call in cases.items():
+            with self.subTest(label=label):
+                rc, out, blockers = self._run(call)
+                self.assertEqual(rc, 0)
+                self.assertIn(sync.NOTICE, out)
+                self.assertEqual(len(blockers), 1)
+                self.assertTrue(str(blockers[0][0]).endswith("STATE.md"))
+                self.assertEqual(
+                    blockers[0][1], f"bd unavailable -- {label} skipped (B6/D-08)"
+                )
+
+    def test_no_planning_root_still_notices_without_blocker(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = Path(tmp) / "phase"
+            d.mkdir()
+            out = io.StringIO()
+            with mock.patch.object(sync, "bd_available", return_value=False), \
+                 mock.patch.object(sync, "append_state_blocker") as blocker, \
+                 contextlib.redirect_stdout(out):
+                rc = sync.reconcile_stale_closed(str(d))
+        self.assertEqual(rc, 0)
+        self.assertIn(sync.NOTICE, out.getvalue())
+        blocker.assert_not_called()
+
+
+class TestCheckPatchCli(unittest.TestCase):
+    """gsd-beads-cjbc.15: argparse `choices` bound the target, so the only
+    reachable check_patch target is ship-md; an unknown target never
+    reaches check_patch."""
+
+    def test_ship_md_via_main_reports_present(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "ship.md"
+            p.write_text(f"x\n{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = sync.main(["check-patch", "ship-md", "--path", str(p)])
+        self.assertEqual(rc, 0)
+        self.assertIn("present", out.getvalue())
+
+    def test_unknown_target_is_rejected_by_argparse(self):
+        with mock.patch.object(sync, "check_patch") as cp, \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaises(SystemExit):
+                sync.main(["check-patch", "bogus"])
+        cp.assert_not_called()
 
 
 if __name__ == "__main__":
