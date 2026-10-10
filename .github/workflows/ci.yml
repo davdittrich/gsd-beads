@@ -55,7 +55,30 @@ jobs:
           sudo install -m 0755 /tmp/bd /usr/local/bin/bd
           bd version
 
+      - name: Session-start hook smoke test
+        run: bash tests/test-session-start.sh
+
+      # The live gsd_run / installed-workflow tests skip silently unless the
+      # provisioned gsd-core is discoverable: CLAUDE_CONFIG_DIR points the test
+      # helpers at it and gsd_run must resolve in a login shell. Scoped to this
+      # step so the auto-install smoke test above is unaffected.
+      - name: Expose gsd_run to login shells
+        run: |
+          set -euo pipefail
+          sudo ln -sf "$CODEX_HOME/gsd-core/bin/gsd_run" /usr/local/bin/gsd_run
+          bash -lc 'command -v gsd_run'
+
       # Stdlib unittest, not pytest -- N5 keeps this capability's dependencies
       # at `bd` plus the Python standard library, and CI must not widen that.
       - name: Beads sync tests
-        run: python3 -m unittest discover -s tests -t tests
+        env:
+          CLAUDE_CONFIG_DIR: ${{ env.CODEX_HOME }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -t tests 2>&1 | tee "$RUNNER_TEMP/unittest.log"
+          # CI must prove what it claims: a skipped test is a silent hole.
+          if grep -Eq '^(OK|FAILED) \(.*skipped=' "$RUNNER_TEMP/unittest.log"; then
+            echo "::error::unittest reported skipped tests in CI" >&2
+            grep -E '^(OK|FAILED) \(' "$RUNNER_TEMP/unittest.log" >&2
+            exit 1
+          fi
