@@ -18,4 +18,4 @@ bd label list-all                     # every unique label in the database
 
 ## gsd-core convention
 
-Labelling an issue with its phase slug (e.g. `phase-09`) lets a phase's issues be pulled as a set with `bd search --label phase-09`, independent of the `parent-child` epic hierarchy that already groups them structurally — useful when you want a flat list rather than a tree.
+`sync.py` labels every issue it creates `gsd-sync`, so `bd search --label gsd-sync` lists them as a flat set. A phase label such as `phase-09` exists only if you add it by hand.

@@ -43,12 +43,12 @@ The remaining compatibility points enter through `gsd_run loop render-hooks <poi
 
 Two consequences worth knowing:
 
-- On a runtime without `PostToolUse`, `plan:post` and `verify:post` still dispatch natively. Drive `plan:pre`, `execute:wave:pre`, and `execute:wave:post` by resolving `SYNC_PY` with the resolver block in the `gsd-beads-sync` skill's Step 3 fence (installed global script first, never a repository's own copy), then running `python3 "$SYNC_PY" lifecycle-dispatch <point>`; `ship:pre` still depends on the installed `ship.md` patch.
+- On a runtime without `PostToolUse`, `plan:post` and `verify:post` still dispatch natively. Drive `plan:pre`, `execute:wave:pre`, and `execute:wave:post` by resolving `SYNC_PY` with the resolver block in the `gsd-beads-sync` skill's fence (installed global script first, never a repository's own copy), then running `python3 "$SYNC_PY" lifecycle-dispatch <point>`; `ship:pre` still depends on the installed `ship.md` patch.
 - **`beads.enabled` is re-read by `sync.py`**, not by the capability registry — the hook bypasses the registry that evaluates each step's `when` condition.
 
 ## Ship gate
 
-`beads.ship_gate` (default `true`) blocks `ship:pre` when `BEADS.md`'s frontmatter shows `blocking_open > 0` or `diverged > 0`. Disable via `.planning/config.json`'s `beads.ship_gate: false` — a bypass under that setting gets recorded as a `ship_override` (git trailer + bd comment) rather than silently ignored.
+`beads.ship_gate` (default `true`) blocks `ship:pre` when `BEADS.md`'s frontmatter shows `blocking_open > 0` or `diverged > 0`. `blocking_open` is the count of non-closed children (open, in_progress, blocked, deferred) of the epic recorded as `beads_epic` in the phase's plans, whatever their edge types. This section is its single definition. Disable via `.planning/config.json`'s `beads.ship_gate: false` — a bypass under that setting gets recorded as a `ship_override` (git trailer + bd comment) rather than silently ignored.
 
 ## Failure mode
 
