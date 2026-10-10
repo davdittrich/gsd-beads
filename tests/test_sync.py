@@ -902,6 +902,27 @@ class TestStripTaskBodies(unittest.TestCase):
     """16-03 Task 2 (D-01): strip_task_bodies turns a completed auto/tracer
     task block into a pointer, leaves every checkpoint:* block and every
     not-in-this-run task byte-identical (D-03/D-07), and is idempotent."""
+    def test_tag_names_in_code_spans_do_not_strip_real_elements(self):
+        """R8: `<action>` quoted in a code span in <name> must not delete
+        the real <beads-id>/<files> that sit between it and the real element."""
+        text = (
+            '<task type="auto">\n'
+            "  <name>Document `<action>` tag</name>\n"
+            "  <beads-id>x-1</beads-id>\n"
+            "  <files>a.py</files>\n"
+            "  <action>do it `<verify>` and `</task>`</action>\n"
+            "  <done>ok</done>\n"
+            "</task>\n"
+        )
+        out = sync.strip_task_bodies(text, {"x-1"})
+        self.assertIn("  <name>Document `<action>` tag</name>\n", out)
+        self.assertIn("<beads-id>x-1</beads-id>", out)
+        self.assertIn("<files>a.py</files>", out)
+        self.assertNotIn("do it", out)
+        self.assertNotIn("<done>", out)
+        self.assertIn(sync.TASK_POINTER_PREFIX + "x-1`.</action>", out)
+        self.assertTrue(out.rstrip().endswith("</task>"))
+
 
     def test_strippable_auto_task_loses_content_elements(self):
         text = _strip_test_plan_text()

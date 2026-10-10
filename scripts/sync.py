@@ -1874,9 +1874,11 @@ def strip_task_bodies(text, stripped_ids):
     (e.g. a plan documenting this exact tag) must not be read as that
     task's real closing tag and truncate the block mid-strip.
     """
-    matches = list(TASK_RE.finditer(_mask_code_spans(text)))
+    masked_text = _mask_code_spans(text)
+    matches = list(TASK_RE.finditer(masked_text))
     for m in reversed(matches):
         block = text[m.start() : m.end()]
+        masked_block = masked_text[m.start() : m.end()]
         opening_tag_m = TASK_OPEN_TAG_RE.match(block)
         opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
         attributes, attributes_valid = _scan_task_attributes(opening_tag)
@@ -1919,12 +1921,19 @@ def strip_task_bodies(text, stripped_ids):
         # blank lines uncollapsed and mixed a bare "\n" into an otherwise
         # CRLF-terminated block.
         line_ending = "\r\n" if "\r\n" in block else "\n"
+        # R8: find each element's spans on the masked block (as parse_plan
+        # does) so a tag quoted in a code span is never an element boundary,
+        # then cut the same spans from the real block. Both copies are cut
+        # in lockstep, one regex at a time, so offsets stay aligned and
+        # nested spans keep the old sequential-removal semantics.
         for element_re in _STRIP_ELEMENT_RES:
-            new_block = element_re.sub("", new_block)
+            for em in reversed(list(element_re.finditer(masked_block))):
+                new_block = new_block[: em.start()] + new_block[em.end() :]
+                masked_block = masked_block[: em.start()] + masked_block[em.end() :]
         # Collapse the blank lines those removals leave.
         new_block = re.sub(r"[ \t]*\r?\n(?:[ \t]*\r?\n)+", line_ending, new_block)
         pointer = f"  <action>{TASK_POINTER_PREFIX}{issue_id}`.</action>{line_ending}"
-        close_idx = new_block.index("</task>")
+        close_idx = new_block.rindex("</task>")
         new_block = new_block[:close_idx] + pointer + new_block[close_idx:]
         text = text[: m.start()] + new_block + text[m.end() :]
     return text
