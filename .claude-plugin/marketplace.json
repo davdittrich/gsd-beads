@@ -9,6 +9,7 @@
     {
       "name": "beads-lifecycle",
       "source": "./",
+      "skills": ["./.agents/skills/beads"],
       "description": "Beads issue tracking for gsd-core's plan→execute→verify→ship lifecycle"
     },
     {
