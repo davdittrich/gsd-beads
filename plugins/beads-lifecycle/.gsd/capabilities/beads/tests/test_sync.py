@@ -1866,6 +1866,19 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertIn("codex plugin marketplace add davdittrich/gsd-beads", readme)
         self.assertIn("codex plugin add beads-lifecycle@gsd-beads", readme)
 
+    def test_marketplace_external_sources_pin_a_commit_sha(self):
+        # gh-19: an unpinned git source follows the default-branch tip, so a
+        # force-pushed or compromised branch would ship on the next update.
+        root = self.CAPABILITY_PATH.parents[5]
+        marketplace = json.loads(
+            (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
+        )
+        external = [p for p in marketplace["plugins"] if isinstance(p["source"], dict)]
+        self.assertTrue(external)
+        for entry in external:
+            with self.subTest(plugin=entry["name"]):
+                self.assertRegex(entry["source"].get("sha", ""), r"\A[0-9a-f]{40}\Z")
+
     def test_prime_matches_readme_dispatch_ownership(self):
         root = self.CAPABILITY_PATH.parents[5]
         readme = (root / "README.md").read_text(encoding="utf-8")

@@ -15,7 +15,8 @@
       "name": "ponytail-everywhere",
       "source": {
         "source": "url",
-        "url": "https://github.com/davdittrich/ponytail-everywhere.git"
+        "url": "https://github.com/davdittrich/ponytail-everywhere.git",
+        "sha": "1a58d7eb2997209873a96c1114047ec4c8c722de"
       },
       "description": "Lazy-ladder discipline, native Quick planner dispatch, and proportionality checks across gsd's lifecycle"
     },
@@ -23,7 +24,8 @@
       "name": "sota-numerics",
       "source": {
         "source": "url",
-        "url": "https://github.com/davdittrich/sota-numerics.git"
+        "url": "https://github.com/davdittrich/sota-numerics.git",
+        "sha": "5282fba552d56e0972951ee05acc4fe1a083e166"
       },
       "description": "Makes GSD compare mechanisms before execution and keeps numerical precision and measured performance visible through shipping: four advisory prompts, plus a blocking plan:post gate that requires a compliant Alternatives Considered section on every plan in a phase."
     },
@@ -31,15 +33,17 @@
       "name": "markdown-linting",
       "source": {
         "source": "url",
-        "url": "https://github.com/davdittrich/markdown-linting.git"
+        "url": "https://github.com/davdittrich/markdown-linting.git",
+        "sha": "6368d22b48779bc10e73f8bb64b59cd6a2a8ef2a"
       },
-      "description": "Wraps rumdl over .planning/, README.md, and CLAUDE.md; verify:post writes a gate-readable violation-count report, ship:pre gates advisorily on it."
+      "description": "Wraps rumdl over .planning/, README.md, and CLAUDE.md; verify:post writes a gate-readable violation-count report, ship:pre re-measures and advises (never blocks)."
     },
     {
       "name": "pr-workflow",
       "source": {
         "source": "url",
-        "url": "https://github.com/davdittrich/pr-workflow.git"
+        "url": "https://github.com/davdittrich/pr-workflow.git",
+        "sha": "cb3b5161381900b8868b2c4c5070c5d9ad30be73"
       },
       "description": "Wraps gh CLI to read PR/check status for the current branch; execute:wave:post writes a gate-readable PR.md report, ship:pre gates advisorily on it."
     }
