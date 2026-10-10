@@ -20,4 +20,4 @@ bd blocked --parent <epic-id>      # blocked issues under one epic/bead
 
 ## gsd-core framing
 
-`blocking_open` (definition: `.beads/PRIME.md`, "Ship gate") counts every non-closed child of the phase epic, blocked or not, so `bd blocked` lists a subset of what holds `ship:pre` closed. Run it with `--parent <phase-epic-id>` before `ship:pre` to see which of those children are waiting on something.
+`blocking_open` (definition: `.beads/PRIME.md`, "Ship gate") counts every non-closed epic child, blocked or not, so `bd blocked --parent <epic-id>` shows only the part of it that is waiting on something.

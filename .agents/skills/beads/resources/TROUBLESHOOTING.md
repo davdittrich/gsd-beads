@@ -41,7 +41,8 @@ A prior session claimed the issue (`bd update <id> --claim`) and never released 
 ### Fix
 ```bash
 bd show <id>                          # read the comments first — was there a partial finding?
-bd update <id> --status open --assignee=   # release the stale claim; clearing the assignee alone leaves it in_progress, which bd ready excludes
+bd reclaim --help                     # preferred when the claim carries a lease that has expired
+bd update <id> --status open --assignee= --force   # last resort; --force overrides another actor's live claim, and --assignee= alone leaves it in_progress, which bd ready excludes
 bd ready                               # confirm it's now available
 ```
 Never force-release a claim without reading its comments first — see RESUMABILITY.md's recovery sequence.

@@ -18,4 +18,4 @@ bd label list-all                     # every unique label in the database
 
 ## gsd-core convention
 
-`sync.py` labels every issue it creates `gsd-sync`, so `bd search --label gsd-sync` lists them as a flat set. A phase label such as `phase-09` exists only if you add it by hand.
+`sync.py` labels every issue it creates `gsd-sync`, so `bd list --label gsd-sync --all -n 0` lists them as a flat set. A phase label such as `phase-09` exists only if you add it by hand.

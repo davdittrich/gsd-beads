@@ -48,7 +48,7 @@ Two consequences worth knowing:
 
 ## Ship gate
 
-`beads.ship_gate` (default `true`) blocks `ship:pre` when `BEADS.md`'s frontmatter shows `blocking_open > 0` or `diverged > 0`. `blocking_open` is the count of non-closed children (open, in_progress, blocked, deferred) of the epic recorded as `beads_epic` in the phase's plans, whatever their edge types. This section is its single definition. Disable via `.planning/config.json`'s `beads.ship_gate: false` — a bypass under that setting gets recorded as a `ship_override` (git trailer + bd comment) rather than silently ignored.
+`beads.ship_gate` (default `true`) blocks `ship:pre` when `BEADS.md`'s frontmatter shows `blocking_open > 0` or `diverged > 0`. `blocking_open` is the count of children of the epic recorded as `beads_epic` in the phase's plans whose status is not `closed`, whatever their edge types. This section is its single definition. Disable via `.planning/config.json`'s `beads.ship_gate: false` — a bypass under that setting gets recorded as a `ship_override` (git trailer + bd comment) rather than silently ignored.
 
 ## Failure mode
 

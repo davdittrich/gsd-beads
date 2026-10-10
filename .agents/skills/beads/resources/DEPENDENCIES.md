@@ -44,7 +44,7 @@ bd show <id>           # dependencies, dependents, related, discovered-from — 
 ## gsd-core framing
 
 - A phase's epic is the `parent-child` parent of every task issue synced from that phase's plans (see `.beads/PRIME.md` — "Phase epics").
-- `BEADS.md`'s `blocking_open` gates `ship:pre`; its definition lives in `PRIME.md` ("Ship gate"). It counts epic children, not `blocks` edges.
+- `BEADS.md`'s `blocking_open` counts epic children, not `blocks` edges: `PRIME.md`, "Ship gate".
 
 ## Decision guide
 

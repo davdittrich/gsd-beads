@@ -29,7 +29,7 @@ bd gate check --dry-run    # preview without closing anything
 bd gate resolve <gate-id> --reason "Reviewed and approved"   # human gates need this
 ```
 
-Only `timer`, `gh:run`, and `gh:pr` gates auto-resolve via `bd gate check`. `bd gate create --type` accepts exactly these three plus `human`. A `human` gate always needs an explicit `bd gate resolve`.
+Only `timer`, `gh:run`, `gh:pr`, and `bead` gates auto-resolve via `bd gate check`. `bd gate create --type` accepts `human`, `timer`, `gh:run`, and `gh:pr`; `bead` gates come from formula steps. A `human` gate always needs an explicit `bd gate resolve`.
 
 ## Inspecting what a gate holds up
 
@@ -49,4 +49,4 @@ bd gate show <gate-id>     # detail for one gate
 
 ## gsd-core framing
 
-A still-open gate blocks its `--blocks` issue the same way a `blocks` dependency does — the blocked issue stays out of `bd ready`, and if that issue belongs to the current phase, it counts toward `blocking_open` like any other open child of the phase epic (definition: `PRIME.md`, "Ship gate"); the gate issue itself does not. Run `bd gate check` at session start to clear elapsed timers, merged PRs, and completed CI runs before assuming a phase is stuck.
+A still-open gate blocks its `--blocks` issue the same way a `blocks` dependency does — the blocked issue stays out of `bd ready`, and if that issue belongs to the current phase, it stays an open child counted by `blocking_open` (`PRIME.md`, "Ship gate"); the gate issue is not a child and adds nothing. Run `bd gate check` at session start to clear elapsed timers, merged PRs, and completed CI runs before assuming a phase is stuck.
