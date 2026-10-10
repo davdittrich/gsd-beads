@@ -6076,7 +6076,7 @@ class TestShipOverride(unittest.TestCase):
         self.assertTrue(any(c[:2] == ["bd", "comment"] for c in calls))
 
     def test_head_not_pushed_amends_normally(self):
-        """No upstream divergence risk -- HEAD has 2 unpushed commits -- must
+        """No upstream divergence risk -- no remote-tracking ref contains HEAD -- must
         proceed with the amend exactly as before this guard was added."""
         calls = []
 
