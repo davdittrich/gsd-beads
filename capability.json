@@ -44,7 +44,7 @@
         "mirror"
       ],
       "default": "authoritative",
-      "description": "Governs whether an explicit `sync.py create-issues <plan>` strips synced <task> bodies out of PLAN.md. authoritative (default): strips because native task resolution reads authoritative content from bd after first sync, and PLAN.md task text is never re-synced from later bd edits (D-01). mirror: never strips -- PLAN.md keeps every task body. Neither value governs the hook-driven plan:post dispatch, which never strips (D-03)."
+      "description": "Governs whether an explicit `sync.py create-issues <plan>` strips synced <task> bodies out of PLAN.md. authoritative (default): strips because native task resolution reads authoritative content from bd after first sync, and PLAN.md task text is never re-synced from later bd edits. mirror: never strips -- PLAN.md keeps every task body. Neither value governs the hook-driven plan:post dispatch, which never strips."
     },
     "beads.ship_gate": {
       "type": "boolean",
@@ -58,7 +58,7 @@
         "milestone"
       ],
       "default": "phase",
-      "description": "phase (default): one epic per phase, as today. milestone: one epic shared across every phase in the current milestone (D-10: forward-only, does not retroactively fold existing per-phase epics; D-11: read fresh at each epic-creation call site)."
+      "description": "phase (default): one epic per phase, as today. milestone: one epic shared across every phase in the current milestone. Forward-only: existing per-phase epics are not folded in. Read fresh at each epic creation."
     }
   },
   "steps": [

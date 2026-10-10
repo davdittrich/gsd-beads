@@ -185,11 +185,10 @@ object, and the shipped defaults are declared in
 
 ### How a value is resolved
 
-All four capability skills implement an identical enabled gate: the capability is disabled only
-when `.planning/config.json` exists, has a `beads` object, and that object's `enabled` is
-explicitly the boolean `false`. A missing file, a missing `beads` object, and a present `beads`
-object with no `enabled` key all fall through to the `capability.json` default of `true`, so a
-fresh install runs with tracking on.
+Every skill and the hook apply one gate: the capability is disabled only when
+`.planning/config.json` has a `beads` object whose `enabled` is the boolean `false`. Anything else
+(no file, no `beads` object, no `enabled` key) falls through to the `capability.json` default of
+`true`.
 
 When disabled, every lifecycle step no-ops rather than fails, since all six steps are declared
 `onError: skip`. Skills print a notice; the hook path (`lifecycle-dispatch`) returns silently.
@@ -220,41 +219,15 @@ resolver is the executed content authority, and Patch 2 has been retired.
 
 ### Capability projection updates
 
-Each SessionStart reconciles only the runtime that loaded the plugin. A validated explicit
-`GSD_RUNTIME` wins; otherwise the installed Codex or Claude plugin cache identifies the owner.
-The hook uses that runtime's gsd-core CLI, requires its public `query skills-root` result to match
-the canonical runtime destination, then delegates all selected-skill writing, transformation, and
-owned pruning to native `capability install` plus runtime-targeted `capability set`. It never copies
-skills between runtimes. Same-name destinations must be absent or real directories carrying the
-exact Beads owner marker in a regular non-symlink file, so unmarked user skills, sibling
-capabilities, unrelated files, and the unselected runtime remain outside the hook's write authority.
-
-Verified completion is cached in
-`${GSD_HOME:-$HOME}/.gsd/capability-auto-install-beads.projections`. Each sorted `projection-v2`
-row records one runtime, the installed bundle generation, and the observed selected-surface
-fingerprint. The publisher rejects nonregular canonical targets, creates an unpredictable
-same-directory temporary with Python's `NamedTemporaryFile`, flushes and file-syncs it, then uses
-`os.replace` for atomic publication. Only after that succeeds does it remove an eligible regular,
-non-symlink legacy `.hash` receipt; every earlier failure preserves both prior receipts for a later
-SessionStart. A matching fast path still recomputes the installed generation and selected
-fingerprint, but invokes neither native writer.
-
-Hook participants serialize ledger observation through publication with one nonblocking exclusive
-`fcntl.flock` on a persistent, owner-controlled regular lock file. The acquiring Python process
-validates the opened descriptor against the non-symlink path, duplicates it to a fixed inheritable
-descriptor, and re-execs this same hook so the kernel lock spans the complete transaction without
-an unlocked handoff. Locked-child mode validates the inherited descriptor and repeats the
-nonblocking exclusive `flock`: this is harmless on the genuinely inherited open-file description,
-acquires an uncontended externally opened descriptor, and rejects forged child state while another
-participant owns the lock. Contenders return one bounded busy diagnostic; unsafe lock targets or helper
-failures return one bounded lock-failure diagnostic. Native writers and helper children do not
-inherit the descriptor, and normal exit, signals, or crashes release it in the kernel without PID
-inspection, stale-owner recovery, lock deletion, or quarantine files.
-The lock coordinates these hook participants, not administrators or direct gsd-core commands. The
-hook immediately rechecks both installed generation and observed selected fingerprint before
-publishing, so already-visible external drift leaves prior receipt state unchanged. A direct writer
-that races after that final observation is outside the advisory-lock boundary; its receipt mismatch
-is detected and repaired through native reconciliation on the next SessionStart.
+Each SessionStart reconciles only the runtime that loaded the plugin: a validated `GSD_RUNTIME`
+wins, otherwise the installed Codex or Claude plugin cache identifies it. The hook delegates all
+skill writing and pruning to that runtime's native `capability install` and `capability set`, and
+touches only same-name destinations that are absent or carry the exact Beads owner marker, so user
+skills, sibling capabilities, and the other runtime stay untouched. Completion is recorded in
+`${GSD_HOME:-$HOME}/.gsd/capability-auto-install-beads.projections` (one `projection-v2` row per
+runtime, published atomically) under one exclusive `flock`; a contender returns a single busy
+diagnostic. The lock coordinates hook participants only: a direct writer that races past the
+final check is repaired by native reconciliation at the next SessionStart.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.
@@ -305,14 +278,10 @@ codex plugin remove beads-lifecycle@gsd-beads
   call fails, and every gsd lifecycle step that reads live `bd` state degrades to a no-op
   with a visible notice instead of crashing — beads support is fail-open by design, not a
   hard dependency.
-- **Lifecycle dispatch uses three mechanisms.** gsd-core natively dispatches `plan:post` and
-  `verify:post`; the installed patch dispatches `ship:pre`; the Claude Code `PostToolUse`
-  compatibility hook dispatches `plan:pre`, `execute:wave:pre`, and `execute:wave:post`. On a
-  runtime without `PostToolUse`, the native and patched points still run; drive the three
+- **On a runtime without `PostToolUse`**, the native and patched points still run; drive the three
   compatibility points with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre`
-  `<beads_status>` block is phase-wide because the compatibility trigger carries no wave plan-id
-  list. That is a superset of the wave's issues, so no ticket pointer is lost, just less narrowly
-  scoped.
+  `<beads_status>` block is phase-wide because the hook carries no wave plan-id list: a superset of
+  the wave's issues.
 - **This repository's own beads backend is Dolt-only.** There is no `.beads/issues.jsonl`
   passive export file in this repo at all — not merely a stale one. Dolt is the sole store;
   `bd dolt push`/`pull` is the sync path.

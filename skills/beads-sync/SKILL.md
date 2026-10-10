@@ -1,33 +1,19 @@
 ---
 name: gsd-beads-sync
-description: "Sync PLAN.md tasks into beads (bd) issues under a phase epic, binding identity via <beads-id>"
+description: "Use after a gsd PLAN.md is written (plan:post), or when asked to sync a plan's tasks into beads (bd) issues under a phase epic, binding identity via <beads-id>"
 argument-hint: "[PLAN.md path]"
 allowed-tools:
   - Read
   - Bash
 ---
 
-**STOP -- DO NOT READ THIS FILE. You are already reading it. This prompt was injected into your context by the command system. Using the Read tool on this file wastes tokens. Begin executing Step 0 immediately.**
+Display `GSD > BEADS SYNC` before any tool call.
 
-## Step 0 -- Banner
+## Step 1 -- Config gate
 
-**Before ANY tool calls**, display this banner:
-
-```
-GSD > BEADS SYNC
-```
-
-Then proceed to Step 1.
-
-## Step 1 -- Config Gate
-
-Check whether the beads capability is enabled by reading `.planning/config.json` directly with the Read tool.
-
-1. Read `.planning/config.json` with the Read tool.
-2. If the file exists, `config.beads` is present, and `config.beads.enabled` is explicitly the boolean `false`: display the disabled message and **STOP**.
-3. Otherwise -- the file is missing, `config.beads` is absent, or `config.beads` is present with no `enabled` key -- fall through to the shipped default (`beads.enabled: true` in `capability.json`) and proceed to Step 2.
-
-**Disabled message:**
+Read `.planning/config.json`. Print the message below and stop only when `config.beads.enabled` is
+explicitly `false`; a missing file, a missing `beads` object, and a missing `enabled` key all mean
+enabled.
 
 ```
 GSD > BEADS SYNC
@@ -36,19 +22,13 @@ Beads sync is disabled (beads.enabled).
 Nothing was synced; the loop proceeds normally.
 ```
 
-This step is `onError: skip` at `plan:post` -- sync never fails a phase.
+This step is `onError: skip`: sync never fails a phase.
 
-## Step 2 -- bd-availability gate
+## Step 2 -- Sync dispatch
 
-`bd` usability is not checked here directly -- it is delegated to `sync.py`, which locates the
-binary and runs one cheap read command as its first action (B6/D-08). If `bd` is absent, failing,
-or locked, `sync.py` prints the one required notice line, appends an entry to `.planning/STATE.md`
-under `### Blockers/Concerns`, and exits 0. Proceed straight to Step 3 -- do not duplicate the
-check here.
-
-## Step 3 -- Sync dispatch
-
-Run the sync script via Bash against the PLAN.md path taken from `$ARGUMENTS`:
+`sync.py` checks `bd` itself. When `bd` is absent, failing, or locked it prints one notice line,
+appends to `.planning/STATE.md` under `### Blockers/Concerns`, and exits 0; go straight to the call.
+Run it against the PLAN.md path from `$ARGUMENTS`:
 
 ```bash
 _B="${GSD_HOME:-${HOME:-}}"
@@ -65,49 +45,24 @@ fi
 python3 "$SYNC_PY" create-issues <PLAN.md path>
 ```
 
-This is a single-call dispatch -- the script parses every `<task>` block in
-the plan, verifies every existing `<beads-id>` before any create, resolves or
-creates one phase epic, and resolves or creates one beads issue per task.
-`<beads-id>` remains authoritative. The script rewrites the plan with the
-resolved `beads_epic` and missing `<beads-id>` values; exact `auto` and `tracer`
-tasks also gain deterministic `tracker-id="beads:<id>"` attributes. Checkpoints
-and tasks with missing, partial, prefixed, case-variant, or unknown `type`
-attributes never gain `tracker-id`. A newly created issue still inserts its
-missing `<beads-id>` on first sync; apart from that insertion, these excluded
-task blocks retain their original bytes.
+The script parses every `<task>` block in the plan, verifies every existing `<beads-id>` before any
+create, resolves or creates one phase epic, and resolves or creates one issue per task.
+`<beads-id>` is authoritative: a renamed task keeps its issue, and a title never identifies one.
+The script rewrites the plan with the resolved `beads_epic` and each missing `<beads-id>`; exact
+`auto` and `tracer` tasks also gain `tracker-id="beads:<id>"`. Checkpoints and tasks with a
+missing, partial, prefixed, case-variant, or unknown `type` never gain `tracker-id`; apart from the
+inserted `<beads-id>`, their bytes stay unchanged.
 
-**An unbound task must omit `<beads-id>` entirely -- never write a placeholder
-value (e.g. `TBD`).** A placeholder that happens to match bd's own id shape
-(lowercase, hyphenated, e.g. `gsd-beads-xy2`) is indistinguishable from a real,
-deleted identity and is treated as stale, not unbound: sync reports it as a
-divergence and creates nothing for that task (GH#7). Any other placeholder text
-is created normally, but that is a safety net, not a contract -- an author or
-planning agent must never rely on it.
+Omit `<beads-id>` entirely from a task not yet bound to an issue. A placeholder such as `TBD` is
+not an identity: one shaped like a bd id (lowercase, hyphenated, e.g. `gsd-beads-xy2`) reads as a
+deleted issue, so sync reports a divergence and creates nothing for that task.
 
-## Step 4 -- Report
+## Step 3 -- Report
 
-Print the one-line summary `sync.py` printed to stdout: either
-`Synced <n> issue(s) -> epic <id>` or the B6/D-08 skip notice `bd unavailable -- sync skipped`.
-`<n>` here is only newly-created issues -- a healthy idempotent re-run of an
-already-fully-synced plan legitimately prints `Synced 0 issue(s)`; that is
-fine, not a failure.
-If every task's stored `<beads-id>` diverged from bd, `sync.py` also prints
-`beads-sync: 0 of <n> task(s) bound` -- treat *that* line as a hard stop, not
-a warning to skim past: zero issues exist for this phase and the run must be
-investigated before proceeding.
+Print the one-line summary `sync.py` printed: `Synced <n> issue(s) -> epic <id>` or the skip
+notice `bd unavailable -- sync skipped`. `<n>` counts newly created issues only, so a re-run of a
+fully synced plan legitimately prints `Synced 0 issue(s)`.
 
-## Anti-Patterns
-
-1. DO NOT resolve a task to an issue by matching its title -- identity is bound exclusively by the
-   `<beads-id>` element; a renamed task must resolve to the same issue, never create a duplicate.
-2. DO NOT assemble a `bd` invocation as a shell string built from PLAN.md text -- every `bd` call
-   is a typed argv list passed to `subprocess.run([...])` with shell execution left disabled
-   (N4, threat T-01-01).
-3. DO NOT assume the wave hook carries a single task -- a phase's `plan:post` sync covers every
-   task in the one plan just written; a later `execute:wave:post` dispatch (Plan 03's
-   `beads-status`) covers every task across every plan in the wave, never one task at a time.
-4. DO NOT skip the config gate or the `<beads-id>`-first identity resolution.
-5. DO NOT write a placeholder `<beads-id>` value (e.g. `TBD`) for a task not yet
-   bound to an issue -- omit the element entirely. A placeholder is not a stable
-   identity, and one that happens to share bd's own id shape is treated as a
-   stale, deleted issue rather than an unbound task (GH#7).
+When every task's stored `<beads-id>` diverged from bd, `sync.py` also prints
+`beads-sync: 0 of <n> task(s) bound`. Stop and investigate that line before proceeding: no issue
+exists for this phase.
