@@ -1816,6 +1816,18 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def _manifest(self):
         return json.loads(self.CAPABILITY_PATH.read_text(encoding="utf-8"))
 
+    def test_blocking_ship_gates_halt_on_evaluation_error(self):
+        """cjbc.2: ship.md step 1a treats onError:skip as warn-and-continue
+        when the check throws (e.g. unreadable BEADS.md); a blocking gate
+        must halt the ship instead."""
+        gates = [
+            g
+            for g in self._manifest()["gates"]
+            if g["point"] == "ship:pre" and g.get("blocking") is True
+        ]
+        self.assertEqual(len(gates), 2)
+        self.assertEqual([g["onError"] for g in gates], ["halt", "halt"])
+
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]

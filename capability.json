@@ -173,7 +173,7 @@
       },
       "when": "beads.ship_gate",
       "blocking": true,
-      "onError": "skip"
+      "onError": "halt"
     },
     {
       "point": "ship:pre",
@@ -187,7 +187,7 @@
       },
       "when": "beads.ship_gate",
       "blocking": true,
-      "onError": "skip"
+      "onError": "halt"
     }
   ]
 }
