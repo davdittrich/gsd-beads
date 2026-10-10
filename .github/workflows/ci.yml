@@ -3,6 +3,8 @@ name: CI
 on:
   push:
   pull_request:
+  # Called by release.yml so a tag publishes only after CI passes on that commit.
+  workflow_call:
 
 env:
   # Pinned deliberately: an upstream beads release must not be able to turn this

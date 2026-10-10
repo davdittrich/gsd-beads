@@ -5,13 +5,33 @@ on:
     tags:
       - 'v*.*.*'
 
+# Least privilege by default; only the release job gets write access.
+permissions: {}
+
 jobs:
+  # Reusable CI run at the tagged commit: the release cannot start until it
+  # succeeds, and no polling or check-run race is possible.
+  ci:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/ci.yml
+
   release:
+    needs: [ci]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v7
+
+      - name: Tag must equal plugin.json version
+        run: |
+          set -euo pipefail
+          PLUGIN_VERSION="$(jq -er .version .claude-plugin/plugin.json)"
+          test "$RELEASE_TAG" = "v${PLUGIN_VERSION}" \
+            || { echo "tag $RELEASE_TAG != plugin.json version v${PLUGIN_VERSION}" >&2; exit 1; }
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
 
       - name: Build allowlisted archive
         run: |
@@ -29,7 +49,14 @@ jobs:
             -x '*/__pycache__/*'
 
       - name: Publish release
-        run: gh release create "$RELEASE_TAG" gsd-beads.zip --generate-notes
+        run: |
+          set -euo pipefail
+          # Idempotent: a re-run after a partial publish updates the asset.
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" gsd-beads.zip --clobber
+          else
+            gh release create "$RELEASE_TAG" gsd-beads.zip --generate-notes
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
