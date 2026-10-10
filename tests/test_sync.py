@@ -2356,6 +2356,122 @@ class TestTransientBdShow(unittest.TestCase):
         self.assertNotIn("old-1", after)
 
 
+class TestCreateIssuesCrashSafety(unittest.TestCase):
+    """R5: identity is persisted to PLAN.md as it is created, atomically, so
+    a failure or a hook-timeout kill mid-run never orphans issues that a
+    rerun would duplicate."""
+
+    @staticmethod
+    def _stateful_bd(fail_create_at=None, kill_create_at=None):
+        """Fake bd with real create/show state. The nth `bd create` (1-based)
+        either exits 1 (fail_create_at) or raises KeyboardInterrupt
+        (kill_create_at: an interruption `except RuntimeError` cannot see)."""
+        state = {"titles": [], "ids": set(), "creates": 0}
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "create"]:
+                state["creates"] += 1
+                if state["creates"] == fail_create_at:
+                    return _completed(1, stderr="database is locked")
+                if state["creates"] == kill_create_at:
+                    raise KeyboardInterrupt
+                issue_id = f"mock-e1.{state['creates']}"
+                state["titles"].append(argv[2])
+                state["ids"].add(issue_id)
+                return _completed(0, stdout=f"{issue_id}\n")
+            if argv[:2] == ["bd", "show"]:
+                if argv[2] in state["ids"]:
+                    return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
+                return _completed(1, stderr=f"Issue {argv[2]} not found")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            return _completed(0)
+
+        return state, _side_effect
+
+    def _run(self, plan_copy, side_effect):
+        with mock.patch("subprocess.run", side_effect=side_effect), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return sync.create_issues(str(plan_copy))
+
+    def _assert_rerun_adds_only_missing(self, state, plan_copy):
+        first_titles = list(state["titles"])
+        with mock.patch("subprocess.run", side_effect=self._bridge(state)), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(sync.create_issues(str(plan_copy)), 0)
+        self.assertEqual(len(state["titles"]), len(set(state["titles"])), state["titles"])
+        self.assertTrue(set(first_titles) <= set(state["titles"]))
+
+    def _bridge(self, state):
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "create"]:
+                state["creates"] += 1
+                issue_id = f"mock-e1.{state['creates']}"
+                state["titles"].append(argv[2])
+                state["ids"].add(issue_id)
+                return _completed(0, stdout=f"{issue_id}\n")
+            if argv[:2] == ["bd", "show"]:
+                if argv[2] in state["ids"]:
+                    return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
+                return _completed(1, stderr=f"Issue {argv[2]} not found")
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            return _completed(0)
+
+        return _side_effect
+
+    def test_error_mid_run_persists_created_ids_and_rerun_does_not_duplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(
+                Path(tmp), _three_task_plan_text(), with_state=True
+            )
+            state, side_effect = self._stateful_bd(fail_create_at=3)  # epic, task1 ok; task2 fails
+            self.assertEqual(self._run(plan_copy, side_effect), 0)
+            text = plan_copy.read_text(encoding="utf-8")
+            self.assertIn("beads_epic: mock-e1.1", text)
+            self.assertIn("<beads-id>mock-e1.2</beads-id>", text)
+            self._assert_rerun_adds_only_missing(state, plan_copy)
+            self.assertEqual(len(state["titles"]), 4)  # epic + 3 tasks, no duplicates
+
+    def test_kill_mid_run_persists_created_ids_and_rerun_does_not_duplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(
+                Path(tmp), _three_task_plan_text(), with_state=True
+            )
+            state, side_effect = self._stateful_bd(kill_create_at=3)
+            with self.assertRaises(KeyboardInterrupt):
+                self._run(plan_copy, side_effect)
+            text = plan_copy.read_text(encoding="utf-8")
+            self.assertIn("beads_epic: mock-e1.1", text)
+            self.assertIn("<beads-id>mock-e1.2</beads-id>", text)
+            self._assert_rerun_adds_only_missing(state, plan_copy)
+            self.assertEqual(len(state["titles"]), 4)
+
+    def test_plan_write_is_atomic_and_leaves_original_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(
+                Path(tmp), _three_task_plan_text(), with_state=True
+            )
+            os.chmod(plan_copy, 0o640)
+            before = plan_copy.read_bytes()
+            _, side_effect = self._stateful_bd()
+            with mock.patch("os.replace", side_effect=OSError("ENOSPC")):
+                with self.assertRaises(OSError):
+                    self._run(plan_copy, side_effect)
+            self.assertEqual(plan_copy.read_bytes(), before)
+            self.assertEqual(sorted(p.name for p in plan_copy.parent.iterdir()), [plan_copy.name])
+
+    def test_successful_write_preserves_file_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(
+                Path(tmp), _three_task_plan_text(), with_state=True
+            )
+            os.chmod(plan_copy, 0o640)
+            _, side_effect = self._stateful_bd()
+            self.assertEqual(self._run(plan_copy, side_effect), 0)
+            self.assertEqual(plan_copy.stat().st_mode & 0o777, 0o640)
+
+
 class TestIdentityBinding(unittest.TestCase):
     @staticmethod
     def _plan_open_spy():
@@ -2760,7 +2876,9 @@ class TestIdentityBinding(unittest.TestCase):
                 ]
                 self.assertEqual(exit_code, 0)
                 self.assertEqual(actual, expected)
-                self.assertEqual(len(self._write_calls(path_open)), 1)
+                # R5: one incremental identity write per created issue,
+                # then the final write (native tracker-id).
+                self.assertEqual(len(self._write_calls(path_open)), 2)
                 self.assertEqual(len(task_creates), 1)
                 self.assertEqual(task_creates[0][-5:], ["--type", "task", "--parent", "mock-e1", "--silent"])
 

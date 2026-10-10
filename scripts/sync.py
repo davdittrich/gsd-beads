@@ -2297,6 +2297,21 @@ def _fail_preflight(project_root, message):
     return 1
 
 
+def _atomic_write_text(path, content):
+    """Write `content` to `path` via a same-directory temp file + os.replace,
+    keeping the original mode (a plain temp file would take the umask's).
+    A kill or ENOSPC leaves the previous file whole, never truncated."""
+    tmp = path.with_name(f".{path.name}.tmp")
+    try:
+        with tmp.open("w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+        shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def create_issues(plan_arg, allow_strip=True):
     """`allow_strip=False` keeps every `<task>` body in PLAN.md (gh-2).
     `strip_task_bodies` is a deliberate,
@@ -2432,6 +2447,20 @@ def create_issues(plan_arg, allow_strip=True):
         task_updates = []
         placeholder_updates = []
         native_updates = []
+
+        def persist_identity():
+            # Write the identity created so far (epic + task ids) before the
+            # next bd call: a failure or a hook-timeout kill mid-run would
+            # otherwise orphan these issues and a rerun would duplicate them.
+            _atomic_write_text(
+                plan_path,
+                rewrite_plan(
+                    text, epic_id, epic_created, task_updates, [], placeholder_updates
+                ),
+            )
+
+        if epic_created:
+            persist_identity()
         created_count = 0
         task_ids = []
         divergences = []
@@ -2453,6 +2482,7 @@ def create_issues(plan_arg, allow_strip=True):
                     placeholder_updates.append((task["beads_id_span"], issue_id))
                 else:
                     task_updates.append((task["name_end"], issue_id))
+                persist_identity()
             if (
                 not divergent
                 and task["type"] in ("auto", "tracer")
@@ -2503,8 +2533,7 @@ def create_issues(plan_arg, allow_strip=True):
             )
         elif newly_created_ids:
             new_text = strip_task_bodies(new_text, newly_created_ids)
-        with plan_path.open("w", encoding="utf-8", newline="") as plan_file:
-            plan_file.write(new_text)
+        _atomic_write_text(plan_path, new_text)
 
     orphan_result = run_bd(_beads_md_argv(epic_id))
     if orphan_result.returncode == 0:
