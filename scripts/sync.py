@@ -484,6 +484,10 @@ class PlanParseError(ValueError):
     """A plan's raw task openings cannot be mapped to closed task blocks."""
 
 
+class IdentityPersistError(Exception):
+    """Issue ids were created in bd but could not be written into the plan."""
+
+
 class EpicAuthorityError(ValueError):
     """An epic id is unsafe or does not match exact live bd authority."""
 
@@ -1827,8 +1831,10 @@ def collect_epic_task_ids(phase_dir, epic_id):
     for plan_path in discover_plan_files(phase_dir).values():
         try:
             _, frontmatter, tasks = parse_plan(plan_path)
-        except (OSError, UnicodeDecodeError):
-            continue
+        except (OSError, UnicodeDecodeError) as exc:
+            # Its ids are unknown, so every one of its issues would look
+            # orphaned: the caller must skip its sweep (gsd-beads-cjbc.32).
+            raise PlanParseError(f"{plan_path.name}: unreadable plan ({exc})") from exc
         m = BEADS_EPIC_RE.search(frontmatter)
         if not m or m.group(1) != epic_id:
             continue
@@ -2420,15 +2426,23 @@ def _atomic_write_text(path, content):
     """Write `content` to `path` via a same-directory temp file + os.replace,
     keeping the original mode (a plain temp file would take the umask's).
     A kill or ENOSPC leaves the previous file whole, never truncated."""
-    # Unpredictable name, created O_EXCL|O_NOFOLLOW before the text open: a
-    # planted symlink at a guessable temp name cannot redirect the write.
-    # os.replace then swaps a planted symlink at `path` itself instead of
-    # writing through it.
+    # Unpredictable name, created O_EXCL|O_NOFOLLOW and written through that
+    # same fd (never reopened by path, so a planted symlink cannot redirect
+    # the write), fsynced before os.replace so a crash cannot leave a renamed
+    # but empty file. os.replace then swaps a planted symlink at `path`
+    # itself instead of writing through it.
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
     try:
-        os.close(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666))
-        with tmp.open("w", encoding="utf-8", newline="") as handle:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666)
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8", newline="")
+        except BaseException:
+            os.close(fd)
+            raise
+        with handle:
             handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
         if path.exists() and not path.is_symlink():
             shutil.copymode(path, tmp)
         os.replace(tmp, path)
@@ -2578,16 +2592,35 @@ def create_issues(plan_arg, allow_strip=True):
         placeholder_updates = []
         native_updates = []
 
+        def _unrecorded_message(ids, plan_path, exc):
+            return (
+                f"create-issues: cannot write {plan_path.name}; created issue ids "
+                f"[{', '.join(ids)}] are unrecorded -- bind them by hand: {exc}"
+            )
+
+        def created_ids():
+            return (
+                ([epic_id] if epic_created else [])
+                + [i for _, i in task_updates]
+                + [i for _, i in placeholder_updates]
+            )
+
         def persist_identity():
             # Write the identity created so far (epic + task ids) before the
             # next bd call: a failure or a hook-timeout kill mid-run would
             # otherwise orphan these issues and a rerun would duplicate them.
-            _atomic_write_text(
-                plan_path,
-                rewrite_plan(
-                    text, epic_id, epic_created, task_updates, [], placeholder_updates
-                ),
-            )
+            try:
+                _atomic_write_text(
+                    plan_path,
+                    rewrite_plan(
+                        text, epic_id, epic_created, task_updates, [], placeholder_updates
+                    ),
+                )
+            except OSError as exc:
+                # The ids exist in bd but not in the plan: name them (stderr
+                # and, via the RuntimeError handler, STATE.md) so they can be
+                # bound by hand instead of being lost.
+                raise IdentityPersistError(_unrecorded_message(created_ids(), plan_path, exc)) from exc
 
         if epic_created:
             persist_identity()
@@ -2625,6 +2658,8 @@ def create_issues(plan_arg, allow_strip=True):
     except EpicAuthorityError as exc:
         print(f"epic identity authority failed: {exc}", file=sys.stderr)
         return 1
+    except IdentityPersistError as exc:
+        return _fail_preflight(project_root, str(exc))
     except RuntimeError as exc:
         print(NOTICE)
         append_state_blocker(
@@ -2663,7 +2698,12 @@ def create_issues(plan_arg, allow_strip=True):
             )
         elif newly_created_ids:
             new_text = strip_task_bodies(new_text, newly_created_ids)
-        _atomic_write_text(plan_path, new_text)
+        try:
+            _atomic_write_text(plan_path, new_text)
+        except OSError as exc:
+            return _fail_preflight(
+                project_root, _unrecorded_message(created_ids(), plan_path, exc)
+            )
 
     orphan_result = run_bd(_beads_md_argv(epic_id))
     if orphan_result.returncode == 0:
@@ -2783,19 +2823,21 @@ def _render_beads_recall_body(matched, unscoped):
     return "\n".join(parts)
 
 
-# A path-like token must contain a `/` (so "e.g", "i.e", "v1.2" never match);
-# enforced on the match, not in the regex, because backtracking can shorten a
-# match ("example.com/docs" -> "example.com") past the slash.
+# A path-like token must contain a `/` or be a bare filename (stem of 2+
+# word chars, 2-4 letter extension: README.md, capability.json) so "e.g",
+# "i.e", "v1.2" never match; enforced on the match, not in the regex, because
+# backtracking can shorten a match ("example.com/docs" -> "example.com").
 PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
 PATH_TOKEN_MIN_LEN = 4
 # GH#11: digits are `\w`, so a bare version number ("2.39") matches
 # PATH_TOKEN_RE too but is never a path/extension -- excluded below.
 NUMERIC_ONLY_TOKEN_RE = re.compile(r"[\d.]+")
+BARE_FILENAME_RE = re.compile(r"[\w\-]{2,}\.[A-Za-z]{2,4}")
 
 
 def extract_phase_mentions(roadmap_path, phase_num, context_path):
-    """Return deduplicated path-like tokens (a `/`-containing, dotted-
-    extension substring) mentioned in the phase's ROADMAP.md section (from
+    """Return deduplicated path-like tokens (a `/`-containing or bare-filename,
+    dotted-extension substring) mentioned in the phase's ROADMAP.md section (from
     its header to the next `### Phase` heading) plus context_path's full
     text when it exists -- the only file-scope signal available at plan:pre
     time for the phase being planned, since no PLAN.md exists yet for it
@@ -2816,7 +2858,11 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
 
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
-        if "/" not in token or len(token) < PATH_TOKEN_MIN_LEN or NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
+        if (
+            not ("/" in token or BARE_FILENAME_RE.fullmatch(token))
+            or len(token) < PATH_TOKEN_MIN_LEN
+            or NUMERIC_ONLY_TOKEN_RE.fullmatch(token)
+        ):
             continue
         if token not in seen:
             seen.append(token)
@@ -3039,9 +3085,11 @@ def _checked_bd_list_rows(result):
     return payload if isinstance(payload, list) else None
 
 
-def _resolve_task_ordinal_map(phase_dir):
+def _resolve_task_ordinal_map(phase_dir, degraded=None):
     """Return {beads_id: ordinal_prefix} across every plan in phase_dir, so
-    each BEADS.md row can name the plan task that owns its issue."""
+    each BEADS.md row can name the plan task that owns its issue. A plan that
+    could not be read or parsed is skipped; its name is appended to
+    `degraded` (when given) so a caller can tell the map is incomplete."""
     mapping = {}
     for ordinal, plan_path in discover_plan_files(phase_dir).items():
         try:
@@ -3050,8 +3098,11 @@ def _resolve_task_ordinal_map(phase_dir):
                 for task in tasks:
                     if task["beads_id"]:
                         mapping[task["beads_id"]] = ordinal
+                continue
         except (OSError, UnicodeDecodeError):
-            continue
+            pass
+        if degraded is not None:
+            degraded.append(plan_path.name)
     return mapping
 
 
@@ -3130,6 +3181,20 @@ def regenerate_beads_md(phase_dir_arg):
     padded_phase = phase_dir.name.split("-", 1)[0]
     out_path = phase_dir / f"{padded_phase}-BEADS.md"
 
+    # gsd-core's gate resolves <phase>/BEADS.md before any NN-BEADS.md, so a
+    # plain file would outlive every fail-closed write below. Remove one this
+    # tool generated; leave a hand-written one alone but say it wins.
+    plain = phase_dir / "BEADS.md"
+    if plain.is_file():
+        if "generated_from:" in plain.read_text(encoding="utf-8", errors="replace"):
+            plain.unlink()
+        else:
+            print(
+                f"BEADS.md: {plain} takes precedence over {out_path.name} in the "
+                "ship gate and is never regenerated -- remove it",
+                file=sys.stderr,
+            )
+
     try:
         epic_id = resolve_phase_epic(phase_dir)
     except EpicAuthorityError as exc:
@@ -3157,14 +3222,17 @@ def regenerate_beads_md(phase_dir_arg):
             f"# BEADS.md: {phase_dir.name}\n\nbd state unknown.\n",
         )
 
+    # A previous run's BEADS.md (e.g. blocking_open: 0) must not satisfy the
+    # ship:pre gate on stale data, whichever path below fails or raises: drop
+    # it when no epic is known (a missing artifact blocks the gate too), else
+    # overwrite it with the unknown sentinel now; the success path replaces it.
+    if epic_id is None:
+        out_path.unlink(missing_ok=True)
+    else:
+        write_unknown(["regeneration", "incomplete"])
+
     if not bd_available():
-        # A previous run's BEADS.md (e.g. blocking_open: 0) must not satisfy
-        # the ship:pre gate on stale data: overwrite it with the unknown
-        # sentinel, or remove it when no epic is known (a missing artifact
-        # blocks the gate too).
-        if epic_id is None:
-            out_path.unlink(missing_ok=True)
-        else:
+        if epic_id is not None:
             write_unknown(["bd", "unavailable"])
         _skip_bd_unavailable(phase_dir, "beads-status regenerate-beads-md")
         return 0
@@ -3184,8 +3252,19 @@ def regenerate_beads_md(phase_dir_arg):
         )
         return 1
 
-    ordinal_map = _resolve_task_ordinal_map(phase_dir)
+    degraded_plans = []
+    ordinal_map = _resolve_task_ordinal_map(phase_dir, degraded_plans)
     if _milestone_scoped(phase_dir):
+        if degraded_plans:
+            # The ordinal map filters the shared epic's rows: a plan that
+            # failed to parse hides its own issues, so the counts are unknown.
+            write_unknown(argv)
+            print(
+                "BEADS.md: degraded plan(s) " + ", ".join(degraded_plans)
+                + " -- counts unknown, ship gate will block",
+                file=sys.stderr,
+            )
+            return 1
         # The milestone epic is shared: other phases' children are not this
         # phase's rows, counts or blockers (gsd-beads-cjbc.9).
         rows = [r for r in rows if r.get("id") in ordinal_map]
@@ -3427,13 +3506,13 @@ def _head_already_pushed(project_root):
     fast-forward path (push_branch never force-pushes). This happens on a
     ship retry after a prior run already completed push_branch.
 
-    Compared against the push target (`@{push}`: branch.<name>.pushRemote /
-    remote.pushDefault, same-name ref), not the upstream: a fork workflow
-    pushes somewhere `@{u}` never mentions. When no push target resolves but
-    an upstream does (push.default=simple with a differently named
-    upstream), the branch's own remote ref cannot be established, so refuse.
-    Returns False (assume safe) with neither configured or on a git
-    failure -- a targeted guard, not a general git-state validator."""
+    Asks git directly whether any remote-tracking ref contains HEAD
+    (`for-each-ref --contains HEAD refs/remotes`): independent of
+    push.default, `@{push}`/`@{u}` resolution and fork pushRemote setups,
+    all of which made the earlier upstream comparison refuse an unpushed
+    commit on a branch cut from origin/main. Returns False (assume safe)
+    with no remote ref containing HEAD or on a git failure -- a targeted
+    guard, not a general git-state validator."""
 
     def git(*args):
         return subprocess.run(
@@ -3445,12 +3524,8 @@ def _head_already_pushed(project_root):
         )
 
     try:
-        if git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{push}").returncode != 0:
-            return git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").returncode == 0
-        ahead = git("rev-list", "--count", "@{push}..HEAD")
-        if ahead.returncode != 0:
-            return False
-        return ahead.stdout.strip() == "0"
+        refs = git("for-each-ref", "--contains", "HEAD", "refs/remotes")
+        return refs.returncode == 0 and bool(refs.stdout.strip())
     except (subprocess.TimeoutExpired, OSError):
         return False
 
@@ -3488,7 +3563,7 @@ def ship_override(phase_dir_arg):
     )
     if _head_already_pushed(project_root):
         print(
-            "ship-override: HEAD has no unpushed commits (already on its push target, or the push target cannot be established) -- "
+            "ship-override: HEAD is already contained in a remote-tracking ref -- "
             "refusing to amend, that would diverge local history from origin and "
             "break the next push. This happens on a ship retry after a prior run "
             "already pushed. Record the override manually or re-run ship_override "
