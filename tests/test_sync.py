@@ -2515,7 +2515,7 @@ class TestIdentityBinding(unittest.TestCase):
     @staticmethod
     def _write_calls(path_open):
         return [
-            call for call in path_open.call_args_list if call.args[1] == "w"
+            call for call in path_open.call_args_list if call.args[1:2] == ("w",)
         ]
 
     """B4: a task carrying <beads-id> is never re-created; renaming the task
@@ -9164,6 +9164,117 @@ class TestGsdSyncLabel(unittest.TestCase):
         ]
         self.assertEqual(len(creates), 1)
         self.assertNotIn("gsd-sync", creates[0])
+
+
+class TestMilestoneScopedPhases(unittest.TestCase):
+    """gsd-beads-cjbc.9: with beads.epic_per=milestone every phase shares one
+    epic, so each per-phase pass must scope its sweep and counts to its own
+    plan tasks and never touch another phase's issues."""
+
+    P1_IDS = ("tracer-f5x.1", "tracer-f5x.2")
+    P2_IDS = ("tracer-f5x.11", "tracer-f5x.12")
+
+    def _workspace(self, tmp, break_phase1=False):
+        _, phase_dirs = _write_milestone_workspace(
+            Path(tmp), ["01-substrate", "02-visibility"], epic_per="milestone"
+        )
+        text = (FIXTURES_DIR / "plan-orphan.md").read_text(encoding="utf-8")
+        p1_text = text
+        if break_phase1:
+            p1_text = text.replace("</tasks>", '<task type="auto">\n<name>Broken</name>\n</tasks>')
+        p1 = phase_dirs["01-substrate"] / "01-01-PLAN.md"
+        p1.write_text(p1_text, encoding="utf-8")
+        p2_text = text.replace("tracer-f5x.1<", "tracer-f5x.11<").replace("tracer-f5x.2<", "tracer-f5x.12<")
+        p2 = phase_dirs["02-visibility"] / "02-01-PLAN.md"
+        p2.write_text(p2_text, encoding="utf-8")
+        return phase_dirs, p1, p2
+
+    def _rows(self):
+        rows = [
+            {"id": i, "title": f"t {i}", "status": "open", "labels": ["gsd-sync"]}
+            for i in self.P1_IDS + self.P2_IDS
+        ]
+        rows[3]["status"] = "closed"
+        return rows
+
+    def _bd(self):
+        rows = self._rows()
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout=json.dumps(rows))
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]))
+            return _completed(0)
+
+        return _side_effect
+
+    def _closed(self, mock_run):
+        return [c.args[0][2] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]]
+
+    def test_phase2_sweep_does_not_close_phase1_issues(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, p2 = self._workspace(tmp)
+            with mock.patch("subprocess.run", side_effect=self._bd()) as mock_run:
+                self.assertEqual(sync.create_issues(str(p2)), 0)
+        self.assertEqual(self._closed(mock_run), [])
+
+    def test_sweep_still_closes_a_true_orphan_in_milestone_mode(self):
+        rows = self._rows() + [
+            {"id": "tracer-f5x.99", "status": "open", "labels": ["gsd-sync"]}
+        ]
+        base = self._bd()
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout=json.dumps(rows))
+            return base(argv, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, p2 = self._workspace(tmp)
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                sync.create_issues(str(p2))
+        self.assertEqual(self._closed(mock_run), ["tracer-f5x.99"])
+
+    def test_sweep_skipped_when_another_phase_plan_does_not_parse(self):
+        rows = self._rows()
+        base = self._bd()
+
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout=json.dumps(rows))
+            return base(argv, **kwargs)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, p2 = self._workspace(tmp, break_phase1=True)
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                sync.create_issues(str(p2))
+        self.assertEqual(self._closed(mock_run), [])
+
+    def test_beads_md_counts_only_this_phase_in_milestone_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dirs, _, _ = self._workspace(tmp)
+            with mock.patch("subprocess.run", side_effect=self._bd()):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    self.assertEqual(sync.regenerate_beads_md(str(phase_dirs["02-visibility"])), 0)
+            text = (phase_dirs["02-visibility"] / "02-BEADS.md").read_text(encoding="utf-8")
+        self.assertIn("open: 1\n", text)
+        self.assertIn("closed: 1\n", text)
+        self.assertIn("blocking_open: 1\n", text)
+        self.assertNotIn("tracer-f5x.1 ", text)
+        self.assertIn("tracer-f5x.11", text)
+
+    def test_status_mapping_does_not_list_other_phase_as_orphan(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dirs, _, _ = self._workspace(tmp)
+            out = io.StringIO()
+            with mock.patch("subprocess.run", side_effect=self._bd()):
+                with contextlib.redirect_stdout(out):
+                    self.assertEqual(sync.render_status_mapping(str(phase_dirs["02-visibility"])), 0)
+        text = out.getvalue()
+        orphans = text.split("## Issues with no matching plan task", 1)[1].split("## Plan tasks", 1)[0]
+        self.assertNotIn("tracer-f5x.1 ", orphans)
+        self.assertNotIn("tracer-f5x.1 ", text.split("## Issues with no matching plan task")[0])
 
 
 if __name__ == "__main__":

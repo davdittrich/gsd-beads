@@ -1766,6 +1766,31 @@ def collect_epic_task_ids(phase_dir, epic_id):
     return ids
 
 
+def _milestone_scoped(phase_dir):
+    """True when phase_dir's project runs beads.epic_per=milestone, i.e. its
+    epic is shared with every other phase of the milestone (gsd-beads-cjbc.9)."""
+    try:
+        return read_epic_per(find_project_root(Path(phase_dir).resolve())) == "milestone"
+    except ValueError:
+        return False
+
+
+def collect_scope_task_ids(phase_dir, epic_id):
+    """Every <beads-id> that legitimately lives under epic_id. Per-phase
+    epics: this phase's plans (collect_epic_task_ids). Milestone epic: the
+    union over every `.planning/phases/*` dir, because the epic's children
+    span phases and a sibling phase's issue is not an orphan. A plan that
+    does not parse raises PlanParseError -- its ids are unknown, so the
+    caller must not treat any child as orphaned."""
+    if not _milestone_scoped(phase_dir):
+        return collect_epic_task_ids(phase_dir, epic_id)
+    phases_root = confined(find_project_root(Path(phase_dir).resolve()), ".planning", "phases")
+    ids = set()
+    for other in sorted(p for p in phases_root.iterdir() if p.is_dir()):
+        ids |= collect_epic_task_ids(other, epic_id)
+    return ids
+
+
 def rewrite_plan(
     text, epic_id, epic_created, task_updates, native_updates, placeholder_updates=()
 ):
@@ -2581,9 +2606,15 @@ def create_issues(plan_arg, allow_strip=True):
             children = _unwrap_bd_list(json.loads(orphan_result.stdout))
         except json.JSONDecodeError:
             children = []
-        current_ids = {tid for tid in task_ids if tid} | collect_epic_task_ids(
-            plan_path.parent, epic_id
-        )
+        try:
+            current_ids = {tid for tid in task_ids if tid} | collect_scope_task_ids(
+                plan_path.parent, epic_id
+            )
+        except PlanParseError as exc:
+            # A plan whose ids are unknown makes its issues look orphaned.
+            print(f"create-issues: orphan sweep skipped, a plan failed to parse: {exc}", file=sys.stderr)
+            children = []
+            current_ids = set()
         for orphan_id in find_orphans(children, current_ids):
             close_result = run_bd(
                 ["bd", "close", orphan_id, "--reason", "no longer maps to a plan task"]
@@ -3059,13 +3090,17 @@ def regenerate_beads_md(phase_dir_arg):
         )
         return 1
 
+    ordinal_map = _resolve_task_ordinal_map(phase_dir)
+    if _milestone_scoped(phase_dir):
+        # The milestone epic is shared: other phases' children are not this
+        # phase's rows, counts or blockers (gsd-beads-cjbc.9).
+        rows = [r for r in rows if r.get("id") in ordinal_map]
     closed_count = sum(1 for r in rows if r.get("status") == "closed")
     open_count = len(rows) - closed_count
     # blocking_open IS open_count, no separate filtered variable -- D-01/D-02:
-    # every open issue under the epic counts, full stop, no priority/type filter.
+    # every open issue under this phase's epic scope counts, no priority/type filter.
     blocking_open = open_count
 
-    ordinal_map = _resolve_task_ordinal_map(phase_dir)
     completed_ids = _resolve_completed_task_ids(phase_dir)
     diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
     table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
@@ -3158,10 +3193,13 @@ def render_status_mapping(phase_dir_arg):
     ordinal_map = _resolve_task_ordinal_map(phase_dir)
     completed_ids = _resolve_completed_task_ids(phase_dir)
     _diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
-    table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
+    table_rows = rows
+    if _milestone_scoped(phase_dir):
+        table_rows = [r for r in rows if r.get("id") in ordinal_map]
+    table = _render_beads_md_table(table_rows, ordinal_map, task_status_by_id)
 
     try:
-        current_ids = collect_epic_task_ids(phase_dir, epic_id)
+        current_ids = collect_scope_task_ids(phase_dir, epic_id)
     except PlanParseError:
         # _resolve_task_ordinal_map above already noted the plan in STATE.md;
         # an orphan list built without that plan's ids would be wrong.
