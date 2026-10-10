@@ -10051,5 +10051,102 @@ class TestMainRootGuards27(unittest.TestCase):
                     self.assertIn(".planning", err)
 
 
+class TestRegenFailClosedV1(unittest.TestCase):
+    """gsd-beads-cjbc.31: no failure path of regenerate_beads_md may leave a
+    previous run's `blocking_open: 0` file standing for the ship gate."""
+
+    STALE = '---\nepic: regen-epic\nblocking_open: 0\ndiverged: 0\ngenerated_from: "bd list"\n---\n'
+
+    def _run(self, plans, list_response=None, patches=(), milestone=False, stale_name="01-BEADS.md"):
+        with tempfile.TemporaryDirectory() as tmp:
+            if milestone:
+                _, dirs = _write_milestone_workspace(Path(tmp), ["01-substrate"], epic_per="milestone")
+                phase_dir = dirs["01-substrate"]
+                for plan_id, text in plans:
+                    (phase_dir / f"{plan_id}-PLAN.md").write_text(text, encoding="utf-8")
+            else:
+                phase_dir = _write_wave_workspace(
+                    Path(tmp), [(p, t, False) for p, t in plans], with_state=True
+                )
+            (phase_dir / stale_name).write_text(self.STALE, encoding="utf-8")
+            if list_response is None:
+                list_response = json.dumps(
+                    [{"id": "regen-epic.1", "title": "t", "status": "open", "dependencies": []}]
+                )
+            with contextlib.ExitStack() as stack:
+                stack.enter_context(
+                    mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect(list_response))
+                )
+                for p in patches:
+                    stack.enter_context(p)
+                out, err = io.StringIO(), io.StringIO()
+                with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                    with contextlib.suppress(Exception):
+                        code = sync.regenerate_beads_md(str(phase_dir))
+                    code = locals().get("code")
+            stale = phase_dir / stale_name
+            text = stale.read_text(encoding="utf-8") if stale.exists() else None
+            return code, text, err.getvalue(), phase_dir
+
+    def _assert_not_stale_pass(self, text):
+        self.assertTrue(text is None or "blocking_open: 0" not in text, text)
+
+    def test_unparseable_plans_epic_none_removes_stale_file(self):
+        bad = _regen_two_task_plan_text().replace("</task>", "", 1)
+        code, text, _err, _ = self._run([("01-07", bad)])
+        self.assertIsNone(text)
+
+    def test_non_dict_row_leaves_unknown_not_stale_pass(self):
+        _code, text, _err, _ = self._run([("01-07", _regen_two_task_plan_text())], list_response='["x"]')
+        self.assertIsNotNone(text)
+        self.assertIn("blocking_open: unknown", text)
+
+    def test_completed_ids_oserror_leaves_unknown_not_stale_pass(self):
+        _code, text, _err, _ = self._run(
+            [("01-07", _regen_two_task_plan_text())],
+            patches=[mock.patch.object(sync, "_resolve_completed_task_ids", side_effect=OSError("io"))],
+        )
+        self.assertIsNotNone(text)
+        self.assertIn("blocking_open: unknown", text)
+
+    def test_milestone_mode_degraded_plan_writes_unknown(self):
+        bad = _regen_two_task_plan_text().replace("regen-epic", "ms-epic").replace("</task>", "", 1)
+        good = _regen_two_task_plan_text().replace("regen-epic", "ms-epic").replace("plan: 07", "plan: 08")
+        code, text, err, _ = self._run(
+            [("01-07", bad), ("01-08", good)],
+            list_response=json.dumps(
+                [{"id": "ms-epic.9", "title": "t", "status": "open", "dependencies": []}]
+            ),
+            milestone=True,
+        )
+        self.assertEqual(code, 1)
+        self.assertIn("blocking_open: unknown", text)
+        self.assertIn("degraded", err)
+
+    def test_plain_generated_beads_md_is_removed_before_anything_else(self):
+        """gsd-core's gate resolves <phase>/BEADS.md before NN-BEADS.md."""
+        for patched in (None, mock.patch.object(sync, "bd_available", return_value=False)):
+            with self.subTest(bd_down=patched is not None):
+                _c, text, _e, _ = self._run(
+                    [("01-07", _regen_two_task_plan_text())],
+                    patches=[patched] if patched else (),
+                    stale_name="BEADS.md",
+                )
+                self.assertIsNone(text)
+
+    def test_plain_hand_written_beads_md_is_kept_with_warning(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-07", _regen_two_task_plan_text(), False)])
+            plain = phase_dir / "BEADS.md"
+            plain.write_text("my notes\n", encoding="utf-8")
+            err = io.StringIO()
+            with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect()), \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                sync.regenerate_beads_md(str(phase_dir))
+            self.assertTrue(plain.exists())
+            self.assertIn("BEADS.md", err.getvalue())
+            self.assertIn("precedence", err.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

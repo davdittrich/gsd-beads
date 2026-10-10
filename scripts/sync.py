@@ -3039,9 +3039,11 @@ def _checked_bd_list_rows(result):
     return payload if isinstance(payload, list) else None
 
 
-def _resolve_task_ordinal_map(phase_dir):
+def _resolve_task_ordinal_map(phase_dir, degraded=None):
     """Return {beads_id: ordinal_prefix} across every plan in phase_dir, so
-    each BEADS.md row can name the plan task that owns its issue."""
+    each BEADS.md row can name the plan task that owns its issue. A plan that
+    could not be read or parsed is skipped; its name is appended to
+    `degraded` (when given) so a caller can tell the map is incomplete."""
     mapping = {}
     for ordinal, plan_path in discover_plan_files(phase_dir).items():
         try:
@@ -3050,8 +3052,11 @@ def _resolve_task_ordinal_map(phase_dir):
                 for task in tasks:
                     if task["beads_id"]:
                         mapping[task["beads_id"]] = ordinal
+                continue
         except (OSError, UnicodeDecodeError):
-            continue
+            pass
+        if degraded is not None:
+            degraded.append(plan_path.name)
     return mapping
 
 
@@ -3130,6 +3135,20 @@ def regenerate_beads_md(phase_dir_arg):
     padded_phase = phase_dir.name.split("-", 1)[0]
     out_path = phase_dir / f"{padded_phase}-BEADS.md"
 
+    # gsd-core's gate resolves <phase>/BEADS.md before any NN-BEADS.md, so a
+    # plain file would outlive every fail-closed write below. Remove one this
+    # tool generated; leave a hand-written one alone but say it wins.
+    plain = phase_dir / "BEADS.md"
+    if plain.is_file():
+        if "generated_from:" in plain.read_text(encoding="utf-8", errors="replace"):
+            plain.unlink()
+        else:
+            print(
+                f"BEADS.md: {plain} takes precedence over {out_path.name} in the "
+                "ship gate and is never regenerated -- remove it",
+                file=sys.stderr,
+            )
+
     try:
         epic_id = resolve_phase_epic(phase_dir)
     except EpicAuthorityError as exc:
@@ -3157,14 +3176,17 @@ def regenerate_beads_md(phase_dir_arg):
             f"# BEADS.md: {phase_dir.name}\n\nbd state unknown.\n",
         )
 
+    # A previous run's BEADS.md (e.g. blocking_open: 0) must not satisfy the
+    # ship:pre gate on stale data, whichever path below fails or raises: drop
+    # it when no epic is known (a missing artifact blocks the gate too), else
+    # overwrite it with the unknown sentinel now; the success path replaces it.
+    if epic_id is None:
+        out_path.unlink(missing_ok=True)
+    else:
+        write_unknown(["regeneration", "incomplete"])
+
     if not bd_available():
-        # A previous run's BEADS.md (e.g. blocking_open: 0) must not satisfy
-        # the ship:pre gate on stale data: overwrite it with the unknown
-        # sentinel, or remove it when no epic is known (a missing artifact
-        # blocks the gate too).
-        if epic_id is None:
-            out_path.unlink(missing_ok=True)
-        else:
+        if epic_id is not None:
             write_unknown(["bd", "unavailable"])
         _skip_bd_unavailable(phase_dir, "beads-status regenerate-beads-md")
         return 0
@@ -3184,8 +3206,19 @@ def regenerate_beads_md(phase_dir_arg):
         )
         return 1
 
-    ordinal_map = _resolve_task_ordinal_map(phase_dir)
+    degraded_plans = []
+    ordinal_map = _resolve_task_ordinal_map(phase_dir, degraded_plans)
     if _milestone_scoped(phase_dir):
+        if degraded_plans:
+            # The ordinal map filters the shared epic's rows: a plan that
+            # failed to parse hides its own issues, so the counts are unknown.
+            write_unknown(argv)
+            print(
+                "BEADS.md: degraded plan(s) " + ", ".join(degraded_plans)
+                + " -- counts unknown, ship gate will block",
+                file=sys.stderr,
+            )
+            return 1
         # The milestone epic is shared: other phases' children are not this
         # phase's rows, counts or blockers (gsd-beads-cjbc.9).
         rows = [r for r in rows if r.get("id") in ordinal_map]
