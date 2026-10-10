@@ -1,7 +1,9 @@
 name: CI
 
 on:
+  # Branches only: a tag push is CI-checked once, by release.yml calling this workflow.
   push:
+    branches: ["**"]
   pull_request:
   # Called by release.yml so a tag publishes only after CI passes on that commit.
   workflow_call:
@@ -27,7 +29,8 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: open-gsd/gsd-core
-          ref: v1.12.0
+          # Commit of tag v1.12.0 (tags are movable; a sha is not).
+          ref: ceed559fd437b037755249e6e36ee36d0d785852
           fetch-depth: 0
           path: .ci/gsd-core
 
@@ -83,7 +86,7 @@ jobs:
           set -euo pipefail
           python3 -m unittest discover -s tests -t tests 2>&1 | tee "$RUNNER_TEMP/unittest.log"
           # CI must prove what it claims: a skipped test is a silent hole.
-          if grep -Eq '^(OK|FAILED) \(.*skipped=' "$RUNNER_TEMP/unittest.log"; then
+          if grep -Eq '^(OK|FAILED) \(.*(skipped|expected failures)=' "$RUNNER_TEMP/unittest.log"; then
             echo "::error::unittest reported skipped tests in CI" >&2
             grep -E '^(OK|FAILED) \(' "$RUNNER_TEMP/unittest.log" >&2
             exit 1
