@@ -7509,6 +7509,19 @@ class TestNativeStepDispatchProbe(unittest.TestCase):
         exit_code, _, _ = self._probe("plan:post", text)
         self.assertEqual(exit_code, 0)
 
+    def test_anchor_with_flags_between_point_and_raw_is_detected(self):
+        # gsd-core 1.16 writes `render-hooks verify:post --after-fingerprint
+        # "$PHASE_DIR" --raw`; a literal `render-hooks <point> --raw` anchor
+        # missed it and failed open into double dispatch.
+        text = (
+            "```bash\n"
+            'HOOKS=$(gsd_run loop render-hooks verify:post --after-fingerprint "$PHASE_DIR" --raw)\n'
+            "```\n\n"
+            '**Generic step dispatch:** dispatch every `kind == "step"` hook.\n'
+        )
+        exit_code, _, _ = self._probe("verify:post", text)
+        self.assertEqual(exit_code, 1)
+
     def test_unmapped_point_is_not_detected_without_reading_any_file(self):
         exit_code = sync.check_native_step_dispatch("execute:wave:pre", "/nonexistent/x.md")
         self.assertEqual(exit_code, 0)

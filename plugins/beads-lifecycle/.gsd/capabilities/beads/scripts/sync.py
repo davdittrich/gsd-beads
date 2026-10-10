@@ -3356,12 +3356,14 @@ def check_native_step_dispatch(point, workflow_path_override=None):
         )
         return 0
 
-    anchor_literal = f"render-hooks {point} --raw"
+    # Flags may sit between the point and `--raw` (gsd-core 1.16 adds
+    # `--after-fingerprint "$PHASE_DIR"` at verify:post).
+    anchor_re = re.compile(rf"render-hooks {re.escape(point)}\b.*--raw")
     lines = text.splitlines()
-    anchor_idx = next((i for i, line in enumerate(lines) if anchor_literal in line), None)
+    anchor_idx = next((i for i, line in enumerate(lines) if anchor_re.search(line)), None)
     if anchor_idx is None:
         print(
-            f"native-step-dispatch probe ({point}): no '{anchor_literal}' anchor found in "
+            f"native-step-dispatch probe ({point}): no 'render-hooks {point} ... --raw' anchor found in "
             f"{workflow_path} -- assuming not detected, lifecycle-dispatch keeps dispatching",
             file=sys.stderr,
         )
