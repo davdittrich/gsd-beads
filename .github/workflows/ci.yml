@@ -3,21 +3,28 @@ name: CI
 on:
   push:
   pull_request:
+  # Called by release.yml so a tag publishes only after CI passes on that commit.
+  workflow_call:
+
+permissions:
+  contents: read
 
 env:
   # Pinned deliberately: an upstream beads release must not be able to turn this
   # build red on its own. Bump alongside the version README's Requirements and
   # the capability's own compatibility notes claim.
   BD_VERSION: 1.2.2
+  # sha256 of beads_${BD_VERSION}_linux_amd64.tar.gz; bump together with BD_VERSION.
+  BD_SHA256: 8140098a51d3b81d5548d1c5e6db1a2d9930e5d141efe2a4bff7d079c4d321e8
 
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check out pinned gsd-core fixture
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: open-gsd/gsd-core
           ref: v1.12.0
@@ -49,11 +56,35 @@ jobs:
           set -euo pipefail
           curl -fsSL -o /tmp/bd.tar.gz \
             "https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_amd64.tar.gz"
+          echo "${BD_SHA256}  /tmp/bd.tar.gz" | sha256sum -c -
           tar -xzf /tmp/bd.tar.gz -C /tmp bd
           sudo install -m 0755 /tmp/bd /usr/local/bin/bd
           bd version
 
+      - name: Session-start hook smoke test
+        run: bash tests/test-session-start.sh
+
+      # The live gsd_run / installed-workflow tests skip silently unless the
+      # provisioned gsd-core is discoverable: CLAUDE_CONFIG_DIR points the test
+      # helpers at it and gsd_run must resolve in a login shell. Scoped to this
+      # step so the auto-install smoke test above is unaffected.
+      - name: Expose gsd_run to login shells
+        run: |
+          set -euo pipefail
+          sudo ln -sf "$CODEX_HOME/gsd-core/bin/gsd_run" /usr/local/bin/gsd_run
+          bash -lc 'command -v gsd_run'
+
       # Stdlib unittest, not pytest -- N5 keeps this capability's dependencies
       # at `bd` plus the Python standard library, and CI must not widen that.
       - name: Beads sync tests
-        run: python3 -m unittest discover -s tests -t tests
+        env:
+          CLAUDE_CONFIG_DIR: ${{ env.CODEX_HOME }}
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -t tests 2>&1 | tee "$RUNNER_TEMP/unittest.log"
+          # CI must prove what it claims: a skipped test is a silent hole.
+          if grep -Eq '^(OK|FAILED) \(.*skipped=' "$RUNNER_TEMP/unittest.log"; then
+            echo "::error::unittest reported skipped tests in CI" >&2
+            grep -E '^(OK|FAILED) \(' "$RUNNER_TEMP/unittest.log" >&2
+            exit 1
+          fi
