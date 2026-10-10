@@ -2788,6 +2788,22 @@ def _beads_md_argv(epic_id):
     return ["bd", "list", "--parent", epic_id, "--all", "--json", "-n", "0"]
 
 
+def _checked_bd_list_rows(result):
+    """Rows of a `bd list` result, or None when the query failed (non-zero
+    exit, invalid JSON, or a non-list payload such as a JSON error object).
+    `_unwrap_bd_list` maps all of those to [], which a gate reader would take
+    for "no open issues"; callers that must fail closed use this instead."""
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except (UnicodeError, json.JSONDecodeError):
+        return None
+    if isinstance(payload, dict):
+        payload = payload.get("data")
+    return payload if isinstance(payload, list) else None
+
+
 def _resolve_task_ordinal_map(phase_dir):
     """Return {beads_id: ordinal_prefix} across every plan in phase_dir, so
     each BEADS.md row can name the plan task that owns its issue."""
@@ -2875,10 +2891,43 @@ def regenerate_beads_md(phase_dir_arg):
     always fully overwrite `{phase_dir}/{padded_phase}-BEADS.md` from a
     fresh `bd list --parent <epic>` query -- never read the existing file's
     body to merge or preserve a prior hand edit."""
+    phase_dir = Path(phase_dir_arg).resolve()
+    padded_phase = phase_dir.name.split("-", 1)[0]
+    out_path = phase_dir / f"{padded_phase}-BEADS.md"
+
+    epic_id = resolve_phase_epic(phase_dir)
+
+    def write_unknown(argv):
+        # Fail closed: a non-numeric sentinel never equals 0, so the
+        # artifact-frontmatter-equals ship:pre gates block (gsd-core 1.12 and
+        # 1.16 compare by === / String()); never write a count we do not know.
+        # The file keeps epic/blocking_open/diverged so ship_override can still
+        # record its audit trailer.
+        generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        out_path.write_text(
+            "---\n"
+            f"phase: {phase_dir.name}\n"
+            f"epic: {epic_id}\n"
+            "open: unknown\nclosed: unknown\nblocking_open: unknown\ndiverged: unknown\n"
+            f'generated_from: "{" ".join(argv)}"\n'
+            f"generated_at: {generated_at}\n"
+            "---\n\n"
+            f"# BEADS.md: {phase_dir.name}\n\nbd state unknown.\n",
+            encoding="utf-8",
+        )
+
     if not bd_available():
         print(NOTICE)
+        # A previous run's BEADS.md (e.g. blocking_open: 0) must not satisfy
+        # the ship:pre gate on stale data: overwrite it with the unknown
+        # sentinel, or remove it when no epic is known (a missing artifact
+        # blocks the gate too).
+        if epic_id is None:
+            out_path.unlink(missing_ok=True)
+        else:
+            write_unknown(["bd", "unavailable"])
         try:
-            project_root = find_project_root(Path(phase_dir_arg).resolve())
+            project_root = find_project_root(phase_dir)
         except ValueError:
             project_root = None
         if project_root is not None:
@@ -2888,22 +2937,20 @@ def regenerate_beads_md(phase_dir_arg):
             )
         return 0
 
-    phase_dir = Path(phase_dir_arg).resolve()
-    padded_phase = phase_dir.name.split("-", 1)[0]
-
-    epic_id = resolve_phase_epic(phase_dir)
     if epic_id is None:
         print("no epic yet -- nothing to regenerate")
         return 0
 
     argv = _beads_md_argv(epic_id)
-    result = run_bd(argv)
-    rows = []
-    if result.returncode == 0:
-        try:
-            rows = _unwrap_bd_list(json.loads(result.stdout))
-        except json.JSONDecodeError:
-            rows = []
+    rows = _checked_bd_list_rows(run_bd(argv))
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if rows is None:
+        write_unknown(argv)
+        print(
+            "BEADS.md: bd list failed -- counts unknown, ship gate will block",
+            file=sys.stderr,
+        )
+        return 1
 
     closed_count = sum(1 for r in rows if r.get("status") == "closed")
     open_count = len(rows) - closed_count
@@ -2916,7 +2963,6 @@ def regenerate_beads_md(phase_dir_arg):
     diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
     table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
 
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     frontmatter = (
         "---\n"
         f"phase: {phase_dir.name}\n"
@@ -2931,7 +2977,6 @@ def regenerate_beads_md(phase_dir_arg):
     )
     body = f"# BEADS.md: {phase_dir.name}\n\n{table}\n"
 
-    out_path = phase_dir / f"{padded_phase}-BEADS.md"
     out_path.write_text(frontmatter + body, encoding="utf-8")
 
     print(f"BEADS.md regenerated: {open_count} open, {closed_count} closed (epic {epic_id})")
@@ -2998,32 +3043,35 @@ def render_status_mapping(phase_dir_arg):
         print("no epic yet -- nothing to show")
         return 0
 
-    argv = _beads_md_argv(epic_id)
-    result = run_bd(argv)
-    rows = []
-    if result.returncode == 0:
-        try:
-            rows = _unwrap_bd_list(json.loads(result.stdout))
-        except json.JSONDecodeError:
-            rows = []
+    rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
+    if rows is None:
+        print("beads-status: bd list failed -- mapping unavailable", file=sys.stderr)
+        return 1
 
     ordinal_map = _resolve_task_ordinal_map(phase_dir)
     completed_ids = _resolve_completed_task_ids(phase_dir)
     _diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
     table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
 
-    current_ids = collect_epic_task_ids(phase_dir, epic_id)
+    try:
+        current_ids = collect_epic_task_ids(phase_dir, epic_id)
+    except PlanParseError:
+        # _resolve_task_ordinal_map above already noted the plan in STATE.md;
+        # an orphan list built without that plan's ids would be wrong.
+        print("beads-status: a plan failed to parse -- mapping unavailable", file=sys.stderr)
+        return 1
     bd_side_orphans = [(row, None) for row in rows if row.get("id") not in current_ids]
 
     task_side_orphans = []
     for plan_path in discover_plan_files(phase_dir).values():
         try:
-            _, _, tasks = parse_plan(plan_path)
+            with _degrade_on_parse_error(phase_dir, plan_path):
+                _, _, tasks = parse_plan(plan_path)
+                for task in tasks:
+                    if not task["beads_id"]:
+                        task_side_orphans.append((plan_path.name, task["name"]))
         except (OSError, UnicodeDecodeError):
             continue
-        for task in tasks:
-            if not task["beads_id"]:
-                task_side_orphans.append((plan_path.name, task["name"]))
 
     lines = [table, "", "## Issues with no matching plan task", ""]
     if bd_side_orphans:

@@ -5315,6 +5315,87 @@ class TestBeadsMdRegeneration(unittest.TestCase):
         self.assertNotIn("regen-epic |", text)
 
 
+    def _regen_failure(self, list_response):
+        """Run regenerate_beads_md with the epic-children `bd list` answering
+        `list_response`; return (exit_code, BEADS.md text, stderr)."""
+        with mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = _make_beads_md_bd_side_effect(list_response)
+            with tempfile.TemporaryDirectory() as tmp:
+                phase_dir = _write_wave_workspace(
+                    Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+                )
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    exit_code = sync.regenerate_beads_md(str(phase_dir))
+                text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+        return exit_code, text, err.getvalue()
+
+    def _assert_unknown_gate_state(self, exit_code, text, err):
+        self.assertEqual(exit_code, 1)
+        for key in ("open", "closed", "blocking_open", "diverged"):
+            self.assertIn(f"\n{key}: unknown\n", text)
+        self.assertNotIn("blocking_open: 0", text)
+        self.assertIn("unknown", err)
+
+    def test_bd_list_nonzero_exit_writes_unknown_not_zero(self):
+        """R2: a transient `bd list` failure must never read as an all-clear
+        `blocking_open: 0` -- the ship gate would pass with open issues."""
+        with mock.patch("subprocess.run") as mock_run:
+            def side_effect(argv, **kwargs):
+                if argv[:3] == ["bd", "list", "--parent"]:
+                    return _completed(1, stderr="database is locked")
+                return _make_beads_md_bd_side_effect()(argv, **kwargs)
+
+            mock_run.side_effect = side_effect
+            with tempfile.TemporaryDirectory() as tmp:
+                phase_dir = _write_wave_workspace(
+                    Path(tmp), [("01-07", _regen_two_task_plan_text(), True)]
+                )
+                err = io.StringIO()
+                with contextlib.redirect_stderr(err):
+                    exit_code = sync.regenerate_beads_md(str(phase_dir))
+                text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+        self._assert_unknown_gate_state(exit_code, text, err.getvalue())
+
+    def test_bd_list_json_error_payload_writes_unknown(self):
+        self._assert_unknown_gate_state(
+            *self._regen_failure(json.dumps({"error": "locked", "schema_version": 1}))
+        )
+
+    def test_bd_list_invalid_json_writes_unknown(self):
+        self._assert_unknown_gate_state(*self._regen_failure("not json"))
+
+    def test_bd_unavailable_overwrites_stale_beads_md_with_unknown(self):
+        """R2: with bd unavailable a previous run's BEADS.md (e.g.
+        blocking_open: 0) must not survive to satisfy the ship gate."""
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)], with_state=True
+            )
+            stale = phase_dir / "01-BEADS.md"
+            stale.write_text("---\nblocking_open: 0\ndiverged: 0\n---\n", encoding="utf-8")
+            with mock.patch.object(sync, "bd_available", return_value=False), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                exit_code = sync.regenerate_beads_md(str(phase_dir))
+            fields = sync._read_beads_md_frontmatter(phase_dir)
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(fields["blocking_open"], "unknown")
+            self.assertEqual(fields["diverged"], "unknown")
+            # ship_override still finds what it needs to record its trailer.
+            self.assertLessEqual({"epic", "blocking_open", "diverged"}, fields.keys())
+
+    def test_bd_unavailable_without_epic_removes_stale_beads_md(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(Path(tmp), [], with_state=True)
+            stale = phase_dir / "01-BEADS.md"
+            stale.write_text("---\nblocking_open: 0\ndiverged: 0\n---\n", encoding="utf-8")
+            with mock.patch.object(sync, "bd_available", return_value=False), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                exit_code = sync.regenerate_beads_md(str(phase_dir))
+            self.assertEqual(exit_code, 0)
+            self.assertFalse(stale.exists())
+
+
 class TestWaveStatusBlock(unittest.TestCase):
     """B8: render_wave_status_block prints a wave-scoped <beads_status> block
     naming only the given plan_ids' synced issues, sourced from the
@@ -6401,6 +6482,47 @@ class TestOnDemandStatus(unittest.TestCase):
             argv = call.args[0]
             second_element = argv[1] if len(argv) > 1 else None
             self.assertNotIn(second_element, ("close", "update", "comment"))
+
+
+    @mock.patch("subprocess.run")
+    def test_status_mapping_bd_list_failure_is_not_an_all_clear(self, mock_run):
+        """R2: a failed `bd list` must print a failure and return 1, never
+        an empty table plus 'no orphans'."""
+
+        def side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--parent"]:
+                return _completed(1, stderr="database is locked")
+            return _make_beads_md_bd_side_effect()(argv, **kwargs)
+
+        mock_run.side_effect = side_effect
+        with tempfile.TemporaryDirectory() as tmp:
+            _, phase_dir = _write_status_workspace(
+                Path(tmp), "01-substrate", [("01-09", _status_mixed_task_plan_text())]
+            )
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                exit_code = sync.render_status_mapping(str(phase_dir))
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("bd list failed", err.getvalue())
+        self.assertNotIn("## Issues with no matching plan task", out.getvalue())
+
+    @mock.patch("subprocess.run")
+    def test_status_mapping_malformed_sibling_plan_degrades(self, mock_run):
+        """R2: a malformed sibling plan must not crash render_status_mapping
+        with a traceback; report mapping unavailable (rc 1, never a partial
+        orphan list) and leave the STATE.md note."""
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir, state_path = _write_regen_workspace_with_malformed_sibling(
+                tmp, mock_run, has_summary=False
+            )
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                exit_code = sync.render_status_mapping(str(phase_dir))
+            state_text = state_path.read_text(encoding="utf-8")
+        self.assertEqual(exit_code, 1)
+        self.assertIn("mapping unavailable", err.getvalue())
+        self.assertIn("plan parse failed in 01-08-PLAN.md", state_text)
 
 
 class TestMigrateTodos(unittest.TestCase):
