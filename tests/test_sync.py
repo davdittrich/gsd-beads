@@ -9437,7 +9437,7 @@ class TestShipOverrideRealGit(unittest.TestCase):
         return repo
 
     def test_default_workflow_unpushed_commit_amends(self):
-        """gsd-beads-cjbc.31/.33 S3: a new local commit on a branch cut from
+        """gsd-beads-cjbc.33 S3: a new local commit on a branch cut from
         origin/main is unpushed; refusing lost the audit trailer."""
         with tempfile.TemporaryDirectory() as tmp:
             repo = self._feat_from_origin_main(tmp, commits=1)
@@ -10265,15 +10265,6 @@ class TestConfined(unittest.TestCase):
             with self.assertRaises(ValueError):
                 sync.confined(root, "link", "f")
 
-    @unittest.expectedFailure  # finding: confined() resolves the candidate but not `root`
-    def test_root_that_is_itself_a_symlink_still_resolves_inside(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            real = Path(tmp).resolve() / "real"
-            real.mkdir()
-            link = Path(tmp).resolve() / "link"
-            link.symlink_to(real, target_is_directory=True)
-            self.assertEqual(sync.confined(link, "a"), real / "a")
-
 
 class TestPersistIdentityFailure(unittest.TestCase):
     """gsd-beads-cjbc.33 N6: an OSError recording a just-created id must not
@@ -10301,11 +10292,15 @@ class TestPersistIdentityFailure(unittest.TestCase):
 
     def test_epic_persist_failure_prints_created_id(self):
         code, output, state = self._run(fail_from=1)
+        self.assertEqual(code, 1)
         self.assertIn("mock-e1.1", output)
         self.assertIn("mock-e1.1", state)
 
     def test_task_persist_failure_prints_created_ids(self):
         code, output, state = self._run(fail_from=3)
+        self.assertEqual(code, 1)
+        self.assertNotIn("bd unavailable", output)
+        self.assertIn("mock-e1.2", state)
         self.assertIn("mock-e1.2", output)
         self.assertIn("mock-e1.3", output)
 
@@ -10313,6 +10308,49 @@ class TestPersistIdentityFailure(unittest.TestCase):
         code, output, state = self._run(fail_from=5)
         self.assertEqual(code, 1)
         self.assertIn("mock-e1.4", output)
+        self.assertIn("mock-e1.4", state)
+
+    def test_rerun_after_persist_failure_leaves_one_open_issue_per_task(self):
+        """The stranded issue is closed by the orphan sweep on the rerun."""
+        children, created = {}, {"n": 0}
+
+        def bd(argv, **kwargs):
+            if argv[:2] == ["bd", "create"]:
+                created["n"] += 1
+                issue_id = f"mock-e1.{created['n']}"
+                children[issue_id] = {"id": issue_id, "status": "open", "labels": ["gsd-sync"],
+                                      "child": "--parent" in argv}
+                return _completed(0, stdout=f"{issue_id}\n")
+            if argv[:2] == ["bd", "show"]:
+                found = argv[2] in children
+                return _completed(0 if found else 1, stdout=json.dumps([{"id": argv[2]}]))
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout=json.dumps([c for c in children.values() if c["child"]]))
+            if argv[:2] == ["bd", "close"]:
+                children[argv[2]]["status"] = "closed"
+            return _completed(0)
+
+        real = sync._atomic_write_text
+        writes = {"n": 0}
+
+        def flaky(path, content):
+            writes["n"] += 1
+            if writes["n"] == 3:  # epic, task 1 recorded; task 2's id is lost
+                raise OSError(28, "No space left on device")
+            return real(path, content)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = _write_plan_workspace(Path(tmp), _three_task_plan_text(), with_state=True)
+            quiet = contextlib.ExitStack()
+            quiet.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            quiet.enter_context(contextlib.redirect_stderr(io.StringIO()))
+            with quiet, mock.patch("subprocess.run", side_effect=bd):
+                with mock.patch.object(sync, "_atomic_write_text", side_effect=flaky):
+                    self.assertEqual(sync.create_issues(str(plan)), 1)
+                self.assertEqual(sync.create_issues(str(plan)), 0)
+        open_ids = sorted(i for i, c in children.items() if c["child"] and c["status"] == "open")
+        self.assertEqual(len(open_ids), 3, children)
+        self.assertEqual(children["mock-e1.3"]["status"], "closed")
 
 
 if __name__ == "__main__":

@@ -484,6 +484,10 @@ class PlanParseError(ValueError):
     """A plan's raw task openings cannot be mapped to closed task blocks."""
 
 
+class IdentityPersistError(Exception):
+    """Issue ids were created in bd but could not be written into the plan."""
+
+
 class EpicAuthorityError(ValueError):
     """An epic id is unsafe or does not match exact live bd authority."""
 
@@ -2588,6 +2592,12 @@ def create_issues(plan_arg, allow_strip=True):
         placeholder_updates = []
         native_updates = []
 
+        def _unrecorded_message(ids, plan_path, exc):
+            return (
+                f"create-issues: cannot write {plan_path.name}; created issue ids "
+                f"[{', '.join(ids)}] are unrecorded -- bind them by hand: {exc}"
+            )
+
         def created_ids():
             return (
                 ([epic_id] if epic_created else [])
@@ -2610,9 +2620,7 @@ def create_issues(plan_arg, allow_strip=True):
                 # The ids exist in bd but not in the plan: name them (stderr
                 # and, via the RuntimeError handler, STATE.md) so they can be
                 # bound by hand instead of being lost.
-                ids = ", ".join(created_ids())
-                print(f"create-issues: cannot record created issue ids [{ids}] in {plan_path.name}: {exc}", file=sys.stderr)
-                raise RuntimeError(f"cannot record created ids [{ids}] in {plan_path.name}: {exc}") from exc
+                raise IdentityPersistError(_unrecorded_message(created_ids(), plan_path, exc)) from exc
 
         if epic_created:
             persist_identity()
@@ -2650,6 +2658,8 @@ def create_issues(plan_arg, allow_strip=True):
     except EpicAuthorityError as exc:
         print(f"epic identity authority failed: {exc}", file=sys.stderr)
         return 1
+    except IdentityPersistError as exc:
+        return _fail_preflight(project_root, str(exc))
     except RuntimeError as exc:
         print(NOTICE)
         append_state_blocker(
@@ -2691,9 +2701,9 @@ def create_issues(plan_arg, allow_strip=True):
         try:
             _atomic_write_text(plan_path, new_text)
         except OSError as exc:
-            ids = ", ".join(created_ids())
-            print(f"create-issues: cannot write {plan_path.name}; created issue ids [{ids}] are unrecorded: {exc}", file=sys.stderr)
-            return 1
+            return _fail_preflight(
+                project_root, _unrecorded_message(created_ids(), plan_path, exc)
+            )
 
     orphan_result = run_bd(_beads_md_argv(epic_id))
     if orphan_result.returncode == 0:
