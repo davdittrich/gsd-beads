@@ -50,3 +50,20 @@ __pycache__/
 # under the project root per this repo's worktree-placement convention,
 # but not gsd-beads' own history; never track their contents.
 .worktrees/
+
+# Untracked diagnostics, caches and backups (gsd-beads-cjbc.17): review logs carry
+# local /home/dd paths; research cache and hook backups are per-machine.
+*.backup
+.review-diagnostics/
+.planning/research/.cache/
+
+# Dev-tool and local-only dirs present in the maintainer tree (gsd-beads-cjbc.17).
+.wolf/
+CLAUDE.local.md
+.codegraph/
+graphify-out/
+.scratch/
+tmp_x
+BEADS
+/ponytail-everywhere/
+.codex/prompts/
