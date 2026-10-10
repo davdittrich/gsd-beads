@@ -6,20 +6,25 @@ on:
   # Called by release.yml so a tag publishes only after CI passes on that commit.
   workflow_call:
 
+permissions:
+  contents: read
+
 env:
   # Pinned deliberately: an upstream beads release must not be able to turn this
   # build red on its own. Bump alongside the version README's Requirements and
   # the capability's own compatibility notes claim.
   BD_VERSION: 1.2.2
+  # sha256 of beads_${BD_VERSION}_linux_amd64.tar.gz; bump together with BD_VERSION.
+  BD_SHA256: 8140098a51d3b81d5548d1c5e6db1a2d9930e5d141efe2a4bff7d079c4d321e8
 
 jobs:
   checks:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Check out pinned gsd-core fixture
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: open-gsd/gsd-core
           ref: v1.12.0
@@ -51,6 +56,7 @@ jobs:
           set -euo pipefail
           curl -fsSL -o /tmp/bd.tar.gz \
             "https://github.com/gastownhall/beads/releases/download/v${BD_VERSION}/beads_${BD_VERSION}_linux_amd64.tar.gz"
+          echo "${BD_SHA256}  /tmp/bd.tar.gz" | sha256sum -c -
           tar -xzf /tmp/bd.tar.gz -C /tmp bd
           sudo install -m 0755 /tmp/bd /usr/local/bin/bd
           bd version
