@@ -232,7 +232,16 @@ grep -Eq '^capability install /[^ ]+ --scope global --yes$' "$STUB_LOG" \
   || fail "case1: staged bundle is not exactly the allowlist: $(cat "$SCRATCH/staged.ls")"
 [ ! -s "$SCRATCH/staged.noise" ] || fail "case1: staged bundle contains tests/ or __pycache__"
 case "$(cat "$SCRATCH/staged.path")" in "$PLUGIN_DIR"*) fail "case1: install source is inside the plugin root" ;; esac
-[ ! -e "$(cat "$SCRATCH/staged.path")" ] || fail "case1: staging directory leaked after exit"
+# R28: gsd-core records the install path as the ledger source that
+# `capability update` re-fetches, so it must be a stable path that outlives
+# the hook and holds exactly the installed allowlist.
+STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source/beads"
+[ "$(cat "$SCRATCH/staged.path")" = "$STABLE_SOURCE" ] \
+  || fail "case1: install source is not the stable source path: $(cat "$SCRATCH/staged.path")"
+[ "$(fixture_tree_hash "$STABLE_SOURCE")" = "$(fixture_tree_hash "$INSTALLED_BUNDLE")" ] \
+  || fail "case1: stable source does not persist the installed allowlist"
+[ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.stage.*')" ] \
+  || fail "case1: temporary staging directory leaked after exit"
 grep -q 'capability' "$STUB_LOG" || fail "case1: stub argv missing 'capability'"
 grep -q 'install' "$STUB_LOG" || fail "case1: stub argv missing 'install'"
 grep -q -- '--yes' "$STUB_LOG" || fail "case1: stub argv missing '--yes'"
@@ -262,6 +271,17 @@ run_script beads
 [ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 1)) ] || fail "case2: unchanged rerun invoked a native writer"
 [ "$(tail -n 1 "$STUB_LOG")" = 'query skills-root codex --raw' ] || fail "case2: unchanged rerun did more than validate its destination"
 pass "case2: unchanged rerun is silent and invokes native writers zero times"
+
+### Case 2a (R28): a missing stable source re-records it once ###
+# Installs made before R28 recorded a since-deleted temp dir as the source.
+rm -rf "$GSD_HOME/.gsd/capability-auto-install-beads.source"
+PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
+run_script beads
+[ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 3)) ] \
+  || fail "case2a: missing stable source did not trigger a reinstall"
+[ -f "$GSD_HOME/.gsd/capability-auto-install-beads.source/beads/capability.json" ] \
+  || fail "case2a: stable source was not republished"
+pass "case2a: a missing stable source triggers one reinstall from the stable path"
 
 ### Case 2b: selected-surface drift invalidates the fingerprint fast path ###
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
@@ -1789,6 +1809,9 @@ REAL_REPEAT_STATUS=$?
 [ "$(fixture_tree_hash "$(dirname "$ACTUAL_LEDGER")" \
   "$(basename "$ACTUAL_LEDGER")")" = "$LEDGER_BEFORE_REPEAT" ] \
   || fail "case24: real repeat changed the shared ledger"
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability update beads --scope global --yes > "$REAL_ROOT/update.log" 2>&1 \
+  || fail "case24: capability update cannot re-fetch the recorded source: $(cat "$REAL_ROOT/update.log")"
 
 EVIDENCE_ROOT="$ACTUAL_SKILLS_ROOT"
 rm -rf "$REAL_ROOT"

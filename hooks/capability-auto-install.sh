@@ -252,9 +252,14 @@ fi
 unset GSD_AUTO_INSTALL_LOCK_FD GSD_AUTO_INSTALL_SKILLS_ROOT
 
 # Stage the allowlist into a private temp dir (mktemp -d is 0700) and run every
-# hash/verify/install step against it. cp -P keeps symlinks as symlinks so the
-# hash and ownership checks below still reject them. The path is never printed.
-STAGE_DIR="$(mktemp -d 2>/dev/null)" && [ -d "$STAGE_DIR" ] || STAGE_DIR=""
+# hash/verify step against it. cp -P keeps symlinks as symlinks so the hash and
+# ownership checks below still reject them. The stage sits in STATE_DIR so it
+# can be renamed to SOURCE_DIR, the stable path gsd-core records as the
+# ledger source that `capability update` re-fetches (R28).
+SOURCE_PARENT="$STATE_DIR/capability-auto-install-$CAP_ID.source"
+SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
+STAGE_DIR="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.stage.XXXXXX" 2>/dev/null)" \
+  && [ -d "$STAGE_DIR" ] || STAGE_DIR=""
 trap '[ -n "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"' EXIT
 BUNDLE_DIR="$STAGE_DIR/$CAP_ID"
 STAGE_OK=0
@@ -584,7 +589,8 @@ INSTALLED_STATUS=$?
 SELECTED_FINGERPRINT="$(selected_fingerprint)"
 SELECTED_STATUS=$?
 if [ "$SOURCE_STATUS" -eq 0 ] && [ "$INSTALLED_STATUS" -eq 0 ] \
-  && [ "$SELECTED_STATUS" -eq 0 ] && ledger_has_current_row; then
+  && [ "$SELECTED_STATUS" -eq 0 ] && [ -d "$SOURCE_DIR" ] && [ ! -L "$SOURCE_PARENT" ] \
+  && ledger_has_current_row; then
   exit 0
 fi
 
@@ -595,6 +601,14 @@ if ! guard_skill_ownership; then
   echo "capability-auto-install: destination ownership check failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
   exit 0
 fi
+
+rm -rf "$SOURCE_PARENT" 2>/dev/null
+if [ -e "$SOURCE_PARENT" ] || [ -L "$SOURCE_PARENT" ] || ! mv "$STAGE_DIR" "$SOURCE_PARENT" 2>/dev/null; then
+  echo "capability-auto-install: stable source publish failed for $CAP_ID; projection not recorded" >&2
+  exit 0
+fi
+STAGE_DIR=""
+BUNDLE_DIR="$SOURCE_DIR"
 
 gsd_tools capability install "$BUNDLE_DIR" --scope global --yes >/dev/null 2>&1
 INSTALL_STATUS=$?
