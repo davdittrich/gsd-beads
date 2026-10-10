@@ -12,13 +12,14 @@ HOME=$(mktemp -d) bash tests/test-session-start.sh
 HOME=$(mktemp -d) TMPDIR=/dev/shm bash tests/test-capability-auto-install.sh
 ```
 
-`test-capability-auto-install.sh` case24 needs a local gsd-core source checkout and fails without one; the other cases are hermetic.
+`test-capability-auto-install.sh` case24 needs a gsd-core source checkout at `$GSD_CORE_REPO` (default `../gsd-core`, a git clone; CI uses `.ci/gsd-core`) and stops the script there without one; cases 1-23 are hermetic.
 
 ## Layout
 
 - `scripts/sync.py`: every subcommand (`create-issues`, `close-wave`, `lifecycle-dispatch`, ...). `skills/*/SKILL.md` call it through a resolver fence; `tests/test_sync.py` pins the fence byte for byte.
 - `hooks/`: `lifecycle-dispatch.sh` (PostToolUse), `session-start.sh`, `capability-auto-install.sh`.
-- `.agents/skills/beads/`, `AGENTS.md` bd block, `.cursor/rules/beads.mdc`: bundled or generated bd guidance. Change the `bd setup` profile; do not hand-edit generated blocks.
+- `.agents/skills/beads/`: bundled bd guidance, hand-maintained; check commands against `bd <cmd> --help`.
+- `AGENTS.md` bd block, `.cursor/rules/beads.mdc`: generated. Change the `bd setup` profile; do not hand-edit.
 
 ## Conventions
 

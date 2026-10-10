@@ -33,7 +33,7 @@ no plan ids.
 | Point | Branch |
 |---|---|
 | `execute:wave:pre`, before any executor `Agent()` spawns | Step 2a |
-| `execute:wave:post`, after every plan in the wave merged | Step 2 |
+| `execute:wave:post`, after every plan in the wave merged | Step 2, then Step 3 |
 | `verify:post`, once per phase | Step 2b |
 | `ship:pre`, once per phase | Step 2c, then Step 2d |
 | none (a direct `/gsd-beads-status [phase]` call) | Step 2e |

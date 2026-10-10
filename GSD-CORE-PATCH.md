@@ -4,9 +4,7 @@ The one patch this capability carries to an installed gsd-core workflow file, `s
 
 ## Scope: why only `ship.md` is patched
 
-gsd-core 1.11.0 has no generic `kind == "step"` dispatch at five of the six declared points (gh-2). Four are dispatched instead by `hooks/lifecycle-dispatch.sh`, a `PostToolUse` hook matching the `gsd_run loop render-hooks <point> --raw` call gsd-core makes at each, which runs `sync.py lifecycle-dispatch <point>`. The hook is a script the harness runs, not a paragraph a model must obey, and its trigger is a call gsd-core must keep making, so a gsd-core update cannot strip it.
-
-`ship:pre` keeps Patch 1 and stays out of the hook's point list: it already dispatches through the patch, and the hook would double-record a `ship_override`.
+Which mechanism dispatches each lifecycle point is in README, "How the lifecycle steps get dispatched". `ship:pre` is the one point that still needs a patch: it stays out of the `PostToolUse` hook's point list because it already dispatches through Patch 1, and the hook would double-record a `ship_override`.
 
 ## Patch 1: `ship.md` — `ship:pre` generic gate/step dispatch
 

@@ -128,7 +128,7 @@ with zero `bd` issues and nothing reporting it
 
 The equivalent manual invocation, for a runtime with no `PostToolUse` support or for driving a
 point by hand: first set `SYNC_PY` with the resolver block from the `gsd-beads-sync` skill's
-Step 3 fence, then run
+fence, then run
 
 ```bash
 python3 "$SYNC_PY" lifecycle-dispatch plan:pre
