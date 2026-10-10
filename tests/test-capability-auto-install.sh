@@ -105,6 +105,10 @@ else
 fi
 case "\$*" in
   "capability install "*)
+    if [ -n "\${STUB_REQUIRE_CONSENT:-}" ] && [[ "\$*" != *" --yes"* ]]; then
+      printf '%s\n' '{"status":"aborted","requiresConsent":true,"scope":"global"}'
+      exit 1
+    fi
     _p="\$3"
     if [ -d "\$_p" ]; then
       printf '%s\n' "\$_p" > "$SCRATCH/staged.path"
@@ -226,8 +230,8 @@ run_script beads
 [ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case1: stub invoked $(wc -l < "$STUB_LOG") times, expected 3"
 grep -qx 'query skills-root codex --raw' "$STUB_LOG" \
   || fail "case1: public Codex skills-root query was not invoked"
-grep -Eq '^capability install /[^ ]+ --scope global --yes$' "$STUB_LOG" \
-  || fail "case1: stub argv missing absolute staged bundle path"
+grep -Eq '^capability install /[^ ]+ --scope global$' "$STUB_LOG" \
+  || fail "case1: stub argv missing absolute staged bundle path (or auto-consented)"
 [ "$(cat "$SCRATCH/staged.ls")" = "GSD-CORE-PATCH.md capability.json fragments scripts skills " ] \
   || fail "case1: staged bundle is not exactly the allowlist: $(cat "$SCRATCH/staged.ls")"
 [ ! -s "$SCRATCH/staged.noise" ] || fail "case1: staged bundle contains tests/ or __pycache__"
@@ -244,7 +248,7 @@ STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source/beads"
   || fail "case1: temporary staging directory leaked after exit"
 grep -q 'capability' "$STUB_LOG" || fail "case1: stub argv missing 'capability'"
 grep -q 'install' "$STUB_LOG" || fail "case1: stub argv missing 'install'"
-grep -q -- '--yes' "$STUB_LOG" || fail "case1: stub argv missing '--yes'"
+! grep -q -- '--yes' "$STUB_LOG" || fail "case1: hook auto-consented with --yes"
 grep -q 'global' "$STUB_LOG" || fail "case1: stub argv missing 'global' scope value"
 grep -qx "capability set beads --runtime codex --scope global --config-dir $CODEX_HOME" "$STUB_LOG" \
   || fail "case1: native codex surface materialization was not invoked"
@@ -305,17 +309,86 @@ pass "case3: bundle edit re-grants with a fresh notice"
 
 teardown
 
-### Case 3b: a validated explicit runtime overrides plugin-owner fallback ###
+### Case 3b (R23): GSD_RUNTIME cannot override plugin-cache ownership ###
+# A --plugin-dir working tree or a mismatched runtime must not install
+# uncommitted content machine-wide just because GSD_RUNTIME is set.
 setup 0
 seed_selected "$CLAUDE_SKILLS_ROOT"
 export GSD_RUNTIME=claude
 run_script beads
 unset GSD_RUNTIME
-grep -qx 'query skills-root claude --raw' "$STUB_LOG" \
-  || fail "case3b: explicit Claude runtime did not select the Claude skills-root query"
-grep -qx "capability set beads --runtime claude --scope global --config-dir $CLAUDE_CONFIG_DIR" "$STUB_LOG" \
-  || fail "case3b: explicit Claude runtime did not select the Claude config root"
-pass "case3b: validated explicit runtime selects exactly one runtime/config/destination"
+[ "$STATUS" -eq 0 ] || fail "case3b: exit status $STATUS, expected 0"
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3b: runtime mismatch reached gsd-tools"
+grep -q 'runtime selection failed' "$STDERR_FILE" || fail "case3b: missing mismatch diagnostic"
+CUSTOM_PLUGIN="$SCRATCH/worktree-plugin"
+make_plugin_root "$CUSTOM_PLUGIN"
+PLUGIN_DIR="$CUSTOM_PLUGIN"
+BUNDLE_DIR="$CUSTOM_PLUGIN"
+export GSD_RUNTIME=codex
+run_script beads
+unset GSD_RUNTIME
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3b: GSD_RUNTIME let an uncached plugin dir install"
+pass "case3b: GSD_RUNTIME never bypasses the plugin-cache ownership check"
+teardown
+
+### Case 3f (R23): ownership is decided on the resolved plugin path ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+OUTSIDE_PLUGIN="$SCRATCH/outside-plugin"
+make_plugin_root "$OUTSIDE_PLUGIN"
+ln -s "$OUTSIDE_PLUGIN" "$CODEX_HOME/plugins/linked"
+PLUGIN_DIR="$CODEX_HOME/plugins/linked"
+BUNDLE_DIR="$OUTSIDE_PLUGIN"
+run_script beads
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3f: symlinked plugin root outside the cache was trusted"
+grep -q 'runtime selection failed' "$STDERR_FILE" || fail "case3f: missing ownership diagnostic"
+pass "case3f: a cache-path symlink to an outside tree is not runtime-owned"
+teardown
+
+### Case 3g (R23): relative or missing home roots fail closed ###
+for _var in HOME GSD_HOME CODEX_HOME CLAUDE_CONFIG_DIR; do
+  setup 0
+  seed_selected "$SKILLS_ROOT"
+  case "$_var" in
+    HOME) _home=relative-home; _gsd="$GSD_HOME"; _codex="$CODEX_HOME"; _claude="$CLAUDE_CONFIG_DIR" ;;
+    GSD_HOME) _home="$SCRATCH"; _gsd=relative-gsd; _codex="$CODEX_HOME"; _claude="$CLAUDE_CONFIG_DIR" ;;
+    CODEX_HOME) _home="$SCRATCH"; _gsd="$GSD_HOME"; _codex=relative-codex; _claude="$CLAUDE_CONFIG_DIR" ;;
+    CLAUDE_CONFIG_DIR) _home="$SCRATCH"; _gsd="$GSD_HOME"; _codex="$CODEX_HOME"; _claude=relative-claude ;;
+  esac
+  ( cd "$SCRATCH" && HOME="$_home" GSD_HOME="$_gsd" CODEX_HOME="$_codex" CLAUDE_CONFIG_DIR="$_claude" \
+      CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads ) \
+    >"$STDOUT_FILE" 2>"$STDERR_FILE"
+  [ "$?" -eq 0 ] || fail "case3g: $_var relative: nonzero exit"
+  [ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3g: relative $_var reached gsd-tools"
+  [ ! -e "$SCRATCH/relative-gsd" ] && [ ! -e "$SCRATCH/relative-home" ] \
+    || fail "case3g: relative $_var created state under cwd"
+  grep -q 'must be absolute' "$STDERR_FILE" || fail "case3g: relative $_var: missing diagnostic"
+  teardown
+done
+setup 0
+( cd "$SCRATCH" && env -u HOME GSD_HOME="$GSD_HOME" CODEX_HOME="$CODEX_HOME" \
+    CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" \
+    PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads ) >"$STDOUT_FILE" 2>"$STDERR_FILE"
+[ "$?" -eq 0 ] || fail "case3g: unset HOME aborted the hook"
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3g: unset HOME reached gsd-tools"
+teardown
+pass "case3g: relative or unset HOME/GSD_HOME/CODEX_HOME/CLAUDE_CONFIG_DIR fail closed"
+
+### Case 3h (R23): a consent-requiring install is never auto-consented ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+export STUB_REQUIRE_CONSENT=1
+run_script beads
+unset STUB_REQUIRE_CONSENT
+[ "$STATUS" -eq 0 ] || fail "case3h: exit status $STATUS, expected 0"
+! grep -q -- '--yes' "$STUB_LOG" || fail "case3h: hook passed --yes"
+! grep -q '^capability set' "$STUB_LOG" || fail "case3h: consent-blocked install reached capability set"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case3h: consent block wrote stdout"
+grep -qF "needs your consent" "$STDERR_FILE" || fail "case3h: consent requirement not printed: $(cat "$STDERR_FILE")"
+grep -qF "capability install $GSD_HOME/.gsd/capability-auto-install-beads.source/beads --scope global --yes" "$STDERR_FILE" \
+  || fail "case3h: consent message lacks the exact command: $(cat "$STDERR_FILE")"
+[ ! -e "$STATE_FILE" ] || fail "case3h: consent-blocked install recorded a ledger row"
+pass "case3h: consent-requiring install prints the requirement and exits 0"
 teardown
 
 ### Case 3c: a noncanonical queried root blocks both native mutations ###
@@ -841,7 +914,7 @@ cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
 printf '%s\n' "\$*" >> "$STUB_LOG"
 if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
 if [ "\$*" = 'query skills-root claude --raw' ]; then printf '%s\n' "$CLAUDE_SKILLS_ROOT"; exit 0; fi
-if [[ "\$*" == 'capability install '*' --scope global --yes' ]]; then
+if [[ "\$*" == 'capability install '*' --scope global' ]]; then
   printf '%s\n' ready > "$READY_FIFO"
   IFS= read -r _release < "$RELEASE_FIFO"
 fi
@@ -858,9 +931,12 @@ IFS= read -r READY_SIGNAL < "$READY_FIFO"
 [ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
   || fail "case15: live owner did not hold a regular lock file"
 WRITERS_BEFORE="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
-export GSD_RUNTIME=claude
+# The contender is the same bundle loaded by the other runtime's plugin cache.
+CODEX_PLUGIN_DIR="$PLUGIN_DIR"
+PLUGIN_DIR="$CLAUDE_CONFIG_DIR/plugins/cache/gsd-beads/beads-lifecycle/test"
+make_plugin_root "$PLUGIN_DIR"
 run_script beads
-unset GSD_RUNTIME
+PLUGIN_DIR="$CODEX_PLUGIN_DIR"
 [ "$STATUS" -eq 0 ] || fail "case15: contender exit status $STATUS, expected 0"
 [ -z "$(cat "$STDOUT_FILE")" ] || fail "case15: contender emitted stdout"
 [ "$(cat "$STDERR_FILE")" = 'capability-auto-install: projection transaction busy for beads; projection not recorded' ] \
@@ -890,7 +966,7 @@ cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$STUB_LOG"
 if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
-if [[ "\$*" == 'capability install '*' --scope global --yes' ]]; then
+if [[ "\$*" == 'capability install '*' --scope global' ]]; then
   "$REAL_PYTHON" - "$CRASH_FD_LEAK" <<'PY'
 import os
 import pathlib
@@ -1689,7 +1765,7 @@ REAL_HOOK_STATUS=$?
   || fail "case24: real hook invoked the current CLI an unexpected number of times"
 grep -qx 'query skills-root codex --raw' "$REAL_SPY_LOG" \
   || fail "case24: real hook omitted the public skills-root query"
-grep -Eq '^capability install /[^ ]+ --scope global --yes$' "$REAL_SPY_LOG" \
+grep -Eq '^capability install /[^ ]+ --scope global$' "$REAL_SPY_LOG" \
   || fail "case24: real hook install argv differed"
 ! grep -qF "capability install $REAL_PLUGIN_ROOT" "$REAL_SPY_LOG" \
   || fail "case24: real hook installed from the plugin root, not a staged allowlist"

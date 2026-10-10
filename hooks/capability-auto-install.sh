@@ -14,7 +14,11 @@ CAP_ID="${1:-}"
 # path construction.
 [[ "$CAP_ID" =~ ^[a-z][a-z0-9-]*$ ]] || exit 0
 
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Resolved physical path: ownership below is a prefix test, so a cache-path
+# symlink into an arbitrary tree must not inherit the cache's trust. An
+# unresolvable root is empty and stops here, never becoming "/capability.json".
+PLUGIN_ROOT="$(cd -P "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}" 2>/dev/null && pwd -P)"
+[ -n "$PLUGIN_ROOT" ] || exit 0
 # The plugin root is the capability root (root-manifest layout), but it also
 # carries dev-only content (tests/, .git, caches). Only an allowlist is ever
 # hashed or installed; it is staged below, once the transaction lock is held.
@@ -68,32 +72,42 @@ PY
 
 STATE_VERSION="projection-v2"
 
-# Reconcile only the runtime that loaded this plugin. An explicit validated
-# runtime wins; otherwise the installed plugin cache must identify one owner.
+# Every root below decides where machine-wide state lands; a relative one
+# would resolve inside whatever repo the session opened in.
+for _root_var in HOME GSD_HOME CODEX_HOME CLAUDE_CONFIG_DIR; do
+  _root_value="${!_root_var:-}"
+  if [ "$_root_var" = HOME ] || [ -n "$_root_value" ]; then
+    case "$_root_value" in
+      /?*) ;;
+      *)
+        echo "capability-auto-install: $_root_var must be absolute for $CAP_ID; projection not recorded" >&2
+        exit 0
+        ;;
+    esac
+  fi
+done
+
+# Reconcile only the runtime that loaded this plugin: the installed plugin
+# cache must identify exactly one owner. GSD_RUNTIME may only confirm that
+# owner, never replace it, so a --plugin-dir working tree never installs.
 CODEX_CONFIG_ROOT="${CODEX_HOME:-$HOME/.codex}"
 CLAUDE_CONFIG_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-ACTIVE_RUNTIME="${GSD_RUNTIME:-}"
-case "$ACTIVE_RUNTIME" in
-  codex|claude) ;;
-  "")
-    CODEX_OWNER=0
-    CLAUDE_OWNER=0
-    [[ "$PLUGIN_ROOT/" == "$CODEX_CONFIG_ROOT"/plugins/* ]] && CODEX_OWNER=1
-    [[ "$PLUGIN_ROOT/" == "$CLAUDE_CONFIG_ROOT"/plugins/* ]] && CLAUDE_OWNER=1
-    if [ "$CODEX_OWNER" -eq 1 ] && [ "$CLAUDE_OWNER" -eq 0 ]; then
-      ACTIVE_RUNTIME="codex"
-    elif [ "$CODEX_OWNER" -eq 0 ] && [ "$CLAUDE_OWNER" -eq 1 ]; then
-      ACTIVE_RUNTIME="claude"
-    else
-      echo "capability-auto-install: runtime selection failed for $CAP_ID; projection not recorded" >&2
-      exit 0
-    fi
-    ;;
-  *)
-    echo "capability-auto-install: runtime selection failed for $CAP_ID; projection not recorded" >&2
-    exit 0
-    ;;
-esac
+CODEX_OWNER=0
+CLAUDE_OWNER=0
+_codex_physical="$(cd -P "$CODEX_CONFIG_ROOT" 2>/dev/null && pwd -P)"
+_claude_physical="$(cd -P "$CLAUDE_CONFIG_ROOT" 2>/dev/null && pwd -P)"
+[ -n "$_codex_physical" ] && [[ "$PLUGIN_ROOT/" == "$_codex_physical"/plugins/* ]] && CODEX_OWNER=1
+[ -n "$_claude_physical" ] && [[ "$PLUGIN_ROOT/" == "$_claude_physical"/plugins/* ]] && CLAUDE_OWNER=1
+ACTIVE_RUNTIME=""
+if [ "$CODEX_OWNER" -eq 1 ] && [ "$CLAUDE_OWNER" -eq 0 ]; then
+  ACTIVE_RUNTIME="codex"
+elif [ "$CODEX_OWNER" -eq 0 ] && [ "$CLAUDE_OWNER" -eq 1 ]; then
+  ACTIVE_RUNTIME="claude"
+fi
+if [ -z "$ACTIVE_RUNTIME" ] || [ "${GSD_RUNTIME:-$ACTIVE_RUNTIME}" != "$ACTIVE_RUNTIME" ]; then
+  echo "capability-auto-install: runtime selection failed for $CAP_ID; projection not recorded" >&2
+  exit 0
+fi
 
 case "$ACTIVE_RUNTIME" in
   codex)
@@ -610,8 +624,21 @@ fi
 STAGE_DIR=""
 BUNDLE_DIR="$SOURCE_DIR"
 
-gsd_tools capability install "$BUNDLE_DIR" --scope global --yes >/dev/null 2>&1
+# Never --yes: consent to an executable surface is the user's, not a
+# SessionStart side effect. gsd-core reports the block as a JSON envelope.
+INSTALL_OUTPUT="$(gsd_tools capability install "$BUNDLE_DIR" --scope global 2>/dev/null)"
 INSTALL_STATUS=$?
+if [ "$INSTALL_STATUS" -ne 0 ] && printf '%s' "$INSTALL_OUTPUT" | python3 -I -c '
+import json, sys
+try:
+    envelope = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+sys.exit(0 if isinstance(envelope, dict) and envelope.get("requiresConsent") is True else 1)
+' 9>&- 2>/dev/null; then
+  echo "capability-auto-install: $CAP_ID needs your consent before install; run: $GSD_TOOLS capability install $BUNDLE_DIR --scope global --yes" >&2
+  exit 0
+fi
 
 if [ "$INSTALL_STATUS" -eq 0 ]; then
   INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
