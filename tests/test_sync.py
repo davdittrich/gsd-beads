@@ -2491,9 +2491,10 @@ class TestCreateIssuesCrashSafety(unittest.TestCase):
             os.chmod(plan_copy, 0o640)
             before = plan_copy.read_bytes()
             _, side_effect = self._stateful_bd()
-            with mock.patch("os.replace", side_effect=OSError("ENOSPC")):
-                with self.assertRaises(OSError):
-                    self._run(plan_copy, side_effect)
+            with mock.patch("os.replace", side_effect=OSError("ENOSPC")), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                # gsd-beads-cjbc.33 N6: reported, not raised.
+                self._run(plan_copy, side_effect)
             self.assertEqual(plan_copy.read_bytes(), before)
             self.assertEqual(sorted(p.name for p in plan_copy.parent.iterdir()), [plan_copy.name])
 
@@ -2511,9 +2512,8 @@ class TestCreateIssuesCrashSafety(unittest.TestCase):
 class TestIdentityBinding(unittest.TestCase):
     @staticmethod
     def _plan_open_spy():
-        return mock.patch.object(
-            Path, "open", autospec=True, side_effect=Path.open
-        )
+        # _atomic_write_text writes through os.fdopen on its O_EXCL fd.
+        return mock.patch.object(os, "fdopen", autospec=True, side_effect=os.fdopen)
 
     @staticmethod
     def _write_calls(path_open):
@@ -3109,7 +3109,6 @@ class TestIdentityBinding(unittest.TestCase):
                 return _completed(0, stdout="{")
             return fallback(argv, **kwargs)
 
-        real_open = Path.open
         with tempfile.TemporaryDirectory() as tmp:
             plan_copy = _write_plan_workspace(Path(tmp), plan_text)
             before = plan_copy.read_bytes()
@@ -3118,7 +3117,7 @@ class TestIdentityBinding(unittest.TestCase):
             ) as mock_run:
                 with mock.patch.object(sync, "append_state_blocker"):
                     with mock.patch.object(
-                        Path, "open", autospec=True, side_effect=real_open
+                        os, "fdopen", autospec=True, side_effect=os.fdopen
                     ) as path_open:
                         exit_code = sync.create_issues(
                             str(plan_copy), allow_strip=False
@@ -6054,10 +6053,8 @@ class TestShipOverride(unittest.TestCase):
 
         def _side_effect(argv, **kwargs):
             calls.append(argv)
-            if argv[:2] == ["git", "rev-parse"]:
-                return _completed(0, stdout="origin/main\n")
-            if argv[:2] == ["git", "rev-list"]:
-                return _completed(0, stdout="0\n")
+            if argv[:2] == ["git", "for-each-ref"]:
+                return _completed(0, stdout="refs/remotes/origin/main\n")
             if argv[0] == "git":
                 return _completed(1, stderr="should not amend when HEAD already pushed")
             if argv[:2] == ["bd", "list"]:
@@ -6085,10 +6082,8 @@ class TestShipOverride(unittest.TestCase):
 
         def _side_effect(argv, **kwargs):
             calls.append(argv)
-            if argv[:2] == ["git", "rev-parse"]:
-                return _completed(0, stdout="origin/main\n")
-            if argv[:2] == ["git", "rev-list"]:
-                return _completed(0, stdout="2\n")
+            if argv[:2] == ["git", "for-each-ref"]:
+                return _completed(0, stdout="")
             if argv[0] == "git":
                 return _completed(0)
             if argv[:2] == ["bd", "list"]:
@@ -6109,15 +6104,14 @@ class TestShipOverride(unittest.TestCase):
         self.assertTrue(any(c[:3] == ["git", "commit", "--amend"] for c in calls))
 
     def test_no_upstream_configured_amends_normally(self):
-        """git rev-parse @{u} fails (no upstream branch) -- treat as unknown/safe
-        and proceed with the amend, matching prior behavior on a detached or
-        unpushed-ever branch."""
+        """No remote-tracking ref contains HEAD (unpushed-ever branch) -- proceed
+        with the amend."""
         calls = []
 
         def _side_effect(argv, **kwargs):
             calls.append(argv)
-            if argv[:2] == ["git", "rev-parse"]:
-                return _completed(128, stderr="no upstream configured")
+            if argv[:2] == ["git", "for-each-ref"]:
+                return _completed(0, stdout="")
             if argv[0] == "git":
                 return _completed(0)
             if argv[:2] == ["bd", "list"]:
@@ -7206,8 +7200,7 @@ class TestMilestoneEpic(unittest.TestCase):
         self.assertEqual(epic_id, "milestone-epic.1")
 
     def test_capability_json_declares_epic_per_enum_key(self):
-        project_root = sync.find_project_root(Path(__file__).resolve().parent)
-        cap_path = project_root / "capability.json"
+        cap_path = Path(__file__).resolve().parents[1] / "capability.json"
         cap = json.loads(cap_path.read_text(encoding="utf-8"))
         epic_per_cfg = cap["config"]["beads.epic_per"]
         self.assertEqual(epic_per_cfg["type"], "enum")
@@ -9429,19 +9422,48 @@ class TestShipOverrideRealGit(unittest.TestCase):
             self.assertEqual(self._override(repo), 1)
             self.assertEqual(_real_git(repo, "rev-parse", "HEAD"), before)
 
-    def test_upstream_that_is_not_the_branchs_own_refuses_amend(self):
+    def _feat_from_origin_main(self, tmp, commits):
+        """Default workflow: push.default unset, `feat` branched from
+        origin/main (so @{push} fails while @{u} resolves)."""
+        origin = self._remote_clone(tmp, "origin")
+        repo = self._repo(tmp)
+        _real_git(repo, "remote", "add", "origin", str(origin))
+        _real_git(repo, "push", "-q", "-u", "origin", "main")
+        _real_git(repo, "checkout", "-q", "-b", "feat", "--track", "origin/main")
+        for i in range(commits):
+            (repo / f"c{i}.txt").write_text("c\n", encoding="utf-8")
+            _real_git(repo, "add", f"c{i}.txt")
+            _real_git(repo, "commit", "-q", "-m", f"new {i}")
+        return repo
+
+    def test_default_workflow_unpushed_commit_amends(self):
+        """gsd-beads-cjbc.31/.33 S3: a new local commit on a branch cut from
+        origin/main is unpushed; refusing lost the audit trailer."""
         with tempfile.TemporaryDirectory() as tmp:
-            origin = self._remote_clone(tmp, "origin")
-            repo = self._repo(tmp)
-            _real_git(repo, "remote", "add", "origin", str(origin))
-            _real_git(repo, "push", "-q", "-u", "origin", "main")
-            _real_git(repo, "checkout", "-q", "-b", "feat", "--track", "origin/main")
-            (repo / "c.txt").write_text("c\n", encoding="utf-8")
-            _real_git(repo, "add", "c.txt")
-            _real_git(repo, "commit", "-q", "-m", "second")
+            repo = self._feat_from_origin_main(tmp, commits=1)
+            self.assertEqual(self._override(repo), 0)
+            self.assertIn("Beads-Override:", _real_git(repo, "log", "-1", "--format=%B"))
+
+    def test_default_workflow_head_on_origin_main_refuses_amend(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self._feat_from_origin_main(tmp, commits=0)
             before = _real_git(repo, "rev-parse", "HEAD")
             self.assertEqual(self._override(repo), 1)
             self.assertEqual(_real_git(repo, "rev-parse", "HEAD"), before)
+
+    def test_fork_workflow_commit_not_yet_pushed_amends(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            origin = self._remote_clone(tmp, "origin")
+            fork = self._remote_clone(tmp, "fork")
+            repo = self._repo(tmp)
+            _real_git(repo, "remote", "add", "origin", str(origin))
+            _real_git(repo, "remote", "add", "fork", str(fork))
+            _real_git(repo, "push", "-q", "-u", "origin", "main")
+            _real_git(repo, "config", "branch.main.pushRemote", "fork")
+            (repo / "c.txt").write_text("c\n", encoding="utf-8")
+            _real_git(repo, "add", "c.txt")
+            _real_git(repo, "commit", "-q", "-m", "second")
+            self.assertEqual(self._override(repo), 0)
 
     def test_unpushed_commit_on_own_upstream_amends(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -10189,6 +10211,100 @@ class TestMilestoneSweepUnreadableSibling(unittest.TestCase):
         closed, err = self._closed(b"---\nbeads_epic: ms-epic\n---\n\xff\xfe\n")
         self.assertEqual(closed, [])
         self.assertIn("orphan sweep skipped", err)
+
+
+class TestAtomicWriteText(unittest.TestCase):
+    """gsd-beads-cjbc.33 N1: write through the O_EXCL|O_NOFOLLOW fd itself and
+    fsync it before the replace; never reopen the temp file by path."""
+
+    def test_writes_through_created_fd_and_fsyncs_before_replace(self):
+        order = []
+        real_fsync, real_replace = os.fsync, os.replace
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "plan.md"
+            target.write_text("old\n", encoding="utf-8")
+            with mock.patch.object(Path, "open", side_effect=AssertionError("reopened by path")), \
+                    mock.patch("os.fsync", side_effect=lambda fd: (order.append("fsync"), real_fsync(fd))[1]), \
+                    mock.patch("os.replace", side_effect=lambda a, b: (order.append("replace"), real_replace(a, b))[1]):
+                sync._atomic_write_text(target, "new\n")
+            self.assertEqual(target.read_text(encoding="utf-8"), "new\n")
+            self.assertEqual(list(Path(tmp).glob(".*.tmp")), [])
+        self.assertEqual(order, ["fsync", "replace"])
+
+
+class TestConfined(unittest.TestCase):
+    """gsd-beads-cjbc.33 (review B 6): direct tests of the path guard."""
+
+    def test_inside_root_resolves(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp).resolve()
+            self.assertEqual(sync.confined(root, ".planning", "STATE.md"), root / ".planning" / "STATE.md")
+
+    def test_dotdot_escape_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                sync.confined(Path(tmp).resolve(), "..", "evil")
+
+    def test_absolute_part_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                sync.confined(Path(tmp).resolve(), "/etc", "passwd")
+
+    def test_symlink_escape_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as outside:
+            root = Path(tmp).resolve()
+            (root / "link").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(ValueError):
+                sync.confined(root, "link", "f")
+
+    @unittest.expectedFailure  # finding: confined() resolves the candidate but not `root`
+    def test_root_that_is_itself_a_symlink_still_resolves_inside(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp).resolve() / "real"
+            real.mkdir()
+            link = Path(tmp).resolve() / "link"
+            link.symlink_to(real, target_is_directory=True)
+            self.assertEqual(sync.confined(link, "a"), real / "a")
+
+
+class TestPersistIdentityFailure(unittest.TestCase):
+    """gsd-beads-cjbc.33 N6: an OSError recording a just-created id must not
+    escape as a traceback that loses the id."""
+
+    def _run(self, fail_from):
+        calls = {"n": 0}
+        real = sync._atomic_write_text
+
+        def flaky(path, content):
+            calls["n"] += 1
+            if calls["n"] >= fail_from:
+                raise OSError(28, "No space left on device")
+            return real(path, content)
+
+        err, out = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = _write_plan_workspace(Path(tmp), _three_task_plan_text(), with_state=True)
+            with mock.patch("subprocess.run", side_effect=_make_bd_side_effect()), \
+                    mock.patch.object(sync, "_atomic_write_text", side_effect=flaky), \
+                    contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                code = sync.create_issues(str(plan))
+            state = (Path(tmp) / ".planning" / "STATE.md").read_text(encoding="utf-8")
+        return code, out.getvalue() + err.getvalue(), state
+
+    def test_epic_persist_failure_prints_created_id(self):
+        code, output, state = self._run(fail_from=1)
+        self.assertIn("mock-e1.1", output)
+        self.assertIn("mock-e1.1", state)
+
+    def test_task_persist_failure_prints_created_ids(self):
+        code, output, state = self._run(fail_from=3)
+        self.assertIn("mock-e1.2", output)
+        self.assertIn("mock-e1.3", output)
+
+    def test_final_plan_write_failure_prints_created_ids(self):
+        code, output, state = self._run(fail_from=5)
+        self.assertEqual(code, 1)
+        self.assertIn("mock-e1.4", output)
 
 
 if __name__ == "__main__":

@@ -2422,15 +2422,23 @@ def _atomic_write_text(path, content):
     """Write `content` to `path` via a same-directory temp file + os.replace,
     keeping the original mode (a plain temp file would take the umask's).
     A kill or ENOSPC leaves the previous file whole, never truncated."""
-    # Unpredictable name, created O_EXCL|O_NOFOLLOW before the text open: a
-    # planted symlink at a guessable temp name cannot redirect the write.
-    # os.replace then swaps a planted symlink at `path` itself instead of
-    # writing through it.
+    # Unpredictable name, created O_EXCL|O_NOFOLLOW and written through that
+    # same fd (never reopened by path, so a planted symlink cannot redirect
+    # the write), fsynced before os.replace so a crash cannot leave a renamed
+    # but empty file. os.replace then swaps a planted symlink at `path`
+    # itself instead of writing through it.
     tmp = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
     try:
-        os.close(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666))
-        with tmp.open("w", encoding="utf-8", newline="") as handle:
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666)
+        try:
+            handle = os.fdopen(fd, "w", encoding="utf-8", newline="")
+        except BaseException:
+            os.close(fd)
+            raise
+        with handle:
             handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
         if path.exists() and not path.is_symlink():
             shutil.copymode(path, tmp)
         os.replace(tmp, path)
@@ -2580,16 +2588,31 @@ def create_issues(plan_arg, allow_strip=True):
         placeholder_updates = []
         native_updates = []
 
+        def created_ids():
+            return (
+                ([epic_id] if epic_created else [])
+                + [i for _, i in task_updates]
+                + [i for _, i in placeholder_updates]
+            )
+
         def persist_identity():
             # Write the identity created so far (epic + task ids) before the
             # next bd call: a failure or a hook-timeout kill mid-run would
             # otherwise orphan these issues and a rerun would duplicate them.
-            _atomic_write_text(
-                plan_path,
-                rewrite_plan(
-                    text, epic_id, epic_created, task_updates, [], placeholder_updates
-                ),
-            )
+            try:
+                _atomic_write_text(
+                    plan_path,
+                    rewrite_plan(
+                        text, epic_id, epic_created, task_updates, [], placeholder_updates
+                    ),
+                )
+            except OSError as exc:
+                # The ids exist in bd but not in the plan: name them (stderr
+                # and, via the RuntimeError handler, STATE.md) so they can be
+                # bound by hand instead of being lost.
+                ids = ", ".join(created_ids())
+                print(f"create-issues: cannot record created issue ids [{ids}] in {plan_path.name}: {exc}", file=sys.stderr)
+                raise RuntimeError(f"cannot record created ids [{ids}] in {plan_path.name}: {exc}") from exc
 
         if epic_created:
             persist_identity()
@@ -2665,7 +2688,12 @@ def create_issues(plan_arg, allow_strip=True):
             )
         elif newly_created_ids:
             new_text = strip_task_bodies(new_text, newly_created_ids)
-        _atomic_write_text(plan_path, new_text)
+        try:
+            _atomic_write_text(plan_path, new_text)
+        except OSError as exc:
+            ids = ", ".join(created_ids())
+            print(f"create-issues: cannot write {plan_path.name}; created issue ids [{ids}] are unrecorded: {exc}", file=sys.stderr)
+            return 1
 
     orphan_result = run_bd(_beads_md_argv(epic_id))
     if orphan_result.returncode == 0:
@@ -3462,13 +3490,13 @@ def _head_already_pushed(project_root):
     fast-forward path (push_branch never force-pushes). This happens on a
     ship retry after a prior run already completed push_branch.
 
-    Compared against the push target (`@{push}`: branch.<name>.pushRemote /
-    remote.pushDefault, same-name ref), not the upstream: a fork workflow
-    pushes somewhere `@{u}` never mentions. When no push target resolves but
-    an upstream does (push.default=simple with a differently named
-    upstream), the branch's own remote ref cannot be established, so refuse.
-    Returns False (assume safe) with neither configured or on a git
-    failure -- a targeted guard, not a general git-state validator."""
+    Asks git directly whether any remote-tracking ref contains HEAD
+    (`for-each-ref --contains HEAD refs/remotes`): independent of
+    push.default, `@{push}`/`@{u}` resolution and fork pushRemote setups,
+    all of which made the earlier upstream comparison refuse an unpushed
+    commit on a branch cut from origin/main. Returns False (assume safe)
+    with no remote ref containing HEAD or on a git failure -- a targeted
+    guard, not a general git-state validator."""
 
     def git(*args):
         return subprocess.run(
@@ -3480,12 +3508,8 @@ def _head_already_pushed(project_root):
         )
 
     try:
-        if git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{push}").returncode != 0:
-            return git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").returncode == 0
-        ahead = git("rev-list", "--count", "@{push}..HEAD")
-        if ahead.returncode != 0:
-            return False
-        return ahead.stdout.strip() == "0"
+        refs = git("for-each-ref", "--contains", "HEAD", "refs/remotes")
+        return refs.returncode == 0 and bool(refs.stdout.strip())
     except (subprocess.TimeoutExpired, OSError):
         return False
 
@@ -3523,7 +3547,7 @@ def ship_override(phase_dir_arg):
     )
     if _head_already_pushed(project_root):
         print(
-            "ship-override: HEAD has no unpushed commits (already on its push target, or the push target cannot be established) -- "
+            "ship-override: HEAD is already contained in a remote-tracking ref -- "
             "refusing to amend, that would diverge local history from origin and "
             "break the next push. This happens on a ship retry after a prior run "
             "already pushed. Record the override manually or re-run ship_override "
