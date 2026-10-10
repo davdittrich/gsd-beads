@@ -287,7 +287,8 @@ SOURCE_PARENT="$STATE_DIR/capability-auto-install-$CAP_ID.source"
 SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
 STAGE_DIR="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.stage.XXXXXX" 2>/dev/null)" \
   && [ -d "$STAGE_DIR" ] || STAGE_DIR=""
-trap '[ -n "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"' EXIT
+PREV_SOURCE=""
+trap '[ -n "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"; [ -n "$PREV_SOURCE" ] && rm -rf "$PREV_SOURCE"' EXIT
 BUNDLE_DIR="$STAGE_DIR/$CAP_ID"
 STAGE_OK=0
 if [ -n "$STAGE_DIR" ] && mkdir "$BUNDLE_DIR" 2>/dev/null; then
@@ -409,7 +410,7 @@ if not commands:
     raise SystemExit(21)
 for prefix in sorted(commands):
     result = subprocess.run(
-        [sys.executable, str(sync_path), *prefix, "--help"],
+        [sys.executable, "-I", str(sync_path), *prefix, "--help"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         check=False,
@@ -417,7 +418,7 @@ for prefix in sorted(commands):
     if result.returncode != 0:
         raise SystemExit(21)
 retired = subprocess.run(
-    [sys.executable, str(sync_path), "execute-plan", "--help"],
+    [sys.executable, "-I", str(sync_path), "execute-plan", "--help"],
     stdout=subprocess.DEVNULL,
     stderr=subprocess.DEVNULL,
     check=False,
@@ -660,8 +661,25 @@ if ! guard_skill_ownership; then
   exit 0
 fi
 
+# gsd-core records SOURCE_DIR as the source `capability update` re-fetches,
+# so the install must run from there -- but a failed install must not leave
+# unverified bytes recorded. Park the previous source until the install
+# outcome is known; restore_source puts it back (or removes the candidate
+# when there was none). A symlinked source is never kept or restored.
+if [ -d "$SOURCE_PARENT" ] && [ ! -L "$SOURCE_PARENT" ]; then
+  PREV_SOURCE="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.prev.XXXXXX" 2>/dev/null)" \
+    && mv "$SOURCE_PARENT" "$PREV_SOURCE/source" 2>/dev/null || {
+    echo "capability-auto-install: stable source publish failed for $CAP_ID; projection not recorded" >&2
+    exit 0
+  }
+fi
+restore_source() {
+  rm -rf "$SOURCE_PARENT" 2>/dev/null
+  [ -z "$PREV_SOURCE" ] || mv "$PREV_SOURCE/source" "$SOURCE_PARENT" 2>/dev/null
+}
 rm -rf "$SOURCE_PARENT" 2>/dev/null
 if [ -e "$SOURCE_PARENT" ] || [ -L "$SOURCE_PARENT" ] || ! mv "$STAGE_DIR" "$SOURCE_PARENT" 2>/dev/null; then
+  restore_source
   echo "capability-auto-install: stable source publish failed for $CAP_ID; projection not recorded" >&2
   exit 0
 fi
@@ -670,6 +688,10 @@ BUNDLE_DIR="$SOURCE_DIR"
 
 # Never --yes: consent to an executable surface is the user's, not a
 # SessionStart side effect. gsd-core reports the block as a JSON envelope.
+# The candidate stays at SOURCE_DIR so the printed command installs it. When
+# the installed bytes already equal it (the user ran that command), the
+# consent is already given: proceed to project and record rather than
+# re-asking every SessionStart; the success path re-verifies the generation.
 INSTALL_OUTPUT="$(gsd_tools capability install "$BUNDLE_DIR" --scope global 2>/dev/null)"
 INSTALL_STATUS=$?
 if [ "$INSTALL_STATUS" -ne 0 ] && printf '%s' "$INSTALL_OUTPUT" | python3 -I -c '
@@ -681,15 +703,17 @@ except ValueError:
 sys.exit(0 if isinstance(envelope, dict) and envelope.get("requiresConsent") is True else 1)
 ' 9>&- 2>/dev/null; then
   echo "capability-auto-install: $CAP_ID needs your consent before install; run: $GSD_TOOLS capability install $BUNDLE_DIR --scope global --yes" >&2
-  exit 0
+  [ "$INSTALLED_STATUS" -eq 0 ] && [ "$INSTALLED_GENERATION" = "$SOURCE_GENERATION" ] || exit 0
+  INSTALL_STATUS=0
 fi
 
 # A failure after install leaves the new bundle live but unverified: disable
 # it, record that the hook did so, and name the command that undoes it. The
-# marker is written only when the capability was enabled, so a user's own
-# --disable (which also fails verification: nothing is projected) is never
-# re-enabled. `set` without a flag preserves enabled state, so the state
-# query here still reflects the user's choice.
+# marker is written unless the capability was confirmed disabled, so a user's
+# own --disable (which also fails verification: nothing is projected) is
+# never re-enabled, while a failed state query cannot strand it disabled.
+# `set` without a flag preserves enabled state, so the state query here
+# still reflects the user's choice.
 DISABLED_MARKER="$STATE_DIR/capability-auto-install-$CAP_ID.$ACTIVE_RUNTIME.disabled"
 roll_back() {
   local _enabled
@@ -709,7 +733,7 @@ print({(True,): "true", (False,): "false"}.get(tuple(found), "unknown"))
   if GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --disable --runtime "$ACTIVE_RUNTIME" \
       --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1; then
     rm -f "$DISABLED_MARKER" 2>/dev/null
-    [ "$_enabled" = true ] && ( set -C; : > "$DISABLED_MARKER" ) 2>/dev/null
+    ( set -C; : > "$DISABLED_MARKER" ) 2>/dev/null
     echo "capability-auto-install: $1 for $CAP_ID on $ACTIVE_RUNTIME; capability disabled (re-enable: $GSD_TOOLS capability set $CAP_ID --enable --runtime $ACTIVE_RUNTIME --scope global --config-dir $RUNTIME_CONFIG_DIR); projection not recorded" >&2
   else
     echo "capability-auto-install: $1 for $CAP_ID on $ACTIVE_RUNTIME; rollback failed, capability may be half-installed; projection not recorded" >&2
@@ -758,6 +782,7 @@ if [ "$INSTALL_STATUS" -eq 0 ]; then
     roll_back "capability set failed"
   fi
 else
+  restore_source
   echo "capability-auto-install: capability install failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
 fi
 

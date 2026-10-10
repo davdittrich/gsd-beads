@@ -119,6 +119,7 @@ esac
 # Enabled state persists like gsd-core: set without a flag keeps it.
 case "\$*" in
   "capability state --runtime "*" --raw")
+    [ -z "\${STUB_STATE_FAIL:-}" ] || exit 1
     _enabled="\$(cat "$SCRATCH/enabled" 2>/dev/null || echo true)"
     printf '{"capabilities":[{"id":"beads","enabled":%s}]}\n' "\$_enabled"
     exit 0 ;;
@@ -387,6 +388,8 @@ pass "case3g: relative or unset HOME/GSD_HOME/CODEX_HOME/CLAUDE_CONFIG_DIR fail 
 ### Case 3h (R23): a consent-requiring install is never auto-consented ###
 setup 0
 seed_selected "$SKILLS_ROOT"
+# Installed bytes differ from the bundle: the install is genuinely needed.
+printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
 export STUB_REQUIRE_CONSENT=1
 run_script beads
 unset STUB_REQUIRE_CONSENT
@@ -394,11 +397,102 @@ unset STUB_REQUIRE_CONSENT
 ! grep -q -- '--yes' "$STUB_LOG" || fail "case3h: hook passed --yes"
 ! grep -q '^capability set' "$STUB_LOG" || fail "case3h: consent-blocked install reached capability set"
 [ -z "$(cat "$STDOUT_FILE")" ] || fail "case3h: consent block wrote stdout"
-grep -qF "needs your consent" "$STDERR_FILE" || fail "case3h: consent requirement not printed: $(cat "$STDERR_FILE")"
+[ "$(grep -c "needs your consent" "$STDERR_FILE")" -eq 1 ] \
+  || fail "case3h: consent requirement not printed exactly once: $(cat "$STDERR_FILE")"
 grep -qF "capability install $GSD_HOME/.gsd/capability-auto-install-beads.source/beads --scope global --yes" "$STDERR_FILE" \
   || fail "case3h: consent message lacks the exact command: $(cat "$STDERR_FILE")"
+cmp -s "$PLUGIN_DIR/GSD-CORE-PATCH.md" "$GSD_HOME/.gsd/capability-auto-install-beads.source/beads/GSD-CORE-PATCH.md" \
+  || fail "case3h: the printed consent command does not point at the candidate bundle"
 [ ! -e "$STATE_FILE" ] || fail "case3h: consent-blocked install recorded a ledger row"
 pass "case3h: consent-requiring install prints the requirement and exits 0"
+teardown
+
+### Case 3i (V4/S4): consent already given converges instead of re-asking ###
+# The user ran the printed --yes command: installed bytes now equal the
+# bundle, but a bare install still answers requiresConsent. Re-asking every
+# SessionStart was a dead end; the hook must project and record instead.
+setup 0
+seed_selected "$SKILLS_ROOT"
+export STUB_REQUIRE_CONSENT=1
+run_script beads
+unset STUB_REQUIRE_CONSENT
+[ "$STATUS" -eq 0 ] || fail "case3i: exit status $STATUS, expected 0"
+! grep -q -- '--yes' "$STUB_LOG" || fail "case3i: hook passed --yes"
+grep -qx "capability set beads --runtime codex --scope global --config-dir $CODEX_HOME" "$STUB_LOG" \
+  || fail "case3i: consented install never reached capability set: $(cat "$STDERR_FILE")"
+[ -f "$STATE_FILE" ] || fail "case3i: consented install did not record a ledger row: $(cat "$STDERR_FILE")"
+[ "$(cat "$STDOUT_FILE")" = "Auto-installed capability: beads (user scope)" ] \
+  || fail "case3i: converged install did not print the notice: $(cat "$STDOUT_FILE")"
+[ "$(grep -c "needs your consent" "$STDERR_FILE")" -eq 1 ] \
+  || fail "case3i: consent command not printed exactly once: $(cat "$STDERR_FILE")"
+PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
+STUB_REQUIRE_CONSENT=1 run_script beads
+[ -z "$(cat "$STDERR_FILE")" ] || fail "case3i: converged rerun re-asked for consent: $(cat "$STDERR_FILE")"
+[ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 1)) ] || fail "case3i: converged rerun invoked a native writer"
+pass "case3i: an already-consented install converges and stops re-asking"
+teardown
+
+### Case 3j (V4/N10): a failed install never leaves an unverified recorded source ###
+# gsd-core records the stable source path; `capability update` re-fetches it.
+# A failed install must leave the previous source bytes there, or none.
+for _prior in present absent; do
+  setup 1
+  seed_selected "$SKILLS_ROOT"
+  printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+  PRIOR_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source/beads"
+  if [ "$_prior" = present ]; then
+    mkdir -p "$PRIOR_SOURCE"
+    printf 'previous\n' > "$PRIOR_SOURCE/previous.marker"
+  fi
+  run_script beads
+  [ "$STATUS" -eq 0 ] || fail "case3j($_prior): exit status $STATUS, expected 0"
+  grep -q 'capability install failed' "$STDERR_FILE" || fail "case3j($_prior): install failure not reported: $(cat "$STDERR_FILE")"
+  if [ "$_prior" = present ]; then
+    [ "$(cat "$PRIOR_SOURCE/previous.marker" 2>/dev/null)" = previous ] \
+      || fail "case3j: previous source was not restored after a failed install"
+    [ ! -e "$PRIOR_SOURCE/capability.json" ] || fail "case3j: unverified candidate left at the recorded source"
+  else
+    [ ! -e "$GSD_HOME/.gsd/capability-auto-install-beads.source" ] \
+      || fail "case3j: unverified candidate left at the recorded source"
+  fi
+  [ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.*')" ] \
+    || fail "case3j($_prior): temporary directories leaked: $(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.*')"
+  teardown
+done
+pass "case3j: a failed install restores the previous stable source"
+
+### Case 3k (V4/N5): the selected-command contract check runs isolated python ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+N5_SITE="$SCRATCH/n5-site"
+N5_CANARY="$SCRATCH/n5.canary"
+mkdir -p "$N5_SITE"
+printf '%s\n' 'import sys' \
+  "if '--help' in getattr(sys, 'orig_argv', []): open('$N5_CANARY', 'a').write(' '.join(sys.orig_argv) + '\\n')" \
+  > "$N5_SITE/sitecustomize.py"
+TEST_PYTHONPATH="$N5_SITE"
+run_script beads
+TEST_PYTHONPATH=""
+[ -f "$STATE_FILE" ] || fail "case3k: hook did not reach ledger publish: $(cat "$STDERR_FILE")"
+[ ! -e "$N5_CANARY" ] || fail "case3k: contract check imported PYTHONPATH code: $(cat "$N5_CANARY")"
+pass "case3k: the selected-command contract check ignores PYTHONPATH"
+teardown
+
+### Case 3l (V4/S8): a failed state query still lets the hook undo its own rollback ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf '\npython3 "$SYNC_PY" execute-plan\n' >> "$SKILLS_ROOT/gsd-beads-recall/SKILL.md"
+STUB_STATE_FAIL=1 run_script beads
+grep -qx "capability set beads --disable --runtime codex --scope global --config-dir $CODEX_HOME" "$STUB_LOG" \
+  || fail "case3l: failed verification was not rolled back"
+[ -f "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled" ] \
+  || fail "case3l: rollback after a failed state query wrote no re-enable marker"
+seed_selected "$SKILLS_ROOT"
+run_script beads
+grep -qx "capability set beads --enable --runtime codex --scope global --config-dir $CODEX_HOME" "$STUB_LOG" \
+  || fail "case3l: hook-disabled capability was never re-enabled: $(cat "$STDERR_FILE")"
+[ -f "$STATE_FILE" ] || fail "case3l: re-enabled install did not converge: $(cat "$STDERR_FILE")"
+pass "case3l: a state-query failure cannot leave the capability disabled forever"
 teardown
 
 ### Case 3c: a noncanonical queried root blocks both native mutations ###
@@ -462,6 +556,15 @@ RESOLVER_OUT="$(cd "$PLANT_DIR" && GSD_HOME="$RESOLVER_HOME" PATH="/usr/bin:/bin
   "$REAL_PYTHON" -I "$SCRATCH/resolver-launch.py" "$REPO_ROOT/capability.json" 2>&1)"
 [ "$RESOLVER_OUT" = "resolved bd-1" ] || fail "case3e: resolver did not reach sync.py: $RESOLVER_OUT"
 [ ! -e "$CANARY" ] || fail "case3e: task resolver imported planted cwd modules: $(tr '\n' ' ' < "$CANARY")"
+# V4/N3: a relative or empty GSD_HOME resolves against cwd, i.e. the repo.
+mkdir -p "$PLANT_DIR/.gsd/capabilities/beads/scripts"
+printf 'print("planted")\n' > "$PLANT_DIR/.gsd/capabilities/beads/scripts/sync.py"
+for _gsd_home in . ""; do
+  RESOLVER_OUT="$(cd "$PLANT_DIR" && HOME="$RESOLVER_HOME" GSD_HOME="$_gsd_home" PATH="/usr/bin:/bin" \
+    "$REAL_PYTHON" -I "$SCRATCH/resolver-launch.py" "$REPO_ROOT/capability.json" 2>&1)"
+  [ "$RESOLVER_OUT" = "resolved bd-1" ] \
+    || fail "case3e: GSD_HOME='$_gsd_home' resolver ran a cwd-relative sync.py: $RESOLVER_OUT"
+done
 pass "case3e: planted cwd modules never run in hook or resolver python"
 teardown
 
@@ -676,6 +779,7 @@ printf '%s\n' "\$*" >> "$STUB_LOG"
 # Enabled state persists like gsd-core: set without a flag keeps it.
 case "\$*" in
   "capability state --runtime "*" --raw")
+    [ -z "\${STUB_STATE_FAIL:-}" ] || exit 1
     _enabled="\$(cat "$SCRATCH/enabled" 2>/dev/null || echo true)"
     printf '{"capabilities":[{"id":"beads","enabled":%s}]}\n' "\$_enabled"
     exit 0 ;;
