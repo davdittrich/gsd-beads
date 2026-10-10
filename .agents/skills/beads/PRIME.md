@@ -43,7 +43,7 @@ The remaining compatibility points enter through `gsd_run loop render-hooks <poi
 
 Two consequences worth knowing:
 
-- On a runtime without `PostToolUse`, `plan:post` and `verify:post` still dispatch natively. Drive `plan:pre`, `execute:wave:pre`, and `execute:wave:post` by resolving `SYNC_PY` with the resolver block in the `gsd-beads-sync` skill's fence (installed global script first, never a repository's own copy), then running `python3 "$SYNC_PY" lifecycle-dispatch <point>`; `ship:pre` still depends on the installed `ship.md` patch.
+- On a runtime without `PostToolUse`, `plan:post` and `verify:post` still dispatch natively. Drive `plan:pre`, `execute:wave:pre`, and `execute:wave:post` by resolving `SYNC_PY` with the resolver block in the `gsd-beads-sync` skill's fence (installed global script first, never a repository's own copy), then running `python3 -I "$SYNC_PY" lifecycle-dispatch <point>`; `ship:pre` still depends on the installed `ship.md` patch.
 - **`beads.enabled` is re-read by `sync.py`**, not by the capability registry — the hook bypasses the registry that evaluates each step's `when` condition.
 
 ## Ship gate

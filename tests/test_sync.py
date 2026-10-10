@@ -1912,7 +1912,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
             with self.subTest(doc=relative):
                 text = (root / relative).read_text(encoding="utf-8")
                 self.assertNotIn("python3 .gsd/capabilities/beads/scripts/sync.py", text)
-                self.assertIn('python3 "$SYNC_PY" lifecycle-dispatch', text)
+                self.assertIn('python3 -I "$SYNC_PY" lifecycle-dispatch', text)
                 self.assertIn("gsd-beads-sync", text)
 
     def test_prime_matches_readme_dispatch_ownership(self):

@@ -131,7 +131,7 @@ point by hand: first set `SYNC_PY` with the resolver block from the `gsd-beads-s
 fence, then run
 
 ```bash
-python3 "$SYNC_PY" lifecycle-dispatch plan:pre
+python3 -I "$SYNC_PY" lifecycle-dispatch plan:pre
 ```
 
 Never run a cwd-relative `.gsd/capabilities/beads/scripts/sync.py`: that executes whatever
