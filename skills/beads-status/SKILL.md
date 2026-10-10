@@ -90,7 +90,7 @@ It rewrites `BEADS.md` from live `bd` state, recomputing `blocking_open` and `di
 ## Step 2c -- ship:pre: record an override
 
 Read `{padded_phase}-BEADS.md`'s `blocking_open` and `diverged` frontmatter and `beads.ship_gate`
-from `.planning/config.json`. When `beads.ship_gate` is `false` and either field is above 0, run
+from `.planning/config.json`. When `beads.ship_gate` is `false` and either field is not `0` (`unknown` counts), run
 the call below and report its summary (the git trailer, and the bd comment outcome or skip notice).
 Otherwise print nothing.
 
