@@ -9853,5 +9853,203 @@ class TestCheckPatchCli(unittest.TestCase):
         cp.assert_not_called()
 
 
+class TestParserNits27(unittest.TestCase):
+    """gsd-beads-cjbc.27: frontmatter parser nits."""
+
+    def _todo(self, tmp, frontmatter):
+        p = Path(tmp) / "t.md"
+        p.write_text(f"---\n{frontmatter}---\n\n## Problem\nP\n", encoding="utf-8")
+        return p
+
+    def test_quoted_title_loses_matching_quotes_only(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            for raw, want in (
+                ('"Fix it"', "Fix it"),
+                ("'Fix it'", "Fix it"),
+                ('"Fix it\'', "\"Fix it'"),
+                ('"', '"'),
+                ('say "hi"', 'say "hi"'),
+            ):
+                with self.subTest(raw=raw):
+                    p = self._todo(tmp, f"title: {raw}\nseverity: major\n")
+                    self.assertEqual(sync.parse_todo(p)["title"], want)
+
+    def test_empty_quoted_title_is_missing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = self._todo(tmp, 'title: ""\nseverity: major\n')
+            with self.assertRaises(ValueError):
+                sync.parse_todo(p)
+
+    @mock.patch("subprocess.run")
+    def test_multi_area_becomes_one_label_per_area(self, mock_run):
+        mock_run.side_effect = _make_bd_side_effect()
+        for raw, want in (("a,b", "area-a,area-b"), ("a, b", "area-a,area-b"), ("sync", "area-sync")):
+            with self.subTest(raw=raw):
+                mock_run.reset_mock()
+                with tempfile.TemporaryDirectory() as tmp:
+                    pending = _write_todo_pending_workspace(Path(tmp))
+                    (pending / "t.md").write_text(
+                        f"---\ntitle: T\nseverity: major\narea: {raw}\n---\n\n## Problem\nP\n",
+                        encoding="utf-8",
+                    )
+                    self.assertEqual(sync.migrate_todos(str(pending)), 0)
+                argv = [c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]][0]
+                self.assertEqual(argv[argv.index("-l") + 1], want)
+
+    def test_milestone_title_accepts_multiword_and_quoted_name(self):
+        for raw, want in (
+            ("Visibility and Gates", "Milestone v1.0: Visibility and Gates"),
+            ('"Visibility and Gates"', "Milestone v1.0: Visibility and Gates"),
+            ("milestone", "Milestone v1.0: milestone"),
+        ):
+            with self.subTest(raw=raw), tempfile.TemporaryDirectory() as tmp:
+                root, _ = _write_milestone_workspace(Path(tmp), [], milestone_name=raw)
+                self.assertEqual(sync.milestone_epic_title(root / ".planning" / "STATE.md"), want)
+
+    def test_milestone_title_without_keys_never_yields_empty_components(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state = Path(tmp) / "STATE.md"
+            state.write_text("---\nmilestone_name: Foo\n---\n", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                sync.milestone_epic_title(state)
+            state.write_text("---\nmilestone: v2\n---\n", encoding="utf-8")
+            self.assertEqual(sync.milestone_epic_title(state), "Milestone v2")
+
+    @mock.patch("subprocess.run")
+    def test_legacy_empty_name_epic_title_is_still_reused(self, mock_run):
+        """Epics created while a multi-word milestone_name parsed as empty
+        carry the title 'Milestone v1.0: '; they must be reused, not
+        duplicated."""
+        mock_run.side_effect = _make_milestone_bd_side_effect({"legacy-epic.1": "Milestone v1.0: "})
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            root, dirs = _write_milestone_workspace(
+                Path(tmp), ["01-substrate"], milestone_name="Visibility and Gates", epic_per="milestone"
+            )
+            (dirs["01-substrate"] / "01-01-PLAN.md").write_text(
+                plan_text.replace("---\n", "---\nbeads_epic: legacy-epic.1\n", 1), encoding="utf-8"
+            )
+            self.assertEqual(sync.resolve_milestone_epic(root), "legacy-epic.1")
+        self.assertEqual(TestCreateIssues._create_argvs(mock_run.call_args_list, "epic"), [])
+
+    def test_blank_key_never_captures_the_next_line(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                sync.parse_todo(self._todo(tmp, "title:\nseverity: major\n"))
+            self.assertEqual(
+                sync.parse_todo(self._todo(tmp, "title: T\narea:\nseverity: major\n"))["area"],
+                "general",
+            )
+            state = Path(tmp) / "STATE.md"
+            state.write_text("---\nmilestone: v1.0\nmilestone_name:\ncurrent_phase: 03\n---\n", encoding="utf-8")
+            self.assertEqual(sync.milestone_epic_title(state), "Milestone v1.0")
+            state.write_text("---\nmilestone:\nmilestone_name: Foo\n---\n", encoding="utf-8")
+            with self.assertRaises(RuntimeError):
+                sync.milestone_epic_title(state)
+
+    @mock.patch("subprocess.run")
+    def test_legacy_quoted_single_token_epic_title_is_still_reused(self, mock_run):
+        mock_run.side_effect = _make_milestone_bd_side_effect({"legacy-epic.1": 'Milestone v1.0: "MVP"'})
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            root, dirs = _write_milestone_workspace(
+                Path(tmp), ["01-substrate"], milestone_name='"MVP"', epic_per="milestone"
+            )
+            (dirs["01-substrate"] / "01-01-PLAN.md").write_text(
+                plan_text.replace("---\n", "---\nbeads_epic: legacy-epic.1\n", 1), encoding="utf-8"
+            )
+            self.assertEqual(sync.resolve_milestone_epic(root), "legacy-epic.1")
+
+    @mock.patch("subprocess.run")
+    def test_missing_milestone_key_degrades_through_create_issues_fail_open(self, mock_run):
+        mock_run.side_effect = _make_milestone_bd_side_effect()
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp:
+            root, dirs = _write_milestone_workspace(Path(tmp), ["01-substrate"], epic_per="milestone")
+            (root / ".planning" / "STATE.md").write_text(
+                "---\nmilestone_name: Foo\n---\n\n### Blockers/Concerns\n\nNone yet.\n", encoding="utf-8"
+            )
+            plan = dirs["01-substrate"] / "01-01-PLAN.md"
+            plan.write_text(plan_text, encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                rc = sync.create_issues(str(plan))
+            state_text = (root / ".planning" / "STATE.md").read_text(encoding="utf-8")
+        self.assertEqual(rc, 0)
+        self.assertIn(sync.NOTICE, out.getvalue())
+        self.assertIn("milestone: key", state_text)
+
+
+class TestEscapeTableCell27(unittest.TestCase):
+    def test_backslash_pipe_cannot_leave_a_raw_pipe(self):
+        self.assertEqual(sync._escape_table_cell("a\\|b"), "a\\\\\\|b")
+        self.assertEqual(sync._escape_table_cell("a\\"), "a\\\\")
+
+    def test_round_trip_through_the_table_reparser(self):
+        for title in ("a\\|b", "a\\\\|b", "tail\\", "x|y", "plain", "\\"):
+            with self.subTest(title=title):
+                line = "| id-1 | %s | open |" % sync._escape_table_cell(title)
+                rows = sync._parse_beads_md_table_rows(line + "\n")
+                self.assertEqual(rows, [{"id": "id-1", "title": title, "status": "open"}])
+
+
+class TestRecallDecode27(unittest.TestCase):
+    def _recall(self, payload):
+        with mock.patch("subprocess.run", side_effect=_make_beads_recall_bd_side_effect(payload)):
+            with tempfile.TemporaryDirectory() as tmp:
+                phase_dir = _write_recall_phase_workspace(Path(tmp))
+                rc = sync.beads_recall(str(phase_dir))
+                return rc, (phase_dir / "02-BEADS-RECALL.md").read_text(encoding="utf-8")
+
+    def test_data_envelope_is_accepted(self):
+        rc, text = self._recall(json.dumps({"data": [{"id": "bd-1", "title": "T", "status": "open"}]}))
+        self.assertEqual(rc, 0)
+        self.assertIn("recall_status: ok", text)
+        self.assertIn("bd-1", text)
+
+    def test_non_dict_elements_are_dropped_not_fatal(self):
+        rc, text = self._recall(json.dumps([None, "x", 3, {"id": "bd-2", "title": "T", "status": "open"}]))
+        self.assertEqual(rc, 0)
+        self.assertIn("recall_status: ok", text)
+        self.assertIn("bd-2", text)
+
+    def test_list_without_any_dict_row_fails_closed(self):
+        rc, text = self._recall(json.dumps(["a", 3]))
+        self.assertEqual(rc, 0)
+        self.assertIn("recall_status: failed", text)
+
+    def test_error_object_still_fails_closed(self):
+        rc, text = self._recall(json.dumps({"error": "boom"}))
+        self.assertEqual(rc, 0)
+        self.assertIn("recall_status: failed", text)
+        self.assertIn("non-list JSON", text)
+
+
+class TestMainRootGuards27(unittest.TestCase):
+    """gsd-beads-cjbc.27: an unresolvable project root is a clean rc 1, not
+    a traceback."""
+
+    def _main(self, argv, cwd):
+        old = os.getcwd()
+        err = io.StringIO()
+        os.chdir(cwd)
+        try:
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                rc = sync.main(argv)
+        finally:
+            os.chdir(old)
+        return rc, err.getvalue()
+
+    def test_commands_without_planning_root_exit_1_with_message(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = Path(tmp) / "01-01-PLAN.md"
+            plan.write_text("x", encoding="utf-8")
+            for argv in (["migrate-todos"], ["status"], ["create-issues", str(plan)]):
+                with self.subTest(argv=argv):
+                    rc, err = self._main(argv, tmp)
+                    self.assertEqual(rc, 1)
+                    self.assertIn(".planning", err)
+
+
 if __name__ == "__main__":
     unittest.main()

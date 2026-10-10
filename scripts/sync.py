@@ -188,8 +188,8 @@ PLAN_FILE_RE = re.compile(r"^(\d+(?:\.\d+)?-\d+)-PLAN\.md$")
 # ## Problem/## Solution body. TITLE_RE allows spaces (title text), AREA_RE/
 # SEVERITY_RE are single-token like BEADS_EPIC_RE; FILES_BLOCK_RE is
 # DEPENDS_ON_BLOCK_RE's block-list shape scoped to the `files:` key.
-TITLE_RE = re.compile(r"^title:\s*(.+)$", re.MULTILINE)
-AREA_RE = re.compile(r"^area:\s*(\S+)\s*$", re.MULTILINE)
+TITLE_RE = re.compile(r"^title:[ \t]*(.+)$", re.MULTILINE)
+AREA_RE = re.compile(r"^area:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
 SEVERITY_RE = re.compile(r"^severity:\s*(\S+)\s*$", re.MULTILINE)
 FILES_BLOCK_RE = re.compile(r"^files:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
 # 260820-j6g (bd gsd-beads-72u): a completed plan's SUMMARY.md frontmatter
@@ -304,8 +304,11 @@ CURRENT_PHASE_RE = re.compile(r"^current_phase:\s*(\S+)\s*$", re.MULTILINE)
 # B14: beads.epic_per=milestone's title source, STATE.md's milestone:/
 # milestone_name: frontmatter keys -- single-token style matching
 # BEADS_EPIC_RE/CURRENT_PHASE_RE.
-MILESTONE_RE = re.compile(r"^milestone:\s*(\S+)\s*$", re.MULTILINE)
-MILESTONE_NAME_RE = re.compile(r"^milestone_name:\s*(\S+)\s*$", re.MULTILINE)
+MILESTONE_RE = re.compile(r"^milestone:[ \t]*(\S+)[ \t]*$", re.MULTILINE)
+MILESTONE_NAME_RE = re.compile(r"^milestone_name:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
+# The single-token, quote-keeping pattern older versions titled milestone epics
+# with; kept only so resolve_milestone_epic still reuses those epics.
+_LEGACY_MILESTONE_NAME_RE = re.compile(r"^milestone_name:\s*(\S+)\s*$", re.MULTILINE)
 
 
 # bd finds its database from the process cwd. main() sets this to the project
@@ -716,6 +719,14 @@ def parse_resolves_issues(frontmatter):
     return items
 
 
+def _unquote(value):
+    """Strip one matching pair of surrounding quotes from a frontmatter value."""
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1].strip()
+    return value
+
+
 def parse_todo(path):
     """Return {title, severity, area, files, problem, solution} for one
     `.planning/todos/pending/*.md` file (add-todo.md's schema).
@@ -737,9 +748,9 @@ def parse_todo(path):
     body = text[fm_match.end():]
 
     title_m = TITLE_RE.search(frontmatter)
-    if not title_m:
+    title = _unquote(title_m.group(1)) if title_m else ""
+    if not title:
         raise ValueError(f"{path.name}: missing 'title' frontmatter key")
-    title = title_m.group(1).strip()
 
     severity_m = SEVERITY_RE.search(frontmatter)
     if not severity_m or severity_m.group(1) not in SEVERITY_TO_PRIORITY:
@@ -749,7 +760,9 @@ def parse_todo(path):
     severity = severity_m.group(1)
 
     area_m = AREA_RE.search(frontmatter)
-    area = area_m.group(1) if area_m else "general"
+    # `area: a, b` / `a,b` names several areas; one area-<x> label each.
+    areas = re.split(r"[,\s]+", area_m.group(1)) if area_m else []
+    area = ",".join(a for a in areas if a) or "general"
 
     files = parse_todo_files_block(frontmatter)
 
@@ -1026,7 +1039,7 @@ def migrate_todos(pending_dir_arg):
                     "-p",
                     str(SEVERITY_TO_PRIORITY[todo["severity"]]),
                     "-l",
-                    f"area-{todo['area']}",
+                    ",".join(f"area-{a}" for a in todo["area"].split(",")),
                     "--silent",
                 ]
             )
@@ -1464,16 +1477,19 @@ def lifecycle_dispatch(point):
 
 def milestone_epic_title(state_path):
     """B14: return "Milestone {milestone}: {milestone_name}" from STATE.md's
-    frontmatter (RESEARCH's Open Question 1 recommendation) -- empty string
-    for either component when its key is absent from the frontmatter."""
+    frontmatter (RESEARCH's Open Question 1 recommendation). A missing
+    `milestone:` raises RuntimeError (create_issues' B6/D-08 fail-open path);
+    a missing `milestone_name:` omits the suffix."""
     text = Path(state_path).read_text(encoding="utf-8")
     fm_match = FRONTMATTER_RE.match(text)
     frontmatter = fm_match.group(1) if fm_match else ""
     milestone_m = MILESTONE_RE.search(frontmatter)
-    milestone = milestone_m.group(1) if milestone_m else ""
+    if not milestone_m:
+        raise RuntimeError("STATE.md frontmatter has no milestone: key -- cannot title the milestone epic")
+    milestone = milestone_m.group(1)
     name_m = MILESTONE_NAME_RE.search(frontmatter)
-    milestone_name = name_m.group(1) if name_m else ""
-    return f"Milestone {milestone}: {milestone_name}"
+    milestone_name = _unquote(name_m.group(1)) if name_m else ""
+    return f"Milestone {milestone}: {milestone_name}" if milestone_name else f"Milestone {milestone}"
 
 
 def get_milestone_bullet(roadmap_path, milestone):
@@ -1548,6 +1564,9 @@ def resolve_milestone_epic(project_root):
         else ""
     )
 
+    legacy_name_m = _LEGACY_MILESTONE_NAME_RE.search(state_frontmatter)
+    legacy_title = f"Milestone {milestone_token}: {legacy_name_m.group(1) if legacy_name_m else ''}"
+
     phases_root = confined(project_root, ".planning", "phases")
     candidate_ids = []
     if phases_root.is_dir():
@@ -1575,7 +1594,9 @@ def resolve_milestone_epic(project_root):
                 raise EpicAuthorityError(
                     f"bd show returned invalid title for {candidate_id!r}"
                 )
-            if candidate_title == title:
+            # `Milestone <m>: ` is the title older versions wrote whenever
+            # milestone_name was multi-word (single-token regex); reuse, not duplicate.
+            if candidate_title.rstrip() in (title, legacy_title.rstrip()):
                 return candidate_id
 
     if candidate_ids:
@@ -2442,7 +2463,11 @@ def create_issues(plan_arg, allow_strip=True):
     explicit CLI may strip without a local execute-plan patch gate.
     """
     plan_path = Path(plan_arg).resolve()
-    project_root = find_project_root(plan_path.parent)
+    try:
+        project_root = find_project_root(plan_path.parent)
+    except ValueError as exc:
+        print(f"create-issues: {exc}", file=sys.stderr)
+        return 1
     roadmap_path = confined(project_root, ".planning", "ROADMAP.md")
 
     try:
@@ -2700,7 +2725,11 @@ def _escape_table_cell(text):
     # `<`, `>` and backticks are dropped: titles are re-printed inside the
     # <beads_status> executor-prompt block, which a `</beads_status>` in a
     # title would otherwise close.
-    return text.translate(_CELL_STRIP).replace("|", "\\|").replace("\r", "").replace("\n", " ")
+    # `\` first: a literal `\|` must not read back as an escaped pipe.
+    return (
+        text.translate(_CELL_STRIP).replace("\\", "\\\\").replace("|", "\\|")
+        .replace("\r", "").replace("\n", " ")
+    )
 
 
 def _beads_recall_argv():
@@ -2894,12 +2923,19 @@ def beads_recall(phase_dir_arg):
     if bd_error is None:
         if result.returncode == 0:
             try:
-                issues = json.loads(result.stdout)
+                payload = json.loads(result.stdout)
             except ValueError as exc:  # json.JSONDecodeError is a ValueError subclass
                 bd_error = f"bd list returned unparseable JSON: {exc}"
             else:
-                if not isinstance(issues, list):
-                    bd_error = f"bd list returned non-list JSON ({type(issues).__name__})"
+                # Same `{"data": [...]}` envelope _checked_bd_list_rows accepts;
+                # any other non-list (e.g. an error object) must fail closed.
+                rows = payload.get("data") if isinstance(payload, dict) else payload
+                if isinstance(rows, list) and (
+                    not rows or any(isinstance(row, dict) for row in rows)
+                ):
+                    issues = [row for row in rows if isinstance(row, dict)]
+                else:
+                    bd_error = f"bd list returned non-list JSON ({type(payload).__name__})"
         else:
             bd_error = f"bd list exited {result.returncode}: {result.stderr.strip()}"
 
@@ -3288,7 +3324,9 @@ def render_status_mapping(phase_dir_arg):
     return 0
 
 
-CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+# One cell = escape pairs (`\\`, `\|`) or non-pipe chars, then its closing pipe.
+CELL_RE = re.compile(r"((?:\\.|[^\\|])*)\|")
+CELL_UNESCAPE_RE = re.compile(r"\\([\\|])")
 
 
 def _parse_beads_md_table_rows(text):
@@ -3309,12 +3347,10 @@ def _parse_beads_md_table_rows(text):
         line = line.strip()
         if not line.startswith("|"):
             continue
-        cells = CELL_SPLIT_RE.split(line)
+        cells = CELL_RE.findall(line if line.endswith("|") else line + "|")
         if cells and cells[0] == "":
             cells = cells[1:]
-        if cells and cells[-1] == "":
-            cells = cells[:-1]
-        cells = [c.strip().replace("\\|", "|") for c in cells]
+        cells = [CELL_UNESCAPE_RE.sub(r"\1", c.strip()) for c in cells]
         if len(cells) < 3 or cells[0] in ("", "Issue") or set(cells[0]) == {"-"}:
             continue
         rows.append({"id": cells[0], "title": cells[1], "status": cells[2]})
@@ -3776,13 +3812,21 @@ def _main(argv):
     if args.command == "lifecycle-dispatch":
         return lifecycle_dispatch(args.point)
     if args.command == "migrate-todos":
-        project_root = find_project_root(Path.cwd())
-        pending_dir = confined(project_root, ".planning", "todos", "pending")
+        try:
+            project_root = find_project_root(Path.cwd())
+            pending_dir = confined(project_root, ".planning", "todos", "pending")
+        except ValueError as exc:
+            print(f"migrate-todos: {exc}", file=sys.stderr)
+            return 1
         return migrate_todos(str(pending_dir))
     if args.command == "status":
         if args.phase_dir is not None:
             return render_status_mapping(args.phase_dir)
-        project_root = find_project_root(Path.cwd())
+        try:
+            project_root = find_project_root(Path.cwd())
+        except ValueError as exc:
+            print(f"status: {exc}", file=sys.stderr)
+            return 1
         default_dir = _resolve_default_phase_dir(project_root)
         if default_dir is None:
             print("no phase directory given and no default could be resolved from STATE.md")
