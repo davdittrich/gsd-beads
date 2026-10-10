@@ -3202,6 +3202,48 @@ class TestIdempotency(unittest.TestCase):
         self.assertEqual(close_calls[0][2], "tracer-f5x.99")
         self.assertIn("--reason", close_calls[0])
 
+    def test_orphan_sweep_sees_row_beyond_default_50_row_cap(self):
+        """R7: the orphan sweep's `bd list` must pass `-n 0`; bd's default
+        caps output at 50 rows, hiding an orphan at row 51."""
+        rows = [{"id": "tracer-f5x.1", "status": "open"}, {"id": "tracer-f5x.2", "status": "open"}]
+        rows += [{"id": f"tracer-f5x.{100 + i}", "status": "closed"} for i in range(48)]
+        rows.append({"id": "tracer-f5x.99", "status": "open"})  # row 51
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--parent"]:
+                limit = int(argv[argv.index("-n") + 1]) if "-n" in argv else 50
+                return _completed(0, stdout=json.dumps(rows if limit == 0 else rows[:limit]))
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]")
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
+            if argv[:2] == ["bd", "close"] or argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_text = (FIXTURES_DIR / "plan-orphan.md").read_text(encoding="utf-8")
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+                sync.create_issues(str(plan_copy))
+
+        closed = [
+            c.args[0][2] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]
+        ]
+        self.assertEqual(closed, ["tracer-f5x.99"])
+
+    def test_filter_open_ids_sees_all_51_rows(self):
+        """R7: filter_open_ids' `bd list --id ...` must pass `-n 0`."""
+        ids = [f"x-{i}" for i in range(51)]
+
+        def _side_effect(argv, **kwargs):
+            rows = [{"id": i, "status": "open"} for i in ids]
+            limit = int(argv[argv.index("-n") + 1]) if "-n" in argv else 50
+            return _completed(0, stdout=json.dumps(rows if limit == 0 else rows[:limit]))
+
+        with mock.patch("subprocess.run", side_effect=_side_effect):
+            self.assertEqual(sync.filter_open_ids(ids), ids)
+
     def test_orphan_sweep_skips_already_closed_children_on_repeat_run(self):
         def _side_effect(argv, **kwargs):
             if argv[:2] == ["bd", "list"]:

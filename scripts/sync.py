@@ -2079,6 +2079,8 @@ def filter_open_ids(ids):
             "--status",
             BEADS_RECALL_STATUSES,
             "--json",
+            "-n",
+            "0",
         ]
     )
     if result.returncode != 0:
@@ -2468,7 +2470,7 @@ def create_issues(plan_arg, allow_strip=True):
         with plan_path.open("w", encoding="utf-8", newline="") as plan_file:
             plan_file.write(new_text)
 
-    orphan_result = run_bd(["bd", "list", "--parent", epic_id, "--all", "--json"])
+    orphan_result = run_bd(_beads_md_argv(epic_id))
     if orphan_result.returncode == 0:
         try:
             children = _unwrap_bd_list(json.loads(orphan_result.stdout))
