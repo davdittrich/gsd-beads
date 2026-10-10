@@ -1723,6 +1723,23 @@ def _epic_description(objective):
     return f"## Objective\n{objective}\n"
 
 
+def _bd_rows_by_id(ids):
+    """{id: row} for every id bd knows, from ONE `bd list --id a,b,c`. bd omits
+    an unknown id and exits 0, so absence from a successful result is the same
+    confirmed not-found `bd show` gave (R3); a failed call or unparseable
+    output proves nothing and raises BdTransientError."""
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return {}
+    result = run_bd(["bd", "list", "--id", ",".join(ids), "--all", "-n", "0", "--json"])
+    rows = _checked_bd_list_rows(result)
+    if rows is None:
+        raise BdTransientError(
+            f"bd list --id failed without confirming absence: {(result.stderr or '').strip()}"
+        )
+    return {r["id"]: r for r in rows if isinstance(r, dict) and r.get("id") in ids}
+
+
 def resolve_issue(task, epic_id, ordinal_prefix, task_index):
     """Return (issue_id, created, divergent) from exact stored authority.
 
@@ -2535,16 +2552,21 @@ def create_issues(plan_arg, allow_strip=True):
     # that case: degrade to the same fail-open notice, not a crash.
     try:
         verified_tasks = {}
-        for i, task in enumerate(tasks, start=1):
-            # GH#7: a shape-invalid stored id (e.g. "TBD") never resolves via
-            # bd show, so it must go through the second loop below with the
-            # real epic_id in hand to create -- excluded from this pre-pass,
-            # which calls resolve_issue with epic_id="" and only ever expects
-            # the verify-existing branch to run.
-            if task["beads_id"] and BEADS_ID_SHAPE_RE.fullmatch(task["beads_id"]):
-                verified_tasks[i] = resolve_issue(
-                    task, "", ordinal_prefix, i
-                )
+        # GH#7: a shape-invalid stored id (e.g. "TBD") never resolves in bd,
+        # so it goes through the second loop below with the real epic_id in
+        # hand to create -- excluded from this pre-pass. All stored ids are
+        # verified with one batched bd call, not one `bd show` per task.
+        stored = {
+            i: task["beads_id"]
+            for i, task in enumerate(tasks, start=1)
+            if task["beads_id"] and BEADS_ID_SHAPE_RE.fullmatch(task["beads_id"])
+        }
+        for issue_id in stored.values():
+            if not SAFE_BD_ID_RE.fullmatch(issue_id):
+                raise RuntimeError(f"unsafe stored beads-id: {issue_id!r}")
+        known_rows = _bd_rows_by_id(stored.values())
+        for i, issue_id in stored.items():
+            verified_tasks[i] = (issue_id, False, issue_id not in known_rows)
 
         epic_id, epic_created, stale_epic_id = resolve_epic(
             frontmatter, roadmap_path, phase_num, plan_path.parent, project_root, objective
@@ -2678,7 +2700,18 @@ def create_issues(plan_arg, allow_strip=True):
             print(f"prerequisite plan {prereq_id} not yet synced -- skipping cross-plan edge")
         else:
             prereq_last_ids.append(last_id)
-    apply_dependency_edges(derive_dependency_edges(task_ids, prereq_last_ids))
+    # Rows already carry dependencies[]: skip edges bd has, so an unchanged
+    # plan makes no `bd dep add` call. A new endpoint has no row, so its edges
+    # (and a deferred cross-plan edge whose prereq synced later) still apply.
+    present = {
+        (blocked, dep.get("depends_on_id"))
+        for blocked, row in known_rows.items()
+        for dep in row.get("dependencies") or []
+        if isinstance(dep, dict) and dep.get("type") == "blocks"
+    }
+    apply_dependency_edges(
+        [e for e in derive_dependency_edges(task_ids, prereq_last_ids) if e not in present]
+    )
 
     print(f"Synced {created_count} issue(s) -> epic {epic_id}")
     return 0

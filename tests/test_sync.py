@@ -68,6 +68,9 @@ def _make_bd_side_effect():
 
     def _side_effect(argv, **kwargs):
         if argv[:2] == ["bd", "list"]:
+            if "--id" in argv:  # batched stored-id verification: every id exists
+                ids = argv[argv.index("--id") + 1].split(",")
+                return _completed(0, stdout=json.dumps([{"id": i} for i in ids]) + "\n")
             return _completed(0, stdout="[]\n")
         if argv[:2] == ["bd", "show"]:
             return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
@@ -2959,8 +2962,8 @@ class TestIdentityBinding(unittest.TestCase):
                 fallback = _make_bd_side_effect()
 
                 def stale_side_effect(argv, **kwargs):
-                    if argv[:3] == ["bd", "show", issue_id]:
-                        return _completed(1, stderr="not found")
+                    if argv[:2] == ["bd", "list"] and argv[3:4] == [issue_id]:
+                        return _completed(0, stdout="[]\n")
                     return fallback(argv, **kwargs)
 
                 with tempfile.TemporaryDirectory() as tmp:
@@ -3068,7 +3071,7 @@ class TestIdentityBinding(unittest.TestCase):
                 fallback = _make_bd_side_effect()
 
                 def invalid_show_side_effect(argv, **kwargs):
-                    if argv[:3] == ["bd", "show", "mock-e1.1"]:
+                    if argv[:2] == ["bd", "list"] and argv[3:4] == ["mock-e1.1"]:
                         return _completed(0, stdout=show_stdout)
                     return fallback(argv, **kwargs)
 
@@ -3102,7 +3105,7 @@ class TestIdentityBinding(unittest.TestCase):
         fallback = _make_bd_side_effect()
 
         def invalid_late_show(argv, **kwargs):
-            if argv[:3] == ["bd", "show", "mock-e1.2"]:
+            if argv[:2] == ["bd", "list"] and argv[3:4] == ["mock-e1.2"]:
                 return _completed(0, stdout="{")
             return fallback(argv, **kwargs)
 
@@ -3754,6 +3757,9 @@ class TestIdempotency(unittest.TestCase):
 
     def test_mismatched_epic_show_json_fails_without_mutation(self):
         def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--id"]:
+                ids = argv[3].split(",")
+                return _completed(0, stdout=json.dumps([{"id": i} for i in ids]))
             if argv[:3] == ["bd", "list", "--json"]:
                 return _completed(0, stdout="[]\n")
             if argv[:2] == ["bd", "show"]:
@@ -9671,6 +9677,122 @@ class TestBdRunsFromProjectRoot(unittest.TestCase):
         self.assertTrue(bd_calls)
         for call in bd_calls:
             self.assertEqual(call.kwargs.get("cwd"), root)
+
+
+class TestBatchedSyncCalls(unittest.TestCase):
+    """gsd-beads-cjbc.14: plan:post cost must not scale as bd calls per task."""
+
+    def _bd(self, dependencies_by_id=None):
+        deps = dependencies_by_id or {}
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--id"]:
+                rows = []
+                for i in argv[3].split(","):
+                    row = {"id": i}
+                    if i in deps:
+                        row["dependencies"] = deps[i]
+                    rows.append(row)
+                return _completed(0, stdout=json.dumps(rows))
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2]}]))
+            return _completed(0)
+
+        return _side_effect
+
+    def _sync(self, plan_text, side_effect, extra_plans=()):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text)
+            for name, text in extra_plans:
+                (plan_copy.parent / name).write_text(text, encoding="utf-8")
+            with mock.patch("subprocess.run", side_effect=side_effect) as mock_run:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    rc = sync.create_issues(str(plan_copy))
+        return rc, [c.args[0] for c in mock_run.call_args_list]
+
+    def test_stored_ids_are_verified_with_one_batched_call_not_one_show_each(self):
+        plan = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        rc, calls = self._sync(plan, self._bd())
+        self.assertEqual(rc, 0)
+        shown = [c[2] for c in calls if c[:2] == ["bd", "show"]]
+        self.assertNotIn("tracer-f5x.1", shown)
+        self.assertNotIn("tracer-f5x.2", shown)
+        batched = [c for c in calls if c[:3] == ["bd", "list", "--id"]]
+        self.assertEqual(len(batched), 1)
+        self.assertEqual(batched[0][3], "tracer-f5x.1,tracer-f5x.2")
+        self.assertIn("--all", batched[0])
+        self.assertEqual(batched[0][batched[0].index("-n") + 1], "0")
+
+    def test_unchanged_plan_makes_no_dependency_calls(self):
+        plan = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        existing = {"tracer-f5x.2": [
+            {"issue_id": "tracer-f5x.2", "depends_on_id": "tracer-f5x.1", "type": "blocks"},
+            {"issue_id": "tracer-f5x.2", "depends_on_id": "tracer-f5x", "type": "parent-child"},
+        ]}
+        rc, calls = self._sync(plan, self._bd(existing))
+        self.assertEqual(rc, 0)
+        self.assertEqual([c for c in calls if c[:3] == ["bd", "dep", "add"]], [])
+
+    def test_missing_edge_is_still_added(self):
+        plan = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        rc, calls = self._sync(plan, self._bd())
+        self.assertEqual(
+            [c for c in calls if c[:3] == ["bd", "dep", "add"]],
+            [["bd", "dep", "add", "tracer-f5x.2", "--depends-on", "tracer-f5x.1"]],
+        )
+
+    def test_edge_to_a_prereq_synced_later_is_added_on_a_later_run(self):
+        plan = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        plan = plan.replace("depends_on: []", 'depends_on: ["01-00"]', 1)
+        prereq = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8").replace(
+            "  <name>Task 1: Do the thing</name>",
+            "  <name>Task 1: Do the thing</name>\n  <beads-id>tracer-f5x.9</beads-id>",
+            1,
+        )
+        existing = {"tracer-f5x.2": [
+            {"issue_id": "tracer-f5x.2", "depends_on_id": "tracer-f5x.1", "type": "blocks"}
+        ]}
+        rc, calls = self._sync(plan, self._bd(existing), extra_plans=[("01-00-PLAN.md", prereq)])
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            [c for c in calls if c[:3] == ["bd", "dep", "add"]],
+            [["bd", "dep", "add", "tracer-f5x.1", "--depends-on", "tracer-f5x.9"]],
+        )
+
+    def test_failed_batched_lookup_is_transient_not_divergence(self):
+        plan = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+        base = self._bd()
+
+        def _se(argv, **kw):
+            if argv[:3] == ["bd", "list", "--id"]:
+                return _completed(1, stderr="database is locked")
+            return base(argv, **kw)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan, with_state=True)
+            before = plan_copy.read_bytes()
+            out = io.StringIO()
+            with mock.patch("subprocess.run", side_effect=_se) as mock_run:
+                with contextlib.redirect_stdout(out):
+                    rc = sync.create_issues(str(plan_copy))
+            self.assertEqual(plan_copy.read_bytes(), before)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("divergence: task", out.getvalue())
+        self.assertFalse(any(c.args[0][:2] == ["bd", "create"] for c in mock_run.call_args_list))
+
+
+class TestStatusMappingParseError(unittest.TestCase):
+    @mock.patch("subprocess.run")
+    def test_unparseable_plan_does_not_raise(self, mock_run):
+        mock_run.side_effect = _make_beads_md_bd_side_effect("[]\n")
+        broken = _regen_two_task_plan_text().replace("</tasks>", '<task type="auto">\n<name>Broken</name>\n</tasks>')
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-07", broken, True)], with_state=True)
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                rc = sync.render_status_mapping(str(phase_dir))
+        self.assertEqual(rc, 0)
 
 
 if __name__ == "__main__":
