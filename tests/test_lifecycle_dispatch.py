@@ -36,8 +36,8 @@ def _extract_snippet():
 SNIPPET = _extract_snippet()
 
 
-def _run(command):
-    payload = json.dumps({"tool_input": {"command": command}, "cwd": "/tmp"})
+def _run(command, **extra):
+    payload = json.dumps({"tool_input": {"command": command}, "cwd": "/tmp", **extra})
     result = subprocess.run(
         [sys.executable, "-c", SNIPPET],
         input=payload,
@@ -88,6 +88,19 @@ class TestLifecycleDispatchCommandPosition(unittest.TestCase):
     def test_echo_of_the_command_still_rejected(self):
         out = _run("echo gsd_run loop render-hooks plan:pre --raw")
         self.assertEqual(out, "")
+
+    # R11: Claude Code's Bash tool_response carries `interrupted`; an
+    # interrupted render-hooks call never produced the hook list, so no
+    # lifecycle step may run on it.
+    def test_interrupted_trigger_is_skipped(self):
+        out = _run("gsd_run loop render-hooks plan:pre --raw",
+                   tool_response={"stdout": "", "stderr": "", "interrupted": True})
+        self.assertEqual(out, "")
+
+    def test_completed_trigger_still_matches(self):
+        out = _run("gsd_run loop render-hooks plan:pre --raw",
+                   tool_response={"stdout": "[]", "stderr": "", "interrupted": False})
+        self.assertEqual(out, "plan:pre /tmp")
 
 
 class TestLifecycleDispatchIsolatedPython(unittest.TestCase):

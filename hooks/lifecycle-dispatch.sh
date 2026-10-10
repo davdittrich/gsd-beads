@@ -75,6 +75,13 @@ except (json.JSONDecodeError, UnicodeDecodeError):
     sys.exit(0)
 if not isinstance(payload, dict):
     sys.exit(0)
+# An interrupted trigger never printed its hook list, so nothing may run on
+# it. Claude Code fires PostToolUseFailure, not PostToolUse, for a failed
+# Bash call; `interrupted` is the only failure signal its PostToolUse Bash
+# tool_response carries. Other payload shapes keep the old behaviour.
+tool_response = payload.get("tool_response")
+if isinstance(tool_response, dict) and tool_response.get("interrupted") is True:
+    sys.exit(0)
 tool_input = payload.get("tool_input")
 command = tool_input.get("command") if isinstance(tool_input, dict) else None
 if not isinstance(command, str):
