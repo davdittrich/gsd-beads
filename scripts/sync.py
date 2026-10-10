@@ -955,7 +955,11 @@ def migrate_todos(pending_dir_arg):
     that file (D-05); an unparseable file is left untouched and reported
     under "could not be interpreted", distinct from a "bd create failed"
     entry (D-04/Pitfall 2). No duplicate check against existing bd issues
-    (D-06): every parseable todo always creates a new issue.
+    (D-06): every parseable todo always creates a new issue. A file is
+    deleted only after bd returns a SAFE_BD_ID_RE-valid id (R20); a timeout
+    or OS error on one file is recorded and the loop continues. No title
+    lookup is done before a retry after an ambiguous timeout -- the failure
+    line tells the user to check bd first.
     """
     if not bd_available():
         print(NOTICE)
@@ -989,28 +993,49 @@ def migrate_todos(pending_dir_arg):
             parse_errors.append((todo_path.name, str(exc)))
             continue
 
-        result = run_bd(
-            [
-                "bd",
-                "create",
-                todo["title"],
-                "-d",
-                _todo_description(todo),
-                "-t",
-                "task",
-                "-p",
-                str(SEVERITY_TO_PRIORITY[todo["severity"]]),
-                "-l",
-                f"area-{todo['area']}",
-                "--silent",
-            ]
-        )
+        try:
+            result = run_bd(
+                [
+                    "bd",
+                    "create",
+                    "--title",
+                    todo["title"],
+                    "-d",
+                    _todo_description(todo),
+                    "-t",
+                    "task",
+                    "-p",
+                    str(SEVERITY_TO_PRIORITY[todo["severity"]]),
+                    "-l",
+                    f"area-{todo['area']}",
+                    "--silent",
+                ]
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            # Ambiguous: bd may have created the issue before the kill. No
+            # title lookup before a retry (not implemented): the user is told
+            # to check bd first, since a rerun would duplicate (D-06).
+            bd_create_failed.append(
+                (todo_path.name, f"{type(exc).__name__}; an issue may already exist -- check bd before rerunning")
+            )
+            continue
         if result.returncode != 0:
             bd_create_failed.append((todo_path.name, result.stderr.strip()))
             continue
 
         issue_id = result.stdout.strip()
-        todo_path.unlink()  # D-05: delete only after bd create's return code is confirmed 0
+        if not SAFE_BD_ID_RE.fullmatch(issue_id):
+            bd_create_failed.append(
+                (todo_path.name, f"bd create returned no issue id ({issue_id[:60]!r}); an issue may already exist -- check bd before rerunning")
+            )
+            continue
+        try:
+            todo_path.unlink()  # D-05: delete only after a confirmed issue id
+        except OSError as exc:
+            bd_create_failed.append(
+                (todo_path.name, f"created {issue_id} but could not delete the todo file ({exc}); delete it manually")
+            )
+            continue
         moved.append((todo_path.name, issue_id))
 
     lines = [

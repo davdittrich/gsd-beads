@@ -6840,6 +6840,84 @@ class TestMigrateTodos(unittest.TestCase):
             self.assertEqual(len(create_calls), 0)
 
 
+class TestMigrateTodosSafety(unittest.TestCase):
+    """R20: a todo file is deleted only after a confirmed bd issue id."""
+
+    def _run(self, create_effect, names_titles):
+        with tempfile.TemporaryDirectory() as tmp:
+            pending = _write_todo_pending_workspace(Path(tmp))
+            paths = []
+            for name, title in names_titles:
+                p = pending / name
+                p.write_text(
+                    f"---\ntitle: {title}\nseverity: major\narea: sync\n---\n\n## Problem\nP\n\n## Solution\nS\n",
+                    encoding="utf-8",
+                )
+                paths.append(p)
+            base = _make_bd_side_effect()
+
+            def effect(argv, **kwargs):
+                if argv[:2] == ["bd", "create"]:
+                    return create_effect(argv)
+                return base(argv, **kwargs)
+
+            out = io.StringIO()
+            with mock.patch("subprocess.run", side_effect=effect) as m:
+                with contextlib.redirect_stdout(out):
+                    rc = sync.migrate_todos(str(pending))
+            creates = [c.args[0] for c in m.call_args_list if c.args[0][:2] == ["bd", "create"]]
+            return rc, out.getvalue(), [p.exists() for p in paths], creates
+
+    def test_title_passed_via_title_flag_not_positionally(self):
+        rc, _, _, creates = self._run(lambda a: _completed(0, stdout="x-1\n"), [("a.md", "--help")])
+        argv = creates[0]
+        self.assertEqual(argv[argv.index("--title") + 1], "--help")
+        self.assertNotIn("--help", [a for i, a in enumerate(argv) if argv[i - 1] != "--title"])
+
+    def test_usage_text_stdout_keeps_file(self):
+        rc, out, exists, _ = self._run(
+            lambda a: _completed(0, stdout="Usage:\n  bd create [title]\n"), [("a.md", "T")]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(exists, [True])
+        self.assertIn("a.md", out)
+
+    def test_empty_stdout_keeps_file(self):
+        rc, out, exists, _ = self._run(lambda a: _completed(0, stdout=""), [("a.md", "T")])
+        self.assertEqual(exists, [True])
+        self.assertIn("a.md", out)
+
+    def test_timeout_keeps_file_continues_and_prints_summary(self):
+        calls = {"n": 0}
+
+        def create(argv):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise subprocess.TimeoutExpired(argv, 1)
+            return _completed(0, stdout="x-2\n")
+
+        rc, out, exists, creates = self._run(create, [("a.md", "A"), ("b.md", "B")])
+        self.assertEqual(rc, 0)
+        self.assertEqual(exists, [True, False])
+        self.assertEqual(len(creates), 2)
+        self.assertIn("Migrated 1 todo(s)", out)
+        self.assertIn("may already exist", out)
+
+    def test_unlink_oserror_reports_issue_id_and_continues(self):
+        real_unlink = Path.unlink
+
+        def flaky_unlink(self, *a, **k):
+            if self.name == "a.md":
+                raise PermissionError("denied")
+            return real_unlink(self, *a, **k)
+
+        with mock.patch.object(Path, "unlink", flaky_unlink):
+            rc, out, exists, _ = self._run(lambda a: _completed(0, stdout="x-7\n"), [("a.md", "A"), ("b.md", "B")])
+        self.assertEqual(exists, [True, False])
+        self.assertIn("x-7", out)
+        self.assertIn("Migrated", out)
+
+
 class TestMigrateTodosReport(unittest.TestCase):
     """D-04/Pitfall 2: a bd-create failure, bd-unavailable, and a missing
     pending/ directory are three independently reported/handled outcomes --
