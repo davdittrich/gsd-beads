@@ -13,6 +13,7 @@ import contextlib
 import json
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import sys
@@ -187,8 +188,8 @@ PLAN_FILE_RE = re.compile(r"^(\d+(?:\.\d+)?-\d+)-PLAN\.md$")
 # ## Problem/## Solution body. TITLE_RE allows spaces (title text), AREA_RE/
 # SEVERITY_RE are single-token like BEADS_EPIC_RE; FILES_BLOCK_RE is
 # DEPENDS_ON_BLOCK_RE's block-list shape scoped to the `files:` key.
-TITLE_RE = re.compile(r"^title:\s*(.+)$", re.MULTILINE)
-AREA_RE = re.compile(r"^area:\s*(\S+)\s*$", re.MULTILINE)
+TITLE_RE = re.compile(r"^title:[ \t]*(.+)$", re.MULTILINE)
+AREA_RE = re.compile(r"^area:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
 SEVERITY_RE = re.compile(r"^severity:\s*(\S+)\s*$", re.MULTILINE)
 FILES_BLOCK_RE = re.compile(r"^files:\s*\n((?:^[ \t]*-[ \t]*.+\n?)+)", re.MULTILINE)
 # 260820-j6g (bd gsd-beads-72u): a completed plan's SUMMARY.md frontmatter
@@ -235,7 +236,7 @@ SOLUTION_RE = re.compile(r"^##\s*Solution\s*\n(.*)", re.MULTILINE | re.DOTALL)
 SEVERITY_TO_PRIORITY = {"blocker": 0, "major": 1, "minor": 2, "cosmetic": 3}
 BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # 03-03 Task 2: the literal marker bracketing the local ship.md patch
-# (GSD-CORE-PATCH.md) -- check_shipmd_patch does a plain substring check
+# (GSD-CORE-PATCH.md) -- check_patch() does a plain substring check
 # against this, never a regex, since the marker is a fixed literal string.
 #
 # v2 (gsd-core 1.11.0): the patch shrank to step dispatch only. gsd-core
@@ -249,32 +250,26 @@ BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
 # now-redundant gate loop running alongside the native one, and this checker
 # reporting "missing" is the signal to reapply the trimmed v2.
 SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->"
-# 17-04 Task 3 (D-08/D-10): the table `check_patch` walks. The retained
-# ship-md target remains a literal entry rather than a registry or class.
-PATCH_CHECKS = {
-    "ship-md": {
-        "default_path_parts": ("gsd-core", "workflows", "ship.md"),
-        "marker": SHIP_MD_PATCH_MARKER,
-        "version": "v2",
-        "filename": "ship.md",
-        "not_found_msg": (
-            "⚠ {filename} not found at {path} -- cannot verify the local ship:pre dispatch "
-            "patch (only this runtime home was probed; other runtime homes such as "
-            "CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
-        ),
-        "could_not_read_msg": (
-            "⚠ {filename} at {path} could not be read ({exc}) -- cannot verify the "
-            "local ship:pre dispatch patch"
-        ),
-        "present_msg": "{filename} ship:pre step-dispatch patch: present ({version}) at {path}",
-        "missing_msg": (
-            "⚠ {filename}'s ship:pre generic STEP dispatch patch (beads, {version}) is "
-            "missing at {path} -- the ship_override step will not fire. The two ship:pre "
-            "GATES are unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR "
-            "#3608). Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
-        ),
-    },
-}
+# 17-04 Task 3 (D-08/D-10): the ship-md patch check `check_patch` reads.
+SHIP_MD_PATCH_PATH_PARTS = ("gsd-core", "workflows", "ship.md")
+SHIP_MD_PATCH_VERSION = "v2"
+SHIP_MD_FILENAME = "ship.md"
+SHIP_MD_NOT_FOUND_MSG = (
+    "⚠ {filename} not found at {path} -- cannot verify the local ship:pre dispatch "
+    "patch (only this runtime home was probed; other runtime homes such as "
+    "CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
+)
+SHIP_MD_COULD_NOT_READ_MSG = (
+    "⚠ {filename} at {path} could not be read ({exc}) -- cannot verify the "
+    "local ship:pre dispatch patch"
+)
+SHIP_MD_PRESENT_MSG = "{filename} ship:pre step-dispatch patch: present ({version}) at {path}"
+SHIP_MD_MISSING_MSG = (
+    "⚠ {filename}'s ship:pre generic STEP dispatch patch (beads, {version}) is "
+    "missing at {path} -- the ship_override step will not fire. The two ship:pre "
+    "GATES are unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR "
+    "#3608). Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
+)
 # gh-2: the lifecycle points `lifecycle_dispatch` handles -- every `steps[]`
 # entry in capability.json EXCEPT `ship:pre`, which already dispatches
 # natively through this capability's own ship.md patch. Order is the
@@ -309,14 +304,31 @@ CURRENT_PHASE_RE = re.compile(r"^current_phase:\s*(\S+)\s*$", re.MULTILINE)
 # B14: beads.epic_per=milestone's title source, STATE.md's milestone:/
 # milestone_name: frontmatter keys -- single-token style matching
 # BEADS_EPIC_RE/CURRENT_PHASE_RE.
-MILESTONE_RE = re.compile(r"^milestone:\s*(\S+)\s*$", re.MULTILINE)
-MILESTONE_NAME_RE = re.compile(r"^milestone_name:\s*(\S+)\s*$", re.MULTILINE)
+MILESTONE_RE = re.compile(r"^milestone:[ \t]*(\S+)[ \t]*$", re.MULTILINE)
+MILESTONE_NAME_RE = re.compile(r"^milestone_name:[ \t]*(.+?)[ \t]*$", re.MULTILINE)
+# The single-token, quote-keeping pattern older versions titled milestone epics
+# with; kept only so resolve_milestone_epic still reuses those epics.
+_LEGACY_MILESTONE_NAME_RE = re.compile(r"^milestone_name:\s*(\S+)\s*$", re.MULTILINE)
+
+
+# bd finds its database from the process cwd. main() sets this to the project
+# root of its path argument for the duration of one call, so every bd call runs there (the
+# effect of `bd -C <root>` without touching any call site's argv).
+_BD_CWD = None
+
+
+def _set_bd_root(start):
+    global _BD_CWD
+    try:
+        _BD_CWD = str(find_project_root(Path(start).resolve()))
+    except (ValueError, OSError):
+        _BD_CWD = None
 
 
 def run_bd(argv, timeout=BD_TIMEOUT):
     """Run one bd subcommand from a typed argv list; shell interpretation is
     never enabled here -- see module docstring, T-01-01."""
-    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout)
+    return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=_BD_CWD)
 
 
 def bd_available():
@@ -346,6 +358,10 @@ def append_state_blocker(state_path, message):
     after its first day."""
     state_path = Path(state_path)
     if not state_path.exists():
+        return
+    if state_path.is_symlink():
+        # A planted STATE.md -> elsewhere would take this append.
+        print(f"STATE.md note skipped: {state_path} is a symlink", file=sys.stderr)
         return
     text = state_path.read_text(encoding="utf-8")
     heading = "### Blockers/Concerns"
@@ -382,6 +398,21 @@ def find_project_root(start):
             break
         current = current.parent
     raise ValueError(f"could not locate a .planning/ ancestor above {start}")
+
+
+def _skip_bd_unavailable(start, label):
+    """B6/D-08: the shared bd-unavailable fail-open tail -- print NOTICE and
+    record one STATE.md blocker naming `label` when a project root is found
+    above `start` (none found: notice only)."""
+    print(NOTICE)
+    try:
+        project_root = find_project_root(start)
+    except ValueError:
+        return
+    append_state_blocker(
+        confined(project_root, ".planning", "STATE.md"),
+        f"bd unavailable -- {label} skipped (B6/D-08)",
+    )
 
 
 def confined(root, *parts):
@@ -688,6 +719,14 @@ def parse_resolves_issues(frontmatter):
     return items
 
 
+def _unquote(value):
+    """Strip one matching pair of surrounding quotes from a frontmatter value."""
+    value = value.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        return value[1:-1].strip()
+    return value
+
+
 def parse_todo(path):
     """Return {title, severity, area, files, problem, solution} for one
     `.planning/todos/pending/*.md` file (add-todo.md's schema).
@@ -709,9 +748,9 @@ def parse_todo(path):
     body = text[fm_match.end():]
 
     title_m = TITLE_RE.search(frontmatter)
-    if not title_m:
+    title = _unquote(title_m.group(1)) if title_m else ""
+    if not title:
         raise ValueError(f"{path.name}: missing 'title' frontmatter key")
-    title = title_m.group(1).strip()
 
     severity_m = SEVERITY_RE.search(frontmatter)
     if not severity_m or severity_m.group(1) not in SEVERITY_TO_PRIORITY:
@@ -721,7 +760,9 @@ def parse_todo(path):
     severity = severity_m.group(1)
 
     area_m = AREA_RE.search(frontmatter)
-    area = area_m.group(1) if area_m else "general"
+    # `area: a, b` / `a,b` names several areas; one area-<x> label each.
+    areas = re.split(r"[,\s]+", area_m.group(1)) if area_m else []
+    area = ",".join(a for a in areas if a) or "general"
 
     files = parse_todo_files_block(frontmatter)
 
@@ -955,19 +996,14 @@ def migrate_todos(pending_dir_arg):
     that file (D-05); an unparseable file is left untouched and reported
     under "could not be interpreted", distinct from a "bd create failed"
     entry (D-04/Pitfall 2). No duplicate check against existing bd issues
-    (D-06): every parseable todo always creates a new issue.
+    (D-06): every parseable todo always creates a new issue. A file is
+    deleted only after bd returns a SAFE_BD_ID_RE-valid id (R20); a timeout
+    or OS error on one file is recorded and the loop continues. No title
+    lookup is done before a retry after an ambiguous timeout -- the failure
+    line tells the user to check bd first.
     """
     if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(Path(pending_dir_arg).resolve())
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- migrate-todos skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(Path(pending_dir_arg).resolve(), "migrate-todos")
         return 0
 
     pending_dir = Path(pending_dir_arg)
@@ -989,28 +1025,49 @@ def migrate_todos(pending_dir_arg):
             parse_errors.append((todo_path.name, str(exc)))
             continue
 
-        result = run_bd(
-            [
-                "bd",
-                "create",
-                todo["title"],
-                "-d",
-                _todo_description(todo),
-                "-t",
-                "task",
-                "-p",
-                str(SEVERITY_TO_PRIORITY[todo["severity"]]),
-                "-l",
-                f"area-{todo['area']}",
-                "--silent",
-            ]
-        )
+        try:
+            result = run_bd(
+                [
+                    "bd",
+                    "create",
+                    "--title",
+                    todo["title"],
+                    "-d",
+                    _todo_description(todo),
+                    "-t",
+                    "task",
+                    "-p",
+                    str(SEVERITY_TO_PRIORITY[todo["severity"]]),
+                    "-l",
+                    ",".join(f"area-{a}" for a in todo["area"].split(",")),
+                    "--silent",
+                ]
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            # Ambiguous: bd may have created the issue before the kill. No
+            # title lookup before a retry (not implemented): the user is told
+            # to check bd first, since a rerun would duplicate (D-06).
+            bd_create_failed.append(
+                (todo_path.name, f"{type(exc).__name__}; an issue may already exist -- check bd before rerunning")
+            )
+            continue
         if result.returncode != 0:
             bd_create_failed.append((todo_path.name, result.stderr.strip()))
             continue
 
         issue_id = result.stdout.strip()
-        todo_path.unlink()  # D-05: delete only after bd create's return code is confirmed 0
+        if not SAFE_BD_ID_RE.fullmatch(issue_id):
+            bd_create_failed.append(
+                (todo_path.name, f"bd create returned no issue id ({issue_id[:60]!r}); an issue may already exist -- check bd before rerunning")
+            )
+            continue
+        try:
+            todo_path.unlink()  # D-05: delete only after a confirmed issue id
+        except OSError as exc:
+            bd_create_failed.append(
+                (todo_path.name, f"created {issue_id} but could not delete the todo file ({exc}); delete it manually")
+            )
+            continue
         moved.append((todo_path.name, issue_id))
 
     lines = [
@@ -1210,14 +1267,14 @@ def check_sync_mode_value(project_root):
     project whose `.planning/config.json` stores a `beads.sync_mode` value
     outside the declared enum -- the retired `off` value, an empty string,
     a case/whitespace variant, or a non-string type. Called from
-    `lifecycle_dispatch`'s `plan:pre` branch, beside `check_shipmd_patch`
+    `lifecycle_dispatch`'s `plan:pre` branch, beside `check_patch()`
     inside the same `try/except Exception`,
     so a failure here degrades to at most one skipped notice and cannot
     take out `beads_recall`.
 
     Prints to STDOUT -- the same stream `check_patch` uses for all four of
     its message paths (`not_found_msg`, `could_not_read_msg`, `present_msg`,
-    `missing_msg`), which `check_shipmd_patch` thin-wraps (WR-01: this
+    `missing_msg`) (WR-01: this
     function shares that convention, it is not
     the opposite of it). `hooks/lifecycle-dispatch.sh` promotes only stdout
     into `additionalContext`; the whole point of this notice is that a user
@@ -1323,12 +1380,16 @@ def lifecycle_dispatch(point):
     if point not in LIFECYCLE_DISPATCH_POINTS:
         return 0
     try:
-        project_root = find_project_root(Path.cwd())
-    except ValueError:
+        try:
+            project_root = find_project_root(Path.cwd())
+        except ValueError:
+            return 0
+        if not read_beads_enabled(project_root):
+            return 0
+        phase_dir = _resolve_default_phase_dir(project_root)
+    except Exception as exc:  # noqa: BLE001 -- onError: "skip": a deleted cwd or unreadable config must not escape
+        print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})", file=sys.stderr)
         return 0
-    if not read_beads_enabled(project_root):
-        return 0
-    phase_dir = _resolve_default_phase_dir(project_root)
     if phase_dir is None or not phase_dir.is_dir():
         # stderr, not stdout: a repository between milestones has no
         # `.planning/phases/` at all, so this fires on every render-hooks call
@@ -1351,7 +1412,7 @@ def lifecycle_dispatch(point):
             # itself one of the dead points, so it shared the failure mode of
             # the thing it protects. Reached from a harness hook it is finally
             # independent of gsd-core's dispatch prose altogether.
-            check_shipmd_patch()
+            check_patch()
             # 17-03 Task 2 (D-04 Case 2): stdout notice for an out-of-enum
             # beads.sync_mode value -- both plan:pre checks above and
             # here print to stdout and run inside this one try/except
@@ -1380,7 +1441,20 @@ def lifecycle_dispatch(point):
                 )
                 return 0
             for plan_id in sorted(plans):
-                create_issues(str(plans[plan_id]), allow_strip=False)
+                try:
+                    rc = create_issues(str(plans[plan_id]), allow_strip=False)
+                except Exception as exc:  # noqa: BLE001 -- one bad plan must not stop the rest
+                    print(
+                        f"lifecycle-dispatch plan:post: create-issues {plan_id} skipped "
+                        f"after an unexpected failure ({exc})",
+                        file=sys.stderr,
+                    )
+                    continue
+                if rc:
+                    print(
+                        f"lifecycle-dispatch plan:post: create-issues {plan_id} exited {rc}",
+                        file=sys.stderr,
+                    )
         elif point == "execute:wave:pre":
             render_wave_status_block(str(phase_dir), sorted(discover_plan_files(phase_dir)))
         elif point == "execute:wave:post":
@@ -1396,22 +1470,26 @@ def lifecycle_dispatch(point):
                 return 0
             regenerate_beads_md(str(phase_dir))
     except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
-        print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})")
+        # stderr, not stdout: stdout is promoted into Claude's context.
+        print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})", file=sys.stderr)
     return 0
 
 
 def milestone_epic_title(state_path):
     """B14: return "Milestone {milestone}: {milestone_name}" from STATE.md's
-    frontmatter (RESEARCH's Open Question 1 recommendation) -- empty string
-    for either component when its key is absent from the frontmatter."""
+    frontmatter (RESEARCH's Open Question 1 recommendation). A missing
+    `milestone:` raises RuntimeError (create_issues' B6/D-08 fail-open path);
+    a missing `milestone_name:` omits the suffix."""
     text = Path(state_path).read_text(encoding="utf-8")
     fm_match = FRONTMATTER_RE.match(text)
     frontmatter = fm_match.group(1) if fm_match else ""
     milestone_m = MILESTONE_RE.search(frontmatter)
-    milestone = milestone_m.group(1) if milestone_m else ""
+    if not milestone_m:
+        raise RuntimeError("STATE.md frontmatter has no milestone: key -- cannot title the milestone epic")
+    milestone = milestone_m.group(1)
     name_m = MILESTONE_NAME_RE.search(frontmatter)
-    milestone_name = name_m.group(1) if name_m else ""
-    return f"Milestone {milestone}: {milestone_name}"
+    milestone_name = _unquote(name_m.group(1)) if name_m else ""
+    return f"Milestone {milestone}: {milestone_name}" if milestone_name else f"Milestone {milestone}"
 
 
 def get_milestone_bullet(roadmap_path, milestone):
@@ -1424,7 +1502,10 @@ def get_milestone_bullet(roadmap_path, milestone):
     ROADMAP milestone bullet is the one existing verbatim statement of that
     milestone's scope, mirroring get_phase_header's no-translation
     discipline."""
-    text = Path(roadmap_path).read_text(encoding="utf-8")
+    try:
+        text = Path(roadmap_path).read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return ""
     section_m = re.search(
         r"^##\s+Milestones\s*$\n(.*?)(?=^##\s|\Z)", text, re.MULTILINE | re.DOTALL
     )
@@ -1483,6 +1564,9 @@ def resolve_milestone_epic(project_root):
         else ""
     )
 
+    legacy_name_m = _LEGACY_MILESTONE_NAME_RE.search(state_frontmatter)
+    legacy_title = f"Milestone {milestone_token}: {legacy_name_m.group(1) if legacy_name_m else ''}"
+
     phases_root = confined(project_root, ".planning", "phases")
     candidate_ids = []
     if phases_root.is_dir():
@@ -1500,6 +1584,8 @@ def resolve_milestone_epic(project_root):
         check = run_bd(["bd", "show", candidate_id, "--json"])
         try:
             row = _bd_show_row(check, candidate_id)
+        except BdTransientError:
+            raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
         if row is not None:
@@ -1508,7 +1594,9 @@ def resolve_milestone_epic(project_root):
                 raise EpicAuthorityError(
                     f"bd show returned invalid title for {candidate_id!r}"
                 )
-            if candidate_title == title:
+            # `Milestone <m>: ` is the title older versions wrote whenever
+            # milestone_name was multi-word (single-token regex); reuse, not duplicate.
+            if candidate_title.rstrip() in (title, legacy_title.rstrip()):
                 return candidate_id
 
     if candidate_ids:
@@ -1543,10 +1631,30 @@ def _unwrap_bd_list(payload):
     return payload if isinstance(payload, list) else []
 
 
+class BdTransientError(RuntimeError):
+    """A bd command failed without proving the record is absent (lock,
+    timeout, crash). Distinct from absence: callers must not treat the
+    record as stale, and create_issues takes its fail-open notice path."""
+
+
+# `bd show <missing>` exits 1 with "Issue <id> not found" on stderr and a
+# {"error": "no issues found matching ..."} object on stdout.
+BD_NOT_FOUND_RE = re.compile(
+    r"\bno issues? found matching|^\s*issue \S+ not found", re.IGNORECASE | re.MULTILINE
+)
+
+
 def _bd_show_row(result, expected_id):
-    """Return the exact identified row, None on absence, or fail closed."""
+    """Return the exact identified row, None on confirmed absence, or fail
+    closed (BdTransientError on any other non-zero exit)."""
     if result.returncode != 0:
-        return None
+        output = f"{result.stderr or ''}\n{result.stdout or ''}"
+        if BD_NOT_FOUND_RE.search(output):
+            return None
+        raise BdTransientError(
+            f"bd show {expected_id} failed without confirming absence: "
+            f"{(result.stderr or '').strip()}"
+        )
     if not isinstance(result.stdout, str):
         raise RuntimeError("bd show returned invalid JSON")
     try:
@@ -1578,6 +1686,8 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, 
         check = run_bd(["bd", "show", epic_id, "--json"])
         try:
             identified = _bd_show_identifies(check, epic_id)
+        except BdTransientError:
+            raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
         if identified:
@@ -1597,6 +1707,8 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, 
         check = run_bd(["bd", "show", shared_epic_id, "--json"])
         try:
             identified = _bd_show_identifies(check, shared_epic_id)
+        except BdTransientError:
+            raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
         if identified:
@@ -1632,24 +1744,35 @@ def _epic_description(objective):
     return f"## Objective\n{objective}\n"
 
 
+def _bd_rows_by_id(ids):
+    """{id: row} for every id bd knows, from ONE `bd list --id a,b,c`. bd omits
+    an unknown id and exits 0, so absence from a successful result is the same
+    confirmed not-found `bd show` gave (R3); a failed call or unparseable
+    output proves nothing and raises BdTransientError."""
+    ids = list(dict.fromkeys(ids))
+    if not ids:
+        return {}
+    result = run_bd(["bd", "list", "--id", ",".join(ids), "--all", "-n", "0", "--json"])
+    rows = _checked_bd_list_rows(result)
+    if rows is None:
+        raise BdTransientError(
+            f"bd list --id failed without confirming absence: {(result.stderr or '').strip()}"
+        )
+    return {r["id"]: r for r in rows if isinstance(r, dict) and r.get("id") in ids}
+
+
 def resolve_issue(task, epic_id, ordinal_prefix, task_index):
     """Return (issue_id, created, divergent) from exact stored authority.
 
     GH#7: a stored `<beads-id>` that fails BEADS_ID_SHAPE_RE (e.g. a
     plan-author placeholder like "TBD") cannot be a value `bd create` ever
     returned, so it is unbound -- fall through to create, same as an absent
-    `<beads-id>`. A value that passes the shape check but does not resolve
-    in `bd` is stale (D-07): report divergence, never replace it.
+    `<beads-id>`. A shape-valid stored id never reaches here: create_issues
+    verifies those in one batched call (D-07: a stale one is reported as
+    divergence, never replaced).
     """
-    if task["beads_id"]:
-        issue_id = task["beads_id"]
-        if not SAFE_BD_ID_RE.fullmatch(issue_id):
-            raise RuntimeError(f"unsafe stored beads-id: {issue_id!r}")
-        if BEADS_ID_SHAPE_RE.fullmatch(issue_id):
-            check = run_bd(["bd", "show", issue_id, "--json"])
-            if not _bd_show_identifies(check, issue_id):
-                return issue_id, False, True
-            return issue_id, False, False
+    if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
+        raise RuntimeError(f"unsafe stored beads-id: {task['beads_id']!r}")
     title = f"{ordinal_prefix}.{task_index} {task['name']}"
     if task.get("type", "").startswith("checkpoint:"):
         description = _checkpoint_task_description(task)
@@ -1678,11 +1801,17 @@ def find_orphans(children, current_ids):
     issues, so a sweep that relied on that default would re-close an
     already-closed orphan on every run and break idempotency (B5) -- the
     not-already-closed check here is the other half of that guard.
+
+    Only children carrying SYNC_LABEL are candidates (R21): a user-parented
+    follow-up under the epic is not this tool's issue and is never closed.
+    bd omits the `labels` key for an unlabeled row, which fails closed.
     """
     return [
         c["id"]
         for c in children
-        if c.get("id") not in current_ids and c.get("status") != "closed"
+        if c.get("id") not in current_ids
+        and c.get("status") != "closed"
+        and SYNC_LABEL in (c.get("labels") or [])
     ]
 
 
@@ -1706,6 +1835,31 @@ def collect_epic_task_ids(phase_dir, epic_id):
         for task in tasks:
             if task["beads_id"]:
                 ids.add(task["beads_id"])
+    return ids
+
+
+def _milestone_scoped(phase_dir):
+    """True when phase_dir's project runs beads.epic_per=milestone, i.e. its
+    epic is shared with every other phase of the milestone (gsd-beads-cjbc.9)."""
+    try:
+        return read_epic_per(find_project_root(Path(phase_dir).resolve())) == "milestone"
+    except ValueError:
+        return False
+
+
+def collect_scope_task_ids(phase_dir, epic_id):
+    """Every <beads-id> that legitimately lives under epic_id. Per-phase
+    epics: this phase's plans (collect_epic_task_ids). Milestone epic: the
+    union over every `.planning/phases/*` dir, because the epic's children
+    span phases and a sibling phase's issue is not an orphan. A plan that
+    does not parse raises PlanParseError -- its ids are unknown, so the
+    caller must not treat any child as orphaned."""
+    if not _milestone_scoped(phase_dir):
+        return collect_epic_task_ids(phase_dir, epic_id)
+    phases_root = confined(find_project_root(Path(phase_dir).resolve()), ".planning", "phases")
+    ids = set()
+    for other in sorted(p for p in phases_root.iterdir() if p.is_dir()):
+        ids |= collect_epic_task_ids(other, epic_id)
     return ids
 
 
@@ -1742,6 +1896,16 @@ def rewrite_plan(
         text = text[:start] + replacement + text[end:]
     if epic_created:
         fm_match = FRONTMATTER_RE.match(text)
+        declaration = (
+            BEADS_EPIC_DECL_RE.search(fm_match.group(1)) if fm_match is not None else None
+        )
+        if declaration is not None:
+            # A stale beads_epic is replaced in place: a second declaration
+            # makes parse_beads_epic raise on every later run.
+            start = fm_match.start(1) + declaration.start()
+            end = fm_match.start(1) + declaration.end()
+            line_end = "\r" if text[start:end].endswith("\r") else ""
+            return text[:start] + f"beads_epic: {epic_id}{line_end}" + text[end:]
         if fm_match is None:
             # Review finding: a frontmatter-less plan is tolerated by
             # parse_plan/parse_beads_epic (empty frontmatter, stored_epic_id
@@ -1807,9 +1971,11 @@ def strip_task_bodies(text, stripped_ids):
     (e.g. a plan documenting this exact tag) must not be read as that
     task's real closing tag and truncate the block mid-strip.
     """
-    matches = list(TASK_RE.finditer(_mask_code_spans(text)))
+    masked_text = _mask_code_spans(text)
+    matches = list(TASK_RE.finditer(masked_text))
     for m in reversed(matches):
         block = text[m.start() : m.end()]
+        masked_block = masked_text[m.start() : m.end()]
         opening_tag_m = TASK_OPEN_TAG_RE.match(block)
         opening_tag = opening_tag_m.group(0) if opening_tag_m else ""
         attributes, attributes_valid = _scan_task_attributes(opening_tag)
@@ -1852,12 +2018,19 @@ def strip_task_bodies(text, stripped_ids):
         # blank lines uncollapsed and mixed a bare "\n" into an otherwise
         # CRLF-terminated block.
         line_ending = "\r\n" if "\r\n" in block else "\n"
+        # R8: find each element's spans on the masked block (as parse_plan
+        # does) so a tag quoted in a code span is never an element boundary,
+        # then cut the same spans from the real block. Both copies are cut
+        # in lockstep, one regex at a time, so offsets stay aligned and
+        # nested spans keep the old sequential-removal semantics.
         for element_re in _STRIP_ELEMENT_RES:
-            new_block = element_re.sub("", new_block)
+            for em in reversed(list(element_re.finditer(masked_block))):
+                new_block = new_block[: em.start()] + new_block[em.end() :]
+                masked_block = masked_block[: em.start()] + masked_block[em.end() :]
         # Collapse the blank lines those removals leave.
         new_block = re.sub(r"[ \t]*\r?\n(?:[ \t]*\r?\n)+", line_ending, new_block)
         pointer = f"  <action>{TASK_POINTER_PREFIX}{issue_id}`.</action>{line_ending}"
-        close_idx = new_block.index("</task>")
+        close_idx = new_block.rindex("</task>")
         new_block = new_block[:close_idx] + pointer + new_block[close_idx:]
         text = text[: m.start()] + new_block + text[m.end() :]
     return text
@@ -2079,6 +2252,8 @@ def filter_open_ids(ids):
             "--status",
             BEADS_RECALL_STATUSES,
             "--json",
+            "-n",
+            "0",
         ]
     )
     if result.returncode != 0:
@@ -2110,16 +2285,7 @@ def close_wave(phase_dir_arg, plan_ids):
         return 1
 
     if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(phase_dir)
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-status close-wave skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(phase_dir, "beads-status close-wave")
         return 0
 
     # De-duplicate while preserving order, in case the same task id is
@@ -2162,16 +2328,7 @@ def reconcile_stale_closed(phase_dir_arg):
         return 1
 
     if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(phase_dir)
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-status reconcile-stale-closed skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(phase_dir, "beads-status reconcile-stale-closed")
         return 0
 
     completed_ids = sorted(completed_ids)
@@ -2259,6 +2416,27 @@ def _fail_preflight(project_root, message):
     return 1
 
 
+def _atomic_write_text(path, content):
+    """Write `content` to `path` via a same-directory temp file + os.replace,
+    keeping the original mode (a plain temp file would take the umask's).
+    A kill or ENOSPC leaves the previous file whole, never truncated."""
+    # Unpredictable name, created O_EXCL|O_NOFOLLOW before the text open: a
+    # planted symlink at a guessable temp name cannot redirect the write.
+    # os.replace then swaps a planted symlink at `path` itself instead of
+    # writing through it.
+    tmp = path.with_name(f".{path.name}.{secrets.token_hex(6)}.tmp")
+    try:
+        os.close(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o666))
+        with tmp.open("w", encoding="utf-8", newline="") as handle:
+            handle.write(content)
+        if path.exists() and not path.is_symlink():
+            shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
 def create_issues(plan_arg, allow_strip=True):
     """`allow_strip=False` keeps every `<task>` body in PLAN.md (gh-2).
     `strip_task_bodies` is a deliberate,
@@ -2285,7 +2463,11 @@ def create_issues(plan_arg, allow_strip=True):
     explicit CLI may strip without a local execute-plan patch gate.
     """
     plan_path = Path(plan_arg).resolve()
-    project_root = find_project_root(plan_path.parent)
+    try:
+        project_root = find_project_root(plan_path.parent)
+    except ValueError as exc:
+        print(f"create-issues: {exc}", file=sys.stderr)
+        return 1
     roadmap_path = confined(project_root, ".planning", "ROADMAP.md")
 
     try:
@@ -2353,11 +2535,7 @@ def create_issues(plan_arg, allow_strip=True):
             return 1
 
     if not bd_available():
-        print(NOTICE)
-        append_state_blocker(
-            confined(project_root, ".planning", "STATE.md"),
-            "bd unavailable -- beads-sync skipped (B6/D-08)",
-        )
+        _skip_bd_unavailable(project_root, "beads-sync")
         return 0
 
     plan_filename_stem = plan_path.stem  # e.g. "01-01-PLAN" -> ordinal "01-01"
@@ -2371,16 +2549,21 @@ def create_issues(plan_arg, allow_strip=True):
     # that case: degrade to the same fail-open notice, not a crash.
     try:
         verified_tasks = {}
-        for i, task in enumerate(tasks, start=1):
-            # GH#7: a shape-invalid stored id (e.g. "TBD") never resolves via
-            # bd show, so it must go through the second loop below with the
-            # real epic_id in hand to create -- excluded from this pre-pass,
-            # which calls resolve_issue with epic_id="" and only ever expects
-            # the verify-existing branch to run.
-            if task["beads_id"] and BEADS_ID_SHAPE_RE.fullmatch(task["beads_id"]):
-                verified_tasks[i] = resolve_issue(
-                    task, "", ordinal_prefix, i
-                )
+        # GH#7: a shape-invalid stored id (e.g. "TBD") never resolves in bd,
+        # so it goes through the second loop below with the real epic_id in
+        # hand to create -- excluded from this pre-pass. All stored ids are
+        # verified with one batched bd call, not one `bd show` per task.
+        stored = {
+            i: task["beads_id"]
+            for i, task in enumerate(tasks, start=1)
+            if task["beads_id"] and BEADS_ID_SHAPE_RE.fullmatch(task["beads_id"])
+        }
+        for issue_id in stored.values():
+            if not SAFE_BD_ID_RE.fullmatch(issue_id):
+                raise RuntimeError(f"unsafe stored beads-id: {issue_id!r}")
+        known_rows = _bd_rows_by_id(stored.values())
+        for i, issue_id in stored.items():
+            verified_tasks[i] = (issue_id, False, issue_id not in known_rows)
 
         epic_id, epic_created, stale_epic_id = resolve_epic(
             frontmatter, roadmap_path, phase_num, plan_path.parent, project_root, objective
@@ -2394,6 +2577,20 @@ def create_issues(plan_arg, allow_strip=True):
         task_updates = []
         placeholder_updates = []
         native_updates = []
+
+        def persist_identity():
+            # Write the identity created so far (epic + task ids) before the
+            # next bd call: a failure or a hook-timeout kill mid-run would
+            # otherwise orphan these issues and a rerun would duplicate them.
+            _atomic_write_text(
+                plan_path,
+                rewrite_plan(
+                    text, epic_id, epic_created, task_updates, [], placeholder_updates
+                ),
+            )
+
+        if epic_created:
+            persist_identity()
         created_count = 0
         task_ids = []
         divergences = []
@@ -2415,6 +2612,7 @@ def create_issues(plan_arg, allow_strip=True):
                     placeholder_updates.append((task["beads_id_span"], issue_id))
                 else:
                     task_updates.append((task["name_end"], issue_id))
+                persist_identity()
             if (
                 not divergent
                 and task["type"] in ("auto", "tracer")
@@ -2465,18 +2663,23 @@ def create_issues(plan_arg, allow_strip=True):
             )
         elif newly_created_ids:
             new_text = strip_task_bodies(new_text, newly_created_ids)
-        with plan_path.open("w", encoding="utf-8", newline="") as plan_file:
-            plan_file.write(new_text)
+        _atomic_write_text(plan_path, new_text)
 
-    orphan_result = run_bd(["bd", "list", "--parent", epic_id, "--all", "--json"])
+    orphan_result = run_bd(_beads_md_argv(epic_id))
     if orphan_result.returncode == 0:
         try:
             children = _unwrap_bd_list(json.loads(orphan_result.stdout))
         except json.JSONDecodeError:
             children = []
-        current_ids = {tid for tid in task_ids if tid} | collect_epic_task_ids(
-            plan_path.parent, epic_id
-        )
+        try:
+            current_ids = {tid for tid in task_ids if tid} | collect_scope_task_ids(
+                plan_path.parent, epic_id
+            )
+        except PlanParseError as exc:
+            # A plan whose ids are unknown makes its issues look orphaned.
+            print(f"create-issues: orphan sweep skipped, a plan failed to parse: {exc}", file=sys.stderr)
+            children = []
+            current_ids = set()
         for orphan_id in find_orphans(children, current_ids):
             close_result = run_bd(
                 ["bd", "close", orphan_id, "--reason", "no longer maps to a plan task"]
@@ -2494,10 +2697,24 @@ def create_issues(plan_arg, allow_strip=True):
             print(f"prerequisite plan {prereq_id} not yet synced -- skipping cross-plan edge")
         else:
             prereq_last_ids.append(last_id)
-    apply_dependency_edges(derive_dependency_edges(task_ids, prereq_last_ids))
+    # Rows already carry dependencies[]: skip edges bd has, so an unchanged
+    # plan makes no `bd dep add` call. A new endpoint has no row, so its edges
+    # (and a deferred cross-plan edge whose prereq synced later) still apply.
+    present = {
+        (blocked, dep.get("depends_on_id"))
+        for blocked, row in known_rows.items()
+        for dep in row.get("dependencies") or []
+        if isinstance(dep, dict) and dep.get("type") == "blocks"
+    }
+    apply_dependency_edges(
+        [e for e in derive_dependency_edges(task_ids, prereq_last_ids) if e not in present]
+    )
 
     print(f"Synced {created_count} issue(s) -> epic {epic_id}")
     return 0
+
+
+_CELL_STRIP = str.maketrans("", "", "<>`")
 
 
 def _escape_table_cell(text):
@@ -2505,7 +2722,14 @@ def _escape_table_cell(text):
     table cell (T-02-03, matches gsd-core's own ship.md pattern) -- issue
     title/status text originates from a different principal (whoever filed
     it in bd) than the process rendering this generated artifact."""
-    return text.replace("|", "\\|").replace("\r", "").replace("\n", " ")
+    # `<`, `>` and backticks are dropped: titles are re-printed inside the
+    # <beads_status> executor-prompt block, which a `</beads_status>` in a
+    # title would otherwise close.
+    # `\` first: a literal `\|` must not read back as an escaped pipe.
+    return (
+        text.translate(_CELL_STRIP).replace("\\", "\\\\").replace("|", "\\|")
+        .replace("\r", "").replace("\n", " ")
+    )
 
 
 def _beads_recall_argv():
@@ -2559,7 +2783,11 @@ def _render_beads_recall_body(matched, unscoped):
     return "\n".join(parts)
 
 
+# A path-like token must contain a `/` (so "e.g", "i.e", "v1.2" never match);
+# enforced on the match, not in the regex, because backtracking can shorten a
+# match ("example.com/docs" -> "example.com") past the slash.
 PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
+PATH_TOKEN_MIN_LEN = 4
 # GH#11: digits are `\w`, so a bare version number ("2.39") matches
 # PATH_TOKEN_RE too but is never a path/extension -- excluded below.
 NUMERIC_ONLY_TOKEN_RE = re.compile(r"[\d.]+")
@@ -2588,7 +2816,7 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
 
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
-        if NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
+        if "/" not in token or len(token) < PATH_TOKEN_MIN_LEN or NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
             continue
         if token not in seen:
             seen.append(token)
@@ -2662,7 +2890,7 @@ def _write_beads_recall_failure(phase_dir, reason):
         + f"No recall data for this run ({reason_line}). Any previous recall was discarded; "
         "re-run beads-recall before trusting phase scope.\n"
     )
-    (phase_dir / f"{padded_phase}-BEADS-RECALL.md").write_text(out_text, encoding="utf-8")
+    _atomic_write_text(phase_dir / f"{padded_phase}-BEADS-RECALL.md", out_text)
 
 
 def beads_recall(phase_dir_arg):
@@ -2671,17 +2899,8 @@ def beads_recall(phase_dir_arg):
     issues are open (D-04) -- same B6/D-08 fail-open shape as create_issues/
     close_wave, never a new fail-open variant."""
     if not bd_available():
-        print(NOTICE)
         phase_dir = Path(phase_dir_arg).resolve()
-        try:
-            project_root = find_project_root(phase_dir)
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-recall skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(phase_dir, "beads-recall")
         _write_beads_recall_failure(phase_dir, "bd unavailable")
         print("BEADS-RECALL.md recall failed: bd unavailable")
         return 0
@@ -2704,12 +2923,19 @@ def beads_recall(phase_dir_arg):
     if bd_error is None:
         if result.returncode == 0:
             try:
-                issues = json.loads(result.stdout)
+                payload = json.loads(result.stdout)
             except ValueError as exc:  # json.JSONDecodeError is a ValueError subclass
                 bd_error = f"bd list returned unparseable JSON: {exc}"
             else:
-                if not isinstance(issues, list):
-                    bd_error = f"bd list returned non-list JSON ({type(issues).__name__})"
+                # Same `{"data": [...]}` envelope _checked_bd_list_rows accepts;
+                # any other non-list (e.g. an error object) must fail closed.
+                rows = payload.get("data") if isinstance(payload, dict) else payload
+                if isinstance(rows, list) and (
+                    not rows or any(isinstance(row, dict) for row in rows)
+                ):
+                    issues = [row for row in rows if isinstance(row, dict)]
+                else:
+                    bd_error = f"bd list returned non-list JSON ({type(payload).__name__})"
         else:
             bd_error = f"bd list exited {result.returncode}: {result.stderr.strip()}"
 
@@ -2730,7 +2956,13 @@ def beads_recall(phase_dir_arg):
     except (OSError, ValueError):
         phase_mentions = []
     folded_phase_mentions = [token.casefold() for token in phase_mentions]
-    files_index = collect_all_task_files(project_root)
+    try:
+        files_index = collect_all_task_files(project_root)
+    except (OSError, ValueError) as exc:  # PlanParseError is a ValueError
+        reason = f"a plan could not be read for the file index: {exc}"
+        _write_beads_recall_failure(phase_dir, reason)
+        print(f"BEADS-RECALL.md recall failed: {reason}")
+        return 0
 
     matched = []
     unscoped = []
@@ -2756,7 +2988,7 @@ def beads_recall(phase_dir_arg):
     )
     out_text = frontmatter + f"# Beads Recall: Phase {phase_dir.name}\n\n" + body
     out_path = phase_dir / f"{padded_phase}-BEADS-RECALL.md"
-    out_path.write_text(out_text, encoding="utf-8")
+    _atomic_write_text(out_path, out_text)
 
     print(
         f"BEADS-RECALL.md written: {len(matched)} matched, {len(unscoped)} unscoped "
@@ -2769,14 +3001,17 @@ def resolve_phase_epic(phase_dir):
     """Return the `beads_epic` frontmatter value carried by the first
     `NN-NN-PLAN.md` discovered in phase_dir that has one, or None when no
     plan in this phase has ever synced (D-05: every plan in a phase shares
-    the same epic, so the first match is sufficient)."""
+    the same epic, so the first match is sufficient). Raises EpicAuthorityError
+    for an unsafe id -- returning None would read as "never synced" and make
+    a caller create a duplicate epic or delete the BEADS.md gate artifact
+    without saying why."""
     for plan_path in discover_plan_files(phase_dir).values():
         try:
             with _degrade_on_parse_error(phase_dir, plan_path):
                 _, frontmatter, _ = parse_plan(plan_path)
-                m = BEADS_EPIC_RE.search(frontmatter)
-                if m:
-                    return m.group(1)
+                epic_id = parse_beads_epic(frontmatter)
+                if epic_id is not None:
+                    return epic_id
         except (OSError, UnicodeDecodeError):
             continue
     return None
@@ -2786,6 +3021,22 @@ def _beads_md_argv(epic_id):
     """D-08/Pitfall 3: the epic-children query BEADS.md's table is built
     from, `-n 0` explicit to avoid the default 50-row truncation."""
     return ["bd", "list", "--parent", epic_id, "--all", "--json", "-n", "0"]
+
+
+def _checked_bd_list_rows(result):
+    """Rows of a `bd list` result, or None when the query failed (non-zero
+    exit, invalid JSON, or a non-list payload such as a JSON error object).
+    `_unwrap_bd_list` maps all of those to [], which a gate reader would take
+    for "no open issues"; callers that must fail closed use this instead."""
+    if result.returncode != 0:
+        return None
+    try:
+        payload = json.loads(result.stdout)
+    except (UnicodeError, json.JSONDecodeError):
+        return None
+    if isinstance(payload, dict):
+        payload = payload.get("data")
+    return payload if isinstance(payload, list) else None
 
 
 def _resolve_task_ordinal_map(phase_dir):
@@ -2875,48 +3126,79 @@ def regenerate_beads_md(phase_dir_arg):
     always fully overwrite `{phase_dir}/{padded_phase}-BEADS.md` from a
     fresh `bd list --parent <epic>` query -- never read the existing file's
     body to merge or preserve a prior hand edit."""
-    if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(Path(phase_dir_arg).resolve())
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-status regenerate-beads-md skipped (B6/D-08)",
-            )
-        return 0
-
     phase_dir = Path(phase_dir_arg).resolve()
     padded_phase = phase_dir.name.split("-", 1)[0]
+    out_path = phase_dir / f"{padded_phase}-BEADS.md"
 
-    epic_id = resolve_phase_epic(phase_dir)
+    try:
+        epic_id = resolve_phase_epic(phase_dir)
+    except EpicAuthorityError as exc:
+        # Fail closed: a stale BEADS.md must not satisfy the ship gate.
+        out_path.unlink(missing_ok=True)
+        print(f"BEADS.md: epic identity authority failed: {exc}", file=sys.stderr)
+        return 1
+
+    def write_unknown(argv):
+        # Fail closed: a non-numeric sentinel never equals 0, so the
+        # artifact-frontmatter-equals ship:pre gates block (gsd-core 1.12 and
+        # 1.16 compare by === / String()); never write a count we do not know.
+        # The file keeps epic/blocking_open/diverged so ship_override can still
+        # record its audit trailer.
+        generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        _atomic_write_text(
+            out_path,
+            "---\n"
+            f"phase: {phase_dir.name}\n"
+            f"epic: {epic_id}\n"
+            "open: unknown\nclosed: unknown\nblocking_open: unknown\ndiverged: unknown\n"
+            f'generated_from: "{" ".join(argv)}"\n'
+            f"generated_at: {generated_at}\n"
+            "---\n\n"
+            f"# BEADS.md: {phase_dir.name}\n\nbd state unknown.\n",
+        )
+
+    if not bd_available():
+        # A previous run's BEADS.md (e.g. blocking_open: 0) must not satisfy
+        # the ship:pre gate on stale data: overwrite it with the unknown
+        # sentinel, or remove it when no epic is known (a missing artifact
+        # blocks the gate too).
+        if epic_id is None:
+            out_path.unlink(missing_ok=True)
+        else:
+            write_unknown(["bd", "unavailable"])
+        _skip_bd_unavailable(phase_dir, "beads-status regenerate-beads-md")
+        return 0
+
     if epic_id is None:
         print("no epic yet -- nothing to regenerate")
         return 0
 
     argv = _beads_md_argv(epic_id)
-    result = run_bd(argv)
-    rows = []
-    if result.returncode == 0:
-        try:
-            rows = _unwrap_bd_list(json.loads(result.stdout))
-        except json.JSONDecodeError:
-            rows = []
+    rows = _checked_bd_list_rows(run_bd(argv))
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    if rows is None:
+        write_unknown(argv)
+        print(
+            "BEADS.md: bd list failed -- counts unknown, ship gate will block",
+            file=sys.stderr,
+        )
+        return 1
 
+    ordinal_map = _resolve_task_ordinal_map(phase_dir)
+    if _milestone_scoped(phase_dir):
+        # The milestone epic is shared: other phases' children are not this
+        # phase's rows, counts or blockers (gsd-beads-cjbc.9).
+        rows = [r for r in rows if r.get("id") in ordinal_map]
     closed_count = sum(1 for r in rows if r.get("status") == "closed")
     open_count = len(rows) - closed_count
     # blocking_open IS open_count, no separate filtered variable -- D-01/D-02:
-    # every open issue under the epic counts, full stop, no priority/type filter.
+    # every open issue under this phase's epic scope counts, no priority/type filter.
     blocking_open = open_count
 
-    ordinal_map = _resolve_task_ordinal_map(phase_dir)
     completed_ids = _resolve_completed_task_ids(phase_dir)
     diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
     table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
 
-    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     frontmatter = (
         "---\n"
         f"phase: {phase_dir.name}\n"
@@ -2931,8 +3213,7 @@ def regenerate_beads_md(phase_dir_arg):
     )
     body = f"# BEADS.md: {phase_dir.name}\n\n{table}\n"
 
-    out_path = phase_dir / f"{padded_phase}-BEADS.md"
-    out_path.write_text(frontmatter + body, encoding="utf-8")
+    _atomic_write_text(out_path, frontmatter + body)
 
     print(f"BEADS.md regenerated: {open_count} open, {closed_count} closed (epic {epic_id})")
     return 0
@@ -2979,51 +3260,52 @@ def render_status_mapping(phase_dir_arg):
     update/comment -- this function only reports, it never reconciles.
     """
     if not bd_available():
-        print(NOTICE)
-        try:
-            project_root = find_project_root(Path(phase_dir_arg).resolve())
-        except ValueError:
-            project_root = None
-        if project_root is not None:
-            append_state_blocker(
-                confined(project_root, ".planning", "STATE.md"),
-                "bd unavailable -- beads-status on-demand skipped (B6/D-08)",
-            )
+        _skip_bd_unavailable(Path(phase_dir_arg).resolve(), "beads-status on-demand")
         return 0
 
     phase_dir = Path(phase_dir_arg).resolve()
 
-    epic_id = resolve_phase_epic(phase_dir)
+    try:
+        epic_id = resolve_phase_epic(phase_dir)
+    except EpicAuthorityError as exc:
+        print(f"beads-status: epic identity authority failed: {exc}", file=sys.stderr)
+        return 1
     if epic_id is None:
         print("no epic yet -- nothing to show")
         return 0
 
-    argv = _beads_md_argv(epic_id)
-    result = run_bd(argv)
-    rows = []
-    if result.returncode == 0:
-        try:
-            rows = _unwrap_bd_list(json.loads(result.stdout))
-        except json.JSONDecodeError:
-            rows = []
+    rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
+    if rows is None:
+        print("beads-status: bd list failed -- mapping unavailable", file=sys.stderr)
+        return 1
 
     ordinal_map = _resolve_task_ordinal_map(phase_dir)
     completed_ids = _resolve_completed_task_ids(phase_dir)
     _diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
-    table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
+    table_rows = rows
+    if _milestone_scoped(phase_dir):
+        table_rows = [r for r in rows if r.get("id") in ordinal_map]
+    table = _render_beads_md_table(table_rows, ordinal_map, task_status_by_id)
 
-    current_ids = collect_epic_task_ids(phase_dir, epic_id)
+    try:
+        current_ids = collect_scope_task_ids(phase_dir, epic_id)
+    except PlanParseError:
+        # _resolve_task_ordinal_map above already noted the plan in STATE.md;
+        # an orphan list built without that plan's ids would be wrong.
+        print("beads-status: a plan failed to parse -- mapping unavailable", file=sys.stderr)
+        return 1
     bd_side_orphans = [(row, None) for row in rows if row.get("id") not in current_ids]
 
     task_side_orphans = []
     for plan_path in discover_plan_files(phase_dir).values():
         try:
-            _, _, tasks = parse_plan(plan_path)
+            with _degrade_on_parse_error(phase_dir, plan_path):
+                _, _, tasks = parse_plan(plan_path)
+                for task in tasks:
+                    if not task["beads_id"]:
+                        task_side_orphans.append((plan_path.name, task["name"]))
         except (OSError, UnicodeDecodeError):
             continue
-        for task in tasks:
-            if not task["beads_id"]:
-                task_side_orphans.append((plan_path.name, task["name"]))
 
     lines = [table, "", "## Issues with no matching plan task", ""]
     if bd_side_orphans:
@@ -3042,7 +3324,9 @@ def render_status_mapping(phase_dir_arg):
     return 0
 
 
-CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+# One cell = escape pairs (`\\`, `\|`) or non-pipe chars, then its closing pipe.
+CELL_RE = re.compile(r"((?:\\.|[^\\|])*)\|")
+CELL_UNESCAPE_RE = re.compile(r"\\([\\|])")
 
 
 def _parse_beads_md_table_rows(text):
@@ -3063,12 +3347,10 @@ def _parse_beads_md_table_rows(text):
         line = line.strip()
         if not line.startswith("|"):
             continue
-        cells = CELL_SPLIT_RE.split(line)
+        cells = CELL_RE.findall(line if line.endswith("|") else line + "|")
         if cells and cells[0] == "":
             cells = cells[1:]
-        if cells and cells[-1] == "":
-            cells = cells[:-1]
-        cells = [c.strip().replace("\\|", "|") for c in cells]
+        cells = [CELL_UNESCAPE_RE.sub(r"\1", c.strip()) for c in cells]
         if len(cells) < 3 or cells[0] in ("", "Issue") or set(cells[0]) == {"-"}:
             continue
         rows.append({"id": cells[0], "title": cells[1], "status": cells[2]})
@@ -3140,31 +3422,32 @@ def _read_beads_md_frontmatter(phase_dir):
 
 
 def _head_already_pushed(project_root):
-    """True when HEAD has zero commits ahead of its upstream -- i.e. HEAD is
-    already on the remote. Amending it would rewrite a commit origin already
-    has, diverging local history with no fast-forward path (push_branch never
-    force-pushes). This happens on a ship retry after a prior run already
-    completed push_branch (e.g. a later step like `gh pr create` failed).
-    Returns False (assume safe, preserves prior behavior) when no upstream is
-    configured or either git call fails -- a targeted guard against this one
-    known failure mode, not a general git-state validator."""
+    """True when HEAD must be treated as already on the remote -- amending it
+    would rewrite a commit a remote has, diverging local history with no
+    fast-forward path (push_branch never force-pushes). This happens on a
+    ship retry after a prior run already completed push_branch.
+
+    Compared against the push target (`@{push}`: branch.<name>.pushRemote /
+    remote.pushDefault, same-name ref), not the upstream: a fork workflow
+    pushes somewhere `@{u}` never mentions. When no push target resolves but
+    an upstream does (push.default=simple with a differently named
+    upstream), the branch's own remote ref cannot be established, so refuse.
+    Returns False (assume safe) with neither configured or on a git
+    failure -- a targeted guard, not a general git-state validator."""
+
+    def git(*args):
+        return subprocess.run(
+            ["git", *args],
+            cwd=str(project_root),
+            capture_output=True,
+            text=True,
+            timeout=GIT_TIMEOUT,
+        )
+
     try:
-        upstream = subprocess.run(
-            ["git", "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT,
-        )
-        if upstream.returncode != 0:
-            return False
-        ahead = subprocess.run(
-            ["git", "rev-list", "--count", "@{u}..HEAD"],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT,
-        )
+        if git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{push}").returncode != 0:
+            return git("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}").returncode == 0
+        ahead = git("rev-list", "--count", "@{push}..HEAD")
         if ahead.returncode != 0:
             return False
         return ahead.stdout.strip() == "0"
@@ -3191,13 +3474,21 @@ def ship_override(phase_dir_arg):
         print(f"ship-override: {exc}")
         return 1
 
+    # The counts go into a git trailer and a bd comment: digits (or the
+    # fail-closed `unknown` sentinel write_unknown emits when bd is down --
+    # exactly when an override is needed) only.
+    for key in ("blocking_open", "diverged"):
+        if not re.fullmatch(r"\d+|unknown", fields[key]):
+            print(f"ship-override: BEADS.md {key} is not a count ({fields[key]!r}) -- nothing recorded")
+            return 1
+
     trailer = (
         f"Beads-Override: ship_gate bypassed, "
         f"blocking_open={fields['blocking_open']}, diverged={fields['diverged']}"
     )
     if _head_already_pushed(project_root):
         print(
-            "ship-override: HEAD has no unpushed commits (already on the remote) -- "
+            "ship-override: HEAD has no unpushed commits (already on its push target, or the push target cannot be established) -- "
             "refusing to amend, that would diverge local history from origin and "
             "break the next push. This happens on a ship retry after a prior run "
             "already pushed. Record the override manually or re-run ship_override "
@@ -3205,57 +3496,61 @@ def ship_override(phase_dir_arg):
         )
         git_ok = False
     else:
-        result = subprocess.run(
-            ["git", "commit", "--amend", "--allow-empty", "--no-edit", "--trailer", trailer],
-            cwd=str(project_root),
-            capture_output=True,
-            text=True,
-            timeout=GIT_TIMEOUT,
-        )
-        git_ok = result.returncode == 0
-        if git_ok:
-            print(f"ship-override: recorded {trailer}")
+        try:
+            # --only with --amend and no paths: rewrite the message only,
+            # never fold whatever else is staged into HEAD.
+            result = subprocess.run(
+                ["git", "commit", "--amend", "--only", "--allow-empty", "--no-edit", "--trailer", trailer],
+                cwd=str(project_root),
+                capture_output=True,
+                text=True,
+                timeout=GIT_TIMEOUT,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            git_ok = False
+            print(f"ship-override: git commit --amend failed: {exc}")
         else:
-            print(f"ship-override: git commit --amend failed: {result.stderr.strip()}")
+            git_ok = result.returncode == 0
+            if git_ok:
+                print(f"ship-override: recorded {trailer}")
+            else:
+                print(f"ship-override: git commit --amend failed: {result.stderr.strip()}")
 
-    if bd_available():
+    if not SAFE_BD_ID_RE.fullmatch(fields["epic"]):
+        print(f"ship-override: BEADS.md epic {fields['epic']!r} is not a bd id -- comment mirror skipped")
+    elif bd_available():
         comment_text = (
             f"ship_gate override: blocking_open={fields['blocking_open']}, "
             f"diverged={fields['diverged']}"
         )
-        comment_result = run_bd(["bd", "comment", fields["epic"], comment_text])
-        if comment_result.returncode != 0:
-            print(f"ship-override: bd comment failed: {comment_result.stderr.strip()}")
+        try:
+            comment_result = run_bd(["bd", "comment", fields["epic"], comment_text])
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            print(f"ship-override: bd comment failed: {exc}")
+        else:
+            if comment_result.returncode != 0:
+                print(f"ship-override: bd comment failed: {comment_result.stderr.strip()}")
     else:
         print("ship-override: bd unavailable -- comment mirror skipped (B6)")
 
     return 0 if git_ok else 1
 
 
-def check_patch(target, path_override=None):
-    """17-04 Task 3 (TRUTH-02): the one reader PATCH_CHECKS parameterizes,
-    serving the retained Patch 1 ship-md wrapper through one generic
-    PATCH_CHECKS-backed reader. Preserves the three-case return contract (not-found /
+def check_patch(path_override=None):
+    """17-04 Task 3 (TRUTH-02): the retained Patch 1 ship-md check. Preserves the three-case return contract (not-found /
     could-not-read / marker present-or-missing), the `CLAUDE_CONFIG_DIR`
     idiom, and naming the exact path probed in every message (WR-03).
     Read-only. Total by construction (T-17-04-02): both checks run inside
-    `lifecycle_dispatch`'s one `try/except` alongside `beads_recall`, so an
-    unrecognized `target` fails open like an unreadable file rather than
-    raising -- but names the unknown target so the two cases stay separable.
+    `lifecycle_dispatch`'s one `try/except` alongside `beads_recall`.
     """
-    entry = PATCH_CHECKS.get(target)
-    if entry is None:
-        known = ", ".join(sorted(PATCH_CHECKS))
-        print(f"unknown patch-check target '{target}' -- expected one of: {known}")
-        return 1
     if path_override:
         path = Path(path_override)
     else:
         path = Path(
             os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))
-        ).joinpath(*entry["default_path_parts"])
+        ).joinpath(*SHIP_MD_PATCH_PATH_PARTS)
     if not path.exists():
-        print(entry["not_found_msg"].format(filename=entry["filename"], path=path))
+        print(SHIP_MD_NOT_FOUND_MSG.format(filename=SHIP_MD_FILENAME, path=path))
         return 1
     # WR-02/CR-02: degrade to "cannot verify" rather than raise -- an
     # An unreadable target returns a checker result instead of raising so
@@ -3263,24 +3558,15 @@ def check_patch(target, path_override=None):
     try:
         text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeDecodeError) as exc:
-        print(entry["could_not_read_msg"].format(filename=entry["filename"], path=path, exc=exc))
+        print(SHIP_MD_COULD_NOT_READ_MSG.format(filename=SHIP_MD_FILENAME, path=path, exc=exc))
         return 1
-    present = entry["marker"] in text
-    fmt = entry["present_msg"] if present else entry["missing_msg"]
+    present = SHIP_MD_PATCH_MARKER in text
+    fmt = SHIP_MD_PRESENT_MSG if present else SHIP_MD_MISSING_MSG
     # WR-01: stdout is deliberate here, not a convention to "fix" -- the
     # hook (hooks/lifecycle-dispatch.sh) promotes only stdout into
     # additionalContext, so a stderr line would silently vanish.
-    print(fmt.format(filename=entry["filename"], path=path, version=entry["version"]))
+    print(fmt.format(filename=SHIP_MD_FILENAME, path=path, version=SHIP_MD_PATCH_VERSION))
     return 0 if present else 1
-
-
-def check_shipmd_patch(ship_md_path_override=None):
-    """Thin wrapper over check_patch (17-04 Task 3, D-08) -- retained under
-    this exact name so the four existing test mocks and both in-file call
-    sites (beads-status Step 2d, beads-recall Step 3.5) keep working
-    unedited; D-08's CLI collapse is scoped to the public verb, not this
-    Python name (ROADMAP Criterion 5)."""
-    return check_patch("ship-md", ship_md_path_override)
 
 
 def check_native_step_dispatch(point, workflow_path_override=None):
@@ -3291,7 +3577,7 @@ def check_native_step_dispatch(point, workflow_path_override=None):
     to know so it can stand down at `plan:post`/`verify:post` rather than
     double-dispatch alongside gsd-core's own native loop.
 
-    Opposite polarity from check_shipmd_patch just above: it asks "is our
+    Opposite polarity from check_patch(): it asks "is our
     local patch still here" (missing is bad); this
     asks "does upstream now do this natively" (present means the hook is
     redundant here). Kept a SEPARATE function rather than a shared table
@@ -3339,7 +3625,11 @@ def check_native_step_dispatch(point, workflow_path_override=None):
             / "workflows"
             / filename
         )
-    if not workflow_path.exists():
+    try:
+        found = workflow_path.exists()
+    except OSError:  # e.g. PermissionError on an unsearchable parent
+        found = False
+    if not found:
         print(
             f"native-step-dispatch probe ({point}): {workflow_path} not found -- "
             "assuming not detected, lifecycle-dispatch keeps dispatching",
@@ -3408,6 +3698,14 @@ def check_native_step_dispatch(point, workflow_path_override=None):
 
 
 def main(argv=None):
+    global _BD_CWD
+    try:
+        return _main(argv)
+    finally:
+        _BD_CWD = None
+
+
+def _main(argv):
     parser = argparse.ArgumentParser(prog="sync.py")
     sub = parser.add_subparsers(dest="command", required=True)
     create_p = sub.add_parser(
@@ -3456,7 +3754,7 @@ def main(argv=None):
         "check-patch",
         help="Report whether the local GSD-CORE-PATCH.md ship-md patch is present",
     )
-    check_patch_p.add_argument("target", choices=sorted(PATCH_CHECKS))
+    check_patch_p.add_argument("target", choices=["ship-md"])
     check_patch_p.add_argument("--path", default=None)
     lifecycle_p = sub.add_parser(
         "lifecycle-dispatch",
@@ -3478,6 +3776,9 @@ def main(argv=None):
     )
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
+    path_arg = getattr(args, "phase_dir", None) or getattr(args, "plan_path", None)
+    if path_arg:
+        _set_bd_root(path_arg)
     if args.command == "resolve-task-content":
         return resolve_task_content(args.issue_id)
     if args.command == "create-issues":
@@ -3507,17 +3808,25 @@ def main(argv=None):
     if args.command == "ship-override":
         return ship_override(args.phase_dir)
     if args.command == "check-patch":
-        return check_patch(args.target, args.path)
+        return check_patch(args.path)
     if args.command == "lifecycle-dispatch":
         return lifecycle_dispatch(args.point)
     if args.command == "migrate-todos":
-        project_root = find_project_root(Path.cwd())
-        pending_dir = confined(project_root, ".planning", "todos", "pending")
+        try:
+            project_root = find_project_root(Path.cwd())
+            pending_dir = confined(project_root, ".planning", "todos", "pending")
+        except ValueError as exc:
+            print(f"migrate-todos: {exc}", file=sys.stderr)
+            return 1
         return migrate_todos(str(pending_dir))
     if args.command == "status":
         if args.phase_dir is not None:
             return render_status_mapping(args.phase_dir)
-        project_root = find_project_root(Path.cwd())
+        try:
+            project_root = find_project_root(Path.cwd())
+        except ValueError as exc:
+            print(f"status: {exc}", file=sys.stderr)
+            return 1
         default_dir = _resolve_default_phase_dir(project_root)
         if default_dir is None:
             print("no phase directory given and no default could be resolved from STATE.md")
