@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1
+
+### Security
+- **A cloned repository could run its own `.gsd/capabilities/beads/scripts/sync.py` through the lifecycle hook and every beads skill.** `hooks/lifecycle-dispatch.sh` and the ten skill resolver fences tried the project copy first, so any repository shipping that path ran arbitrary code on a `render-hooks` call or a skill invocation. Selection is now keyed on the global manifest, which a repository cannot plant: with `${GSD_HOME:-$HOME}/.gsd/capabilities/beads/capability.json` present (any filesystem entry, including a dangling symlink or a directory) the global script runs and a missing or non-file script fails closed; otherwise the plugin copy; the project copy only last, so project-scope-only installs keep working. Without an absolute `GSD_HOME` or `HOME` nothing runs (skills exit 1 naming the cause; the hook exits 0 silently), so an empty `HOME` or a relative `GSD_HOME` cannot redirect resolution into the project. `PRIME.md` and the README no longer document a cwd-relative manual `sync.py lifecycle-dispatch` command; they point at the `gsd-beads-sync` resolver fence instead. Inside a gsd-beads development checkout the skills and hook now run the installed global `sync.py`, not the working tree's: reinstall the capability after editing `scripts/sync.py`. ([GH#20](https://github.com/davdittrich/gsd-beads/issues/20))
+
 ## 0.8.0
 
 ### Added
