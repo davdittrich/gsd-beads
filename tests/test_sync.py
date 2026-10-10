@@ -9555,7 +9555,7 @@ class TestPhaseMentionTokens(unittest.TestCase):
     def test_only_slash_paths_of_four_or_more_chars_are_mentions(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _write_recall_phase_workspace(
-                Path(tmp), roadmap_section="See e.g. v1.2, i.e. `src/mod.py` and /.c here.\n"
+                Path(tmp), roadmap_section="See e.g. v1.2, i.e. `src/mod.py`, example.com/docs, v1.2/notes and /.c here.\n"
             )
             roadmap = Path(tmp) / ".planning" / "ROADMAP.md"
             mentions = sync.extract_phase_mentions(roadmap, "02", phase_dir / "02-CONTEXT.md")
@@ -9785,14 +9785,22 @@ class TestBatchedSyncCalls(unittest.TestCase):
 
 class TestStatusMappingParseError(unittest.TestCase):
     @mock.patch("subprocess.run")
-    def test_unparseable_plan_does_not_raise(self, mock_run):
+    def test_unparseable_sibling_plan_degrades_without_traceback(self, mock_run):
         mock_run.side_effect = _make_beads_md_bd_side_effect("[]\n")
-        broken = _regen_two_task_plan_text().replace("</tasks>", '<task type="auto">\n<name>Broken</name>\n</tasks>')
+        broken = _regen_two_task_plan_text().replace(
+            "</tasks>", '<task type="auto">\n<name>Broken</name>\n</tasks>'
+        )
         with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_wave_workspace(Path(tmp), [("01-07", broken, True)], with_state=True)
-            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            phase_dir = _write_wave_workspace(
+                Path(tmp),
+                [("01-07", _regen_two_task_plan_text(), True), ("01-08", broken, True)],
+                with_state=True,
+            )
+            err = io.StringIO()
+            with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
                 rc = sync.render_status_mapping(str(phase_dir))
-        self.assertEqual(rc, 0)
+        self.assertEqual(rc, 1)
+        self.assertIn("mapping unavailable", err.getvalue())
 
 
 if __name__ == "__main__":

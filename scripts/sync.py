@@ -1746,18 +1746,12 @@ def resolve_issue(task, epic_id, ordinal_prefix, task_index):
     GH#7: a stored `<beads-id>` that fails BEADS_ID_SHAPE_RE (e.g. a
     plan-author placeholder like "TBD") cannot be a value `bd create` ever
     returned, so it is unbound -- fall through to create, same as an absent
-    `<beads-id>`. A value that passes the shape check but does not resolve
-    in `bd` is stale (D-07): report divergence, never replace it.
+    `<beads-id>`. A shape-valid stored id never reaches here: create_issues
+    verifies those in one batched call (D-07: a stale one is reported as
+    divergence, never replaced).
     """
-    if task["beads_id"]:
-        issue_id = task["beads_id"]
-        if not SAFE_BD_ID_RE.fullmatch(issue_id):
-            raise RuntimeError(f"unsafe stored beads-id: {issue_id!r}")
-        if BEADS_ID_SHAPE_RE.fullmatch(issue_id):
-            check = run_bd(["bd", "show", issue_id, "--json"])
-            if not _bd_show_identifies(check, issue_id):
-                return issue_id, False, True
-            return issue_id, False, False
+    if task["beads_id"] and not SAFE_BD_ID_RE.fullmatch(task["beads_id"]):
+        raise RuntimeError(f"unsafe stored beads-id: {task['beads_id']!r}")
     title = f"{ordinal_prefix}.{task_index} {task['name']}"
     if task.get("type", "").startswith("checkpoint:"):
         description = _checkpoint_task_description(task)
@@ -2782,8 +2776,10 @@ def _render_beads_recall_body(matched, unscoped):
     return "\n".join(parts)
 
 
-# A path-like token must contain a `/` (so "e.g", "i.e", "v1.2" never match).
-PATH_TOKEN_RE = re.compile(r"(?=[\w\-./]*/)[\w\-./]+\.\w{1,4}")
+# A path-like token must contain a `/` (so "e.g", "i.e", "v1.2" never match);
+# enforced on the match, not in the regex, because backtracking can shorten a
+# match ("example.com/docs" -> "example.com") past the slash.
+PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
 PATH_TOKEN_MIN_LEN = 4
 # GH#11: digits are `\w`, so a bare version number ("2.39") matches
 # PATH_TOKEN_RE too but is never a path/extension -- excluded below.
@@ -2813,7 +2809,7 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
 
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
-        if len(token) < PATH_TOKEN_MIN_LEN or NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
+        if "/" not in token or len(token) < PATH_TOKEN_MIN_LEN or NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
             continue
         if token not in seen:
             seen.append(token)
