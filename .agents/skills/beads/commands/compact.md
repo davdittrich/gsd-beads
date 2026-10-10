@@ -5,7 +5,7 @@ argument-hint: "[--days N] [--dry-run|--force]"
 
 > Adapted from the upstream `beads` skill (MIT License, gastownhall/beads).
 
-Squashes Dolt commits older than a retention window into a single commit, then runs Dolt GC to reclaim storage. Recent commits inside the window are preserved via cherry-pick.
+Squashes Dolt commits older than a retention window into a single commit, prunes remote-tracking refs (the next push or fetch recreates them at the new tip), then runs a full Dolt GC to reclaim storage; the GC can take minutes on a multi-gigabyte store. Recent commits inside the window are preserved via cherry-pick. This rewrites local history: confirm with `--dry-run` first. For a full-history squash use `bd flatten`.
 
 ## Common invocations
 

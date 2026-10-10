@@ -2,9 +2,9 @@
 
 > Adapted from the upstream `beads` skill (MIT License, gastownhall/beads).
 
-`bd dep` links two issues with one of four typed relationships. Only one of the four changes what shows up in `bd ready` — the other three are structure and context.
+`bd dep` links two issues with a typed edge. This skill uses four of the ten types `bd dep add --help` lists; of those, only `blocks` changes what shows up in `bd ready` — the other three are structure and context.
 
-## The four types
+## The types this skill uses
 
 | Type | Effect on `bd ready` | Use for |
 |---|---|---|
@@ -24,6 +24,8 @@ bd dep add <child-id> <parent-id> --type parent-child
 bd dep add <discovered-id> <original-id> --type discovered-from
 ```
 
+Add `--no-cycle-check` only for bulk wiring; the default rejects an edge that would close a cycle.
+
 Direction matters for `blocks`, `parent-child`, and `discovered-from`: `from_id` depends on `to_id`. Think "dependent depends on prerequisite." `related` is symmetric.
 
 ## Automatic unblocking
@@ -42,8 +44,7 @@ bd show <id>           # dependencies, dependents, related, discovered-from — 
 ## gsd-core framing
 
 - A phase's epic is the `parent-child` parent of every task issue synced from that phase's plans (see `.beads/PRIME.md` — "Phase epics").
-- `BEADS.md`'s `blocking_open` count — the number that gates `ship:pre` — is exactly the count of open issues still holding a `blocks` edge over something in the current phase. `related`, `parent-child`, and `discovered-from` edges never contribute to that count.
-- Cycles are rejected at creation time; `bd dep add` refuses an edge that would make the graph unsatisfiable.
+- `BEADS.md`'s `blocking_open` counts epic children, not `blocks` edges: `PRIME.md`, "Ship gate".
 
 ## Decision guide
 

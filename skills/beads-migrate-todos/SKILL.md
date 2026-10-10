@@ -1,33 +1,19 @@
 ---
 name: gsd-migrate-todos
-description: "One-shot migration of .planning/todos/pending/ entries into bd issues (B12)"
+description: "Use when asked to migrate .planning/todos/pending/ entries into beads (bd) issues, a one-shot move"
 argument-hint: ""
 allowed-tools:
   - Read
   - Bash
 ---
 
-**STOP -- DO NOT READ THIS FILE. You are already reading it. This prompt was injected into your context by the command system. Using the Read tool on this file wastes tokens. Begin executing Step 0 immediately.**
+Display `GSD > MIGRATE TODOS` before any tool call.
 
-## Step 0 -- Banner
+## Step 1 -- Config gate
 
-**Before ANY tool calls**, display this banner:
-
-```
-GSD > MIGRATE TODOS
-```
-
-Then proceed to Step 1.
-
-## Step 1 -- Config Gate
-
-Check whether the beads capability is enabled by reading `.planning/config.json` directly with the Read tool.
-
-1. Read `.planning/config.json` with the Read tool.
-2. If the file exists, `config.beads` is present, and `config.beads.enabled` is explicitly the boolean `false`: display the disabled message and **STOP**.
-3. Otherwise -- the file is missing, `config.beads` is absent, or `config.beads` is present with no `enabled` key -- fall through to the shipped default (`beads.enabled: true` in `capability.json`) and proceed to Step 2.
-
-**Disabled message:**
+Read `.planning/config.json`. Print the message below and stop only when `config.beads.enabled` is
+explicitly `false`; a missing file, a missing `beads` object, and a missing `enabled` key all mean
+enabled.
 
 ```
 GSD > MIGRATE TODOS
@@ -36,18 +22,12 @@ Beads sync is disabled (beads.enabled).
 Nothing was migrated; no todo files were touched.
 ```
 
-## Step 2 -- bd-availability gate
+## Step 2 -- Migration dispatch
 
-`bd` usability is not checked here directly -- it is delegated to `sync.py`, which locates the
-binary and runs one cheap read command as its first action (B6/D-08). If `bd` is absent, failing,
-or locked, `sync.py` prints the one required notice line, appends an entry to `.planning/STATE.md`
-under `### Blockers/Concerns`, and exits 0 without issuing any `bd create` calls. Proceed straight
-to Step 3 -- do not duplicate the check here.
-
-## Step 3 -- Migration dispatch
-
-Run the migration script via Bash. This subcommand takes no arguments -- it resolves the current
-project's `.planning/todos/pending/` directory itself:
+`sync.py` checks `bd` itself. When `bd` is absent, failing, or locked it prints one notice line,
+appends to `.planning/STATE.md` under `### Blockers/Concerns`, and exits 0 without a `bd create`;
+go straight to the call. It takes no arguments and finds the project's `.planning/todos/pending/`
+itself:
 
 ```bash
 _B="${GSD_HOME:-${HOME:-}}"
@@ -56,7 +36,7 @@ _G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
-else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
+else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
   echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
   exit 1
@@ -64,27 +44,13 @@ fi
 python3 "$SYNC_PY" migrate-todos
 ```
 
-Every parseable `.planning/todos/pending/*.md` file becomes one mapped `bd create` issue
-(`severity` -> priority, `area` -> an `area-<area>` label, problem/solution/files folded into the
-description), and that file is deleted only after its `bd create` call is confirmed successful. A
-todo that cannot be parsed (missing required frontmatter) is left untouched in
-`.planning/todos/pending/`, reported separately from a todo whose parse succeeded but whose
-`bd create` call failed.
+Every parseable `.planning/todos/pending/*.md` becomes one `bd create` issue (`severity` ->
+priority, `area` -> an `area-<area>` label, problem/solution/files folded into the description).
+A file is deleted only after its `bd create` succeeds. A todo missing required frontmatter stays
+untouched and is reported apart from a todo whose parse succeeded but whose `bd create` failed.
 
-## Step 4 -- Report
+## Step 3 -- Report
 
-Print `sync.py`'s stdout verbatim as the report -- it already names the moved/could-not-be-
-interpreted/bd-create-failed counts and lists each item under its own heading (D-13: console
-output only, no `MIGRATION-REPORT.md` file).
-
-## Anti-Patterns
-
-1. DO NOT delete a todo file before its `bd create` call is confirmed to return code 0 (D-05).
-2. DO NOT assemble a `bd` invocation as a shell string built from todo file text -- every `bd`
-   call is a typed argv list passed to `subprocess.run([...])` with shell execution left disabled
-   (N4, threat T-04-01).
-3. DO NOT merge a parse failure ("could not be interpreted") with a `bd create` failure into one
-   count or one list -- they are reported as two distinct outcomes (D-04, Pitfall 2).
-4. DO NOT write a separate `MIGRATION-REPORT.md` artifact -- bd itself is the durable record of
-   what moved (D-13).
-5. DO NOT skip the config gate.
+Print `sync.py`'s stdout verbatim: it names the moved, could-not-be-interpreted, and
+bd-create-failed counts and lists each item under its own heading. Console output is the whole
+report; bd is the durable record, so write no report file.

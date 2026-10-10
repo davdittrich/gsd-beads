@@ -20,4 +20,4 @@ bd blocked --parent <epic-id>      # blocked issues under one epic/bead
 
 ## gsd-core framing
 
-An open blocker is exactly what makes `BEADS.md`'s `blocking_open` field non-zero, and a non-zero `blocking_open` is what holds the `ship:pre` gate closed (see `.beads/PRIME.md` — "Ship gate"). Running `bd blocked` before `ship:pre` fires is the fastest way to see what's actually holding a phase back, rather than waiting for the gate to fail and reading `BEADS.md` cold.
+`blocking_open` (definition: `.beads/PRIME.md`, "Ship gate") counts every non-closed epic child, blocked or not, so `bd blocked --parent <epic-id>` shows only the part of it that is waiting on something.

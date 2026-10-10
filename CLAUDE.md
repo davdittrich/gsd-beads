@@ -1,21 +1,27 @@
-# Project Instructions for AI Agents
+# gsd-beads
 
-This file provides instructions and context for AI coding agents working on this project.
+A gsd-core capability (`beads`) that makes `bd` the source of truth for plan-task state. `README.md` covers behaviour; this file covers working on the repo.
 
 ## Build & Test
 
-_Add your build and test commands here_
+Python 3 stdlib only; no build step. Run each suite with a throwaway `HOME`: tests resolve `${GSD_HOME:-$HOME}/.gsd`, and a real install there changes the outcome.
 
 ```bash
-# Example:
-# npm install
-# npm test
+HOME=$(mktemp -d) python3 -I -m pytest tests -q -p no:cacheprovider   # CI runs `python3 -m unittest discover -s tests -t tests`
+HOME=$(mktemp -d) bash tests/test-session-start.sh
+HOME=$(mktemp -d) TMPDIR=/dev/shm bash tests/test-capability-auto-install.sh
 ```
 
-## Architecture Overview
+`test-capability-auto-install.sh` case24 needs a gsd-core source checkout at `$GSD_CORE_REPO` (default `../gsd-core`, a git clone; CI uses `.ci/gsd-core`) and stops the script there without one; cases 1-23 are hermetic.
 
-_Add a brief overview of your project architecture_
+## Layout
 
-## Conventions & Patterns
+- `scripts/sync.py`: every subcommand (`create-issues`, `close-wave`, `lifecycle-dispatch`, ...). `skills/*/SKILL.md` call it through a resolver fence; `tests/test_sync.py` pins the fence byte for byte.
+- `hooks/`: `lifecycle-dispatch.sh` (PostToolUse), `session-start.sh`, `capability-auto-install.sh`.
+- `.agents/skills/beads/`: bundled bd guidance, hand-maintained; check commands against `bd <cmd> --help`.
+- `AGENTS.md` bd block, `.cursor/rules/beads.mdc`: generated. Change the `bd setup` profile; do not hand-edit.
 
-_Add your project-specific conventions here_
+## Conventions
+
+- Skills and docs are agent-facing prose: follow the `writing-for-agents` skill.
+- Editing `scripts/sync.py` does not affect installed skills until the capability is reinstalled.

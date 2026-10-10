@@ -49,7 +49,7 @@ Issue data lives in Dolt under `refs/dolt/data`, entirely separate from code bra
 
 ```bash
 bd init                  # standard setup, or:
-bd init --contributor    # OSS fork setup with contributor routing
+bd init --role contributor # OSS fork setup (--contributor is an interactive wizard, rejected with --non-interactive)
 
 bd dolt pull              # pull shared issue data
 bd dolt push               # push shared issue data

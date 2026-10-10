@@ -1,33 +1,19 @@
 ---
 name: gsd-beads-recall
-description: "Scan open beads (bd) issues and write BEADS-RECALL.md naming any issue that may touch the phase about to be planned"
+description: "Use before planning a gsd phase (plan:pre), or when asked which open beads (bd) issues may touch a phase: writes BEADS-RECALL.md naming each one"
 argument-hint: "[phase directory]"
 allowed-tools:
   - Read
   - Bash
 ---
 
-**STOP -- DO NOT READ THIS FILE. You are already reading it. This prompt was injected into your context by the command system. Using the Read tool on this file wastes tokens. Begin executing Step 0 immediately.**
+Display `GSD > BEADS RECALL` before any tool call.
 
-## Step 0 -- Banner
+## Step 1 -- Config gate
 
-**Before ANY tool calls**, display this banner:
-
-```
-GSD > BEADS RECALL
-```
-
-Then proceed to Step 1.
-
-## Step 1 -- Config Gate
-
-Check whether the beads capability is enabled by reading `.planning/config.json` directly with the Read tool.
-
-1. Read `.planning/config.json` with the Read tool.
-2. If the file exists, `config.beads` is present, and `config.beads.enabled` is explicitly the boolean `false`: display the disabled message and **STOP**.
-3. Otherwise -- the file is missing, `config.beads` is absent, or `config.beads` is present with no `enabled` key -- fall through to the shipped default (`beads.enabled: true` in `capability.json`) and proceed to Step 2.
-
-**Disabled message:**
+Read `.planning/config.json`. Print the message below and stop only when `config.beads.enabled` is
+explicitly `false`; a missing file, a missing `beads` object, and a missing `enabled` key all mean
+enabled.
 
 ```
 GSD > BEADS RECALL
@@ -36,19 +22,14 @@ Beads recall is disabled (beads.enabled).
 Nothing was written; the loop proceeds normally.
 ```
 
-This step is `onError: skip` at `plan:pre` -- a recall dispatch never fails a phase.
-
-## Step 2 -- bd-availability gate
-
-`bd` usability is not checked here directly -- it is delegated to `sync.py beads-recall`, which
-locates the binary and runs one cheap read command as its first action (B6/D-08). If `bd` is
-absent, failing, or locked, `sync.py` prints the one required notice line, appends an entry to
-`.planning/STATE.md` under `### Blockers/Concerns`, overwrites `BEADS-RECALL.md` with the
-`recall_status: failed` marker (GH#11 -- never leaves a stale prior-run file in place), and exits 0.
+This step is `onError: skip`: recall never fails a phase.
 
 ## Step 3 -- Recall dispatch
 
-Run one Bash call passing the phase directory:
+`sync.py` checks `bd` itself. When `bd` is absent, failing, or locked it prints one notice line,
+appends to `.planning/STATE.md` under `### Blockers/Concerns`, overwrites `BEADS-RECALL.md` with
+`recall_status: failed`, and exits 0; go straight to the call. One Bash call, passing the phase
+directory:
 
 ```bash
 _B="${GSD_HOME:-${HOME:-}}"
@@ -57,7 +38,7 @@ _G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
-else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
+else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
   echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
   exit 1
@@ -65,21 +46,17 @@ fi
 python3 "$SYNC_PY" beads-recall <phase directory>
 ```
 
-This scans every open, non-epic bd issue (one `bd list` call) and matches it against this phase's
-expected scope by two techniques: a cross-phase `<beads-id>` reverse lookup against every
-`PLAN.md`'s `<files>` element, falling back to a case-insensitive substring match against the
-issue's description from that same call (GH#11 -- no per-issue/per-token `bd` subprocess). The
-result is written to `{phase_dir}/{padded_phase}-BEADS-RECALL.md` -- always, even when zero
-issues are open (D-04). An issue matching neither technique is listed under a separate "Unscoped"
-heading, never dropped (D-02). If the `bd list` call itself fails or times out, the file is
-overwritten with a `recall_status: failed` / `recall_error: "..."` marker instead of being left
-untouched and indistinguishable from a fresh run (GH#11) -- a successful run carries
-`recall_status: ok` instead, so a consumer can check one key either way.
+One `bd list` call fetches every open, non-epic issue. Each is matched to the phase's scope by a
+`<beads-id>` reverse lookup against every `PLAN.md`'s `<files>` element, then by a
+case-insensitive substring match on its description. The result goes to
+`{phase_dir}/{padded_phase}-BEADS-RECALL.md`, even when no issue is open. An issue matching
+neither way is listed under "Unscoped", never dropped. A successful run carries
+`recall_status: ok`; a failed `bd list` overwrites the file with `recall_status: failed` and a
+`recall_error`, so one key tells a consumer which it is.
 
-## Step 3.5 -- verify the local gsd-core patch (independent reapply check, CR-01)
+## Step 3.5 -- verify the local gsd-core patch
 
-This step always runs after Step 3, whether or not `bd` was available for Step 3 (these checks
-reads only the installed workflow file, never `bd`). Run the retained Patch 1 check:
+Always runs after Step 3, even when `bd` was unavailable (it reads only the installed workflow file):
 
 ```bash
 _B="${GSD_HOME:-${HOME:-}}"
@@ -88,7 +65,7 @@ _G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
-else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
+else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
   echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
   exit 1
@@ -96,46 +73,14 @@ fi
 python3 "$SYNC_PY" check-patch ship-md
 ```
 
-If the command exits non-zero, or its output does not contain the string "present", surface
-that output to the user verbatim -- never swallow it -- but never block planning on it; the check
-is diagnostic only, matching the `onError: skip` this entire beads-recall `plan:pre` dispatch
-already runs under. Keyed on exit code / absence of "present" rather than on the "⚠" marker glyph,
-so a future message template that forgets the marker prefix still surfaces (D-03.2).
-
-This is the call site that actually *detects* Patch 1 loss. `beads-status` Step 2d only
-*confirms* that the `ship.md` patch remains intact.
-
-**Corrected 0.3.0 (gh-2).** The original independence argument here was that `plan:pre` "is
-dispatched by gsd-core's own native generic step-dispatch loop". It is not. `plan-phase.md` §5.6
-states its generic step contract but only ever fires it from Branch 5, which requires
-`AUTO_CHAIN == true`, and Branch 2 returns to step 6 outright when the phase shows no frontend
-indicators. A manually invoked `/gsd:plan-phase` therefore reached neither -- so the detector
-shared the failure mode of the thing it protects, and had been silently not running.
-
-Independence is now real, by a different route: `plan:pre` is dispatched by
-`hooks/lifecycle-dispatch.sh`, a `PostToolUse` hook keyed on the
-`gsd_run loop render-hooks plan:pre --raw` call gsd-core makes regardless of branch. That hook
-runs the check itself, so it fires whether this skill is invoked or not, and keeps firing when
-the patch has been stripped by a `gsd-core` update or capability reinstall -- the exact scenario
-in which `beads-status`'s `ship:pre`-gated Step 2d cannot run because its own call site depends
-on the patch it verifies.
+When the command exits non-zero or its output lacks the word "present", show that output to the
+user verbatim. Never block planning on it: the check is diagnostic. This is the call that detects a
+lost `ship.md` patch; `beads-status` Step 2d only confirms an intact one. It stays independent of
+the patch because `hooks/lifecycle-dispatch.sh` dispatches `plan:pre`, so it fires whether or not
+the patch survived a `gsd-core` update.
 
 ## Step 4 -- Report
 
-Print the one-line summary `sync.py` printed to stdout: `BEADS-RECALL.md written: <n> matched,
-<m> unscoped (<t> open issue(s) total)` on success, or `BEADS-RECALL.md recall failed: <reason>`
-(GH#11) when `bd` was unavailable or the upfront `bd list` call itself failed or timed out --
-`BEADS-RECALL.md` was still written in the failure case too, carrying `recall_status: failed`.
-
-## Anti-Patterns
-
-1. DO NOT resolve an issue's file scope by matching its title -- scope binds through the
-   `<beads-id>` reverse lookup or a description-substring match, never a title string.
-2. DO NOT assemble a `bd` invocation as a shell string -- every `bd` call is a typed argv list
-   passed to `subprocess.run([...])` with shell execution left disabled (N4, threat T-02-01).
-3. DO NOT skip the config gate.
-4. DO NOT silently drop an issue that matches neither scope-matching technique -- it must appear
-   under the "Unscoped" heading (D-02).
-5. DO NOT skip Step 3.5 or swallow its "⚠" warning -- it is the only Patch 1 loss
-   *detector* in this capability. Step 2d in `beads-status` is confirmation-only because its
-   own `ship:pre` call site depends on the patch it verifies.
+Print the one-line summary `sync.py` printed: `BEADS-RECALL.md written: <n> matched, <m> unscoped
+(<t> open issue(s) total)`, or `BEADS-RECALL.md recall failed: <reason>` when `bd` was unavailable
+or `bd list` failed or timed out. The failure case still writes `BEADS-RECALL.md`.

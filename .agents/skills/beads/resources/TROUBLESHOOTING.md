@@ -5,7 +5,6 @@
 ## Contents
 
 - [No Active Workspace](#no-active-workspace)
-- [Dependencies Not Persisting](#dependencies-not-persisting)
 - [Stale Claim Blocking the Ready Queue](#stale-claim-blocking-the-ready-queue)
 - [Interactive Editor Hangs an Agent Turn](#interactive-editor-hangs-an-agent-turn)
 - [Nothing Injected at Session Start](#nothing-injected-at-session-start)
@@ -18,7 +17,7 @@
 ### Symptom
 ```bash
 bd ready
-# Error: no beads workspace found
+# Error: no beads database found
 ```
 
 ### Cause
@@ -31,29 +30,6 @@ bd init             # initializes .beads/ in the current directory if none exist
 ```
 Do not run `bd init` inside a subdirectory of an already-initialized repo — check `bd where` first; a nested `.beads/` is a separate, disconnected workspace.
 
-## Dependencies Not Persisting
-
-### Symptom
-```bash
-bd dep add issue-2 issue-1 --type blocks
-# Reports: added dependency
-bd show issue-2
-# Shows: no dependencies listed
-```
-
-### Cause
-Usually a stale `bd` binary — this class of bug was fixed upstream in bd v0.15.0 (GitHub issue #101, dependencies silently ignored during issue creation).
-
-### Fix
-```bash
-bd version                    # check your version
-# upgrade if old, then:
-bd dolt stop && bd dolt start # restart the server so the fix takes effect
-bd dep add issue-2 issue-1 --type blocks
-bd show issue-2                # confirm the dependency now appears
-```
-If it's still missing after upgrading, run `bd doctor` and check the Dolt server is actually running before assuming the data layer is broken.
-
 ## Stale Claim Blocking the Ready Queue
 
 ### Symptom
@@ -65,7 +41,8 @@ A prior session claimed the issue (`bd update <id> --claim`) and never released 
 ### Fix
 ```bash
 bd show <id>                          # read the comments first — was there a partial finding?
-bd update <id> --assignee=             # release the stale claim
+bd reclaim --help                     # preferred when the claim carries a lease that has expired
+bd update <id> --status open --assignee= --force   # last resort; --force overrides another actor's live claim, and --assignee= alone leaves it in_progress, which bd ready excludes
 bd ready                               # confirm it's now available
 ```
 Never force-release a claim without reading its comments first — see RESUMABILITY.md's recovery sequence.
@@ -95,11 +72,11 @@ Either the SessionStart hook isn't installed for this project, or it ran but `bd
 
 ### Fix
 ```bash
-cat hooks/hooks.json | grep -A2 SessionStart   # confirm the hook is registered
+grep -A2 SessionStart "$CLAUDE_PLUGIN_ROOT/hooks/hooks.json"   # confirm the hook is registered
 bd prime                                        # run it manually — does it produce output?
 bd where                                        # confirms bd can find a workspace at all
 ```
-If `bd prime` works manually but the hook never fired, the harness may not be picking up `hooks/hooks.json` for this project — check the plugin/hook install path, not `bd` itself.
+If `bd prime` works manually but the hook never fired, the harness may not be picking up the plugin's `hooks/hooks.json` — check the plugin/hook install path, not `bd` itself.
 
 ## `bd prime` Prints Generic Output Instead of the gsd Override
 
