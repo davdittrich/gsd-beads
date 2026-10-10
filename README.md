@@ -135,11 +135,12 @@ python3 "$SYNC_PY" lifecycle-dispatch plan:pre
 
 Never run a cwd-relative `.gsd/capabilities/beads/scripts/sync.py`: that executes whatever
 script the current repository ships
-([#20](https://github.com/davdittrich/gsd-beads/issues/20)). The hook and every skill fence
-resolve `sync.py` the same way: with a global install
+([#20](https://github.com/davdittrich/gsd-beads/issues/20)). Skill fences and the hook
+resolve `sync.py` in this order: with a global install
 (`${GSD_HOME:-$HOME}/.gsd/capabilities/beads/capability.json` present, as any filesystem
-entry) its own script runs, and a missing script fails closed; otherwise the plugin copy;
-the project copy only last. Without an absolute `GSD_HOME` or `HOME` nothing runs. One
+entry) its own script runs, and a missing script fails closed; otherwise the plugin copy.
+Skill fences stop there and fail closed; only the hook falls back to the project copy, so
+project-scope-only installs keep dispatching. Without an absolute `GSD_HOME` or `HOME` nothing runs. One
 consequence for development: inside a gsd-beads checkout the skills and hook run the
 *installed* global `sync.py`, not the working tree's, so reinstall the capability after
 editing `scripts/sync.py` (the test suite exercises the working tree directly).

@@ -8300,7 +8300,7 @@ _G="$_B/.gsd/capabilities/beads"
 _P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
-else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
+else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
   echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
   exit 1
@@ -8444,8 +8444,8 @@ fi"""
         # Precedence used to be project-first. kilo.23: a cloned hostile repo
         # shipping .gsd/capabilities/beads/scripts/sync.py then ran its own
         # code on every skill call. Selection is now keyed on the global
-        # MANIFEST (which a repo cannot plant): global, then plugin, then
-        # project last so project-scope-only installs keep working.
+        # MANIFEST (which a repo cannot plant): global, then plugin; the
+        # project copy is not a rung at all.
         with tempfile.TemporaryDirectory() as tmp:
             base = Path(tmp)
             project, global_root, plugin = (base / "project root", base / "global root", base / "plugin root")
@@ -8492,22 +8492,21 @@ fi"""
                 self.assertEqual(result.returncode, 0, result)
                 self.assertEqual(self._read_calls(spy_log), [[str(home_sync), ["status"]]])
 
-            # Project-scope-only install still resolves.
+            # Project copy is never a rung (.23): with no global manifest and no
+            # plugin script the resolver fails closed, even when the project ships
+            # a script and the caller pre-seeded SYNC_PY with it.
             spy_log.unlink()
             home_sync.unlink()
             home_manifest.unlink()
             plugin_sync.unlink()
-            result = self._run(base_env, "status")
-            self.assertEqual(result.returncode, 0, result)
-            self.assertEqual(self._read_calls(spy_log), [[str(project_sync), ["status"]]])
-
-            spy_log.unlink()
-            project_sync.unlink()
-            (project / self.RELATIVE_SYNC).mkdir(parents=True)
-            result = self._run(base_env, "status")
-            self.assertEqual(result.returncode, 1, result)
-            self.assertEqual(result.stderr, self.DIAGNOSTIC + "\n")
-            self.assertFalse(spy_log.exists())
+            for seed in (None, str(project_sync)):
+                env = dict(base_env)
+                if seed:
+                    env["SYNC_PY"] = seed
+                result = self._run(env, "status")
+                self.assertEqual(result.returncode, 1, result)
+                self.assertEqual(result.stderr, self.DIAGNOSTIC + "\n")
+                self.assertFalse(spy_log.exists())
 
     def test_each_distinct_argv_shape_once(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -8532,13 +8531,14 @@ fi"""
                 ("close-wave", phase, "01", "02"),
             )
             self.assertEqual(len(argv_cases), len(set(argv_cases)))
-            project_sync = self._write_spy(project)
+            plugin = base / "plugin root"
+            plugin_sync = self._write_spy(plugin, self.PLUGIN_SYNC)
             env = dict(
                 os.environ,
                 CLAUDE_PROJECT_DIR=str(project),
                 GSD_HOME=str(base / "missing global"),
                 HOME=str(base / "missing home"),
-                CLAUDE_PLUGIN_ROOT=str(base / "missing plugin"),
+                CLAUDE_PLUGIN_ROOT=str(plugin),
                 SPY_LOG=str(spy_log),
                 UNRELATED_CWD=str(unrelated),
             )
@@ -8546,7 +8546,7 @@ fi"""
                 result = self._run(env, *argv)
                 self.assertEqual(result.returncode, 0, (argv, result))
             calls = self._read_calls(spy_log)
-            self.assertEqual([call[0] for call in calls], [str(project_sync)] * len(argv_cases))
+            self.assertEqual([call[0] for call in calls], [str(plugin_sync)] * len(argv_cases))
             self.assertEqual([call[1] for call in calls], [list(argv) for argv in argv_cases])
 
 
