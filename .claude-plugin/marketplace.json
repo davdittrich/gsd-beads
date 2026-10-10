@@ -17,7 +17,7 @@
         "source": "url",
         "url": "https://github.com/davdittrich/ponytail-everywhere.git"
       },
-      "description": "Lazy-ladder discipline and proportionality checks across gsd's plan/execute/verify/ship lifecycle"
+      "description": "Lazy-ladder discipline, native Quick planner dispatch, and proportionality checks across gsd's lifecycle"
     },
     {
       "name": "sota-numerics",
