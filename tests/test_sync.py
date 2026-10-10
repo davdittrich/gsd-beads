@@ -2269,6 +2269,93 @@ class TestRewritePlan(unittest.TestCase):
         self.assertEqual(sync.parse_beads_epic(frontmatter), "e-2")
 
 
+    def test_existing_beads_epic_is_replaced_not_duplicated(self):
+        """R3: a stale beads_epic must be replaced in place; a second
+        declaration makes parse_beads_epic raise on every later run."""
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace("---\n", "---\nbeads_epic: old-1\n", 1)
+
+        out = sync.rewrite_plan(plan_text, "new-2", True, [], [])
+
+        self.assertEqual(out.count("beads_epic:"), 1)
+        self.assertNotIn("old-1", out)
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), out)
+            _, frontmatter, _ = sync.parse_plan(plan_copy)
+        self.assertEqual(sync.parse_beads_epic(frontmatter), "new-2")
+
+    def test_existing_beads_epic_replacement_preserves_crlf(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace("---\n", "---\nbeads_epic: old-1\n", 1)
+        plan_text = plan_text.replace("\n", "\r\n")
+
+        out = sync.rewrite_plan(plan_text, "new-2", True, [], [])
+
+        self.assertIn("beads_epic: new-2\r\n", out)
+        self.assertEqual(out.count("beads_epic:"), 1)
+
+
+class TestTransientBdShow(unittest.TestCase):
+    """R3: only a confirmed not-found means absent. Any other non-zero
+    `bd show` exit (lock, timeout) is a transient failure, not a stale id."""
+
+    @staticmethod
+    def _show_side_effect(show_result):
+        def _side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "show"]:
+                return show_result
+            return _make_bd_side_effect()(argv, **kwargs)
+
+        return _side_effect
+
+    def _run(self, plan_text, show_result):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_copy = _write_plan_workspace(Path(tmp), plan_text, with_state=True)
+            with mock.patch(
+                "subprocess.run", side_effect=self._show_side_effect(show_result)
+            ) as mock_run, contextlib.redirect_stdout(io.StringIO()) as out:
+                exit_code = sync.create_issues(str(plan_copy))
+            return exit_code, plan_copy.read_text(encoding="utf-8"), mock_run, out.getvalue()
+
+    def test_transient_show_failure_on_stored_epic_takes_failopen_path(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace("---\n", "---\nbeads_epic: e-1\n", 1)
+
+        exit_code, after, mock_run, out = self._run(
+            plan_text, _completed(1, stderr="database is locked")
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(after, plan_text)
+        self.assertEqual(after.count("beads_epic:"), 1)
+        creates = [c for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]]
+        self.assertEqual(creates, [])
+        self.assertIn(sync.NOTICE, out)
+
+    def test_transient_show_failure_on_task_id_is_not_flagged_divergent(self):
+        plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
+
+        exit_code, after, _, out = self._run(
+            plan_text, _completed(1, stderr="database is locked")
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertNotIn("divergence:", out)
+        self.assertEqual(after, plan_text)
+
+    def test_confirmed_not_found_replaces_stale_epic_with_single_line(self):
+        plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        plan_text = plan_text.replace("---\n", "---\nbeads_epic: old-1\n", 1)
+
+        exit_code, after, _, _ = self._run(
+            plan_text, _completed(1, stderr="Issue old-1 not found")
+        )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(after.count("beads_epic:"), 1)
+        self.assertNotIn("old-1", after)
+
+
 class TestIdentityBinding(unittest.TestCase):
     @staticmethod
     def _plan_open_spy():
@@ -7027,6 +7114,47 @@ class TestMilestoneEpic(unittest.TestCase):
         ]
         self.assertNotEqual(exit_code, 0)
         self.assertEqual(mutations, [])
+        self.assertEqual(after, before)
+
+    def test_transient_show_failure_on_milestone_candidate_creates_no_duplicate_epic(self):
+        """R3: a transient `bd show` failure on a candidate milestone epic is
+        not proof it is absent; creating a replacement epic would duplicate
+        the milestone epic. Expect the fail-open notice and zero creates."""
+        base = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+
+        def _side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if argv[:3] == ["bd", "show", "candidate-epic"]:
+                return _completed(1, stderr="database is locked")
+            return _completed(0, stdout="unexpected-mutation\n")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, phase_dirs = _write_milestone_workspace(
+                Path(tmp), ["01-substrate", "02-visibility"], epic_per="milestone"
+            )
+            foreign_plan = phase_dirs["01-substrate"] / "01-01-PLAN.md"
+            foreign_plan.write_text(
+                base.replace("---\n", "---\nbeads_epic: candidate-epic\n", 1),
+                encoding="utf-8",
+            )
+            target_plan = phase_dirs["02-visibility"] / "02-01-PLAN.md"
+            target_plan.write_text(
+                base.replace("phase: 01-substrate", "phase: 02-visibility", 1),
+                encoding="utf-8",
+            )
+            before = target_plan.read_bytes()
+            out = io.StringIO()
+            with mock.patch.object(sync, "bd_available", return_value=True), \
+                    contextlib.redirect_stdout(out):
+                with mock.patch.object(sync, "run_bd", side_effect=_side_effect) as mock_run:
+                    exit_code = sync.create_issues(str(target_plan), allow_strip=False)
+            after = target_plan.read_bytes()
+
+        creates = [c.args[0] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]]
+        self.assertEqual(creates, [])
+        self.assertEqual(exit_code, 0)
+        self.assertIn(sync.NOTICE, out.getvalue())
         self.assertEqual(after, before)
 
     def test_incomplete_milestone_candidate_metadata_never_authorizes_mutation(self):

@@ -1500,6 +1500,8 @@ def resolve_milestone_epic(project_root):
         check = run_bd(["bd", "show", candidate_id, "--json"])
         try:
             row = _bd_show_row(check, candidate_id)
+        except BdTransientError:
+            raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
         if row is not None:
@@ -1543,10 +1545,30 @@ def _unwrap_bd_list(payload):
     return payload if isinstance(payload, list) else []
 
 
+class BdTransientError(RuntimeError):
+    """A bd command failed without proving the record is absent (lock,
+    timeout, crash). Distinct from absence: callers must not treat the
+    record as stale, and create_issues takes its fail-open notice path."""
+
+
+# `bd show <missing>` exits 1 with "Issue <id> not found" on stderr and a
+# {"error": "no issues found matching ..."} object on stdout.
+BD_NOT_FOUND_RE = re.compile(
+    r"\bno issues? found matching|^\s*issue \S+ not found", re.IGNORECASE | re.MULTILINE
+)
+
+
 def _bd_show_row(result, expected_id):
-    """Return the exact identified row, None on absence, or fail closed."""
+    """Return the exact identified row, None on confirmed absence, or fail
+    closed (BdTransientError on any other non-zero exit)."""
     if result.returncode != 0:
-        return None
+        output = f"{result.stderr or ''}\n{result.stdout or ''}"
+        if BD_NOT_FOUND_RE.search(output):
+            return None
+        raise BdTransientError(
+            f"bd show {expected_id} failed without confirming absence: "
+            f"{(result.stderr or '').strip()}"
+        )
     if not isinstance(result.stdout, str):
         raise RuntimeError("bd show returned invalid JSON")
     try:
@@ -1578,6 +1600,8 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, 
         check = run_bd(["bd", "show", epic_id, "--json"])
         try:
             identified = _bd_show_identifies(check, epic_id)
+        except BdTransientError:
+            raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
         if identified:
@@ -1597,6 +1621,8 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, 
         check = run_bd(["bd", "show", shared_epic_id, "--json"])
         try:
             identified = _bd_show_identifies(check, shared_epic_id)
+        except BdTransientError:
+            raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
         if identified:
@@ -1742,6 +1768,16 @@ def rewrite_plan(
         text = text[:start] + replacement + text[end:]
     if epic_created:
         fm_match = FRONTMATTER_RE.match(text)
+        declaration = (
+            BEADS_EPIC_DECL_RE.search(fm_match.group(1)) if fm_match is not None else None
+        )
+        if declaration is not None:
+            # A stale beads_epic is replaced in place: a second declaration
+            # makes parse_beads_epic raise on every later run.
+            start = fm_match.start(1) + declaration.start()
+            end = fm_match.start(1) + declaration.end()
+            line_end = "\r" if text[start:end].endswith("\r") else ""
+            return text[:start] + f"beads_epic: {epic_id}{line_end}" + text[end:]
         if fm_match is None:
             # Review finding: a frontmatter-less plan is tolerated by
             # parse_plan/parse_beads_epic (empty frontmatter, stored_epic_id
