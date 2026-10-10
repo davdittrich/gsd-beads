@@ -48,7 +48,7 @@ Two consequences worth knowing:
 
 ## Ship gate
 
-`beads.ship_gate` (default `true`) blocks `ship:pre` when `BEADS.md`'s frontmatter shows `blocking_open` or `diverged` not `0` (`unknown`, written when `bd` is down, counts). `blocking_open` is the count of children of the epic recorded as `beads_epic` in the phase's plans whose status is not `closed`, whatever their edge types. This section is its single definition. Disable via `.planning/config.json`'s `beads.ship_gate: false` — a bypass under that setting gets recorded as a `ship_override` (git trailer + bd comment) rather than silently ignored.
+`beads.ship_gate` (default `true`) blocks `ship:pre` when `BEADS.md`'s frontmatter shows `blocking_open` or `diverged` not `0` (`unknown`, written when `bd` is down, counts). `blocking_open` is the count of children of the epic recorded as `beads_epic` in the phase's plans whose status is not `closed`, whatever their edge types. This section is its single definition. The gate reads the `BEADS.md` snapshot that `verify:post` wrote, not live `bd`: a `bd` change made after the last `BEADS.md` regeneration (normally `verify:post`) reaches the gate only once a step regenerates it again (gsd-core orders the two points; that ordering is upstream). Disable via `.planning/config.json`'s `beads.ship_gate: false` — a bypass under that setting gets recorded as a `ship_override` (git trailer + bd comment) rather than silently ignored.
 
 ## Failure mode
 

@@ -35,15 +35,15 @@ directory:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" beads-recall <phase directory>
+python3 -I "$SYNC_PY" beads-recall <phase directory>
 ```
 
 One `bd list` call fetches every open, non-epic issue. Each is matched to the phase's scope by a
@@ -62,19 +62,19 @@ Always runs after Step 3, even when `bd` was unavailable (it reads only the inst
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" check-patch ship-md
+python3 -I "$SYNC_PY" check-patch ship-md
 ```
 
 When the command exits non-zero or its output lacks the word "present", show that output to the
-user verbatim. Never block planning on it: the check is diagnostic. This is the call that detects a
+user verbatim. Let planning proceed whatever it prints: the check is diagnostic. This is the call that detects a
 lost `ship.md` patch; `beads-status` Step 2d only confirms an intact one. It stays independent of
 the patch because `hooks/lifecycle-dispatch.sh` dispatches `plan:pre`, so it fires whether or not
 the patch survived a `gsd-core` update.

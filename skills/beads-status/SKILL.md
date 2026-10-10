@@ -33,7 +33,7 @@ no plan ids.
 | Point | Branch |
 |---|---|
 | `execute:wave:pre`, before any executor `Agent()` spawns | Step 2a |
-| `execute:wave:post`, after every plan in the wave merged | Step 2, then Step 3 |
+| `execute:wave:post`, after every plan in the wave merged | Step 2f, then Step 3 |
 | `verify:post`, once per phase | Step 2b |
 | `ship:pre`, once per phase | Step 2c, then Step 2d |
 | none (a direct `/gsd-beads-status [phase]` call) | Step 2e |
@@ -46,15 +46,15 @@ One Bash call, passing the phase directory and **every** plan id in the wave:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" wave-status-block <phase directory> <plan id> [<plan id> ...]
+python3 -I "$SYNC_PY" wave-status-block <phase directory> <plan id> [<plan id> ...]
 ```
 
 It regenerates `BEADS.md` from live `bd` (a hand edit is overwritten, never merged) and prints a
@@ -73,15 +73,15 @@ One Bash call, passing only the phase directory:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" regenerate-beads-md <phase directory>
+python3 -I "$SYNC_PY" regenerate-beads-md <phase directory>
 ```
 
 It rewrites `BEADS.md` from live `bd` state, recomputing `blocking_open` and `diverged` for
@@ -98,15 +98,15 @@ Otherwise print nothing.
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" ship-override <phase directory>
+python3 -I "$SYNC_PY" ship-override <phase directory>
 ```
 
 ## Step 2d -- ship:pre: verify the local ship.md patch
@@ -117,19 +117,19 @@ Always runs at `ship:pre`, whether or not Step 2c did anything.
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" check-patch ship-md
+python3 -I "$SYNC_PY" check-patch ship-md
 ```
 
 When the command exits non-zero or its output lacks the word "present", show that output to the
-user verbatim. Never block shipping on it: the check is diagnostic. It confirms an intact patch but
+user verbatim. Let shipping proceed whatever it prints: the check is diagnostic. It confirms an intact patch but
 cannot detect a lost one, because this call site runs only through the patched loop;
 `beads-recall` Step 3.5 is the detector. Patch and upstream status: `GSD-CORE-PATCH.md`.
 
@@ -142,22 +142,20 @@ Pass `$ARGUMENTS` through as the phase directory (or number). With no argument, 
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" status [phase directory]
+python3 -I "$SYNC_PY" status [phase directory]
 ```
 
 Print stdout verbatim, including both orphan sections ("Issues with no matching plan task" and
-"Plan tasks with no bd issue"). This is a read-only report: never call `bd close`, `bd update`, or
-`bd comment` here.
-
-## Step 2 -- execute:wave:post: close completed plans' issues
+"Plan tasks with no bd issue"). Print it and stop: this branch only reads `bd`.
+## Step 2f -- execute:wave:post: close completed plans' issues
 
 The `PostToolUse` hook runs `sync.py lifecycle-dispatch execute:wave:post` here. It reconciles the
 whole phase: every completed plan's open issues close, so a wave whose dispatch was skipped heals
@@ -172,15 +170,15 @@ Pass the whole list to one invocation:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
 if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global, plugin, or project capability roots" >&2
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
   exit 1
 fi
-python3 "$SYNC_PY" close-wave <phase directory> <plan id> [<plan id> ...]
+python3 -I "$SYNC_PY" close-wave <phase directory> <plan id> [<plan id> ...]
 ```
 
 The script collects the `<beads-id>` of every task in a complete plan, drops ids already closed,
