@@ -3505,7 +3505,7 @@ def ship_override(phase_dir_arg):
     )
     if _head_already_pushed(project_root):
         print(
-            "ship-override: HEAD has no unpushed commits (already on the remote) -- "
+            "ship-override: HEAD has no unpushed commits (already on its push target, or the push target cannot be established) -- "
             "refusing to amend, that would diverge local history from origin and "
             "break the next push. This happens on a ship retry after a prior run "
             "already pushed. Record the override manually or re-run ship_override "
