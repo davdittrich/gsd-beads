@@ -71,6 +71,15 @@ setup() {
   mkdir -p "$BIN_DIR"
   TEST_BIN="$SCRATCH/test-bin"
   mkdir -p "$TEST_BIN"
+  # The hook runs python3 -I, which ignores PYTHONPATH. Spy cases inject a
+  # sitecustomize through PYTHONPATH, so only they get -I dropped; every other
+  # case (case3e's planted-module check included) runs the hook's argv as is.
+  cat > "$TEST_BIN/python3" <<SHIM
+#!/usr/bin/env bash
+if [ -n "\${PYTHONPATH:-}" ] && [ "\${1:-}" = "-I" ]; then shift; fi
+exec "$REAL_PYTHON" "\$@"
+SHIM
+  chmod +x "$TEST_BIN/python3"
   STUB_LOG="$SCRATCH/stub.log"
   : > "$STUB_LOG"
   local stub_status="${1:-0}"
@@ -315,6 +324,40 @@ grep -q 'selected command contract verification failed' "$STDERR_FILE" \
   || fail "case3d: retired selected command was certified"
 [ ! -e "$STATE_FILE" ] || fail "case3d: sidecar recorded an invalid selected command"
 pass "case3d: selected command verification rejects retired execute-plan"
+teardown
+
+### Case 3e (R1): stdlib-named modules planted in cwd never run in hook python ###
+# `python3 -`/`python3 -c` put cwd first on sys.path, so a cloned repo's
+# json.py would run inside the SessionStart hook and the task resolver.
+setup 0
+seed_selected "$SKILLS_ROOT"
+PLANT_DIR="$SCRATCH/planted-cwd"
+CANARY="$SCRATCH/planted.canary"
+mkdir -p "$PLANT_DIR"
+for _mod in json pathlib hashlib fcntl errno stat tempfile shlex subprocess; do
+  printf 'open(%s, "a").write("%s\\n")\n' "'$CANARY'" "$_mod" > "$PLANT_DIR/$_mod.py"
+done
+cd "$PLANT_DIR" || fail "case3e: cannot enter planted cwd"
+run_script beads
+cd "$REPO_ROOT" || fail "case3e: cannot leave planted cwd"
+[ "$STATUS" -eq 0 ] || fail "case3e: exit status $STATUS, expected 0"
+[ -f "$STATE_FILE" ] || fail "case3e: hook did not reach ledger publish: $(cat "$STDERR_FILE")"
+[ ! -e "$CANARY" ] || fail "case3e: hook imported planted cwd modules: $(tr '\n' ' ' < "$CANARY")"
+RESOLVER_HOME="$SCRATCH/resolver-home"
+mkdir -p "$RESOLVER_HOME/.gsd/capabilities/beads/scripts"
+printf 'import sys\nprint("resolved", sys.argv[-1])\n' \
+  > "$RESOLVER_HOME/.gsd/capabilities/beads/scripts/sync.py"
+printf '%s\n' \
+  'import json, subprocess, sys' \
+  'invoke = json.load(open(sys.argv[1]))["taskContentResolver"]["invoke"]' \
+  'args = [a.replace("{{id}}", "bd-1") for a in invoke["args"]]' \
+  'sys.exit(subprocess.run([invoke["binary"], *args]).returncode)' \
+  > "$SCRATCH/resolver-launch.py"
+RESOLVER_OUT="$(cd "$PLANT_DIR" && GSD_HOME="$RESOLVER_HOME" PATH="/usr/bin:/bin" \
+  "$REAL_PYTHON" -I "$SCRATCH/resolver-launch.py" "$REPO_ROOT/capability.json" 2>&1)"
+[ "$RESOLVER_OUT" = "resolved bd-1" ] || fail "case3e: resolver did not reach sync.py: $RESOLVER_OUT"
+[ ! -e "$CANARY" ] || fail "case3e: task resolver imported planted cwd modules: $(tr '\n' ' ' < "$CANARY")"
+pass "case3e: planted cwd modules never run in hook or resolver python"
 teardown
 
 ### Case 4: install-failure path (D-04, CAP-05) -- stub gsd-tools exits 1 ###
@@ -1168,7 +1211,7 @@ install_fingerprint_rendezvous_python() {
   mkfifo "$READY_FIFO" "$RELEASE_FIFO"
   cat > "$TEST_BIN/python3" <<STUB
 #!/usr/bin/env bash
-if [ "\$1" = - ] && [ "\${2:-}" = "$SKILLS_ROOT" ]; then
+if [ "\$1" = -I ] && [ "\${2:-}" = - ] && [ "\${3:-}" = "$SKILLS_ROOT" ]; then
   _count=0
   [ ! -f "$PYTHON_COUNT" ] || _count="\$(cat "$PYTHON_COUNT")"
   _count=\$((_count + 1))

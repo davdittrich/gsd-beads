@@ -25,7 +25,7 @@ BUNDLE_ALLOWLIST=(capability.json scripts skills fragments GSD-CORE-PATCH.md)
 # paths plus file bytes. Relative framing avoids absolute-root drift and
 # concatenation collisions.
 canonical_tree_hash() {
-  python3 - "$@" 9>&- 2>/dev/null <<'PY'
+  python3 -I - "$@" 9>&- 2>/dev/null <<'PY'
 import hashlib
 import os
 import pathlib
@@ -139,7 +139,7 @@ mkdir -p "$STATE_DIR" 2>/dev/null || {
 }
 
 if [ -z "${GSD_AUTO_INSTALL_LOCK_FD:-}" ]; then
-  python3 - "$LOCK_PATH" "$0" "$CAP_ID" "$SKILLS_ROOT" 8>&2 2>/dev/null <<'PY'
+  python3 -I - "$LOCK_PATH" "$0" "$CAP_ID" "$SKILLS_ROOT" 8>&2 2>/dev/null <<'PY'
 import errno
 import fcntl
 import os
@@ -211,7 +211,7 @@ LOCK_CHILD_STATUS=0
 if [ "$GSD_AUTO_INSTALL_LOCK_FD" != 9 ]; then
   LOCK_CHILD_STATUS=76
 else
-  python3 - "$LOCK_PATH" 9 2>/dev/null <<'PY' || LOCK_CHILD_STATUS=$?
+  python3 -I - "$LOCK_PATH" 9 2>/dev/null <<'PY' || LOCK_CHILD_STATUS=$?
 import errno
 import fcntl
 import os
@@ -272,7 +272,7 @@ if [ "$STAGE_OK" -ne 1 ]; then
   exit 0
 fi
 
-SELECTED_SKILL_NAMES="$(python3 - "$BUNDLE_DIR/capability.json" 9>&- 2>/dev/null <<'PY'
+SELECTED_SKILL_NAMES="$(python3 -I - "$BUNDLE_DIR/capability.json" 9>&- 2>/dev/null <<'PY'
 import json
 import pathlib
 import re
@@ -326,7 +326,7 @@ guard_skill_ownership() {
 }
 
 verify_selected_projection() {
-  python3 - "$BUNDLE_DIR/capability.json" "$SKILLS_ROOT" \
+  python3 -I - "$BUNDLE_DIR/capability.json" "$SKILLS_ROOT" \
     "${GSD_HOME:-$HOME}/.gsd/capabilities/$CAP_ID/scripts/sync.py" "$CAP_ID" 9>&- 2>/dev/null <<'PY'
 import json
 import pathlib
@@ -404,7 +404,7 @@ selected_fingerprint() {
 }
 
 ledger_has_current_row() {
-  python3 - "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
+  python3 -I - "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
     "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" 9>&- 2>/dev/null <<'PY'
 import pathlib
 import re
@@ -427,7 +427,7 @@ PY
 }
 
 ledger_target_is_safe() {
-  python3 - "$LEDGER" 9>&- 2>/dev/null <<'PY'
+  python3 -I - "$LEDGER" 9>&- 2>/dev/null <<'PY'
 import os
 import stat
 import sys
@@ -449,7 +449,7 @@ PY
 }
 
 publish_ledger() {
-  python3 - "$LEDGER" "$LEGACY_STATE_FILE" "$ACTIVE_RUNTIME" \
+  python3 -I - "$LEDGER" "$LEGACY_STATE_FILE" "$ACTIVE_RUNTIME" \
     "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" 9>&- 2>/dev/null <<'PY'
 import os
 import pathlib
