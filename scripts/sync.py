@@ -1827,8 +1827,10 @@ def collect_epic_task_ids(phase_dir, epic_id):
     for plan_path in discover_plan_files(phase_dir).values():
         try:
             _, frontmatter, tasks = parse_plan(plan_path)
-        except (OSError, UnicodeDecodeError):
-            continue
+        except (OSError, UnicodeDecodeError) as exc:
+            # Its ids are unknown, so every one of its issues would look
+            # orphaned: the caller must skip its sweep (gsd-beads-cjbc.32).
+            raise PlanParseError(f"{plan_path.name}: unreadable plan ({exc})") from exc
         m = BEADS_EPIC_RE.search(frontmatter)
         if not m or m.group(1) != epic_id:
             continue

@@ -10148,5 +10148,48 @@ class TestRegenFailClosedV1(unittest.TestCase):
             self.assertIn("precedence", err.getvalue())
 
 
+class TestMilestoneSweepUnreadableSibling(unittest.TestCase):
+    """gsd-beads-cjbc.32: a sibling phase's unreadable PLAN.md hides its ids;
+    the milestone orphan sweep must be skipped, not close its live issues."""
+
+    def _closed(self, bad_bytes):
+        text = _regen_two_task_plan_text().replace("regen-epic", "ms-epic")
+
+        def side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "--id"] or (argv[:2] == ["bd", "list"] and "--id" in argv):
+                ids = argv[argv.index("--id") + 1].split(",")
+                return _completed(0, stdout=json.dumps([{"id": i} for i in ids]))
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout=json.dumps([
+                    {"id": "ms-epic.1", "status": "open", "labels": ["gsd-sync"]},
+                    {"id": "ms-epic.2", "status": "open", "labels": ["gsd-sync"]},
+                    {"id": "ms-epic.9", "status": "open", "labels": ["gsd-sync"]},
+                ]))
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2], "title": "Milestone v1.0: milestone"}]))
+            if argv[:2] == ["bd", "close"] or argv[:3] == ["bd", "dep", "add"]:
+                return _completed(0)
+            return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            _, dirs = _write_milestone_workspace(
+                Path(tmp), ["01-substrate", "02-other"], epic_per="milestone"
+            )
+            plan = dirs["01-substrate"] / "01-07-PLAN.md"
+            plan.write_text(text, encoding="utf-8")
+            (dirs["02-other"] / "02-01-PLAN.md").write_bytes(bad_bytes)
+            err = io.StringIO()
+            with mock.patch("subprocess.run", side_effect=side_effect) as mock_run, \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                sync.create_issues(str(plan))
+        closed = [c.args[0][2] for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "close"]]
+        return closed, err.getvalue()
+
+    def test_non_utf8_sibling_plan_skips_sweep(self):
+        closed, err = self._closed(b"---\nbeads_epic: ms-epic\n---\n\xff\xfe\n")
+        self.assertEqual(closed, [])
+        self.assertIn("orphan sweep skipped", err)
+
+
 if __name__ == "__main__":
     unittest.main()
