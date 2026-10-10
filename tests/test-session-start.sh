@@ -35,6 +35,8 @@ export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 
 run_hook() {
   ( cd "$WORKDIR" && bash "$HOOK" ) >"$SCRATCH/stdout" 2>"$SCRATCH/stderr"
+  local _status=$?
+  [ "$_status" -eq 0 ] || fail "$WORKDIR: hook exited $_status: $(cat "$SCRATCH/stderr")"
 }
 
 # Case 1: no DEST yet -> self-heal copies the shipped PRIME.md.
@@ -63,5 +65,52 @@ run_hook
 [ "$(cat "$WORKDIR/.beads/PRIME.md")" = "existing content" ] \
   || fail "case3: existing real PRIME.md was overwritten"
 pass "case3: existing real PRIME.md is left untouched"
+
+# Stub plugin root: the real session-start.sh plus an auto-install stub that
+# prints its install notice on stdout, as the real one does on success.
+STUB_ROOT="$SCRATCH/stub-plugin"
+mkdir -p "$STUB_ROOT/hooks" "$STUB_ROOT/.agents/skills/beads"
+cp "$HOOK" "$STUB_ROOT/hooks/session-start.sh"
+cp "$REPO_ROOT/.agents/skills/beads/PRIME.md" "$STUB_ROOT/.agents/skills/beads/PRIME.md"
+printf '%s\n' '#!/usr/bin/env bash' 'echo "Auto-installed capability: beads (user scope)"' \
+  > "$STUB_ROOT/hooks/capability-auto-install.sh"
+
+# Case 4: hook stdout is the bd prime JSON and nothing else.
+WORKDIR="$SCRATCH/case4"
+mkdir -p "$WORKDIR/.beads"
+CLAUDE_PLUGIN_ROOT="$STUB_ROOT" run_hook
+[ "$(cat "$SCRATCH/stdout")" = '{"stub":"bd prime"}' ] \
+  || fail "case4: stdout is not exactly the bd prime JSON: $(cat "$SCRATCH/stdout")"
+grep -qx 'Auto-installed capability: beads (user scope)' "$SCRATCH/stderr" \
+  || fail "case4: install notice did not reach stderr"
+pass "case4: install notice goes to stderr, stdout carries only hook JSON"
+
+# Case 5: .beads is a symlink to a directory outside the repo -> no write.
+WORKDIR="$SCRATCH/case5"
+OUTSIDE="$SCRATCH/case5-outside"
+mkdir -p "$WORKDIR" "$OUTSIDE"
+ln -s "$OUTSIDE" "$WORKDIR/.beads"
+CLAUDE_PLUGIN_ROOT="$STUB_ROOT" run_hook
+[ ! -e "$OUTSIDE/PRIME.md" ] || fail "case5: PRIME.md written through symlinked .beads"
+pass "case5: symlinked .beads is never written through"
+
+# Case 6: no bd on PATH -> exit 0 silently instead of exec failing with 127.
+WORKDIR="$SCRATCH/case6"
+NOBD_BIN="$SCRATCH/nobd-bin"
+mkdir -p "$WORKDIR/.beads" "$NOBD_BIN"
+ln -s "$(command -v bash)" "$NOBD_BIN/bash"
+ln -s "$(command -v cp)" "$NOBD_BIN/cp"
+PATH="$NOBD_BIN" CLAUDE_PLUGIN_ROOT="$STUB_ROOT" run_hook
+[ ! -s "$SCRATCH/stdout" ] || fail "case6: stdout not empty without bd: $(cat "$SCRATCH/stdout")"
+pass "case6: missing bd exits 0 with empty stdout"
+
+# Case 7: SessionStart has an explicit timeout covering the bounded lock wait.
+python3 -I - "$REPO_ROOT/hooks/hooks.json" <<'PY' || fail "case7: SessionStart timeout missing or below 60s"
+import json, sys
+hooks = json.load(open(sys.argv[1]))["hooks"]["SessionStart"]
+timeouts = [h.get("timeout") for group in hooks for h in group["hooks"]]
+sys.exit(0 if timeouts and all(isinstance(v, int) and v >= 60 for v in timeouts) else 1)
+PY
+pass "case7: SessionStart hook declares an explicit timeout"
 
 echo "ALL PASS"

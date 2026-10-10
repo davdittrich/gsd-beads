@@ -14,7 +14,11 @@ CAP_ID="${1:-}"
 # path construction.
 [[ "$CAP_ID" =~ ^[a-z][a-z0-9-]*$ ]] || exit 0
 
-PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+# Resolved physical path: ownership below is a prefix test, so a cache-path
+# symlink into an arbitrary tree must not inherit the cache's trust. An
+# unresolvable root is empty and stops here, never becoming "/capability.json".
+PLUGIN_ROOT="$(cd -P "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}" 2>/dev/null && pwd -P)"
+[ -n "$PLUGIN_ROOT" ] || exit 0
 # The plugin root is the capability root (root-manifest layout), but it also
 # carries dev-only content (tests/, .git, caches). Only an allowlist is ever
 # hashed or installed; it is staged below, once the transaction lock is held.
@@ -25,7 +29,7 @@ BUNDLE_ALLOWLIST=(capability.json scripts skills fragments GSD-CORE-PATCH.md)
 # paths plus file bytes. Relative framing avoids absolute-root drift and
 # concatenation collisions.
 canonical_tree_hash() {
-  python3 - "$@" 9>&- 2>/dev/null <<'PY'
+  python3 -I - "$@" 9>&- 2>/dev/null <<'PY'
 import hashlib
 import os
 import pathlib
@@ -68,32 +72,42 @@ PY
 
 STATE_VERSION="projection-v2"
 
-# Reconcile only the runtime that loaded this plugin. An explicit validated
-# runtime wins; otherwise the installed plugin cache must identify one owner.
+# Every root below decides where machine-wide state lands; a relative one
+# would resolve inside whatever repo the session opened in.
+for _root_var in HOME GSD_HOME CODEX_HOME CLAUDE_CONFIG_DIR; do
+  _root_value="${!_root_var:-}"
+  if [ "$_root_var" = HOME ] || [ -n "$_root_value" ]; then
+    case "$_root_value" in
+      /?*) ;;
+      *)
+        echo "capability-auto-install: $_root_var must be absolute for $CAP_ID; projection not recorded" >&2
+        exit 0
+        ;;
+    esac
+  fi
+done
+
+# Reconcile only the runtime that loaded this plugin: the installed plugin
+# cache must identify exactly one owner. GSD_RUNTIME may only confirm that
+# owner, never replace it, so a --plugin-dir working tree never installs.
 CODEX_CONFIG_ROOT="${CODEX_HOME:-$HOME/.codex}"
 CLAUDE_CONFIG_ROOT="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-ACTIVE_RUNTIME="${GSD_RUNTIME:-}"
-case "$ACTIVE_RUNTIME" in
-  codex|claude) ;;
-  "")
-    CODEX_OWNER=0
-    CLAUDE_OWNER=0
-    [[ "$PLUGIN_ROOT/" == "$CODEX_CONFIG_ROOT"/plugins/* ]] && CODEX_OWNER=1
-    [[ "$PLUGIN_ROOT/" == "$CLAUDE_CONFIG_ROOT"/plugins/* ]] && CLAUDE_OWNER=1
-    if [ "$CODEX_OWNER" -eq 1 ] && [ "$CLAUDE_OWNER" -eq 0 ]; then
-      ACTIVE_RUNTIME="codex"
-    elif [ "$CODEX_OWNER" -eq 0 ] && [ "$CLAUDE_OWNER" -eq 1 ]; then
-      ACTIVE_RUNTIME="claude"
-    else
-      echo "capability-auto-install: runtime selection failed for $CAP_ID; projection not recorded" >&2
-      exit 0
-    fi
-    ;;
-  *)
-    echo "capability-auto-install: runtime selection failed for $CAP_ID; projection not recorded" >&2
-    exit 0
-    ;;
-esac
+CODEX_OWNER=0
+CLAUDE_OWNER=0
+_codex_physical="$(cd -P "$CODEX_CONFIG_ROOT" 2>/dev/null && pwd -P)"
+_claude_physical="$(cd -P "$CLAUDE_CONFIG_ROOT" 2>/dev/null && pwd -P)"
+[ -n "$_codex_physical" ] && [[ "$PLUGIN_ROOT/" == "$_codex_physical"/plugins/* ]] && CODEX_OWNER=1
+[ -n "$_claude_physical" ] && [[ "$PLUGIN_ROOT/" == "$_claude_physical"/plugins/* ]] && CLAUDE_OWNER=1
+ACTIVE_RUNTIME=""
+if [ "$CODEX_OWNER" -eq 1 ] && [ "$CLAUDE_OWNER" -eq 0 ]; then
+  ACTIVE_RUNTIME="codex"
+elif [ "$CODEX_OWNER" -eq 0 ] && [ "$CLAUDE_OWNER" -eq 1 ]; then
+  ACTIVE_RUNTIME="claude"
+fi
+if [ -z "$ACTIVE_RUNTIME" ] || [ "${GSD_RUNTIME:-$ACTIVE_RUNTIME}" != "$ACTIVE_RUNTIME" ]; then
+  echo "capability-auto-install: runtime selection failed for $CAP_ID; projection not recorded" >&2
+  exit 0
+fi
 
 case "$ACTIVE_RUNTIME" in
   codex)
@@ -139,14 +153,22 @@ mkdir -p "$STATE_DIR" 2>/dev/null || {
 }
 
 if [ -z "${GSD_AUTO_INSTALL_LOCK_FD:-}" ]; then
-  python3 - "$LOCK_PATH" "$0" "$CAP_ID" "$SKILLS_ROOT" 8>&2 2>/dev/null <<'PY'
+  python3 -I - "$LOCK_PATH" "$0" "$CAP_ID" "$SKILLS_ROOT" 8>&2 2>/dev/null <<'PY'
 import errno
 import fcntl
 import os
 import stat
 import sys
+import time
 
 lock_path, hook_path, capability_id, skills_root = sys.argv[1:]
+# Bounded wait: a concurrent session finishes its install before this one
+# proceeds to bd prime, yet a wedged holder never stalls SessionStart past
+# 30s. The override exists for tests and can only shorten the bound.
+try:
+    wait_seconds = min(30.0, max(0.0, float(os.environ.get("GSD_AUTO_INSTALL_LOCK_WAIT_SECONDS", "30"))))
+except ValueError:
+    wait_seconds = 30.0
 try:
     flags = os.O_RDWR | os.O_CREAT | os.O_NONBLOCK | os.O_NOFOLLOW
 except AttributeError:
@@ -170,12 +192,17 @@ try:
     )
     if not valid:
         raise SystemExit(76)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError as error:
-        if error.errno in (errno.EACCES, errno.EAGAIN):
-            raise SystemExit(75)
-        raise SystemExit(76)
+    deadline = time.monotonic() + wait_seconds
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            break
+        except OSError as error:
+            if error.errno not in (errno.EACCES, errno.EAGAIN):
+                raise SystemExit(76)
+            if time.monotonic() >= deadline:
+                raise SystemExit(75)
+        time.sleep(0.1)
     path_entry = os.stat(lock_path, follow_symlinks=False)
     if (
         not stat.S_ISREG(path_entry.st_mode)
@@ -211,7 +238,7 @@ LOCK_CHILD_STATUS=0
 if [ "$GSD_AUTO_INSTALL_LOCK_FD" != 9 ]; then
   LOCK_CHILD_STATUS=76
 else
-  python3 - "$LOCK_PATH" 9 2>/dev/null <<'PY' || LOCK_CHILD_STATUS=$?
+  python3 -I - "$LOCK_PATH" 9 2>/dev/null <<'PY' || LOCK_CHILD_STATUS=$?
 import errno
 import fcntl
 import os
@@ -252,9 +279,14 @@ fi
 unset GSD_AUTO_INSTALL_LOCK_FD GSD_AUTO_INSTALL_SKILLS_ROOT
 
 # Stage the allowlist into a private temp dir (mktemp -d is 0700) and run every
-# hash/verify/install step against it. cp -P keeps symlinks as symlinks so the
-# hash and ownership checks below still reject them. The path is never printed.
-STAGE_DIR="$(mktemp -d 2>/dev/null)" && [ -d "$STAGE_DIR" ] || STAGE_DIR=""
+# hash/verify step against it. cp -P keeps symlinks as symlinks so the hash and
+# ownership checks below still reject them. The stage sits in STATE_DIR so it
+# can be renamed to SOURCE_DIR, the stable path gsd-core records as the
+# ledger source that `capability update` re-fetches (R28).
+SOURCE_PARENT="$STATE_DIR/capability-auto-install-$CAP_ID.source"
+SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
+STAGE_DIR="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.stage.XXXXXX" 2>/dev/null)" \
+  && [ -d "$STAGE_DIR" ] || STAGE_DIR=""
 trap '[ -n "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"' EXIT
 BUNDLE_DIR="$STAGE_DIR/$CAP_ID"
 STAGE_OK=0
@@ -272,7 +304,7 @@ if [ "$STAGE_OK" -ne 1 ]; then
   exit 0
 fi
 
-SELECTED_SKILL_NAMES="$(python3 - "$BUNDLE_DIR/capability.json" 9>&- 2>/dev/null <<'PY'
+SELECTED_SKILL_NAMES="$(python3 -I - "$BUNDLE_DIR/capability.json" 9>&- 2>/dev/null <<'PY'
 import json
 import pathlib
 import re
@@ -326,7 +358,7 @@ guard_skill_ownership() {
 }
 
 verify_selected_projection() {
-  python3 - "$BUNDLE_DIR/capability.json" "$SKILLS_ROOT" \
+  python3 -I - "$BUNDLE_DIR/capability.json" "$SKILLS_ROOT" \
     "${GSD_HOME:-$HOME}/.gsd/capabilities/$CAP_ID/scripts/sync.py" "$CAP_ID" 9>&- 2>/dev/null <<'PY'
 import json
 import pathlib
@@ -404,7 +436,7 @@ selected_fingerprint() {
 }
 
 ledger_has_current_row() {
-  python3 - "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
+  python3 -I - "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
     "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" 9>&- 2>/dev/null <<'PY'
 import pathlib
 import re
@@ -427,7 +459,7 @@ PY
 }
 
 ledger_target_is_safe() {
-  python3 - "$LEDGER" 9>&- 2>/dev/null <<'PY'
+  python3 -I - "$LEDGER" 9>&- 2>/dev/null <<'PY'
 import os
 import stat
 import sys
@@ -449,7 +481,7 @@ PY
 }
 
 publish_ledger() {
-  python3 - "$LEDGER" "$LEGACY_STATE_FILE" "$ACTIVE_RUNTIME" \
+  python3 -I - "$LEDGER" "$LEGACY_STATE_FILE" "$ACTIVE_RUNTIME" \
     "$INSTALLED_GENERATION" "$SELECTED_FINGERPRINT" 9>&- 2>/dev/null <<'PY'
 import os
 import pathlib
@@ -584,61 +616,146 @@ INSTALLED_STATUS=$?
 SELECTED_FINGERPRINT="$(selected_fingerprint)"
 SELECTED_STATUS=$?
 if [ "$SOURCE_STATUS" -eq 0 ] && [ "$INSTALLED_STATUS" -eq 0 ] \
-  && [ "$SELECTED_STATUS" -eq 0 ] && ledger_has_current_row; then
+  && [ "$SELECTED_STATUS" -eq 0 ] && [ -d "$SOURCE_DIR" ] && [ ! -L "$SOURCE_PARENT" ] \
+  && ledger_has_current_row; then
   exit 0
 fi
 
 # Spec is always the absolute bundle dir (Pattern 2) -- a relative spec would
 # resolve against the end user's cwd, not the plugin. Prose "user scope"
 # (D-01) maps to the CLI's literal --scope global value (Pitfall 1).
+# Refuse a downgrade: two runtimes' plugin caches can carry different
+# bundle versions and share one global install, which would otherwise flip
+# on every runtime switch. An unparsable installed version fails closed.
+if [ -e "$INSTALLED_BUNDLE/capability.json" ] || [ -L "$INSTALLED_BUNDLE/capability.json" ]; then
+  if ! python3 -I - "$BUNDLE_DIR/capability.json" "$INSTALLED_BUNDLE/capability.json" 9>&- 2>/dev/null <<'PY'
+import json
+import pathlib
+import re
+import sys
+
+def version(path):
+    path = pathlib.Path(path)
+    if path.is_symlink():
+        raise ValueError
+    value = json.loads(path.read_text())["version"]
+    if not isinstance(value, str) or not re.fullmatch(r"[0-9]+(\.[0-9]+)*", value):
+        raise ValueError
+    return tuple(int(part) for part in value.split("."))
+
+try:
+    source, installed = version(sys.argv[1]), version(sys.argv[2])
+except (OSError, KeyError, TypeError, ValueError):
+    raise SystemExit(1)
+raise SystemExit(0 if source >= installed else 1)
+PY
+  then
+    echo "capability-auto-install: refusing to replace a newer or unreadable installed $CAP_ID with this bundle on $ACTIVE_RUNTIME; projection not recorded" >&2
+    exit 0
+  fi
+fi
+
 if ! guard_skill_ownership; then
   echo "capability-auto-install: destination ownership check failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
   exit 0
 fi
 
-gsd_tools capability install "$BUNDLE_DIR" --scope global --yes >/dev/null 2>&1
+rm -rf "$SOURCE_PARENT" 2>/dev/null
+if [ -e "$SOURCE_PARENT" ] || [ -L "$SOURCE_PARENT" ] || ! mv "$STAGE_DIR" "$SOURCE_PARENT" 2>/dev/null; then
+  echo "capability-auto-install: stable source publish failed for $CAP_ID; projection not recorded" >&2
+  exit 0
+fi
+STAGE_DIR=""
+BUNDLE_DIR="$SOURCE_DIR"
+
+# Never --yes: consent to an executable surface is the user's, not a
+# SessionStart side effect. gsd-core reports the block as a JSON envelope.
+INSTALL_OUTPUT="$(gsd_tools capability install "$BUNDLE_DIR" --scope global 2>/dev/null)"
 INSTALL_STATUS=$?
+if [ "$INSTALL_STATUS" -ne 0 ] && printf '%s' "$INSTALL_OUTPUT" | python3 -I -c '
+import json, sys
+try:
+    envelope = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+sys.exit(0 if isinstance(envelope, dict) and envelope.get("requiresConsent") is True else 1)
+' 9>&- 2>/dev/null; then
+  echo "capability-auto-install: $CAP_ID needs your consent before install; run: $GSD_TOOLS capability install $BUNDLE_DIR --scope global --yes" >&2
+  exit 0
+fi
+
+# A failure after install leaves the new bundle live but unverified: disable
+# it, record that the hook did so, and name the command that undoes it. The
+# marker is written only when the capability was enabled, so a user's own
+# --disable (which also fails verification: nothing is projected) is never
+# re-enabled. `set` without a flag preserves enabled state, so the state
+# query here still reflects the user's choice.
+DISABLED_MARKER="$STATE_DIR/capability-auto-install-$CAP_ID.$ACTIVE_RUNTIME.disabled"
+roll_back() {
+  local _enabled
+  _enabled="$(GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability state --runtime "$ACTIVE_RUNTIME" \
+      --config-dir "$RUNTIME_CONFIG_DIR" --raw 2>/dev/null | python3 -I -c '
+import json, sys
+try:
+    found = [c.get("enabled") for c in json.load(sys.stdin)["capabilities"] if c.get("id") == sys.argv[1]]
+except (ValueError, KeyError, TypeError, AttributeError):
+    found = []
+print({(True,): "true", (False,): "false"}.get(tuple(found), "unknown"))
+' "$CAP_ID" 9>&- 2>/dev/null)"
+  if [ "$_enabled" = false ]; then
+    echo "capability-auto-install: $1 for $CAP_ID on $ACTIVE_RUNTIME; left as disabled by the user; projection not recorded" >&2
+    exit 0
+  fi
+  if GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --disable --runtime "$ACTIVE_RUNTIME" \
+      --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1; then
+    rm -f "$DISABLED_MARKER" 2>/dev/null
+    [ "$_enabled" = true ] && ( set -C; : > "$DISABLED_MARKER" ) 2>/dev/null
+    echo "capability-auto-install: $1 for $CAP_ID on $ACTIVE_RUNTIME; capability disabled (re-enable: $GSD_TOOLS capability set $CAP_ID --enable --runtime $ACTIVE_RUNTIME --scope global --config-dir $RUNTIME_CONFIG_DIR); projection not recorded" >&2
+  else
+    echo "capability-auto-install: $1 for $CAP_ID on $ACTIVE_RUNTIME; rollback failed, capability may be half-installed; projection not recorded" >&2
+  fi
+  exit 0
+}
 
 if [ "$INSTALL_STATUS" -eq 0 ]; then
   INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
   if [ "$?" -ne 0 ] || [ "$INSTALLED_GENERATION" != "$SOURCE_GENERATION" ]; then
-    echo "capability-auto-install: installed generation verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-    exit 0
+    roll_back "installed generation verification failed"
   fi
-  GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" --runtime "$ACTIVE_RUNTIME" --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1
+  # Re-enable only a capability this hook disabled itself (rollback below);
+  # a user's own --disable carries no marker and stays disabled.
+  SET_ENABLE=()
+  [ -f "$DISABLED_MARKER" ] && [ ! -L "$DISABLED_MARKER" ] && SET_ENABLE=(--enable)
+  GSD_RUNTIME="$ACTIVE_RUNTIME" gsd_tools capability set "$CAP_ID" ${SET_ENABLE[@]+"${SET_ENABLE[@]}"} --runtime "$ACTIVE_RUNTIME" --scope global --config-dir "$RUNTIME_CONFIG_DIR" >/dev/null 2>&1
   RECONCILE_STATUS=$?
   if [ "$RECONCILE_STATUS" -eq 0 ]; then
     verify_selected_projection
     VERIFY_STATUS=$?
     if [ "$VERIFY_STATUS" -eq 21 ]; then
-      echo "capability-auto-install: selected command contract verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "selected command contract verification failed"
     elif [ "$VERIFY_STATUS" -ne 0 ]; then
-      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "selected projection verification failed"
     fi
     SELECTED_FINGERPRINT="$(selected_fingerprint)"
     if [ "$?" -ne 0 ] || [[ ! "$SELECTED_FINGERPRINT" =~ ^[0-9a-f]{64}$ ]]; then
-      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "selected projection verification failed"
     fi
     FINAL_INSTALLED_GENERATION="$(canonical_tree_hash "$INSTALLED_BUNDLE")"
     if [ "$?" -ne 0 ] || [ "$FINAL_INSTALLED_GENERATION" != "$INSTALLED_GENERATION" ]; then
-      echo "capability-auto-install: installed generation verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "installed generation verification failed"
     fi
     FINAL_SELECTED_FINGERPRINT="$(selected_fingerprint)"
     if [ "$?" -ne 0 ] || [ "$FINAL_SELECTED_FINGERPRINT" != "$SELECTED_FINGERPRINT" ]; then
-      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
-      exit 0
+      roll_back "selected projection verification failed"
     fi
+    rm -f "$DISABLED_MARKER" 2>/dev/null
     if publish_ledger; then
       printf 'Auto-installed capability: %s (user scope)\n' "$CAP_ID"
     else
       echo "capability-auto-install: ledger publish failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
     fi
   else
-    echo "capability-auto-install: capability set failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+    roll_back "capability set failed"
   fi
 else
   echo "capability-auto-install: capability install failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2

@@ -71,6 +71,15 @@ setup() {
   mkdir -p "$BIN_DIR"
   TEST_BIN="$SCRATCH/test-bin"
   mkdir -p "$TEST_BIN"
+  # The hook runs python3 -I, which ignores PYTHONPATH. Spy cases inject a
+  # sitecustomize through PYTHONPATH, so only they get -I dropped; every other
+  # case (case3e's planted-module check included) runs the hook's argv as is.
+  cat > "$TEST_BIN/python3" <<SHIM
+#!/usr/bin/env bash
+if [ -n "\${PYTHONPATH:-}" ] && [ "\${1:-}" = "-I" ]; then shift; fi
+exec "$REAL_PYTHON" "\$@"
+SHIM
+  chmod +x "$TEST_BIN/python3"
   STUB_LOG="$SCRATCH/stub.log"
   : > "$STUB_LOG"
   local stub_status="${1:-0}"
@@ -96,12 +105,25 @@ else
 fi
 case "\$*" in
   "capability install "*)
+    if [ -n "\${STUB_REQUIRE_CONSENT:-}" ] && [[ "\$*" != *" --yes"* ]]; then
+      printf '%s\n' '{"status":"aborted","requiresConsent":true,"scope":"global"}'
+      exit 1
+    fi
     _p="\$3"
     if [ -d "\$_p" ]; then
       printf '%s\n' "\$_p" > "$SCRATCH/staged.path"
       LC_ALL=C ls -A "\$_p" | tr '\n' ' ' > "$SCRATCH/staged.ls"
       find "\$_p" \( -name __pycache__ -o -name tests \) > "$SCRATCH/staged.noise"
     fi ;;
+esac
+# Enabled state persists like gsd-core: set without a flag keeps it.
+case "\$*" in
+  "capability state --runtime "*" --raw")
+    _enabled="\$(cat "$SCRATCH/enabled" 2>/dev/null || echo true)"
+    printf '{"capabilities":[{"id":"beads","enabled":%s}]}\n' "\$_enabled"
+    exit 0 ;;
+  "capability set beads --disable "*) echo false > "$SCRATCH/enabled" ;;
+  "capability set beads --enable "*) echo true > "$SCRATCH/enabled" ;;
 esac
 exit $stub_status
 STUB
@@ -188,6 +210,7 @@ run_script() {
     R2_LEDGER_PATH="${R2_LEDGER_PATH:-}" PYTHONDONTWRITEBYTECODE=1 \
     R2_REPLACE_FAIL="${R2_REPLACE_FAIL:-}" R2_REPLACE_READY="${R2_REPLACE_READY:-}" \
     R2_REPLACE_RELEASE="${R2_REPLACE_RELEASE:-}" PATH="$TEST_BIN:/usr/bin:/bin" \
+    GSD_AUTO_INSTALL_LOCK_WAIT_SECONDS="${LOCK_WAIT_SECONDS:-0}" \
     bash "$SCRIPT" "$1" >"$STDOUT_FILE" 2>"$STDERR_FILE"
   STATUS=$?
 }
@@ -217,16 +240,25 @@ run_script beads
 [ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case1: stub invoked $(wc -l < "$STUB_LOG") times, expected 3"
 grep -qx 'query skills-root codex --raw' "$STUB_LOG" \
   || fail "case1: public Codex skills-root query was not invoked"
-grep -Eq '^capability install /[^ ]+ --scope global --yes$' "$STUB_LOG" \
-  || fail "case1: stub argv missing absolute staged bundle path"
+grep -Eq '^capability install /[^ ]+ --scope global$' "$STUB_LOG" \
+  || fail "case1: stub argv missing absolute staged bundle path (or auto-consented)"
 [ "$(cat "$SCRATCH/staged.ls")" = "GSD-CORE-PATCH.md capability.json fragments scripts skills " ] \
   || fail "case1: staged bundle is not exactly the allowlist: $(cat "$SCRATCH/staged.ls")"
 [ ! -s "$SCRATCH/staged.noise" ] || fail "case1: staged bundle contains tests/ or __pycache__"
 case "$(cat "$SCRATCH/staged.path")" in "$PLUGIN_DIR"*) fail "case1: install source is inside the plugin root" ;; esac
-[ ! -e "$(cat "$SCRATCH/staged.path")" ] || fail "case1: staging directory leaked after exit"
+# R28: gsd-core records the install path as the ledger source that
+# `capability update` re-fetches, so it must be a stable path that outlives
+# the hook and holds exactly the installed allowlist.
+STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source/beads"
+[ "$(cat "$SCRATCH/staged.path")" = "$STABLE_SOURCE" ] \
+  || fail "case1: install source is not the stable source path: $(cat "$SCRATCH/staged.path")"
+[ "$(fixture_tree_hash "$STABLE_SOURCE")" = "$(fixture_tree_hash "$INSTALLED_BUNDLE")" ] \
+  || fail "case1: stable source does not persist the installed allowlist"
+[ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.stage.*')" ] \
+  || fail "case1: temporary staging directory leaked after exit"
 grep -q 'capability' "$STUB_LOG" || fail "case1: stub argv missing 'capability'"
 grep -q 'install' "$STUB_LOG" || fail "case1: stub argv missing 'install'"
-grep -q -- '--yes' "$STUB_LOG" || fail "case1: stub argv missing '--yes'"
+! grep -q -- '--yes' "$STUB_LOG" || fail "case1: hook auto-consented with --yes"
 grep -q 'global' "$STUB_LOG" || fail "case1: stub argv missing 'global' scope value"
 grep -qx "capability set beads --runtime codex --scope global --config-dir $CODEX_HOME" "$STUB_LOG" \
   || fail "case1: native codex surface materialization was not invoked"
@@ -254,6 +286,17 @@ run_script beads
 [ "$(tail -n 1 "$STUB_LOG")" = 'query skills-root codex --raw' ] || fail "case2: unchanged rerun did more than validate its destination"
 pass "case2: unchanged rerun is silent and invokes native writers zero times"
 
+### Case 2a (R28): a missing stable source re-records it once ###
+# Installs made before R28 recorded a since-deleted temp dir as the source.
+rm -rf "$GSD_HOME/.gsd/capability-auto-install-beads.source"
+PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
+run_script beads
+[ "$(wc -l < "$STUB_LOG")" -eq $((PREV_LOG_LINES + 3)) ] \
+  || fail "case2a: missing stable source did not trigger a reinstall"
+[ -f "$GSD_HOME/.gsd/capability-auto-install-beads.source/beads/capability.json" ] \
+  || fail "case2a: stable source was not republished"
+pass "case2a: a missing stable source triggers one reinstall from the stable path"
+
 ### Case 2b: selected-surface drift invalidates the fingerprint fast path ###
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
 printf '\n' >> "$SKILLS_ROOT/gsd-beads-status/SKILL.md"
@@ -276,17 +319,86 @@ pass "case3: bundle edit re-grants with a fresh notice"
 
 teardown
 
-### Case 3b: a validated explicit runtime overrides plugin-owner fallback ###
+### Case 3b (R23): GSD_RUNTIME cannot override plugin-cache ownership ###
+# A --plugin-dir working tree or a mismatched runtime must not install
+# uncommitted content machine-wide just because GSD_RUNTIME is set.
 setup 0
 seed_selected "$CLAUDE_SKILLS_ROOT"
 export GSD_RUNTIME=claude
 run_script beads
 unset GSD_RUNTIME
-grep -qx 'query skills-root claude --raw' "$STUB_LOG" \
-  || fail "case3b: explicit Claude runtime did not select the Claude skills-root query"
-grep -qx "capability set beads --runtime claude --scope global --config-dir $CLAUDE_CONFIG_DIR" "$STUB_LOG" \
-  || fail "case3b: explicit Claude runtime did not select the Claude config root"
-pass "case3b: validated explicit runtime selects exactly one runtime/config/destination"
+[ "$STATUS" -eq 0 ] || fail "case3b: exit status $STATUS, expected 0"
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3b: runtime mismatch reached gsd-tools"
+grep -q 'runtime selection failed' "$STDERR_FILE" || fail "case3b: missing mismatch diagnostic"
+CUSTOM_PLUGIN="$SCRATCH/worktree-plugin"
+make_plugin_root "$CUSTOM_PLUGIN"
+PLUGIN_DIR="$CUSTOM_PLUGIN"
+BUNDLE_DIR="$CUSTOM_PLUGIN"
+export GSD_RUNTIME=codex
+run_script beads
+unset GSD_RUNTIME
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3b: GSD_RUNTIME let an uncached plugin dir install"
+pass "case3b: GSD_RUNTIME never bypasses the plugin-cache ownership check"
+teardown
+
+### Case 3f (R23): ownership is decided on the resolved plugin path ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+OUTSIDE_PLUGIN="$SCRATCH/outside-plugin"
+make_plugin_root "$OUTSIDE_PLUGIN"
+ln -s "$OUTSIDE_PLUGIN" "$CODEX_HOME/plugins/linked"
+PLUGIN_DIR="$CODEX_HOME/plugins/linked"
+BUNDLE_DIR="$OUTSIDE_PLUGIN"
+run_script beads
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3f: symlinked plugin root outside the cache was trusted"
+grep -q 'runtime selection failed' "$STDERR_FILE" || fail "case3f: missing ownership diagnostic"
+pass "case3f: a cache-path symlink to an outside tree is not runtime-owned"
+teardown
+
+### Case 3g (R23): relative or missing home roots fail closed ###
+for _var in HOME GSD_HOME CODEX_HOME CLAUDE_CONFIG_DIR; do
+  setup 0
+  seed_selected "$SKILLS_ROOT"
+  case "$_var" in
+    HOME) _home=relative-home; _gsd="$GSD_HOME"; _codex="$CODEX_HOME"; _claude="$CLAUDE_CONFIG_DIR" ;;
+    GSD_HOME) _home="$SCRATCH"; _gsd=relative-gsd; _codex="$CODEX_HOME"; _claude="$CLAUDE_CONFIG_DIR" ;;
+    CODEX_HOME) _home="$SCRATCH"; _gsd="$GSD_HOME"; _codex=relative-codex; _claude="$CLAUDE_CONFIG_DIR" ;;
+    CLAUDE_CONFIG_DIR) _home="$SCRATCH"; _gsd="$GSD_HOME"; _codex="$CODEX_HOME"; _claude=relative-claude ;;
+  esac
+  ( cd "$SCRATCH" && HOME="$_home" GSD_HOME="$_gsd" CODEX_HOME="$_codex" CLAUDE_CONFIG_DIR="$_claude" \
+      CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads ) \
+    >"$STDOUT_FILE" 2>"$STDERR_FILE"
+  [ "$?" -eq 0 ] || fail "case3g: $_var relative: nonzero exit"
+  [ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3g: relative $_var reached gsd-tools"
+  [ ! -e "$SCRATCH/relative-gsd" ] && [ ! -e "$SCRATCH/relative-home" ] \
+    || fail "case3g: relative $_var created state under cwd"
+  grep -q 'must be absolute' "$STDERR_FILE" || fail "case3g: relative $_var: missing diagnostic"
+  teardown
+done
+setup 0
+( cd "$SCRATCH" && env -u HOME GSD_HOME="$GSD_HOME" CODEX_HOME="$CODEX_HOME" \
+    CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" \
+    PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads ) >"$STDOUT_FILE" 2>"$STDERR_FILE"
+[ "$?" -eq 0 ] || fail "case3g: unset HOME aborted the hook"
+[ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case3g: unset HOME reached gsd-tools"
+teardown
+pass "case3g: relative or unset HOME/GSD_HOME/CODEX_HOME/CLAUDE_CONFIG_DIR fail closed"
+
+### Case 3h (R23): a consent-requiring install is never auto-consented ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+export STUB_REQUIRE_CONSENT=1
+run_script beads
+unset STUB_REQUIRE_CONSENT
+[ "$STATUS" -eq 0 ] || fail "case3h: exit status $STATUS, expected 0"
+! grep -q -- '--yes' "$STUB_LOG" || fail "case3h: hook passed --yes"
+! grep -q '^capability set' "$STUB_LOG" || fail "case3h: consent-blocked install reached capability set"
+[ -z "$(cat "$STDOUT_FILE")" ] || fail "case3h: consent block wrote stdout"
+grep -qF "needs your consent" "$STDERR_FILE" || fail "case3h: consent requirement not printed: $(cat "$STDERR_FILE")"
+grep -qF "capability install $GSD_HOME/.gsd/capability-auto-install-beads.source/beads --scope global --yes" "$STDERR_FILE" \
+  || fail "case3h: consent message lacks the exact command: $(cat "$STDERR_FILE")"
+[ ! -e "$STATE_FILE" ] || fail "case3h: consent-blocked install recorded a ledger row"
+pass "case3h: consent-requiring install prints the requirement and exits 0"
 teardown
 
 ### Case 3c: a noncanonical queried root blocks both native mutations ###
@@ -314,7 +426,43 @@ run_script beads
 grep -q 'selected command contract verification failed' "$STDERR_FILE" \
   || fail "case3d: retired selected command was certified"
 [ ! -e "$STATE_FILE" ] || fail "case3d: sidecar recorded an invalid selected command"
+[ "$(tail -n 1 "$STUB_LOG")" = "capability set beads --disable --runtime codex --scope global --config-dir $CODEX_HOME" ] \
+  || fail "case3d: failed verification left the new bundle enabled"
 pass "case3d: selected command verification rejects retired execute-plan"
+teardown
+
+### Case 3e (R1): stdlib-named modules planted in cwd never run in hook python ###
+# `python3 -`/`python3 -c` put cwd first on sys.path, so a cloned repo's
+# json.py would run inside the SessionStart hook and the task resolver.
+setup 0
+seed_selected "$SKILLS_ROOT"
+PLANT_DIR="$SCRATCH/planted-cwd"
+CANARY="$SCRATCH/planted.canary"
+mkdir -p "$PLANT_DIR"
+for _mod in json pathlib hashlib fcntl errno stat tempfile shlex subprocess; do
+  printf 'open(%s, "a").write("%s\\n")\n' "'$CANARY'" "$_mod" > "$PLANT_DIR/$_mod.py"
+done
+cd "$PLANT_DIR" || fail "case3e: cannot enter planted cwd"
+run_script beads
+cd "$REPO_ROOT" || fail "case3e: cannot leave planted cwd"
+[ "$STATUS" -eq 0 ] || fail "case3e: exit status $STATUS, expected 0"
+[ -f "$STATE_FILE" ] || fail "case3e: hook did not reach ledger publish: $(cat "$STDERR_FILE")"
+[ ! -e "$CANARY" ] || fail "case3e: hook imported planted cwd modules: $(tr '\n' ' ' < "$CANARY")"
+RESOLVER_HOME="$SCRATCH/resolver-home"
+mkdir -p "$RESOLVER_HOME/.gsd/capabilities/beads/scripts"
+printf 'import sys\nprint("resolved", sys.argv[-1])\n' \
+  > "$RESOLVER_HOME/.gsd/capabilities/beads/scripts/sync.py"
+printf '%s\n' \
+  'import json, subprocess, sys' \
+  'invoke = json.load(open(sys.argv[1]))["taskContentResolver"]["invoke"]' \
+  'args = [a.replace("{{id}}", "bd-1") for a in invoke["args"]]' \
+  'sys.exit(subprocess.run([invoke["binary"], *args]).returncode)' \
+  > "$SCRATCH/resolver-launch.py"
+RESOLVER_OUT="$(cd "$PLANT_DIR" && GSD_HOME="$RESOLVER_HOME" PATH="/usr/bin:/bin" \
+  "$REAL_PYTHON" -I "$SCRATCH/resolver-launch.py" "$REPO_ROOT/capability.json" 2>&1)"
+[ "$RESOLVER_OUT" = "resolved bd-1" ] || fail "case3e: resolver did not reach sync.py: $RESOLVER_OUT"
+[ ! -e "$CANARY" ] || fail "case3e: task resolver imported planted cwd modules: $(tr '\n' ' ' < "$CANARY")"
+pass "case3e: planted cwd modules never run in hook or resolver python"
 teardown
 
 ### Case 4: install-failure path (D-04, CAP-05) -- stub gsd-tools exits 1 ###
@@ -525,17 +673,104 @@ printf '%s\n' "\$*" >> "$STUB_LOG"
   || exit 64
 [ "\$*" = "capability set beads --runtime codex --scope global --config-dir $CODEX_HOME" ] && exit 1
 [ "\$*" = "query skills-root codex --raw" ] && printf '%s\n' "$SKILLS_ROOT"
+# Enabled state persists like gsd-core: set without a flag keeps it.
+case "\$*" in
+  "capability state --runtime "*" --raw")
+    _enabled="\$(cat "$SCRATCH/enabled" 2>/dev/null || echo true)"
+    printf '{"capabilities":[{"id":"beads","enabled":%s}]}\n' "\$_enabled"
+    exit 0 ;;
+  "capability set beads --disable "*) echo false > "$SCRATCH/enabled" ;;
+  "capability set beads --enable "*) echo true > "$SCRATCH/enabled" ;;
+esac
 exit 0
 STUB
 chmod +x "$BIN_DIR/gsd-tools.cjs"
 seed_selected "$SKILLS_ROOT"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case8: exit status $STATUS, expected 0"
-[ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case8: expected root validation, install, and surface invocations"
+[ "$(wc -l < "$STUB_LOG")" -eq 5 ] || fail "case8: expected root validation, install, surface, state, and rollback invocations"
 grep -q 'capability set failed' "$STDERR_FILE" || fail "case8: missing projection-failure diagnostic"
+[ "$(tail -n 1 "$STUB_LOG")" = "capability set beads --disable --runtime codex --scope global --config-dir $CODEX_HOME" ] \
+  || fail "case8: half-install was not rolled back with capability set --disable"
+grep -q 'capability disabled' "$STDERR_FILE" || fail "case8: rollback not reported"
+[ -f "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled" ] \
+  || fail "case8: hook did not record that it disabled the capability"
 [ ! -e "$STATE_FILE" ] || fail "case8: sidecar was created despite surface failure"
 [ "$(cat "$LEGACY_STATE_FILE")" = legacy-retry-sentinel ] || fail "case8: failed migration changed legacy retry state"
 pass "case8: projection failure warns, retries later, and never records false convergence"
+teardown
+
+### Case 8b (R22): the hook re-enables only what it disabled itself ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf '\n' >> "$BUNDLE_DIR/capability.json"
+sync_installed_fixture
+mkdir -p "$GSD_HOME/.gsd"
+: > "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled"
+run_script beads
+grep -qx "capability set beads --enable --runtime codex --scope global --config-dir $CODEX_HOME" "$STUB_LOG" \
+  || fail "case8b: hook-disabled capability was not re-enabled on the next install"
+[ ! -e "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled" ] \
+  || fail "case8b: re-enable marker survived a converged install"
+[ -f "$STATE_FILE" ] || fail "case8b: re-enabled install did not converge"
+pass "case8b: a hook rollback is undone by the next converged install"
+teardown
+
+### Case 8e (R22): a user's own --disable is never rolled back or re-enabled ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf '%s\n' false > "$SCRATCH/enabled"
+# A user-disabled capability is unprojected, so verification fails.
+rm -rf "$SKILLS_ROOT"/gsd-beads-*
+run_script beads
+run_script beads
+! grep -Eq -- '--(enable|disable)' "$STUB_LOG" || fail "case8e: hook changed a user-disabled capability: $(grep -E -- '--(enable|disable)' "$STUB_LOG")"
+[ ! -e "$GSD_HOME/.gsd/capability-auto-install-beads.codex.disabled" ] \
+  || fail "case8e: hook recorded a rollback for a user-disabled capability"
+grep -q 'disabled by the user' "$STDERR_FILE" || fail "case8e: missing user-disabled note: $(cat "$STDERR_FILE")"
+pass "case8e: a user-disabled capability stays disabled with no marker"
+teardown
+
+### Case 8c (R22): an installed newer version is never downgraded ###
+for _installed_version in 9.9.9 not-a-version; do
+  setup 0
+  seed_selected "$SKILLS_ROOT"
+  "$REAL_PYTHON" -I -c 'import json,sys; p=sys.argv[1]; m=json.load(open(p)); m["version"]=sys.argv[2]; open(p,"w").write(json.dumps(m))' \
+    "$INSTALLED_BUNDLE/capability.json" "$_installed_version"
+  run_script beads
+  [ "$STATUS" -eq 0 ] || fail "case8c: exit status $STATUS, expected 0"
+  ! grep -q '^capability install' "$STUB_LOG" || fail "case8c: installed $_installed_version was replaced by an older bundle"
+  grep -q 'refusing to replace' "$STDERR_FILE" || fail "case8c: $_installed_version: missing downgrade diagnostic"
+  teardown
+done
+pass "case8c: a newer or unparsable installed version blocks reinstall"
+
+### Case 8d (R22): a held lock is waited for, boundedly ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+: > "$STATE_FILE.lock"
+"$REAL_PYTHON" -I -c 'import fcntl,os,sys,time; fd=os.open(sys.argv[1],os.O_RDWR); fcntl.flock(fd,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(1)' \
+  "$STATE_FILE.lock" "$SCRATCH/held" &
+HOLDER_PID=$!
+until [ -e "$SCRATCH/held" ]; do sleep 0.05; done
+LOCK_WAIT_SECONDS=10 run_script beads
+wait "$HOLDER_PID"
+[ -z "$(cat "$STDERR_FILE")" ] || fail "case8d: waiter gave up on a briefly held lock: $(cat "$STDERR_FILE")"
+[ -f "$STATE_FILE" ] || fail "case8d: waiter did not complete after the lock was released"
+rm -f "$STATE_FILE" "$SCRATCH/held"
+"$REAL_PYTHON" -I -c 'import fcntl,os,sys,time; fd=os.open(sys.argv[1],os.O_RDWR); fcntl.flock(fd,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(5)' \
+  "$STATE_FILE.lock" "$SCRATCH/held" &
+HOLDER_PID=$!
+until [ -e "$SCRATCH/held" ]; do sleep 0.05; done
+WAIT_START=$SECONDS
+LOCK_WAIT_SECONDS=1 run_script beads
+WAIT_ELAPSED=$((SECONDS - WAIT_START))
+kill "$HOLDER_PID" 2>/dev/null; wait "$HOLDER_PID" 2>/dev/null
+grep -q 'projection transaction busy' "$STDERR_FILE" || fail "case8d: bounded wait did not report busy"
+[ "$WAIT_ELAPSED" -ge 1 ] && [ "$WAIT_ELAPSED" -le 3 ] || fail "case8d: bounded wait took ${WAIT_ELAPSED}s, expected about 1s"
+[ ! -e "$STATE_FILE" ] || fail "case8d: timed-out waiter published"
+pass "case8d: a held lock is waited for up to the bound, then reported busy"
 teardown
 
 ### Case 9: an unmarked same-name user skill is preserved and blocks convergence ###
@@ -778,7 +1013,7 @@ cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
 printf '%s\n' "\$*" >> "$STUB_LOG"
 if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
 if [ "\$*" = 'query skills-root claude --raw' ]; then printf '%s\n' "$CLAUDE_SKILLS_ROOT"; exit 0; fi
-if [[ "\$*" == 'capability install '*' --scope global --yes' ]]; then
+if [[ "\$*" == 'capability install '*' --scope global' ]]; then
   printf '%s\n' ready > "$READY_FIFO"
   IFS= read -r _release < "$RELEASE_FIFO"
 fi
@@ -795,9 +1030,12 @@ IFS= read -r READY_SIGNAL < "$READY_FIFO"
 [ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
   || fail "case15: live owner did not hold a regular lock file"
 WRITERS_BEFORE="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
-export GSD_RUNTIME=claude
+# The contender is the same bundle loaded by the other runtime's plugin cache.
+CODEX_PLUGIN_DIR="$PLUGIN_DIR"
+PLUGIN_DIR="$CLAUDE_CONFIG_DIR/plugins/cache/gsd-beads/beads-lifecycle/test"
+make_plugin_root "$PLUGIN_DIR"
 run_script beads
-unset GSD_RUNTIME
+PLUGIN_DIR="$CODEX_PLUGIN_DIR"
 [ "$STATUS" -eq 0 ] || fail "case15: contender exit status $STATUS, expected 0"
 [ -z "$(cat "$STDOUT_FILE")" ] || fail "case15: contender emitted stdout"
 [ "$(cat "$STDERR_FILE")" = 'capability-auto-install: projection transaction busy for beads; projection not recorded' ] \
@@ -827,7 +1065,7 @@ cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$STUB_LOG"
 if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
-if [[ "\$*" == 'capability install '*' --scope global --yes' ]]; then
+if [[ "\$*" == 'capability install '*' --scope global' ]]; then
   "$REAL_PYTHON" - "$CRASH_FD_LEAK" <<'PY'
 import os
 import pathlib
@@ -1168,7 +1406,7 @@ install_fingerprint_rendezvous_python() {
   mkfifo "$READY_FIFO" "$RELEASE_FIFO"
   cat > "$TEST_BIN/python3" <<STUB
 #!/usr/bin/env bash
-if [ "\$1" = - ] && [ "\${2:-}" = "$SKILLS_ROOT" ]; then
+if [ "\$1" = -I ] && [ "\${2:-}" = - ] && [ "\${3:-}" = "$SKILLS_ROOT" ]; then
   _count=0
   [ ! -f "$PYTHON_COUNT" ] || _count="\$(cat "$PYTHON_COUNT")"
   _count=\$((_count + 1))
@@ -1626,7 +1864,7 @@ REAL_HOOK_STATUS=$?
   || fail "case24: real hook invoked the current CLI an unexpected number of times"
 grep -qx 'query skills-root codex --raw' "$REAL_SPY_LOG" \
   || fail "case24: real hook omitted the public skills-root query"
-grep -Eq '^capability install /[^ ]+ --scope global --yes$' "$REAL_SPY_LOG" \
+grep -Eq '^capability install /[^ ]+ --scope global$' "$REAL_SPY_LOG" \
   || fail "case24: real hook install argv differed"
 ! grep -qF "capability install $REAL_PLUGIN_ROOT" "$REAL_SPY_LOG" \
   || fail "case24: real hook installed from the plugin root, not a staged allowlist"
@@ -1746,6 +1984,24 @@ REAL_REPEAT_STATUS=$?
 [ "$(fixture_tree_hash "$(dirname "$ACTUAL_LEDGER")" \
   "$(basename "$ACTUAL_LEDGER")")" = "$LEDGER_BEFORE_REPEAT" ] \
   || fail "case24: real repeat changed the shared ledger"
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability update beads --scope global --yes > "$REAL_ROOT/update.log" 2>&1 \
+  || fail "case24: capability update cannot re-fetch the recorded source: $(cat "$REAL_ROOT/update.log")"
+# R22 rollback contract on the real CLI: --disable unprojects the selected
+# skills and --enable restores them.
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability set beads --disable --runtime codex --scope global --config-dir "$ACTUAL_CODEX" \
+  > "$REAL_ROOT/disable.log" 2>&1 || fail "case24: real rollback disable failed: $(cat "$REAL_ROOT/disable.log")"
+[ ! -e "$ACTUAL_SKILLS_ROOT/gsd-beads-sync" ] || fail "case24: real disable left the selected skills projected"
+# The hook's rollback reads exactly this shape to tell a user's --disable apart.
+REAL_STATE="$(real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability state --runtime codex --config-dir "$ACTUAL_CODEX" --raw 2>/dev/null)"
+printf '%s' "$REAL_STATE" | $REAL_PYTHON -I -c 'import json,sys; c=[c for c in json.load(sys.stdin)["capabilities"] if c.get("id")=="beads"]; sys.exit(0 if [x.get("enabled") for x in c]==[False] else 1)' \
+  || fail "case24: real capability state does not report beads enabled=false after --disable"
+real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
+  capability set beads --enable --runtime codex --scope global --config-dir "$ACTUAL_CODEX" \
+  > "$REAL_ROOT/enable.log" 2>&1 || fail "case24: real re-enable failed: $(cat "$REAL_ROOT/enable.log")"
+[ -f "$ACTUAL_SKILLS_ROOT/gsd-beads-sync/SKILL.md" ] || fail "case24: real re-enable did not restore the selected skills"
 
 EVIDENCE_ROOT="$ACTUAL_SKILLS_ROOT"
 rm -rf "$REAL_ROOT"

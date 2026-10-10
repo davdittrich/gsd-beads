@@ -52,7 +52,7 @@ esac
 #
 # One python3 call extracts both fields; re-parsing the same payload for `cwd`
 # would double the cost of the path that got this far.
-read -r POINT PROJECT_DIR <<<"$(printf '%s' "$PAYLOAD" | python3 -c '
+read -r POINT PROJECT_DIR <<<"$(printf '%s' "$PAYLOAD" | python3 -I -c '
 import json, re, sys
 
 POINTS = ("plan:pre", "plan:post", "execute:wave:pre", "execute:wave:post", "verify:post")
@@ -74,6 +74,13 @@ try:
 except (json.JSONDecodeError, UnicodeDecodeError):
     sys.exit(0)
 if not isinstance(payload, dict):
+    sys.exit(0)
+# An interrupted trigger never printed its hook list, so nothing may run on
+# it. Claude Code fires PostToolUseFailure, not PostToolUse, for a failed
+# Bash call; `interrupted` is the only failure signal its PostToolUse Bash
+# tool_response carries. Other payload shapes keep the old behaviour.
+tool_response = payload.get("tool_response")
+if isinstance(tool_response, dict) and tool_response.get("interrupted") is True:
     sys.exit(0)
 tool_input = payload.get("tool_input")
 command = tool_input.get("command") if isinstance(tool_input, dict) else None
@@ -127,7 +134,7 @@ else SYNC_PY="$PROJECT_DIR/.gsd/capabilities/beads/scripts/sync.py"; fi
 # milestones has no `.planning/phases/` at all and would otherwise annotate
 # every render-hooks call. Inherited stderr still reaches the hook debug log.
 # sync.py bounds each bd subprocess itself (BD_TIMEOUT) and always exits 0.
-OUTPUT="$(python3 "$SYNC_PY" lifecycle-dispatch "$POINT")"
+OUTPUT="$(python3 -I "$SYNC_PY" lifecycle-dispatch "$POINT")"
 
 [ -n "$OUTPUT" ] || exit 0
 
@@ -138,7 +145,7 @@ OUTPUT="$(python3 "$SYNC_PY" lifecycle-dispatch "$POINT")"
 # Emitted through python3 so the payload is JSON-escaped rather than
 # hand-quoted, and so stdout carries the object and nothing else -- Claude Code
 # parses stdout as JSON only when its first non-whitespace character is `{`.
-POINT="$POINT" OUTPUT="$OUTPUT" python3 -c '
+POINT="$POINT" OUTPUT="$OUTPUT" python3 -I -c '
 import json, os
 
 # 10,000 characters is the documented cap on a hook output string; past it the

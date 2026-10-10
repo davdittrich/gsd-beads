@@ -13,10 +13,12 @@ DEST=".beads/PRIME.md"
 # BusyBox and some BSD `cp` builds do not), so `[ ! -L "$DEST" ]` here is
 # portability defense-in-depth, not the only thing standing between this
 # guard and a write-through on every platform this hook might run on.
-if [ -d ".beads" ] && [ ! -e "$DEST" ] && [ ! -L "$DEST" ] && [ -f "$SOURCE" ]; then
+if [ -d ".beads" ] && [ ! -L ".beads" ] && [ ! -e "$DEST" ] && [ ! -L "$DEST" ] && [ -f "$SOURCE" ]; then
   cp "$SOURCE" "$DEST" 2>/dev/null || true
 fi
 
-bash "$PLUGIN_ROOT/hooks/capability-auto-install.sh" beads || true
+# stdout is parsed as hook JSON; the installer's notice belongs on stderr.
+bash "$PLUGIN_ROOT/hooks/capability-auto-install.sh" beads >&2 || true
 
+command -v bd >/dev/null 2>&1 || exit 0
 exec bd prime --hook-json
