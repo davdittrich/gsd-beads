@@ -15,8 +15,11 @@ CAP_ID="${1:-}"
 [[ "$CAP_ID" =~ ^[a-z][a-z0-9-]*$ ]] || exit 0
 
 PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
-BUNDLE_DIR="$PLUGIN_ROOT/.gsd/capabilities/$CAP_ID"
-[ -d "$BUNDLE_DIR" ] || exit 0
+# The plugin root is the capability root (root-manifest layout), but it also
+# carries dev-only content (tests/, .git, caches). Only an allowlist is ever
+# hashed or installed; it is staged below, once the transaction lock is held.
+[ -f "$PLUGIN_ROOT/capability.json" ] || exit 0
+BUNDLE_ALLOWLIST=(capability.json scripts skills fragments GSD-CORE-PATCH.md)
 
 # Hash an explicitly bounded tree as type-tagged, length-prefixed relative
 # paths plus file bytes. Relative framing avoids absolute-root drift and
@@ -247,6 +250,27 @@ if [ "$LOCK_CHILD_STATUS" -ne 0 ]; then
   exit 0
 fi
 unset GSD_AUTO_INSTALL_LOCK_FD GSD_AUTO_INSTALL_SKILLS_ROOT
+
+# Stage the allowlist into a private temp dir (mktemp -d is 0700) and run every
+# hash/verify/install step against it. cp -P keeps symlinks as symlinks so the
+# hash and ownership checks below still reject them. The path is never printed.
+STAGE_DIR="$(mktemp -d 2>/dev/null)" && [ -d "$STAGE_DIR" ] || STAGE_DIR=""
+trap '[ -n "$STAGE_DIR" ] && rm -rf "$STAGE_DIR"' EXIT
+BUNDLE_DIR="$STAGE_DIR/$CAP_ID"
+STAGE_OK=0
+if [ -n "$STAGE_DIR" ] && mkdir "$BUNDLE_DIR" 2>/dev/null; then
+  STAGE_OK=1
+  for _entry in "${BUNDLE_ALLOWLIST[@]}"; do
+    if [ -e "$PLUGIN_ROOT/$_entry" ] || [ -L "$PLUGIN_ROOT/$_entry" ]; then
+      cp -RP "$PLUGIN_ROOT/$_entry" "$BUNDLE_DIR/$_entry" 2>/dev/null || STAGE_OK=0
+    fi
+  done
+  find "$BUNDLE_DIR" -name __pycache__ -type d -prune -exec rm -rf {} + 2>/dev/null
+fi
+if [ "$STAGE_OK" -ne 1 ]; then
+  echo "capability-auto-install: bundle staging failed for $CAP_ID; projection not recorded" >&2
+  exit 0
+fi
 
 SELECTED_SKILL_NAMES="$(python3 - "$BUNDLE_DIR/capability.json" 9>&- 2>/dev/null <<'PY'
 import json

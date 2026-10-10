@@ -6,7 +6,7 @@
 set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-SCRIPT="$REPO_ROOT/plugins/beads-lifecycle/hooks/capability-auto-install.sh"
+SCRIPT="$REPO_ROOT/hooks/capability-auto-install.sh"
 REAL_PYTHON="$(command -v python3)"
 GSD_CORE_REPO="${GSD_CORE_REPO:-$REPO_ROOT/../gsd-core}"
 ACTIVE_CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
@@ -14,6 +14,26 @@ ACTIVE_GSD_TOOLS="$ACTIVE_CODEX_HOME/gsd-core/bin/gsd-tools.cjs"
 
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
+
+# The repo root is the plugin root; only this allowlist is the capability bundle.
+BUNDLE_ALLOWLIST=(capability.json scripts skills fragments GSD-CORE-PATCH.md)
+copy_allowlist() {
+  local _entry
+  mkdir -p "$2"
+  for _entry in "${BUNDLE_ALLOWLIST[@]}"; do
+    cp -rP "$1/$_entry" "$2/$_entry" || return 1
+  done
+  find "$2" -name __pycache__ -type d -prune -exec rm -rf {} +
+}
+# Dev-only content a plugin root carries that the hook must never install.
+plant_noise() {
+  mkdir -p "$1/tests" "$1/scripts/__pycache__"
+  printf 'noise\n' > "$1/tests/noise.txt"
+  printf 'noise\n' > "$1/scripts/__pycache__/noise.pyc"
+}
+make_plugin_root() {
+  copy_allowlist "$REPO_ROOT" "$1" && plant_noise "$1"
+}
 
 if command -v sha256sum >/dev/null 2>&1; then
   TEST_HASH_CMD=(sha256sum)
@@ -24,7 +44,7 @@ fi
 trap '[ -n "${SCRATCH:-}" ] && rm -rf "$SCRATCH" 2>/dev/null' EXIT
 
 # setup <stub-exit-status>
-# Builds a scratch plugin root with a fake .gsd/capabilities/beads/ bundle, a
+# Builds a scratch plugin root (root-manifest layout, plus dev-only noise), a
 # scratch GSD_HOME (so the sidecar state file never touches the real $HOME),
 # and a stub runtime-owned `gsd-tools.cjs` that logs its argv and exits with the
 # given status. Sets SCRATCH, PLUGIN_DIR, BUNDLE_DIR, GSD_HOME, BIN_DIR,
@@ -34,15 +54,13 @@ setup() {
   CODEX_HOME="$SCRATCH/.codex"
   CLAUDE_CONFIG_DIR="$SCRATCH/.claude"
   PLUGIN_DIR="$CODEX_HOME/plugins/cache/gsd-beads/beads-lifecycle/test"
-  BUNDLE_DIR="$PLUGIN_DIR/.gsd/capabilities/beads"
-  mkdir -p "$(dirname "$BUNDLE_DIR")"
-  cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$BUNDLE_DIR"
+  BUNDLE_DIR="$PLUGIN_DIR"
+  make_plugin_root "$PLUGIN_DIR"
 
   GSD_HOME="$SCRATCH/home"
   mkdir -p "$GSD_HOME"
   INSTALLED_BUNDLE="$GSD_HOME/.gsd/capabilities/beads"
-  mkdir -p "$(dirname "$INSTALLED_BUNDLE")"
-  cp -rf "$BUNDLE_DIR" "$INSTALLED_BUNDLE"
+  copy_allowlist "$BUNDLE_DIR" "$INSTALLED_BUNDLE"
   STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.projections"
   LEGACY_STATE_FILE="$GSD_HOME/.gsd/capability-auto-install-beads.hash"
   SKILLS_ROOT="$SCRATCH/.agents/skills"
@@ -76,6 +94,15 @@ elif [ "\$*" = "capability set beads --runtime claude --scope global --config-di
 else
   _target=""
 fi
+case "\$*" in
+  "capability install "*)
+    _p="\$3"
+    if [ -d "\$_p" ]; then
+      printf '%s\n' "\$_p" > "$SCRATCH/staged.path"
+      LC_ALL=C ls -A "\$_p" | tr '\n' ' ' > "$SCRATCH/staged.ls"
+      find "\$_p" \( -name __pycache__ -o -name tests \) > "$SCRATCH/staged.noise"
+    fi ;;
+esac
 exit $stub_status
 STUB
   chmod +x "$BIN_DIR/gsd-tools.cjs"
@@ -106,7 +133,7 @@ seed_selected() {
 
 sync_installed_fixture() {
   rm -rf "$INSTALLED_BUNDLE"
-  cp -rf "$BUNDLE_DIR" "$INSTALLED_BUNDLE"
+  copy_allowlist "$BUNDLE_DIR" "$INSTALLED_BUNDLE"
 }
 
 fixture_tree_hash() {
@@ -166,7 +193,7 @@ run_script() {
 }
 
 ### Slice 1: compatibility, runtime mapping, and exact native argv ###
-python3 - "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json" \
+python3 - "$REPO_ROOT/capability.json" \
   "$REPO_ROOT/README.md" <<'PY'
 import json
 import pathlib
@@ -190,7 +217,13 @@ run_script beads
 [ "$(wc -l < "$STUB_LOG")" -eq 3 ] || fail "case1: stub invoked $(wc -l < "$STUB_LOG") times, expected 3"
 grep -qx 'query skills-root codex --raw' "$STUB_LOG" \
   || fail "case1: public Codex skills-root query was not invoked"
-grep -qF "$BUNDLE_DIR" "$STUB_LOG" || fail "case1: stub argv missing absolute bundle path"
+grep -Eq '^capability install /[^ ]+ --scope global --yes$' "$STUB_LOG" \
+  || fail "case1: stub argv missing absolute staged bundle path"
+[ "$(cat "$SCRATCH/staged.ls")" = "GSD-CORE-PATCH.md capability.json fragments scripts skills " ] \
+  || fail "case1: staged bundle is not exactly the allowlist: $(cat "$SCRATCH/staged.ls")"
+[ ! -s "$SCRATCH/staged.noise" ] || fail "case1: staged bundle contains tests/ or __pycache__"
+case "$(cat "$SCRATCH/staged.path")" in "$PLUGIN_DIR"*) fail "case1: install source is inside the plugin root" ;; esac
+[ ! -e "$(cat "$SCRATCH/staged.path")" ] || fail "case1: staging directory leaked after exit"
 grep -q 'capability' "$STUB_LOG" || fail "case1: stub argv missing 'capability'"
 grep -q 'install' "$STUB_LOG" || fail "case1: stub argv missing 'install'"
 grep -q -- '--yes' "$STUB_LOG" || fail "case1: stub argv missing '--yes'"
@@ -299,7 +332,7 @@ teardown
 ### Case 5: no-tool path (exit 127) -- gsd-tools unresolvable by any branch ###
 SCRATCH="$(mktemp -d)"
 PLUGIN_DIR="$SCRATCH/.codex/plugins/cache/gsd-beads/beads-lifecycle/test"
-BUNDLE_DIR="$PLUGIN_DIR/.gsd/capabilities/beads"
+BUNDLE_DIR="$PLUGIN_DIR"
 mkdir -p "$BUNDLE_DIR"
 printf '{"id":"beads"}\n' > "$BUNDLE_DIR/capability.json"
 GSD_HOME="$SCRATCH/home"
@@ -330,14 +363,13 @@ pass "case5: no-tool path warns once with distinct text, exits 0, writes no side
 rm -rf "$SCRATCH" 2>/dev/null
 
 ### Case 6: plugin-root resolution parity (Pitfall 3) ###
-# Same fixed plugin/bundle dir for both runs (byte-identical stub argv); each
+# Same fixed plugin/bundle dir for both runs (the staging path is random and never printed); each
 # run gets its own fresh GSD_HOME so both see "no prior hash" and both print
 # the notice. Each run's cwd is a scratch dir that is not the plugin root.
 PARITY_ROOT="$(mktemp -d)"
 PARITY_PLUGIN="$PARITY_ROOT/.codex/plugins/cache/gsd-beads/beads-lifecycle/test"
-PARITY_BUNDLE="$PARITY_PLUGIN/.gsd/capabilities/beads"
-mkdir -p "$(dirname "$PARITY_BUNDLE")"
-cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$PARITY_BUNDLE"
+PARITY_BUNDLE="$PARITY_PLUGIN"
+make_plugin_root "$PARITY_BUNDLE"
 PARITY_CODEX_HOME="$PARITY_ROOT/.codex"
 PARITY_BIN="$PARITY_CODEX_HOME/gsd-core/bin"
 mkdir -p "$PARITY_BIN"
@@ -365,8 +397,8 @@ CWD_B="$PARITY_ROOT/cwd-b"; mkdir -p "$CWD_B"
 GSD_HOME_A="$PARITY_ROOT/home-a"; mkdir -p "$GSD_HOME_A"
 GSD_HOME_B="$PARITY_ROOT/home-b"; mkdir -p "$GSD_HOME_B"
 mkdir -p "$GSD_HOME_A/.gsd/capabilities" "$GSD_HOME_B/.gsd/capabilities"
-cp -rf "$PARITY_BUNDLE" "$GSD_HOME_A/.gsd/capabilities/beads"
-cp -rf "$PARITY_BUNDLE" "$GSD_HOME_B/.gsd/capabilities/beads"
+copy_allowlist "$PARITY_BUNDLE" "$GSD_HOME_A/.gsd/capabilities/beads"
+copy_allowlist "$PARITY_BUNDLE" "$GSD_HOME_B/.gsd/capabilities/beads"
 
 OUT_SET_FILE="$PARITY_ROOT/out-set"
 ERR_SET_FILE="$PARITY_ROOT/err-set"
@@ -448,11 +480,10 @@ run_script beads
   || fail "case7: repeated update changed the projected tree"
 
 CLAUDE_PLUGIN="$SCRATCH/.claude/plugins/cache/gsd-beads/beads-lifecycle/test"
-mkdir -p "$CLAUDE_PLUGIN/.gsd/capabilities"
-cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$CLAUDE_PLUGIN/.gsd/capabilities/beads"
+make_plugin_root "$CLAUDE_PLUGIN"
 printf 'beads\n' > "$CLAUDE_SKILLS_ROOT/gsd-beads-recall/.gsd-capability-skill"
 PLUGIN_DIR="$CLAUDE_PLUGIN"
-BUNDLE_DIR="$CLAUDE_PLUGIN/.gsd/capabilities/beads"
+BUNDLE_DIR="$CLAUDE_PLUGIN"
 seed_selected "$CLAUDE_SKILLS_ROOT"
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
 run_script beads
@@ -469,7 +500,7 @@ grep -Eq "^projection-v2 claude [0-9a-f]{64} [0-9a-f]{64}$" "$STATE_FILE" || fai
   || fail "case7: claude stale projection remained selected"
 
 PLUGIN_DIR="$CODEX_HOME/plugins/cache/gsd-beads/beads-lifecycle/test"
-BUNDLE_DIR="$PLUGIN_DIR/.gsd/capabilities/beads"
+BUNDLE_DIR="$PLUGIN_DIR"
 printf '\n' >> "$BUNDLE_DIR/capability.json"
 sync_installed_fixture
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
@@ -525,7 +556,7 @@ pass "case9: same-name user-owned skill is preserved and convergence fails close
 teardown
 
 ### Case 10: every command declared by the selected recall skill is accepted ###
-ACTIVE_SYNC="$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py"
+ACTIVE_SYNC="$REPO_ROOT/scripts/sync.py"
 setup 0
 seed_selected "$SKILLS_ROOT"
 run_script beads
@@ -563,10 +594,9 @@ teardown
 ### Case 11: an unidentifiable custom plugin root fails closed ###
 setup 0
 CUSTOM_PLUGIN="$SCRATCH/custom-plugin-root"
-mkdir -p "$CUSTOM_PLUGIN/.gsd/capabilities"
-cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$CUSTOM_PLUGIN/.gsd/capabilities/beads"
+make_plugin_root "$CUSTOM_PLUGIN"
 PLUGIN_DIR="$CUSTOM_PLUGIN"
-BUNDLE_DIR="$CUSTOM_PLUGIN/.gsd/capabilities/beads"
+BUNDLE_DIR="$CUSTOM_PLUGIN"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case11: exit status $STATUS, expected 0"
 [ "$(wc -l < "$STUB_LOG")" -eq 0 ] || fail "case11: unknown runtime invoked gsd-tools"
@@ -748,7 +778,7 @@ cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
 printf '%s\n' "\$*" >> "$STUB_LOG"
 if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
 if [ "\$*" = 'query skills-root claude --raw' ]; then printf '%s\n' "$CLAUDE_SKILLS_ROOT"; exit 0; fi
-if [ "\$*" = 'capability install $BUNDLE_DIR --scope global --yes' ]; then
+if [[ "\$*" == 'capability install '*' --scope global --yes' ]]; then
   printf '%s\n' ready > "$READY_FIFO"
   IFS= read -r _release < "$RELEASE_FIFO"
 fi
@@ -797,7 +827,7 @@ cat > "$BIN_DIR/gsd-tools.cjs" <<STUB
 #!/usr/bin/env bash
 printf '%s\n' "\$*" >> "$STUB_LOG"
 if [ "\$*" = 'query skills-root codex --raw' ]; then printf '%s\n' "$SKILLS_ROOT"; exit 0; fi
-if [ "\$*" = 'capability install $BUNDLE_DIR --scope global --yes' ]; then
+if [[ "\$*" == 'capability install '*' --scope global --yes' ]]; then
   "$REAL_PYTHON" - "$CRASH_FD_LEAK" <<'PY'
 import os
 import pathlib
@@ -1424,7 +1454,7 @@ ORACLE_SKILLS_ROOT="$(real_cli "$ORACLE_CODEX" "$ORACLE_HOME" "$ORACLE_CLAUDE" \
 GENERATION_B="$REAL_ROOT/generation-b"
 GENERATION_A="$REAL_ROOT/generation-a"
 SIBLING_BUNDLE="$REAL_ROOT/phase22-sibling"
-cp -rf "$REPO_ROOT/plugins/beads-lifecycle/.gsd/capabilities/beads" "$GENERATION_B"
+copy_allowlist "$REPO_ROOT" "$GENERATION_B"
 cp -rf "$GENERATION_B" "$GENERATION_A"
 $REAL_PYTHON - "$GENERATION_A/capability.json" <<'PY'
 import json
@@ -1565,8 +1595,7 @@ UNSELECTED_BEFORE="$(fixture_tree_hash "$ACTUAL_CLAUDE/skills")"
 SIBLING_BEFORE="$(fixture_tree_hash "$ACTUAL_SKILLS_ROOT/gsd-phase22-sibling")"
 
 REAL_PLUGIN_ROOT="$ACTUAL_CODEX/plugins/cache/gsd-beads/beads-lifecycle/current"
-mkdir -p "$REAL_PLUGIN_ROOT/.gsd/capabilities"
-cp -rf "$GENERATION_B" "$REAL_PLUGIN_ROOT/.gsd/capabilities/beads"
+copy_allowlist "$GENERATION_B" "$REAL_PLUGIN_ROOT" && plant_noise "$REAL_PLUGIN_ROOT"
 REAL_GSD_TOOLS="$ACTUAL_CODEX/gsd-core/bin/gsd-tools-real.cjs"
 REAL_SPY_LOG="$REAL_ROOT/real-spy.log"
 cp -f "$ACTUAL_CODEX/gsd-core/bin/gsd-tools.cjs" "$REAL_GSD_TOOLS"
@@ -1597,8 +1626,10 @@ REAL_HOOK_STATUS=$?
   || fail "case24: real hook invoked the current CLI an unexpected number of times"
 grep -qx 'query skills-root codex --raw' "$REAL_SPY_LOG" \
   || fail "case24: real hook omitted the public skills-root query"
-grep -qx "capability install $REAL_PLUGIN_ROOT/.gsd/capabilities/beads --scope global --yes" \
-  "$REAL_SPY_LOG" || fail "case24: real hook install argv differed"
+grep -Eq '^capability install /[^ ]+ --scope global --yes$' "$REAL_SPY_LOG" \
+  || fail "case24: real hook install argv differed"
+! grep -qF "capability install $REAL_PLUGIN_ROOT" "$REAL_SPY_LOG" \
+  || fail "case24: real hook installed from the plugin root, not a staged allowlist"
 grep -qx "capability set beads --runtime codex --scope global --config-dir $ACTUAL_CODEX" \
   "$REAL_SPY_LOG" || fail "case24: real hook set argv differed"
 

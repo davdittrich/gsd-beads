@@ -116,7 +116,7 @@ cd "$PROJECT_DIR" || exit 0
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) exit 0 ;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/.gsd/capabilities/beads/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}/scripts/sync.py"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="$PROJECT_DIR/.gsd/capabilities/beads/scripts/sync.py"; fi

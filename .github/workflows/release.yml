@@ -17,9 +17,16 @@ jobs:
         run: |
           zip -r gsd-beads.zip \
             .claude-plugin \
-            plugins/beads-lifecycle \
+            .agents \
+            hooks \
+            capability.json \
+            scripts \
+            skills \
+            fragments \
+            GSD-CORE-PATCH.md \
             README.md \
-            LICENSE
+            LICENSE \
+            -x '*/__pycache__/*'
 
       - name: Publish release
         run: gh release create "$RELEASE_TAG" gsd-beads.zip --generate-notes

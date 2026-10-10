@@ -12,7 +12,7 @@
 set -u
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-HOOK="$REPO_ROOT/plugins/beads-lifecycle/hooks/session-start.sh"
+HOOK="$REPO_ROOT/hooks/session-start.sh"
 
 fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
@@ -31,7 +31,7 @@ echo '{"stub":"bd prime"}'
 SH
 chmod +x "$BIN_DIR/bd"
 export PATH="$BIN_DIR:$PATH"
-export CLAUDE_PLUGIN_ROOT="$REPO_ROOT/plugins/beads-lifecycle"
+export CLAUDE_PLUGIN_ROOT="$REPO_ROOT"
 
 run_hook() {
   ( cd "$WORKDIR" && bash "$HOOK" ) >"$SCRATCH/stdout" 2>"$SCRATCH/stderr"

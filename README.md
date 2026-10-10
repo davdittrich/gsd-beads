@@ -161,7 +161,7 @@ entirely; creating a `bd` issue by mistake is recoverable, deleting task prose i
 
 Every gsd-beads setting lives in the project's `.planning/config.json` under a single `beads`
 object, and the shipped defaults are declared in
-`plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`.
+`capability.json` at the repository root.
 
 | Key | Type | Values | Default | Effect |
 | :--- | :--- | :--- | :--- | :--- |
@@ -320,11 +320,13 @@ codex plugin remove beads-lifecycle@gsd-beads
 - **Installing via the marketplace flow (`claude plugin install`) copies the entire cloned
   repository into the installer's local plugin cache** under `~/.claude/plugins/cache/`,
   including this project's own `.planning/` and `.beads/` directories — this is a documented
-  Claude Code cache behavior, not something this repo controls. The plugin *root* itself is
-  the scoped `plugins/beads-lifecycle/` subdirectory, so `.planning/` and `.beads/` are not
-  part of the loaded plugin. Installing is distinct from the GitHub Release archive, which
-  ships only `.claude-plugin/`, `plugins/beads-lifecycle/` (the plugin's own manifest, hooks,
-  skill, and `beads` capability bundle), `README.md`, and `LICENSE`.
+  Claude Code cache behavior, not something this repo controls. The repository root is the
+  plugin root (the marketplace entry's source is `./`), so `.planning/`, `.beads/`, and
+  `tests/` are present in the cache too. The SessionStart auto-install hook installs only an
+  allowlist from it (`capability.json`, `scripts/`, `skills/`, `fragments/`,
+  `GSD-CORE-PATCH.md`), staged into a temporary directory, never the whole root. Installing
+  is distinct from the GitHub Release archive, which ships only `.claude-plugin/`, `.agents/`,
+  `hooks/`, the same capability allowlist, `README.md`, and `LICENSE`.
 - **`gsd-beads` is the source of exactly one capability, `beads`.** `ponytail-everywhere` and
   `sota-numerics` are separate projects living in their own repositories
   (`davdittrich/ponytail-everywhere`, `davdittrich/sota-numerics`), listed in this

@@ -21,7 +21,7 @@ import sys
 import unittest
 from pathlib import Path
 
-HOOK_PATH = Path(__file__).resolve().parents[4] / "hooks" / "lifecycle-dispatch.sh"
+HOOK_PATH = Path(__file__).resolve().parents[1] / "hooks" / "lifecycle-dispatch.sh"
 
 
 def _extract_snippet():

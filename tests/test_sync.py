@@ -1,4 +1,4 @@
-"""Tests for plugins/beads-lifecycle/.gsd/capabilities/beads/scripts/sync.py.
+"""Tests for scripts/sync.py.
 
 Stdlib unittest only (N5). sync.py's parent directory is put on sys.path at
 module import so no package __init__.py and no install step is needed.
@@ -45,15 +45,7 @@ def _capability_json_has_beads_md_gate():
     the skip condition for TestShipPreGenericDispatch's fourth test."""
     try:
         project_root = sync.find_project_root(Path(__file__).resolve().parent)
-        cap_path = (
-            project_root
-            / "plugins"
-            / "beads-lifecycle"
-            / ".gsd"
-            / "capabilities"
-            / "beads"
-            / "capability.json"
-        )
+        cap_path = project_root / "capability.json"
         cap = json.loads(cap_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
@@ -1819,11 +1811,11 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertIn('"resolve-task-content", sys.argv[1]', bootstrap)
 
     def test_release_docs_record_completed_installed_cutover(self):
-        root = self.CAPABILITY_PATH.parents[5]
+        root = self.CAPABILITY_PATH.parent
         changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
         readme = (root / "README.md").read_text(encoding="utf-8")
         plugin = json.loads(
-            (root / "plugins/beads-lifecycle/.claude-plugin/plugin.json").read_text(
+            (root / ".claude-plugin/plugin.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -1869,7 +1861,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_marketplace_external_sources_pin_a_commit_sha(self):
         # gh-19: an unpinned git source follows the default-branch tip, so a
         # force-pushed or compromised branch would ship on the next update.
-        root = self.CAPABILITY_PATH.parents[5]
+        root = self.CAPABILITY_PATH.parent
         marketplace = json.loads(
             (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
         )
@@ -1883,8 +1875,8 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         # GH#20 / kilo.25: a cwd-relative `python3 .gsd/.../sync.py` runs
         # whatever sync.py the current repository ships -- the exact
         # hostile-repo path kilo.23 closed in the hook and skill fences.
-        root = self.CAPABILITY_PATH.parents[5]
-        for relative in ("README.md", "plugins/beads-lifecycle/.agents/skills/beads/PRIME.md"):
+        root = self.CAPABILITY_PATH.parent
+        for relative in ("README.md", ".agents/skills/beads/PRIME.md"):
             with self.subTest(doc=relative):
                 text = (root / relative).read_text(encoding="utf-8")
                 self.assertNotIn("python3 .gsd/capabilities/beads/scripts/sync.py", text)
@@ -1892,13 +1884,13 @@ class TestTaskContentResolverManifest(unittest.TestCase):
                 self.assertIn("gsd-beads-sync", text)
 
     def test_prime_matches_readme_dispatch_ownership(self):
-        root = self.CAPABILITY_PATH.parents[5]
+        root = self.CAPABILITY_PATH.parent
         readme = (root / "README.md").read_text(encoding="utf-8")
         prime = (
-            root / "plugins/beads-lifecycle/.agents/skills/beads/PRIME.md"
+            root / ".agents/skills/beads/PRIME.md"
         ).read_text(encoding="utf-8")
         lifecycle_hook = (
-            root / "plugins/beads-lifecycle/hooks/lifecycle-dispatch.sh"
+            root / "hooks/lifecycle-dispatch.sh"
         ).read_text(encoding="utf-8")
         for document in (readme, prime):
             prose = " ".join(document.split())
@@ -5914,11 +5906,18 @@ class TestShipPreGenericDispatch(unittest.TestCase):
     )
     def test_beads_gate_hooks_excluded_step_hook_retained_when_ship_gate_false(self):
         source_root = sync.find_project_root(Path(__file__).resolve().parent)
-        capability_source = (
-            source_root / "plugins/beads-lifecycle/.gsd/capabilities/beads"
-        )
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
+            # Stage only the capability allowlist: the repo root also holds
+            # .git/.planning/tests, which are not part of the bundle.
+            capability_source = project_root / "bundle-src"
+            capability_source.mkdir()
+            for entry in ("capability.json", "scripts", "skills", "fragments", "GSD-CORE-PATCH.md"):
+                src = source_root / entry
+                if src.is_dir():
+                    shutil.copytree(src, capability_source / entry, ignore=shutil.ignore_patterns("__pycache__"))
+                else:
+                    shutil.copy2(src, capability_source / entry)
             config_path = project_root / ".planning" / "config.json"
             config_path.parent.mkdir()
             config = {"beads": {"enabled": True}}
@@ -6708,15 +6707,7 @@ class TestMilestoneEpic(unittest.TestCase):
 
     def test_capability_json_declares_epic_per_enum_key(self):
         project_root = sync.find_project_root(Path(__file__).resolve().parent)
-        cap_path = (
-            project_root
-            / "plugins"
-            / "beads-lifecycle"
-            / ".gsd"
-            / "capabilities"
-            / "beads"
-            / "capability.json"
-        )
+        cap_path = project_root / "capability.json"
         cap = json.loads(cap_path.read_text(encoding="utf-8"))
         epic_per_cfg = cap["config"]["beads.epic_per"]
         self.assertEqual(epic_per_cfg["type"], "enum")
@@ -7199,7 +7190,7 @@ class TestLifecycleDispatchHook(unittest.TestCase):
     than trusted."""
 
     # tests/ -> beads/ -> capabilities/ -> .gsd/ -> beads-lifecycle/
-    PLUGIN_ROOT = Path(__file__).resolve().parents[4]
+    PLUGIN_ROOT = Path(__file__).resolve().parents[1]
     HOOK = PLUGIN_ROOT / "hooks" / "lifecycle-dispatch.sh"
 
     def _run(self, command, cwd, claude_config_dir=None, claude_project_dir=None):
@@ -7389,7 +7380,7 @@ class TestLifecycleDispatchHook(unittest.TestCase):
         for point in sync.LIFECYCLE_DISPATCH_POINTS:
             self.assertIn(point, hook_text, f"{point} missing from the hook allowlist")
         cap = json.loads(
-            (self.PLUGIN_ROOT / ".gsd/capabilities/beads/capability.json").read_text(
+            (self.PLUGIN_ROOT / "capability.json").read_text(
                 encoding="utf-8"
             )
         )
@@ -8177,9 +8168,10 @@ class TestLifecycleDispatchSyncResolution(unittest.TestCase):
 
     HOOK = TestLifecycleDispatchHook.HOOK
     RELATIVE_SYNC = ".gsd/capabilities/beads/scripts/sync.py"
+    PLUGIN_SYNC = "scripts/sync.py"
 
-    def _spy(self, root):
-        path = root / self.RELATIVE_SYNC
+    def _spy(self, root, relative=None):
+        path = root / (relative or self.RELATIVE_SYNC)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             "import os\n"
@@ -8220,7 +8212,7 @@ class TestLifecycleDispatchSyncResolution(unittest.TestCase):
         if global_script:
             spies["global"] = str(self._spy(base / "global"))
         if plugin:
-            spies["plugin"] = str(self._spy(base / "plugin"))
+            spies["plugin"] = str(self._spy(base / "plugin", self.PLUGIN_SYNC))
         return spies
 
     def test_global_install_beats_hostile_project(self):
@@ -8296,14 +8288,16 @@ class TestLifecycleDispatchSyncResolution(unittest.TestCase):
 class TestDirectSkillSyncResolver(unittest.TestCase):
     """Direct skills must select sync.py exactly as lifecycle dispatch does."""
 
-    ROOT = Path(__file__).resolve().parents[4]
+    ROOT = Path(__file__).resolve().parents[1]
+    HOOK_FILE = ROOT / "hooks" / "lifecycle-dispatch.sh"
     RELATIVE_SYNC = ".gsd/capabilities/beads/scripts/sync.py"
+    PLUGIN_SYNC = "scripts/sync.py"
     DIAGNOSTIC = "gsd-beads: sync.py not found in global, plugin, or project capability roots"
     NO_BASE_DIAGNOSTIC = "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py"
     RESOLVER = """_B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:-}/.gsd/capabilities/beads/scripts/sync.py"
+_P="${CLAUDE_PLUGIN_ROOT:-}/scripts/sync.py"
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY="${CLAUDE_PROJECT_DIR:-}/.gsd/capabilities/beads/scripts/sync.py"; fi
@@ -8324,10 +8318,10 @@ fi"""
         ("beads-status:close-wave", "beads-status/SKILL.md", ("close-wave <phase directory> <plan id> [<plan id> ...]",)),
     )
     def _skill_path(self, relative):
-        return self.ROOT / ".gsd/capabilities/beads/skills" / relative
+        return self.ROOT / "skills" / relative
 
-    def _write_spy(self, root):
-        path = root / self.RELATIVE_SYNC
+    def _write_spy(self, root, relative=None):
+        path = root / (relative or self.RELATIVE_SYNC)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             "import json, os, sys\n"
@@ -8372,7 +8366,7 @@ fi"""
             }
             for with_plugin in (False, True):
                 if with_plugin:
-                    self._write_spy(plugin)
+                    self._write_spy(plugin, self.PLUGIN_SYNC)
                 for label, overrides in cases.items():
                     with self.subTest(case=label, plugin=with_plugin):
                         env = dict(base_env)
@@ -8400,6 +8394,27 @@ fi"""
                         self.assertEqual(result.returncode, 1, result)
                         self.assertEqual(result.stderr, self.DIAGNOSTIC + "\n")
                         self.assertFalse(spy_log.exists())
+
+    def test_plugin_rung_resolves_real_layout_script(self):
+        # Synthetic-layout tests above cannot notice a stale plugin path: with
+        # the real repo as CLAUDE_PLUGIN_ROOT every `_P=` line (hook + skills)
+        # must name a script that exists.
+        sources = [self.HOOK_FILE, *sorted((self.ROOT / "skills").glob("*/SKILL.md"))]
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=str(self.ROOT))
+        checked = 0
+        for source in sources:
+            for line in source.read_text(encoding="utf-8").splitlines():
+                if not line.startswith("_P="):
+                    continue
+                with self.subTest(source=source.name, line=line):
+                    result = subprocess.run(
+                        ["bash", "-c", line + '\nprintf %s "$_P"'],
+                        capture_output=True, text=True, env=env, timeout=15,
+                    )
+                    self.assertEqual(result.returncode, 0, result)
+                    self.assertTrue(Path(result.stdout).is_file(), result.stdout)
+                    checked += 1
+        self.assertEqual(checked, len(self.RAW_FENCES) + 1)  # ten skill fences + the hook
 
     def test_all_ten_fences_have_exact_static_contract(self):
         texts = {}
@@ -8441,7 +8456,7 @@ fi"""
             project_sync = self._write_spy(project)
             global_sync = self._write_spy(global_root)
             global_manifest = self._write_manifest(global_root)
-            plugin_sync = self._write_spy(plugin)
+            plugin_sync = self._write_spy(plugin, self.PLUGIN_SYNC)
 
             # Hostile project + global install: global runs, project never.
             result = self._run(base_env, "status")

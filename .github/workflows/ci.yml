@@ -56,5 +56,4 @@ jobs:
       # Stdlib unittest, not pytest -- N5 keeps this capability's dependencies
       # at `bd` plus the Python standard library, and CI must not widen that.
       - name: Beads sync tests
-        working-directory: plugins/beads-lifecycle/.gsd/capabilities/beads
         run: python3 -m unittest discover -s tests -t tests

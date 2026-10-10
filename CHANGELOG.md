@@ -67,7 +67,7 @@
 ### Changed
 - **Installed native task-content cutover is complete and Patch 2 is retired.** The tracked, project-active, global-active, and bootstrap capability trees are byte-identical; the native resolver is the executed content authority. The local `execute-plan.md` marker block, detector, tests, and active documentation were removed together while the independent `ship.md` Patch 1 contract remains intact.
 
-Versions in this file track `plugins/beads-lifecycle/.gsd/capabilities/beads/capability.json`.
+Versions in this file track `capability.json`.
 
 ## 0.4.0
 
