@@ -281,6 +281,7 @@ codex plugin remove beads-lifecycle@gsd-beads
   `### Blockers/Concerns` in `STATE.md`. Beads support is fail-open by design, not a hard
   dependency, with one exception: the `ship:pre` gate fails closed, so an unavailable `bd`
   blocks shipping until `bd` is back or `ship_gate: false` records an override.
+- **`resolves_issues` closes any open bd id.** A completed plan's `SUMMARY.md` frontmatter may list ids from outside the phase; they are syntax-checked only, so a typo or foreign id closes whatever it names.
 - **On a runtime without `PostToolUse`**, the native and patched points still run; drive the three
   compatibility points with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre`
   `<beads_status>` block is phase-wide because the hook carries no wave plan-id list: a superset of

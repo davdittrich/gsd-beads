@@ -206,7 +206,7 @@ resolves_issues:
 `reconcile-stale-closed` adds every listed id to its candidates and closes those still open,
 printing the marker-closed and rejected-entry counts on one line. Only the frontmatter is searched:
 an id that appears in SUMMARY.md body prose never closes anything, so a phase that merely mentions
-a newly filed follow-up cannot close it. An unknown or already-closed id is a silent no-op.
+a newly filed follow-up cannot close it. A listed id may be any open bd issue, not only this phase's; ids are syntax-checked only. An unknown or already-closed id is a silent no-op.
 
 ## Step 3 -- Report
 
