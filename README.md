@@ -40,11 +40,12 @@ the single source of truth for task state, so no duplicated task-state bookkeepi
 
 - `bd` on `PATH`
 - Python 3 (standard library only)
-- gsd-core >= 1.10.0
+- gsd-core >= 1.11.0
 
-The manifest keeps 1.10.0 as the compatibility floor. The real reconciliation fixture and CI
-separately pin public gsd-core 1.12.0 as the current runtime identity; that current-runtime gate
-does not raise the declared floor.
+The floor is 1.11.0: gsd-core 1.10 `ship.md` silently drops the whole `ship:pre` gate, and
+`onError: halt` is honoured only from 1.11.0. The real reconciliation fixture and CI separately
+pin public gsd-core 1.12.0 as the current runtime identity; that current-runtime gate does not
+raise the declared floor.
 
 ## Install
 
