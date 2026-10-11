@@ -334,7 +334,7 @@ def run_bd(argv, timeout=BD_TIMEOUT):
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=_BD_CWD)
 
 
-# Oldest bd this script is tested against (bd 1.2.2 tarball and 1.3.1):
+# Oldest bd the test suite runs against (ci.yml BD_VERSION, a 1.2.2 tarball):
 # older releases lack flags it relies on, e.g. `bd list --id`.
 BD_MIN_VERSION = (1, 2, 2)
 BD_VERSION_RE = re.compile(r"\bversion\s+v?(\d+)\.(\d+)\.(\d+)")
