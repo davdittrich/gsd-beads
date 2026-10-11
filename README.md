@@ -38,7 +38,7 @@ the single source of truth for task state, so no duplicated task-state bookkeepi
 
 ## Requirements
 
-- `bd` >= 1.2.2 on `PATH` (check: `bd --version`)
+- `bd` >= 1.2.2 on `PATH` (the version CI pins; an older `bd` prints one notice and is treated as unavailable, an unrecognised `bd --version` output is not)
 - Python 3 (standard library only)
 - gsd-core >= 1.11.0
 

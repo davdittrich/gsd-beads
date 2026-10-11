@@ -10,6 +10,9 @@ T-01-01).
 """
 import argparse
 import contextlib
+import fcntl
+import hashlib
+import itertools
 import json
 import os
 import re
@@ -18,7 +21,7 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 BD_TIMEOUT = 15  # seconds; bounded timeout on every bd subprocess call
 GIT_TIMEOUT = 15  # seconds; bounded timeout on every git subprocess call (ship_override)
@@ -157,7 +160,8 @@ FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---(?:\r?\n|\Z)", re.DOTALL)
 # SUMMARY.md's frontmatter to decide halt-propagation -- this must stay the
 # one place this capability decides the same thing, so the two readers of
 # the identical artifact can never contradict each other again.
-STATUS_RE = re.compile(r"^status:\s*(.*)$", re.MULTILINE)
+# [ \t]*, not \s*: an empty `status:` must not swallow the next line.
+STATUS_RE = re.compile(r"^status:[ \t]*(.*)$", re.MULTILINE)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 BEADS_EPIC_DECL_RE = re.compile(r"^beads_epic[ \t]*:(.*)$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
@@ -331,11 +335,43 @@ def run_bd(argv, timeout=BD_TIMEOUT):
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=_BD_CWD)
 
 
+# Oldest bd the test suite runs against (ci.yml BD_VERSION, a 1.2.2 tarball):
+# older releases lack flags it relies on, e.g. `bd list --id`.
+BD_MIN_VERSION = (1, 2, 2)
+BD_VERSION_RE = re.compile(r"\bversion\s+v?(\d+)\.(\d+)\.(\d+)")
+_BD_VERSION_OK = None  # per-process verdict of the floor check; None = not yet run
+
+
+def _bd_version_ok():
+    """Run `bd --version` once per process. Below BD_MIN_VERSION: one stderr
+    notice and False. Output that does not parse (a dev build, a changed
+    format, a failed call) proceeds as True -- refusing a bd we cannot
+    identify would disable sync on every future format change, and the
+    availability probe still runs."""
+    global _BD_VERSION_OK
+    if _BD_VERSION_OK is None:
+        try:
+            out = run_bd(["bd", "--version"]).stdout or ""
+        except (subprocess.TimeoutExpired, OSError):
+            out = ""
+        m = BD_VERSION_RE.search(out if isinstance(out, str) else "")
+        found = tuple(int(g) for g in m.groups()) if m else None
+        _BD_VERSION_OK = found is None or found >= BD_MIN_VERSION
+        if not _BD_VERSION_OK:
+            print(
+                f"bd {'.'.join(map(str, found))} is older than the minimum "
+                f"{'.'.join(map(str, BD_MIN_VERSION))} -- treating bd as unavailable; upgrade bd",
+                file=sys.stderr,
+            )
+    return _BD_VERSION_OK
+
+
 def bd_available():
-    """B6/D-08 fail-open detection point: locate the binary, run one cheap read
-    command. Absent, non-zero exit, or timeout all take the same "unavailable"
-    path -- this function is the single point of truth for that decision."""
-    if shutil.which("bd") is None:
+    """B6/D-08 fail-open detection point: locate the binary, check its version
+    floor, run one cheap read command. Absent, too old, non-zero exit, or
+    timeout all take the same "unavailable" path -- this function is the
+    single point of truth for that decision."""
+    if shutil.which("bd") is None or not _bd_version_ok():
         return False
     try:
         result = run_bd(["bd", "list", "--json", "-n", "1"])
@@ -363,25 +399,33 @@ def append_state_blocker(state_path, message):
         # A planted STATE.md -> elsewhere would take this append.
         print(f"STATE.md note skipped: {state_path} is a symlink", file=sys.stderr)
         return
-    text = state_path.read_text(encoding="utf-8")
-    heading = "### Blockers/Concerns"
-    idx = text.find(heading)
-    if idx == -1:
-        return
-    message = " ".join(message.split())
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    # CodeRabbit: compare the complete bullet line, not a bare substring --
-    # "failure" is a substring of an already-present "failure with details"
-    # bullet, so the naive `bullet in text` check silently dropped a
-    # genuinely distinct, shorter message.
-    bullet_line = f"- {date}: {message}"
-    if bullet_line in text.splitlines():
-        return
-    bullet = f"\n\n{bullet_line}"
-    line_end = text.find("\n", idx)
-    if line_end == -1:
-        line_end = len(text)
-    state_path.write_text(text[:line_end] + bullet + text[line_end:], encoding="utf-8")
+    # Serialise the whole read-modify-write on the parent directory: the
+    # atomic replace below swaps STATE.md's inode, so a lock on the file
+    # itself would be held on a dead file. The directory's inode is stable.
+    lock_fd = os.open(state_path.parent, os.O_RDONLY)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        text = state_path.read_text(encoding="utf-8")
+        # A heading inside a fenced example is not the section; the mask keeps
+        # every offset, so an index found in it is valid in `text`.
+        idx = _mask_fenced_code_blocks(text).find("### Blockers/Concerns")
+        if idx == -1:
+            return
+        message = " ".join(message.split())
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # CodeRabbit: compare the complete bullet line, not a bare substring --
+        # "failure" is a substring of an already-present "failure with details"
+        # bullet, so the naive `bullet in text` check silently dropped a
+        # genuinely distinct, shorter message.
+        bullet_line = f"- {date}: {message}"
+        if bullet_line in text.splitlines():
+            return
+        line_end = text.find("\n", idx)
+        if line_end == -1:
+            line_end = len(text)
+        _atomic_write_text(state_path, text[:line_end] + f"\n\n{bullet_line}" + text[line_end:])
+    finally:
+        os.close(lock_fd)
 
 
 def find_project_root(start):
@@ -999,12 +1043,11 @@ def migrate_todos(pending_dir_arg):
     `.planning/todos/pending/*.md` file into a mapped bd issue, then delete
     that file (D-05); an unparseable file is left untouched and reported
     under "could not be interpreted", distinct from a "bd create failed"
-    entry (D-04/Pitfall 2). No duplicate check against existing bd issues
-    (D-06): every parseable todo always creates a new issue. A file is
-    deleted only after bd returns a SAFE_BD_ID_RE-valid id (R20); a timeout
-    or OS error on one file is recorded and the loop continues. No title
-    lookup is done before a retry after an ambiguous timeout -- the failure
-    line tells the user to check bd first.
+    entry (D-04/Pitfall 2). Each todo is created through ensure_issue under
+    a key derived from its file name and title, so a rerun after an
+    ambiguous timeout or an undeletable file adopts the issue instead of
+    duplicating it. A file is deleted only after a SAFE_BD_ID_RE-valid id
+    (R20); a failure on one file is recorded and the loop continues.
     """
     if not bd_available():
         _skip_bd_unavailable(Path(pending_dir_arg).resolve(), "migrate-todos")
@@ -1022,6 +1065,7 @@ def migrate_todos(pending_dir_arg):
     moved = []
     parse_errors = []
     bd_create_failed = []
+    not_deleted = []
     for todo_path in todo_paths:
         try:
             todo = parse_todo(todo_path)
@@ -1029,8 +1073,12 @@ def migrate_todos(pending_dir_arg):
             parse_errors.append((todo_path.name, str(exc)))
             continue
 
+        key = "gsd-key:todo-" + hashlib.sha1(
+            f"{todo_path.name}\0{todo['title']}".encode("utf-8")
+        ).hexdigest()[:12]
         try:
-            result = run_bd(
+            issue_id = ensure_issue(
+                key,
                 [
                     "bd",
                     "create",
@@ -1045,30 +1093,18 @@ def migrate_todos(pending_dir_arg):
                     "-l",
                     ",".join(f"area-{a}" for a in todo["area"].split(",")),
                     "--silent",
-                ]
+                ],
+                "task",
             )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            # Ambiguous: bd may have created the issue before the kill. No
-            # title lookup before a retry (not implemented): the user is told
-            # to check bd first, since a rerun would duplicate (D-06).
-            bd_create_failed.append(
-                (todo_path.name, f"{type(exc).__name__}; an issue may already exist -- check bd before rerunning")
-            )
-            continue
-        if result.returncode != 0:
-            bd_create_failed.append((todo_path.name, result.stderr.strip()))
-            continue
-
-        issue_id = result.stdout.strip()
-        if not SAFE_BD_ID_RE.fullmatch(issue_id):
-            bd_create_failed.append(
-                (todo_path.name, f"bd create returned no issue id ({issue_id[:60]!r}); an issue may already exist -- check bd before rerunning")
-            )
+        except (RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
+            # The file stays; a rerun looks the key up first, so whatever
+            # bd may have written is adopted, never duplicated.
+            bd_create_failed.append((todo_path.name, f"{type(exc).__name__}: {exc}"))
             continue
         try:
             todo_path.unlink()  # D-05: delete only after a confirmed issue id
         except OSError as exc:
-            bd_create_failed.append(
+            not_deleted.append(
                 (todo_path.name, f"created {issue_id} but could not delete the todo file ({exc}); delete it manually")
             )
             continue
@@ -1076,7 +1112,7 @@ def migrate_todos(pending_dir_arg):
 
     lines = [
         f"Migrated {len(moved)} todo(s), {len(parse_errors)} could not be interpreted, "
-        f"{len(bd_create_failed)} bd create failed"
+        f"{len(bd_create_failed)} bd create failed, {len(not_deleted)} created but not deleted"
     ]
     if moved:
         lines.append("  moved:")
@@ -1087,6 +1123,9 @@ def migrate_todos(pending_dir_arg):
     if bd_create_failed:
         lines.append("  bd create failed:")
         lines.extend(f"    {name}: {reason}" for name, reason in bd_create_failed)
+    if not_deleted:
+        lines.append("  created but not deleted:")
+        lines.extend(f"    {name}: {reason}" for name, reason in not_deleted)
     print("\n".join(lines))
     return 0
 
@@ -1592,7 +1631,9 @@ def resolve_milestone_epic(project_root):
             raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
-        if row is not None:
+        # A closed milestone epic is history: reusing it would hang new work
+        # under a finished milestone.
+        if row is not None and row.get("status") != "closed":
             candidate_title = row.get("title")
             if not isinstance(candidate_title, str) or not candidate_title.strip():
                 raise EpicAuthorityError(
@@ -1614,10 +1655,10 @@ def resolve_milestone_epic(project_root):
     if milestone_bullet:
         argv += ["-d", _epic_description(milestone_bullet)]
     argv += ["-l", SYNC_LABEL, "--type", "epic", "--silent"]
-    result = run_bd(argv)
-    if result.returncode != 0:
-        raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+    # bd labels are comma-separated on create, so the slug keeps only
+    # [a-z0-9.] runs: "Milestone v1.0: core mvp" -> milestone-v1.0-core-mvp.
+    slug = "-".join(re.findall(r"[a-z0-9.]+", title.lower().removeprefix("milestone ")))
+    return ensure_issue(f"gsd-key:milestone-{slug}", argv, "epic")
 
 
 def _unwrap_bd_list(payload):
@@ -1677,6 +1718,96 @@ def _bd_show_row(result, expected_id):
     return payload[0]
 
 
+def _open_key_rows(key, kind, title):
+    """Non-closed `kind` rows labelled `key` and titled `title`, oldest first
+    by (created_at, id). Filtering on issue_type is load-bearing: bd copies a
+    parent's labels onto every child created with --parent, so an epic's key
+    also labels each of its tasks. The title must match too: a task key
+    carries its ordinal, which shifts when a plan is edited, so a replaced
+    task would otherwise adopt (and run) its predecessor's issue. created_at
+    has one-second granularity, so the id breaks ties and every process
+    agrees on the same winner."""
+    result = run_bd(["bd", "list", "-l", key, "--all", "-n", "0", "--json"])
+    rows = _checked_bd_list_rows(result)
+    if rows is None:
+        raise BdTransientError(f"bd list -l {key} failed: {(result.stderr or '').strip()}")
+    return sorted(
+        (
+            r for r in rows
+            if isinstance(r, dict) and r.get("issue_type") == kind and r.get("title") == title
+            and r.get("status") != "closed" and isinstance(r.get("id"), str)
+        ),
+        key=lambda r: (str(r.get("created_at", "")), r["id"]),
+    )
+
+
+def ensure_issue(key, create_args, kind):
+    """Return the id of the one open `kind` issue labelled `key` and titled as
+    `create_args` (a full `bd create ...` argv) would title it, creating it
+    only when none exists.
+
+    The single create path in this file: a create whose id never reached
+    the plan (kill, timeout, failed write) is found by its key on the next
+    run instead of duplicated. A closed match is history, not identity, so
+    it yields a new issue. Concurrent creators on this host serialise on an
+    flock of the .planning directory of the project bd resolves its db from;
+    a lockless racer elsewhere is caught by the re-query after create, where
+    the oldest row wins and only the row this call made is closed -- never
+    another caller's, which may already be bound to a plan.
+
+    Never call append_state_blocker while holding the lock: it flocks the
+    same directory and would deadlock this process."""
+    title = create_args[create_args.index("--title") + 1] if "--title" in create_args else create_args[2]
+    # bd resolves its db by walking up from its cwd; the lock must cover the
+    # same project, so derive it the same way rather than fall back to an
+    # unrelated directory that would serialise nothing.
+    try:
+        lock_root = Path(_BD_CWD) if _BD_CWD else find_project_root(Path.cwd())
+    except ValueError as exc:
+        raise RuntimeError(f"no project to lock for bd create: {exc}") from exc
+    lock_fd = os.open(lock_root / ".planning", os.O_RDONLY)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        rows = _open_key_rows(key, kind, title)
+        if rows:
+            return rows[0]["id"]
+        try:
+            result = run_bd(create_args + ["-l", key])
+        except subprocess.TimeoutExpired as exc:
+            # bd may have written the row before the kill: look before failing.
+            rows = _open_key_rows(key, kind, title)
+            if rows:
+                return rows[0]["id"]
+            raise BdTransientError(f"bd create ({kind}) timed out and no {key} issue exists") from exc
+        if result.returncode != 0:
+            raise RuntimeError(f"bd create ({kind}) failed: {(result.stderr or '').strip()}")
+        issue_id = result.stdout.strip() if isinstance(result.stdout, str) else ""
+        if not SAFE_BD_ID_RE.fullmatch(issue_id):
+            # Every task hangs off the epic, so a garbled epic id stops the
+            # sync (rc 1); a garbled task id fails open like any bd failure.
+            error = EpicAuthorityError if kind == "epic" else RuntimeError
+            raise error(f"bd create ({kind}) returned unsafe id: {issue_id!r}")
+        rows = _open_key_rows(key, kind, title)
+        if issue_id not in {r["id"] for r in rows}:
+            # The lookup cannot see what bd just wrote (a title bd stores
+            # differently, an older bd's row shape). Raising would leave the
+            # issue unbound and every rerun would add one more; return it so
+            # it is persisted -- stored-id verification keeps later runs
+            # idempotent. No STATE note: this lock is the one it takes.
+            print(f"ensure-issue: bd list -l {key} does not show just-created {issue_id}; "
+                  "dedup by key is blind for this issue", file=sys.stderr)
+            return issue_id
+        winner = rows[0]["id"]
+        if winner != issue_id:
+            closed = run_bd(["bd", "close", issue_id, "--reason", f"duplicate of {winner} ({key})"])
+            if closed.returncode != 0:
+                print(f"ensure-issue: duplicate {issue_id} of {winner} not closed: "
+                      f"{closed.stderr.strip()}", file=sys.stderr)
+        return winner
+    finally:
+        os.close(lock_fd)
+
+
 def _bd_show_identifies(result, expected_id):
     """Return False on absence; require exact one-row JSON on success."""
     return _bd_show_row(result, expected_id) is not None
@@ -1724,12 +1855,7 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, 
     if description:
         argv += ["-d", description]
     argv += ["-l", SYNC_LABEL, "--type", "epic", "--silent"]
-    result = run_bd(argv)
-    if result.returncode != 0:
-        raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
-    epic_id = result.stdout.strip() if isinstance(result.stdout, str) else ""
-    if not SAFE_BD_ID_RE.fullmatch(epic_id):
-        raise EpicAuthorityError(f"bd create (epic) returned unsafe id: {epic_id!r}")
+    epic_id = ensure_issue(f"gsd-key:{phase_num}-epic".lower(), argv, "epic")
     return epic_id, True, stale_epic_id
 
 
@@ -1788,12 +1914,7 @@ def resolve_issue(task, epic_id, ordinal_prefix, task_index):
     if task["acceptance_criteria"]:
         argv += ["--acceptance", task["acceptance_criteria"]]
     argv += ["-l", SYNC_LABEL, "--type", "task", "--parent", epic_id, "--silent"]
-    result = run_bd(argv)
-    if result.returncode != 0:
-        raise RuntimeError(f"bd create (task) failed: {result.stderr.strip()}")
-    issue_id = result.stdout.strip() if isinstance(result.stdout, str) else ""
-    if not SAFE_BD_ID_RE.fullmatch(issue_id):
-        raise RuntimeError(f"bd create (task) returned unsafe id: {issue_id!r}")
+    issue_id = ensure_issue(f"gsd-key:{ordinal_prefix}-t{task_index}".lower(), argv, "task")
     return issue_id, True, False
 
 
@@ -2079,8 +2200,8 @@ def _resolve_marked_issue_ids(phase_dir):
     it fullmatches SAFE_BD_ID_RE; anything else is dropped and counted in
     rejected_count rather than ever reaching a `bd close` argv.
 
-    GH#10: a halted or blocked plan's `resolves_issues:` claim is never
-    trusted either -- neither status is a genuine, unretracted completion
+    GH#10: a plan whose status is not complete never has its
+    `resolves_issues:` claim trusted either -- it is no completion
     record (see find_completed_task_ids), so a marker named there is
     excluded from this candidate set the same way its own tasks are.
     """
@@ -2090,8 +2211,7 @@ def _resolve_marked_issue_ids(phase_dir):
         summary_path = plan_path.with_name(f"{plan_id}-SUMMARY.md")
         if not summary_path.exists():
             continue
-        status = _read_summary_status(summary_path)
-        if _is_halted_status(status) or _is_blocked_status(status):
+        if not _is_complete_status(_read_summary_status(summary_path)):
             continue
         try:
             text = summary_path.read_text(encoding="utf-8")
@@ -2152,12 +2272,15 @@ def _normalize_summary_status(value):
     return value
 
 
-def _is_halted_status(value):
-    """Mirror gsd-core's plan-dependency-graph.cjs `isHaltedStatus`: case-
-    insensitive comparison after normalization -- so this reader's
-    definition of "halted" can never drift from the JS side's (GH#10)."""
-    normalized = _normalize_summary_status(value)
-    return normalized is not None and normalized.lower() == "halted"
+def _is_complete_status(value):
+    """Allowlist, not denylist (gsd-beads-cjbc.48): only `complete` (case-
+    insensitive after normalization) is a completion record. gsd-core
+    documents `complete` and `halted`; `blocked` is a failure record; any
+    other value is unknown and must not close every task. A SUMMARY with no
+    top-level `status` (None) predates the field and counts as complete."""
+    if value is None:
+        return True
+    return _normalize_summary_status(value).lower() == "complete"
 
 
 def _is_blocked_status(value):
@@ -2188,16 +2311,15 @@ def find_completed_task_ids(phase_dir, plan_id):
 
     Completion is plan-granular: a plan whose SUMMARY.md exists has finished
     every one of its tasks (gsd-core's own completion marker -- see
-    wave_granularity_fact) UNLESS that SUMMARY declares `status: halted` or
-    `status: blocked` (GH#10). `blocked` (#3345) is a failure record, not a
+    wave_granularity_fact) only when that SUMMARY's top-level `status` is
+    `complete` or absent (_is_complete_status). `blocked` (#3345) is a failure record, not a
     completion record at all -- gsd-core's own has_summary:false treatment,
     so it contributes nothing here either, same as no SUMMARY.md existing.
-    `halted` is a designed stop that intentionally left tasks unfinished; the
-    SUMMARY template carries no per-task completion field, so a halted plan
+    `halted` (a designed stop) or any other status left tasks unfinished; the
+    SUMMARY template carries no per-task completion field, so such a plan
     cannot be disambiguated task-by-task -- every one of its tasks is
     skipped (fail closed) rather than guessed at. A plan with no SUMMARY.md
-    yet contributes nothing. Within a completed (non-halted, non-blocked)
-    plan, a task with no <beads-id> (never synced, e.g. a checkpoint task)
+    yet contributes nothing. Within a complete plan, a task with no <beads-id> (never synced, e.g. a checkpoint task)
     is counted skipped rather than raised.
     """
     plan_path = discover_plan_files(phase_dir).get(plan_id)
@@ -2221,7 +2343,7 @@ def find_completed_task_ids(phase_dir, plan_id):
         raise PlanParseError(
             f"completed-task authority invalid in {plan_path.name}: {exc}"
         ) from exc
-    if _is_halted_status(status):
+    if not _is_complete_status(status):
         return [], len(tasks)
     ids = []
     skipped = 0
@@ -2246,6 +2368,7 @@ def filter_open_ids(ids):
     `bd show` per id) is the "explicit status filter" idempotency check: an
     id bd no longer returns here is already closed, so a repeat close-wave
     dispatch over an already-closed wave issues zero close calls (B5).
+    Raises BdTransientError when the query is not confirmed.
     """
     if not ids:
         return []
@@ -2262,12 +2385,11 @@ def filter_open_ids(ids):
             "0",
         ]
     )
-    if result.returncode != 0:
-        return list(ids)  # fail-open: status unconfirmed, attempt the close anyway
-    try:
-        rows = _unwrap_bd_list(json.loads(result.stdout))
-    except json.JSONDecodeError:
-        return list(ids)
+    rows = _checked_bd_list_rows(result)
+    if rows is None:
+        # Unconfirmed status is not "all open": closing on it could close
+        # issues bd never reported. Callers print the notice and close nothing.
+        raise BdTransientError(f"bd list status query failed: {result.stderr.strip()}")
     # Review finding: every sibling row-reader in this file uses
     # .get("id", "") for a malformed/missing key, never bare indexing.
     open_ids = {r.get("id", "") for r in rows}
@@ -2297,7 +2419,11 @@ def close_wave(phase_dir_arg, plan_ids):
     # De-duplicate while preserving order, in case the same task id is
     # somehow named twice across the wave's plans.
     unique_ids = list(dict.fromkeys(all_ids))
-    to_close = filter_open_ids(unique_ids)
+    try:
+        to_close = filter_open_ids(unique_ids)
+    except BdTransientError:
+        _skip_bd_unavailable(phase_dir, "beads-status close-wave")
+        return 0
 
     if to_close:
         reason = f"wave complete: {', '.join(plan_ids)}"
@@ -2308,7 +2434,7 @@ def close_wave(phase_dir_arg, plan_ids):
     per_plan = ", ".join(f"{pid}:{n}" for pid, n in plan_counts)
     print(
         f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) ({per_plan}); "
-        f"skipped {skipped_total} task(s) (no beads-id or plan halted)"
+        f"skipped {skipped_total} task(s) (no beads-id or plan not complete)"
     )
     return 0
 
@@ -2338,7 +2464,11 @@ def reconcile_stale_closed(phase_dir_arg):
         return 0
 
     completed_ids = sorted(completed_ids)
-    to_close = filter_open_ids(completed_ids)
+    try:
+        to_close = filter_open_ids(completed_ids)
+    except BdTransientError:
+        _skip_bd_unavailable(phase_dir, "beads-status reconcile-stale-closed")
+        return 0
 
     if to_close:
         reason = f"phase-wide reconciliation: {phase_dir.name}"
@@ -2354,7 +2484,11 @@ def reconcile_stale_closed(phase_dir_arg):
     # trail is the only forensic handle on a wrong close.
     marked_ids, rejected = _resolve_marked_issue_ids(phase_dir)
     marked_ids -= set(completed_ids)
-    marked_to_close = filter_open_ids(sorted(marked_ids))
+    try:
+        marked_to_close = filter_open_ids(sorted(marked_ids))
+    except BdTransientError:
+        _skip_bd_unavailable(phase_dir, "beads-status reconcile-stale-closed")
+        return 0
 
     if marked_to_close:
         marker_reason = f"resolves_issues marker: {phase_dir.name}"
@@ -2364,7 +2498,7 @@ def reconcile_stale_closed(phase_dir_arg):
 
     print(
         f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) in {phase_dir.name}; "
-        f"skipped {skipped_total} task(s) (no beads-id or plan halted); "
+        f"skipped {skipped_total} task(s) (no beads-id or plan not complete); "
         f"closed {len(marked_to_close)} marker issue(s), rejected {rejected}"
     )
     return 0
@@ -2634,6 +2768,13 @@ def create_issues(plan_arg, allow_strip=True):
                 issue_id, created, divergent = resolve_issue(
                     task, epic_id, ordinal_prefix, i
                 )
+                # ensure_issue adopts by key+title; a duplicate task name at a
+                # shifted ordinal can match an issue another task here owns.
+                if issue_id in task_ids or issue_id in stored.values():
+                    raise RuntimeError(
+                        f"task {task['name']!r} resolved to {issue_id}, already bound "
+                        f"in {plan_path.name} -- rename the duplicate task"
+                    )
             if created:
                 created_count += 1
                 if task["beads_id"]:
@@ -2885,17 +3026,20 @@ def scope_match(issue_id, files_index, phase_mentions):
     """Pure technique-1 check: return "files" when one of issue_id's
     reverse-looked-up files matches a phase_mentions token; return None when
     issue_id has no reverse-lookup entry at all (caller falls back to
-    technique 2) or its files simply don't overlap. A bare token (no `/`)
-    matches by exact path equality, so README.md never matches
-    docs/README.md; a slash token matches by substring in either direction."""
+    technique 2) or its files simply don't overlap. A leading `./` is dropped
+    on both sides. A bare token (no `/`) matches by exact path equality, so
+    README.md never matches docs/README.md; a slash token matches by equality
+    or as a whole-segment suffix of the file (`src/a.py` matches
+    `pkg/src/a.py`, never `xsrc/a.py` or a longer mention)."""
     if issue_id not in files_index:
         return None
     for issue_file in files_index[issue_id]:
+        issue_file = PurePosixPath(issue_file).as_posix()
         for mention in phase_mentions:
-            if "/" not in mention:
-                if issue_file == mention:
-                    return "files"
-            elif issue_file in mention or mention in issue_file:
+            mention = PurePosixPath(mention).as_posix()
+            if issue_file == mention or (
+                "/" in mention and issue_file.endswith("/" + mention)
+            ):
                 return "files"
     return None
 
@@ -2917,7 +3061,9 @@ def desc_contains_match(issue, folded_phase_mentions):
     documented, deliberate narrowing, not a semantic-parity claim."""
     description = (issue.get("description") or "").casefold()
     for token in folded_phase_mentions:
-        if token in description:
+        # extract_phase_mentions keeps the `./` that marks a not-yet-created
+        # root file; prose never writes it, so match the bare path.
+        if token.removeprefix("./") in description:
             return "description"
     return None
 
@@ -3190,6 +3336,31 @@ def _render_beads_md_table(rows, ordinal_map, task_status_by_id):
     return "\n".join(lines)
 
 
+def _beads_md_extras(phase_dir, out_path):
+    """Every file besides out_path that gsd-core's findPhaseArtifact (1.10-
+    1.16) could answer the BEADS.md ship gate with: <phase>/BEADS.md, then
+    <phase>/.planning/BEADS.md, then the first readdir entry ending in
+    -BEADS.md or equal to BEADS.md. It takes the first match, so any extra
+    file is a gate bypass."""
+    candidates = [phase_dir / "BEADS.md", phase_dir / ".planning" / "BEADS.md"]
+    try:
+        names = sorted(os.listdir(phase_dir))
+    except OSError:
+        names = []
+    candidates += [phase_dir / n for n in names if n.endswith("-BEADS.md")]
+    return [c for c in dict.fromkeys(candidates) if c != out_path and c.is_file()]
+
+
+def _is_generated_beads_md(path):
+    """True when `path` carries this tool's `generated_from:` frontmatter key
+    -- a mention anywhere else in the file proves nothing."""
+    try:
+        fm = FRONTMATTER_RE.match(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return False
+    return bool(fm) and re.search(r"^generated_from:", fm.group(1), re.MULTILINE) is not None
+
+
 def regenerate_beads_md(phase_dir_arg):
     """B11/execute:wave:pre (read-only) and execute:wave:post (unchanged):
     always fully overwrite `{phase_dir}/{padded_phase}-BEADS.md` from a
@@ -3199,19 +3370,47 @@ def regenerate_beads_md(phase_dir_arg):
     padded_phase = phase_dir.name.split("-", 1)[0]
     out_path = phase_dir / f"{padded_phase}-BEADS.md"
 
-    # gsd-core's gate resolves <phase>/BEADS.md before any NN-BEADS.md, so a
-    # plain file would outlive every fail-closed write below. Remove one this
-    # tool generated; leave a hand-written one alone but say it wins.
-    plain = phase_dir / "BEADS.md"
-    if plain.is_file():
-        if "generated_from:" in plain.read_text(encoding="utf-8", errors="replace"):
-            plain.unlink()
-        else:
-            print(
-                f"BEADS.md: {plain} takes precedence over {out_path.name} in the "
-                "ship gate and is never regenerated -- remove it",
-                file=sys.stderr,
+    # Any other BEADS file the gate could read would outlive every fail-closed
+    # write below. Ours (e.g. a renumbered phase's NN-BEADS.md) are removed;
+    # a foreign one is moved out of the gate's view with its content kept,
+    # and this run fails closed so someone looks at it.
+    rejected = []
+    for extra in _beads_md_extras(phase_dir, out_path):
+        # A file that cannot be moved still answers the gate: report it and
+        # fail closed rather than crash before ours is overwritten below.
+        try:
+            if _is_generated_beads_md(extra):
+                extra.unlink()
+                continue
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            # link+unlink, not rename: rename silently replaces an existing
+            # aside (an earlier same-second rejection, or one planted to keep
+            # this file in the gate's view); link refuses, so try the next name.
+            for n in itertools.count(1):
+                aside = extra.with_name(f"{extra.name}.rejected-{stamp}" + (f"-{n}" if n > 1 else ""))
+                try:
+                    os.link(extra, aside, follow_symlinks=False)
+                    break
+                except FileExistsError:
+                    continue
+            extra.unlink()
+            rejected.append(f"{extra} -> {aside.name}")
+        except OSError as exc:
+            rejected.append(f"{extra} could not be moved ({exc})")
+    if rejected:
+        message = (
+            "BEADS.md: foreign ship-gate artifact(s) rejected, gate fails closed until "
+            "reviewed: " + "; ".join(rejected)
+        )
+        print(message, file=sys.stderr)
+        # Start above phase_dir: a planted <phase>/.planning/ would otherwise
+        # be taken for the project root and swallow the blocker.
+        try:
+            append_state_blocker(
+                confined(find_project_root(phase_dir.parent), ".planning", "STATE.md"), message
             )
+        except ValueError:
+            pass
 
     try:
         epic_id = resolve_phase_epic(phase_dir)
@@ -3248,6 +3447,8 @@ def regenerate_beads_md(phase_dir_arg):
         out_path.unlink(missing_ok=True)
     else:
         write_unknown(["regeneration", "incomplete"])
+    if rejected:
+        return 1
 
     if not bd_available():
         if epic_id is not None:
@@ -3272,25 +3473,35 @@ def regenerate_beads_md(phase_dir_arg):
 
     degraded_plans = []
     ordinal_map = _resolve_task_ordinal_map(phase_dir, degraded_plans)
+    unmapped_open = 0
     if _milestone_scoped(phase_dir):
+        problem = None
         if degraded_plans:
             # The ordinal map filters the shared epic's rows: a plan that
             # failed to parse hides its own issues, so the counts are unknown.
+            problem = "degraded plan(s) " + ", ".join(degraded_plans)
+        else:
+            try:
+                known_ids = collect_scope_task_ids(phase_dir, epic_id) | ordinal_map.keys()
+            except (PlanParseError, OSError) as exc:
+                # A sibling phase's issues cannot be told apart from stray ones.
+                problem = f"sibling plan unreadable ({exc})"
+        if problem:
             write_unknown(argv)
-            print(
-                "BEADS.md: degraded plan(s) " + ", ".join(degraded_plans)
-                + " -- counts unknown, ship gate will block",
-                file=sys.stderr,
-            )
+            print(f"BEADS.md: {problem} -- counts unknown, ship gate will block", file=sys.stderr)
             return 1
         # The milestone epic is shared: other phases' children are not this
-        # phase's rows, counts or blockers (gsd-beads-cjbc.9).
+        # phase's rows or counts (gsd-beads-cjbc.9). An open issue no plan of
+        # any phase names belongs to no phase, so it blocks all of them.
+        unmapped_open = sum(
+            1 for r in rows if r.get("id") not in known_ids and r.get("status") != "closed"
+        )
         rows = [r for r in rows if r.get("id") in ordinal_map]
     closed_count = sum(1 for r in rows if r.get("status") == "closed")
     open_count = len(rows) - closed_count
-    # blocking_open IS open_count, no separate filtered variable -- D-01/D-02:
-    # every open issue under this phase's epic scope counts, no priority/type filter.
-    blocking_open = open_count
+    # D-01/D-02: every open issue under this phase's epic scope counts, no
+    # priority/type filter; plus any unmapped milestone follow-up.
+    blocking_open = open_count + unmapped_open
 
     completed_ids = _resolve_completed_task_ids(phase_dir)
     diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
@@ -3518,6 +3729,16 @@ def _read_beads_md_frontmatter(phase_dir):
     padded_phase = phase_dir.name.split("-", 1)[0]
     beads_md_path = phase_dir / f"{padded_phase}-BEADS.md"
     if not beads_md_path.exists():
+        return {}
+    # The gate may have read a different file than this one: recording these
+    # counts would misstate what was bypassed.
+    extras = _beads_md_extras(phase_dir, beads_md_path)
+    if extras:
+        print("ship-override: other BEADS file(s) the gate may read: "
+              + ", ".join(e.name for e in extras))
+        return {}
+    if not _is_generated_beads_md(beads_md_path):
+        print(f"ship-override: {beads_md_path.name} has no generated_from frontmatter")
         return {}
     text = beads_md_path.read_text(encoding="utf-8")
     fm_match = FRONTMATTER_RE.match(text)
@@ -3881,8 +4102,10 @@ def _main(argv):
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
     path_arg = getattr(args, "phase_dir", None) or getattr(args, "plan_path", None)
-    if path_arg:
-        _set_bd_root(path_arg)
+    # bd finds its database by walking up from cwd, so every verb pins it: a
+    # verb without a path argument (status, migrate-todos, lifecycle-dispatch,
+    # resolve-task-content) falls back to the process cwd, not to "unpinned".
+    _set_bd_root(path_arg or Path.cwd())
     if args.command == "resolve-task-content":
         return resolve_task_content(args.issue_id)
     if args.command == "create-issues":
