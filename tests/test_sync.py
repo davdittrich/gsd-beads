@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -1525,6 +1526,61 @@ class TestAppendStateBlockerHardening(unittest.TestCase):
         self.assertNotIn("\n### Injected Section", text)
         self.assertEqual(text.count("### Blockers/Concerns"), 1)
 
+    def test_heading_inside_a_code_fence_is_not_the_insertion_point(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "STATE.md"
+            state_path.write_text(
+                "```md\n### Blockers/Concerns\n```\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            sync.append_state_blocker(state_path, "real")
+            text = state_path.read_text(encoding="utf-8")
+        self.assertIn("### Blockers/Concerns\n\n- ", text.split("```\n\n", 1)[1])
+        self.assertIn("```md\n### Blockers/Concerns\n```\n", text)
+
+    def test_fence_only_heading_leaves_the_file_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "STATE.md"
+            original = "```md\n### Blockers/Concerns\n```\n"
+            state_path.write_text(original, encoding="utf-8")
+            sync.append_state_blocker(state_path, "real")
+            self.assertEqual(state_path.read_text(encoding="utf-8"), original)
+
+    def test_concurrent_appenders_both_land(self):
+        """Without a lock both threads read the same text and the second write
+        erases the first bullet. The barrier holds each reader until the other
+        has read (or 1s passes: a locked writer makes the wait time out)."""
+        barrier = threading.Barrier(2)
+        real_read = Path.read_text
+
+        def read_then_wait(self, *args, **kwargs):
+            text = real_read(self, *args, **kwargs)
+            if self.name == "STATE.md":
+                try:
+                    barrier.wait(timeout=1)
+                except threading.BrokenBarrierError:
+                    pass
+            return text
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = Path(tmp) / "STATE.md"
+            state_path.write_text(
+                "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n",
+                encoding="utf-8",
+            )
+            threads = [
+                threading.Thread(target=sync.append_state_blocker, args=(state_path, f"m{i}"))
+                for i in range(2)
+            ]
+            with mock.patch.object(Path, "read_text", read_then_wait):
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join()
+            text = state_path.read_text(encoding="utf-8")
+        self.assertIn(": m0\n", text)
+        self.assertIn(": m1\n", text)
+
 
 def _minimal_task(**overrides):
     """A hand-built task dict carrying only the fields `_task_description`
@@ -2502,7 +2558,14 @@ class TestCreateIssuesCrashSafety(unittest.TestCase):
             os.chmod(plan_copy, 0o640)
             before = plan_copy.read_bytes()
             _, side_effect = self._stateful_bd()
-            with mock.patch("os.replace", side_effect=OSError("ENOSPC")), \
+            real_replace = os.replace
+
+            def replace_plan_fails(src, dst):
+                if Path(dst).name == "STATE.md":
+                    return real_replace(src, dst)
+                raise OSError("ENOSPC")
+
+            with mock.patch("os.replace", side_effect=replace_plan_fails), \
                     contextlib.redirect_stderr(io.StringIO()):
                 # gsd-beads-cjbc.33 N6: reported, not raised.
                 self._run(plan_copy, side_effect)
@@ -10528,6 +10591,8 @@ class TestPersistIdentityFailure(unittest.TestCase):
         real = sync._atomic_write_text
 
         def flaky(path, content):
+            if path.name == "STATE.md":  # only plan writes are the failing disk
+                return real(path, content)
             calls["n"] += 1
             if calls["n"] >= fail_from:
                 raise OSError(28, "No space left on device")
@@ -10587,6 +10652,8 @@ class TestPersistIdentityFailure(unittest.TestCase):
         writes = {"n": 0}
 
         def flaky(path, content):
+            if path.name == "STATE.md":
+                return real(path, content)
             writes["n"] += 1
             if writes["n"] == 3:  # epic, task 1 recorded; task 2's id is lost
                 raise OSError(28, "No space left on device")

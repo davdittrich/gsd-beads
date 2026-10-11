@@ -10,6 +10,7 @@ T-01-01).
 """
 import argparse
 import contextlib
+import fcntl
 import json
 import os
 import re
@@ -363,25 +364,33 @@ def append_state_blocker(state_path, message):
         # A planted STATE.md -> elsewhere would take this append.
         print(f"STATE.md note skipped: {state_path} is a symlink", file=sys.stderr)
         return
-    text = state_path.read_text(encoding="utf-8")
-    heading = "### Blockers/Concerns"
-    idx = text.find(heading)
-    if idx == -1:
-        return
-    message = " ".join(message.split())
-    date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    # CodeRabbit: compare the complete bullet line, not a bare substring --
-    # "failure" is a substring of an already-present "failure with details"
-    # bullet, so the naive `bullet in text` check silently dropped a
-    # genuinely distinct, shorter message.
-    bullet_line = f"- {date}: {message}"
-    if bullet_line in text.splitlines():
-        return
-    bullet = f"\n\n{bullet_line}"
-    line_end = text.find("\n", idx)
-    if line_end == -1:
-        line_end = len(text)
-    state_path.write_text(text[:line_end] + bullet + text[line_end:], encoding="utf-8")
+    # Serialise the whole read-modify-write on the parent directory: the
+    # atomic replace below swaps STATE.md's inode, so a lock on the file
+    # itself would be held on a dead file. The directory's inode is stable.
+    lock_fd = os.open(state_path.parent, os.O_RDONLY)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        text = state_path.read_text(encoding="utf-8")
+        # A heading inside a fenced example is not the section; the mask keeps
+        # every offset, so an index found in it is valid in `text`.
+        idx = _mask_fenced_code_blocks(text).find("### Blockers/Concerns")
+        if idx == -1:
+            return
+        message = " ".join(message.split())
+        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # CodeRabbit: compare the complete bullet line, not a bare substring --
+        # "failure" is a substring of an already-present "failure with details"
+        # bullet, so the naive `bullet in text` check silently dropped a
+        # genuinely distinct, shorter message.
+        bullet_line = f"- {date}: {message}"
+        if bullet_line in text.splitlines():
+            return
+        line_end = text.find("\n", idx)
+        if line_end == -1:
+            line_end = len(text)
+        _atomic_write_text(state_path, text[:line_end] + f"\n\n{bullet_line}" + text[line_end:])
+    finally:
+        os.close(lock_fd)
 
 
 def find_project_root(start):
