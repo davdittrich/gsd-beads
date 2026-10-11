@@ -34,16 +34,22 @@ if [ -z "$CONSENT_COMMAND" ]; then
   command -v bd >/dev/null 2>&1 || exit 0
   exec bd prime --hook-json
 fi
-PRIME_JSON='{}'
-command -v bd >/dev/null 2>&1 && PRIME_JSON="$(bd prime --hook-json)"
-printf '%s' "$PRIME_JSON" | python3 -I -c '
+# Piped, not captured: $(...) would strip bd's trailing newlines. bd's own
+# systemMessage is kept. Output that is not a JSON object is not ours to
+# rewrite: it passes through byte for byte and the request goes to stderr.
+{ if command -v bd >/dev/null 2>&1; then bd prime --hook-json; fi; } | python3 -I -c '
 import json, sys
+raw = sys.stdin.buffer.read()
+message = sys.argv[1]
 try:
-    out = json.load(sys.stdin)
+    out = json.loads(raw) if raw.strip() else {}
 except ValueError:
-    out = {}
+    out = None
 if not isinstance(out, dict):
-    out = {}
-out["systemMessage"] = sys.argv[1]
+    sys.stdout.buffer.write(raw)
+    print(message, file=sys.stderr)
+    sys.exit(0)
+previous = out.get("systemMessage")
+out["systemMessage"] = f"{previous}\n{message}" if isinstance(previous, str) and previous else message
 print(json.dumps(out))
 ' "gsd-beads: the beads capability needs your consent before install. Run this yourself in a shell; an agent must not run it for you: $CONSENT_COMMAND"
