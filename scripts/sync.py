@@ -2255,6 +2255,7 @@ def filter_open_ids(ids):
     `bd show` per id) is the "explicit status filter" idempotency check: an
     id bd no longer returns here is already closed, so a repeat close-wave
     dispatch over an already-closed wave issues zero close calls (B5).
+    Raises BdTransientError when the query is not confirmed.
     """
     if not ids:
         return []
@@ -2271,12 +2272,11 @@ def filter_open_ids(ids):
             "0",
         ]
     )
-    if result.returncode != 0:
-        return list(ids)  # fail-open: status unconfirmed, attempt the close anyway
-    try:
-        rows = _unwrap_bd_list(json.loads(result.stdout))
-    except json.JSONDecodeError:
-        return list(ids)
+    rows = _checked_bd_list_rows(result)
+    if rows is None:
+        # Unconfirmed status is not "all open": closing on it could close
+        # issues bd never reported. Callers print the notice and close nothing.
+        raise BdTransientError(f"bd list status query failed: {result.stderr.strip()}")
     # Review finding: every sibling row-reader in this file uses
     # .get("id", "") for a malformed/missing key, never bare indexing.
     open_ids = {r.get("id", "") for r in rows}
@@ -2306,7 +2306,11 @@ def close_wave(phase_dir_arg, plan_ids):
     # De-duplicate while preserving order, in case the same task id is
     # somehow named twice across the wave's plans.
     unique_ids = list(dict.fromkeys(all_ids))
-    to_close = filter_open_ids(unique_ids)
+    try:
+        to_close = filter_open_ids(unique_ids)
+    except BdTransientError:
+        _skip_bd_unavailable(phase_dir, "beads-status close-wave")
+        return 0
 
     if to_close:
         reason = f"wave complete: {', '.join(plan_ids)}"
@@ -2347,7 +2351,11 @@ def reconcile_stale_closed(phase_dir_arg):
         return 0
 
     completed_ids = sorted(completed_ids)
-    to_close = filter_open_ids(completed_ids)
+    try:
+        to_close = filter_open_ids(completed_ids)
+    except BdTransientError:
+        _skip_bd_unavailable(phase_dir, "beads-status reconcile-stale-closed")
+        return 0
 
     if to_close:
         reason = f"phase-wide reconciliation: {phase_dir.name}"
@@ -2363,7 +2371,11 @@ def reconcile_stale_closed(phase_dir_arg):
     # trail is the only forensic handle on a wrong close.
     marked_ids, rejected = _resolve_marked_issue_ids(phase_dir)
     marked_ids -= set(completed_ids)
-    marked_to_close = filter_open_ids(sorted(marked_ids))
+    try:
+        marked_to_close = filter_open_ids(sorted(marked_ids))
+    except BdTransientError:
+        _skip_bd_unavailable(phase_dir, "beads-status reconcile-stale-closed")
+        return 0
 
     if marked_to_close:
         marker_reason = f"resolves_issues marker: {phase_dir.name}"

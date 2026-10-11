@@ -3558,6 +3558,43 @@ class TestIdempotency(unittest.TestCase):
         with mock.patch("subprocess.run", side_effect=_side_effect):
             self.assertEqual(sync.filter_open_ids(ids), ids)
 
+    def test_unconfirmed_status_query_closes_nothing_and_prints_the_notice(self):
+        # An unknown status must not be read as "all open": closing on a
+        # failed query could close issues bd never confirmed.
+        bad_answers = {
+            "nonzero": _completed(1, stderr="database locked"),
+            "bad-json": _completed(0, stdout="not json"),
+            "error-object": _completed(0, stdout=json.dumps({"error": "x"})),
+        }
+        for label, answer in bad_answers.items():
+            for verb in ("close-wave", "reconcile-stale-closed"):
+                with self.subTest(label=label, verb=verb):
+                    calls = []
+
+                    def _side_effect(argv, **kwargs):
+                        calls.append(argv)
+                        if argv[:3] == ["bd", "list", "--json"]:
+                            return _completed(0, stdout="[]\n")
+                        if argv[:3] == ["bd", "list", "--id"]:
+                            return answer
+                        return _completed(0)
+
+                    with tempfile.TemporaryDirectory() as tmp:
+                        plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+                        phase_dir = _write_wave_workspace(
+                            Path(tmp), [("01-04", plan_a, True)], with_state=True
+                        )
+                        out = io.StringIO()
+                        with mock.patch("subprocess.run", side_effect=_side_effect), \
+                                contextlib.redirect_stdout(out):
+                            if verb == "close-wave":
+                                rc = sync.close_wave(str(phase_dir), ["01-04"])
+                            else:
+                                rc = sync.reconcile_stale_closed(str(phase_dir))
+                    self.assertEqual(rc, 0)
+                    self.assertIn(sync.NOTICE, out.getvalue())
+                    self.assertEqual([a for a in calls if a[:2] == ["bd", "close"]], [])
+
     def test_orphan_sweep_skips_already_closed_children_on_repeat_run(self):
         def _side_effect(argv, **kwargs):
             if argv[:2] == ["bd", "list"]:
