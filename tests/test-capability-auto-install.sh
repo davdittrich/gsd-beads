@@ -919,6 +919,80 @@ grep -q 'projection transaction busy' "$STDERR_FILE" || fail "case8d: bounded wa
 pass "case8d: a held lock is waited for up to the bound, then reported busy"
 teardown
 
+### Case 8g (RS14): a lock-wait request above 30s is clamped to 30s ###
+# A fake clock makes the wait instant: sleep advances it, and the last value
+# logged is how long the waiter would have waited on a real clock.
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+: > "$STATE_FILE.lock"
+SPY_DIR="$SCRATCH/clock-spy"
+mkdir -p "$SPY_DIR"
+cat > "$SPY_DIR/sitecustomize.py" <<'PY'
+import os
+import time
+
+_log_path = os.environ["R1_LOCK_SPY_LOG"]
+_clock = [0.0]
+
+def _sleep(seconds):
+    _clock[0] += seconds
+    with open(_log_path, "a", encoding="utf-8") as stream:
+        stream.write(f"{_clock[0]:.1f}\n")
+
+time.monotonic = lambda: _clock[0]
+time.sleep = _sleep
+PY
+"$REAL_PYTHON" -I -c 'import fcntl,os,sys,time; fd=os.open(sys.argv[1],os.O_RDWR); fcntl.flock(fd,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(30)' \
+  "$STATE_FILE.lock" "$SCRATCH/held" &
+HOLDER_PID=$!
+until [ -e "$SCRATCH/held" ]; do sleep 0.05; done
+R1_LOCK_SPY_LOG="$SCRATCH/clock-spy.log"
+TEST_SPY_SITE="$SPY_DIR"
+LOCK_WAIT_SECONDS=100 run_script beads
+kill "$HOLDER_PID" 2>/dev/null; wait "$HOLDER_PID" 2>/dev/null
+grep -q 'projection transaction busy' "$STDERR_FILE" || fail "case8g: clamped wait did not report busy"
+CLAMPED_WAIT="$(tail -n 1 "$R1_LOCK_SPY_LOG")"
+"$REAL_PYTHON" -I -c 'import sys; raise SystemExit(0 if 29.9 <= float(sys.argv[1]) <= 30.1 else 1)' "$CLAMPED_WAIT" \
+  || fail "case8g: a 100s request waited ${CLAMPED_WAIT}s, expected the 30s clamp"
+pass "case8g: a lock-wait request above 30s is clamped to 30s"
+teardown
+
+### Case 8h (RS14): stage/prev dirs leaked by a killed holder are swept under the lock ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$GSD_HOME/.gsd/.capability-auto-install-beads.stage.LEAKED/beads" \
+  "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.LEAKED/source/beads" \
+  "$GSD_HOME/.gsd/.capability-auto-install-beads-x.stage.KEEP"
+run_script beads
+[ "$STATUS" -eq 0 ] || fail "case8h: exit status $STATUS, expected 0"
+[ -f "$STATE_FILE" ] || fail "case8h: sweep blocked the projection"
+LEAKED="$(find "$GSD_HOME/.gsd" -maxdepth 1 \( -name '.capability-auto-install-beads.stage.*' -o -name '.capability-auto-install-beads.prev.*' \))"
+[ -z "$LEAKED" ] || fail "case8h: leaked dirs survived: $LEAKED"
+[ -d "$GSD_HOME/.gsd/.capability-auto-install-beads-x.stage.KEEP" ] \
+  || fail "case8h: another capability's staging dir was swept"
+pass "case8h: stage/prev dirs leaked by a killed holder are swept under the lock"
+teardown
+
+### Case 8h2 (RS14/RS1): a holder killed mid-install never leaves unconsented bytes recorded ###
+# Killed after the candidate replaced the stable source but before the install
+# outcome: the parked previous source is the only copy of consented bytes.
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source"
+copy_allowlist "$PLUGIN_DIR" "$STABLE_SOURCE/beads"
+mkdir -p "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads"
+printf 'previous\n' > "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads/previous.marker"
+STUB_REQUIRE_CONSENT=1 run_script beads
+grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h2: expected a consent block: $(cat "$STDERR_FILE")"
+[ "$(LC_ALL=C ls -A "$STABLE_SOURCE/beads")" = previous.marker ] \
+  || fail "case8h2: unconsented candidate left at the stable source: $(LC_ALL=C ls -A "$STABLE_SOURCE/beads" | tr '\n' ' ')"
+[ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.*')" ] \
+  || fail "case8h2: leaked dirs survived"
+pass "case8h2: a holder killed mid-install never leaves unconsented bytes recorded"
+teardown
+
 ### Case 8i (RS13): equal versions with different content do not flip between runtimes ###
 # Both runtimes share one installed bundle. The real CLI overwrites it at an
 # equal version, so without a policy every runtime switch reinstalls.

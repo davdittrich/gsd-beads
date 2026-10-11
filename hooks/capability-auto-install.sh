@@ -286,13 +286,36 @@ if [ "$LOCK_CHILD_STATUS" -ne 0 ]; then
 fi
 unset GSD_AUTO_INSTALL_LOCK_FD GSD_AUTO_INSTALL_SKILLS_ROOT
 
+# The stable path gsd-core records as the ledger source that `capability
+# update` re-fetches (R28).
+SOURCE_PARENT="$STATE_DIR/capability-auto-install-$CAP_ID.source"
+SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
+
+# Only a lock holder creates stage/prev dirs and its EXIT trap removes them,
+# so any found while holding the lock leaked from a killed holder: no pid or
+# age test is needed. A leaked prev holds the source that was recorded before
+# the killed install. Unless the stable source already equals the installed
+# bundle (the install completed), it goes back, so unconsented candidate
+# bytes are never left recorded; a missing stable source just forces a
+# fresh publish below.
+for _leaked_prev in "$STATE_DIR/.capability-auto-install-$CAP_ID.prev."*; do
+  [ -d "$_leaked_prev/source" ] && [ ! -L "$_leaked_prev/source" ] || continue
+  if [ "$(canonical_tree_hash "$SOURCE_DIR")" != "$(canonical_tree_hash "$INSTALLED_BUNDLE")" ] \
+    || [ ! -d "$SOURCE_DIR" ]; then
+    rm -rf "$SOURCE_PARENT" 2>/dev/null
+    mv "$_leaked_prev/source" "$SOURCE_PARENT" 2>/dev/null || {
+      echo "capability-auto-install: stale source restore failed for $CAP_ID; projection not recorded" >&2
+      exit 0
+    }
+  fi
+done
+rm -rf "$STATE_DIR/.capability-auto-install-$CAP_ID.stage."* \
+  "$STATE_DIR/.capability-auto-install-$CAP_ID.prev."* 2>/dev/null
+
 # Stage the allowlist into a private temp dir (mktemp -d is 0700) and run every
 # hash/verify step against it. cp -P keeps symlinks as symlinks so the hash and
 # ownership checks below still reject them. The stage sits in STATE_DIR so it
-# can be renamed to SOURCE_DIR, the stable path gsd-core records as the
-# ledger source that `capability update` re-fetches (R28).
-SOURCE_PARENT="$STATE_DIR/capability-auto-install-$CAP_ID.source"
-SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
+# can be renamed to SOURCE_DIR.
 STAGE_DIR="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.stage.XXXXXX" 2>/dev/null)" \
   && [ -d "$STAGE_DIR" ] || STAGE_DIR=""
 PREV_SOURCE=""
