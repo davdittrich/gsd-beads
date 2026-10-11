@@ -199,7 +199,7 @@ When disabled, every lifecycle step no-ops rather than fails, since all six step
 resolved once per session, and falls back to `phase` when the file is absent, the JSON is
 malformed, or the key is missing.
 
-`ship_gate` is read at `ship:pre` alongside `BEADS.md`'s `blocking_open`/`diverged` fields.
+`ship_gate` is read at `ship:pre` alongside `BEADS.md`'s `blocking_open`/`diverged` fields. The gates read the snapshot `verify:post` wrote; the patched `ship:pre` step then regenerates it from live `bd` and stops the ship on non-zero counts, so issues opened after verify are caught only while the local `ship.md` patch is intact.
 Setting it to `false` while either field is non-zero does not silently skip the gate: the bypass
 is recorded as a `Beads-Override:` git trailer on the amended ship commit plus a best-effort `bd`
 comment on the phase epic, and the amend is refused when HEAD is already pushed.

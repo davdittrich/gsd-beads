@@ -87,12 +87,19 @@ python3 -I "$SYNC_PY" regenerate-beads-md <phase directory>
 It rewrites `BEADS.md` from live `bd` state, recomputing `blocking_open` and `diverged` for
 `ship:pre`'s gates, prints no block, and changes nothing in `bd`. Report its stdout.
 
-## Step 2c -- ship:pre: record an override
+## Step 2c -- ship:pre: re-check live state, record an override
 
-Read `{padded_phase}-BEADS.md`'s `blocking_open` and `diverged` frontmatter and `beads.ship_gate`
-from `.planning/config.json`. When `beads.ship_gate` is `false` and either field is not `0` (`unknown` counts), run
-the call below and report its summary (the git trailer, and the bd comment outcome or skip notice).
-Otherwise print nothing.
+The ship gates already read the `verify:post` snapshot of `BEADS.md`; issues opened since then are
+unseen. First run Step 2b's command, which regenerates `BEADS.md` from live `bd`. Then read
+`{padded_phase}-BEADS.md`'s `blocking_open` and `diverged` frontmatter and `beads.ship_gate` from
+`.planning/config.json`. A field counts as nonzero when it is not `0` (`unknown` counts).
+
+- `beads.ship_gate` is not `false` and a field is nonzero: print `SHIP BLOCKED: beads reports
+  blocking_open=<n> diverged=<n> since the gate read BEADS.md. Do not push or create a PR; resolve
+  them and rerun the ship.` Then stop; skip Step 2d. If HEAD is already pushed, the notice is advisory.
+- `beads.ship_gate` is `false` and a field is nonzero: run the call below and report its summary
+  (the git trailer, and the bd comment outcome or skip notice).
+- Otherwise print nothing.
 
 ```bash
 _B="${GSD_HOME:-${HOME:-}}"

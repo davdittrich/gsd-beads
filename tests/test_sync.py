@@ -11856,5 +11856,31 @@ class TestBdVersionFloor(unittest.TestCase):
                 self.assertIn(["bd", "list", "--json", "-n", "1"], calls)
 
 
+class TestShipPreLiveRecheck(unittest.TestCase):
+    """gsd-beads-cjbc.70: gsd-core evaluates the ship:pre gates on the
+    verify:post BEADS.md snapshot and dispatches steps only after them, so
+    Step 2c must regenerate from live bd before it decides, and block the
+    ship itself when the fresh counts are not zero."""
+
+    SKILL = Path(__file__).resolve().parents[1] / "skills" / "beads-status" / "SKILL.md"
+
+    def _step_2c(self):
+        text = self.SKILL.read_text(encoding="utf-8")
+        start = text.index("## Step 2c")
+        return text[start:text.index("## Step 2d", start)]
+
+    def test_regenerates_before_reading_or_recording(self):
+        section = self._step_2c()
+        self.assertIn("Step 2b", section)
+        self.assertLess(section.index("Step 2b"), section.index("ship-override <phase directory>"))
+
+    def test_blocks_the_ship_on_fresh_nonzero_counts(self):
+        section = self._step_2c()
+        self.assertIn("SHIP BLOCKED", section)
+        self.assertIn("unknown", section)
+        self.assertIn("Do not push", section)
+        self.assertLess(section.index("SHIP BLOCKED"), section.index("ship-override <phase directory>"))
+
+
 if __name__ == "__main__":
     unittest.main()
