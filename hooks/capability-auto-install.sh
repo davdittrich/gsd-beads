@@ -636,9 +636,20 @@ fi
 # Refuse a downgrade: two runtimes' plugin caches can carry different
 # bundle versions and share one global install, which would otherwise flip
 # on every runtime switch. An unparsable installed version fails closed.
+# At an equal version with different bytes, keep the installed bundle only
+# on positive evidence that it is the other runtime's verified projection
+# (its ledger row records these bytes, ours does not) and this plugin cache
+# is not newer. Cache mtime is the time the runtime extracted that plugin
+# version; the installed copy's mtime is its install time. Anything else,
+# drift included, is replaced. This narrows the ticket's "ours or older"
+# rule, which read literally never repairs drift: an install always leaves
+# the installed copy newer than the cache it came from.
 if [ -e "$INSTALLED_BUNDLE/capability.json" ] || [ -L "$INSTALLED_BUNDLE/capability.json" ]; then
-  if ! python3 -I - "$BUNDLE_DIR/capability.json" "$INSTALLED_BUNDLE/capability.json" 9>&- 2>/dev/null <<'PY'
+  python3 -I - "$BUNDLE_DIR/capability.json" "$INSTALLED_BUNDLE/capability.json" \
+    "$PLUGIN_ROOT/capability.json" "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
+    "$INSTALLED_GENERATION" 9>&- 2>/dev/null <<'PY'
 import json
+import os
 import pathlib
 import re
 import sys
@@ -656,10 +667,39 @@ try:
     source, installed = version(sys.argv[1]), version(sys.argv[2])
 except (OSError, KeyError, TypeError, ValueError):
     raise SystemExit(1)
-raise SystemExit(0 if source >= installed else 1)
+if source != installed:
+    raise SystemExit(0 if source > installed else 1)
+plugin_manifest, ledger, runtime, source_generation, installed_generation = sys.argv[3:]
+if source_generation == installed_generation:
+    raise SystemExit(0)
+try:
+    rows = pathlib.Path(ledger).read_text().splitlines() if not pathlib.Path(ledger).is_symlink() else []
+    cache_newer = os.stat(plugin_manifest).st_mtime_ns > os.lstat(sys.argv[2]).st_mtime_ns
+except OSError:
+    raise SystemExit(0)
+recorders = {
+    match.group(1)
+    for match in map(re.compile(r"projection-v2 (claude|codex) ([0-9a-f]{64}) [0-9a-f]{64}").fullmatch, rows)
+    if match and match.group(2) == installed_generation
+}
+raise SystemExit(2 if recorders and runtime not in recorders and not cache_newer else 0)
 PY
-  then
+  GUARD_STATUS=$?
+  if [ "$GUARD_STATUS" -eq 1 ]; then
     echo "capability-auto-install: refusing to replace a newer or unreadable installed $CAP_ID with this bundle on $ACTIVE_RUNTIME; projection not recorded" >&2
+    exit 0
+  elif [ "$GUARD_STATUS" -eq 2 ]; then
+    # Log once per kept generation: this repeats every SessionStart until a
+    # plugin update, and a repeated line would teach the user to ignore it.
+    KEPT_MARKER="$STATE_DIR/capability-auto-install-$CAP_ID.$ACTIVE_RUNTIME.kept"
+    if [ -L "$KEPT_MARKER" ] || [ "$(cat "$KEPT_MARKER" 2>/dev/null)" != "$INSTALLED_GENERATION" ]; then
+      echo "capability-auto-install: keeping the installed $CAP_ID the other runtime verified, which differs from this older equal-version bundle on $ACTIVE_RUNTIME; projection not recorded" >&2
+      rm -f "$KEPT_MARKER" 2>/dev/null
+      ( set -C; printf '%s\n' "$INSTALLED_GENERATION" > "$KEPT_MARKER" ) 2>/dev/null
+    fi
+    exit 0
+  elif [ "$GUARD_STATUS" -ne 0 ]; then
+    echo "capability-auto-install: version check failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
     exit 0
   fi
 fi

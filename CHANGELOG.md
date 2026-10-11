@@ -33,6 +33,7 @@ Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
 - CI: bd tarball sha256 check, commit-pinned actions and gsd-core fixture, read-only token, session-start test, skip guard also matches `expected failures=` (.10, .12, .39). Repo hygiene (.17). Hook tests fail on hook errors (.13).
 - Hook spy tests run the hook's real `python3 -I`: a PATH wrapper execs a venv whose `sitecustomize` loads the case's spy, so no flag is stripped (.58).
 - A consent-blocked install leaves the recorded source untouched and prints one command, `bash <plugin-root>/hooks/capability-auto-install.sh --consent beads`, which installs under the same lock with `--yes`. An already-consented install converges without asking (.42).
+- Two runtimes whose caches carry the same capability version with different bytes no longer reinstall on every switch: the hook keeps the other runtime's verified install unless its own cache is newer. A Codex cache still on plugin 1.6.0 runs the old hook, which downgrades the shared install; update that plugin (.54).
 
 
 ## 0.8.1

@@ -123,7 +123,7 @@ case "\$*" in
     fi
     _p="\$3"
     # Like gsd-core, a consented install copies the source bundle into place.
-    if [ -n "\${STUB_REQUIRE_CONSENT:-}" ]; then
+    if [ -n "\${STUB_REQUIRE_CONSENT:-}\${STUB_COPY_INSTALL:-}" ]; then
       rm -rf "$INSTALLED_BUNDLE" && cp -R "\$_p" "$INSTALLED_BUNDLE" || exit 1
     fi
     if [ -d "\$_p" ]; then
@@ -918,6 +918,54 @@ grep -q 'projection transaction busy' "$STDERR_FILE" || fail "case8d: bounded wa
 [ ! -e "$STATE_FILE" ] || fail "case8d: timed-out waiter published"
 pass "case8d: a held lock is waited for up to the bound, then reported busy"
 teardown
+
+### Case 8i (RS13): equal versions with different content do not flip between runtimes ###
+# Both runtimes share one installed bundle. The real CLI overwrites it at an
+# equal version, so without a policy every runtime switch reinstalls.
+for _claude_cache in older newer; do
+  setup 0
+  seed_selected "$SKILLS_ROOT"
+  seed_selected "$CLAUDE_SKILLS_ROOT"
+  export STUB_COPY_INSTALL=1
+  CODEX_PLUGIN_DIR="$PLUGIN_DIR"
+  CLAUDE_PLUGIN_DIR="$CLAUDE_CONFIG_DIR/plugins/cache/gsd-beads/beads-lifecycle/test"
+  make_plugin_root "$CLAUDE_PLUGIN_DIR"
+  printf '\nclaude cache content\n' >> "$CLAUDE_PLUGIN_DIR/GSD-CORE-PATCH.md"
+  touch -d '2001-01-01' "$CODEX_PLUGIN_DIR/capability.json"
+  if [ "$_claude_cache" = older ]; then
+    touch -d '2000-01-01' "$CLAUDE_PLUGIN_DIR/capability.json"
+  else
+    touch -d '2099-01-01' "$CLAUDE_PLUGIN_DIR/capability.json"
+  fi
+  PLUGIN_DIR="$CODEX_PLUGIN_DIR"
+  run_script beads
+  [ -f "$STATE_FILE" ] || fail "case8i($_claude_cache): first codex run did not converge: $(cat "$STDERR_FILE")"
+  CHANGES=0
+  KEEPS=0
+  LAST_GENERATION="$(fixture_tree_hash "$INSTALLED_BUNDLE")"
+  for _runtime in claude codex claude codex; do
+    if [ "$_runtime" = claude ]; then PLUGIN_DIR="$CLAUDE_PLUGIN_DIR"; else PLUGIN_DIR="$CODEX_PLUGIN_DIR"; fi
+    run_script beads
+    [ "$STATUS" -eq 0 ] || fail "case8i($_claude_cache): $_runtime exit status $STATUS"
+    ! grep -v 'keeping the installed' "$STDERR_FILE" | grep -q . \
+      || fail "case8i($_claude_cache): $_runtime run failed: $(cat "$STDERR_FILE")"
+    KEEPS=$((KEEPS + $(grep -c 'keeping the installed' "$STDERR_FILE")))
+    _generation="$(fixture_tree_hash "$INSTALLED_BUNDLE")"
+    [ "$_generation" = "$LAST_GENERATION" ] || CHANGES=$((CHANGES + 1))
+    LAST_GENERATION="$_generation"
+  done
+  unset STUB_COPY_INSTALL
+  PLUGIN_DIR="$CODEX_PLUGIN_DIR"
+  if [ "$_claude_cache" = older ]; then
+    [ "$CHANGES" -eq 0 ] && [ "$KEEPS" -eq 1 ] \
+      || fail "case8i(older): installed bundle changed $CHANGES times, kept $KEEPS times; expected 0 and 1"
+  else
+    [ "$CHANGES" -eq 1 ] && [ "$KEEPS" -eq 1 ] \
+      || fail "case8i(newer): installed bundle changed $CHANGES times, kept $KEEPS times; expected 1 and 1"
+  fi
+  teardown
+done
+pass "case8i: equal versions with different content keep the other runtime's verified install unless this cache is newer"
 
 ### Case 9: an unmarked same-name user skill is preserved and blocks convergence ###
 setup 0
