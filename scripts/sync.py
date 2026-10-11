@@ -2833,6 +2833,7 @@ PATH_TOKEN_MIN_LEN = 4
 # PATH_TOKEN_RE too but is never a path/extension -- excluded below.
 NUMERIC_ONLY_TOKEN_RE = re.compile(r"[\d.]+")
 BARE_FILENAME_RE = re.compile(r"[\w\-]{2,}\.[A-Za-z]{2,4}")
+HOSTNAME_SEGMENT_RE = re.compile(r"[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}")
 
 
 def extract_phase_mentions(roadmap_path, phase_num, context_path):
@@ -2856,6 +2857,8 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
     if context_path.exists():
         context_text = context_path.read_text(encoding="utf-8")
 
+    # ROADMAP.md lives in <root>/.planning/, so its grandparent is the project.
+    project_root = Path(roadmap_path).resolve().parent.parent
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
         if (
@@ -2863,6 +2866,19 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
             or len(token) < PATH_TOKEN_MIN_LEN
             or NUMERIC_ONLY_TOKEN_RE.fullmatch(token)
         ):
+            continue
+        # A bare name is a mention only when it names a real project file;
+        # otherwise it is prose ("Node.js", "example.com"). A slash path whose
+        # first segment looks like a hostname is a URL unless that directory
+        # exists ("docs.site/guide.md"); other slash paths may name files the
+        # phase will create.
+        first = token.split("/", 1)[0]
+        if token.startswith("//"):  # remnant of "https://host/..."
+            continue
+        if "/" not in token:
+            if not (project_root / token).is_file():
+                continue
+        elif HOSTNAME_SEGMENT_RE.fullmatch(first) and not (project_root / first).is_dir():
             continue
         if token not in seen:
             seen.append(token)

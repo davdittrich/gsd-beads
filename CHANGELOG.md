@@ -16,7 +16,7 @@ Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
 - **One skill is exposed.** The `beads-lifecycle` marketplace entry lists `skills: ["./.agents/skills/beads"]`; a real install showed 5 skills before and 1 after (.37).
 - **`.gsd-capabilities.json` is deleted.** It pointed at a removed path; the version test now reads `capability.json` and `plugin.json` (.38).
 
-- **Phase-mention tokens need a slash.** Bare filenames such as `README.md` are no longer phase mentions (.26); restoring them is open as .36.
+- **Phase mentions are files, not prose.** A path with a `/` counts; a bare name counts only when it is an existing project file (`README.md`, `capability.json`). `e.g`, `i.e`, version numbers, domains (`example.com`, `Node.js`) and URLs do not (.26, .36).
 
 ### Fixed
 - `bd list` passes `-n 0`, so rows past 50 are seen (.7). Stored task ids are verified with one `bd` call and existing edges are skipped (.14).

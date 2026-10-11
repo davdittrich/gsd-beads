@@ -9605,16 +9605,29 @@ class TestPhaseMentionTokens(unittest.TestCase):
                 Path(tmp),
                 roadmap_section=(
                     "See e.g. v1.2, i.e. `src/mod.py`, example.com/docs, v1.2/notes, /.c, "
-                    "README.md, capability.json, a.b and 2.39 here.\n"
+                    "README.md, capability.json, Node.js, missing.md, "
+                    "https://example.com/page.html, a.b and 2.39 here.\n"
                 ),
             )
+            (Path(tmp) / "README.md").write_text("x\n", encoding="utf-8")
+            (Path(tmp) / "capability.json").write_text("{}\n", encoding="utf-8")
             roadmap = Path(tmp) / ".planning" / "ROADMAP.md"
             mentions = sync.extract_phase_mentions(roadmap, "02", phase_dir / "02-CONTEXT.md")
-        # Bare filenames count (README.md, capability.json); e.g, i.e, version
-        # numbers, one-letter stems and short slash tokens do not.
-        self.assertEqual(
-            mentions, ["src/mod.py", "example.com", "README.md", "capability.json"]
-        )
+        # A bare name counts only when it is an existing project file
+        # (README.md, capability.json); domains (example.com, Node.js,
+        # example.com/page.html), e.g, i.e, version numbers, missing files and
+        # short slash tokens do not.
+        self.assertEqual(mentions, ["src/mod.py", "README.md", "capability.json"])
+
+    def test_slash_path_under_a_real_dot_named_directory_still_counts(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(
+                Path(tmp), roadmap_section="Touch docs.site/guide.md and .planning/x.md.\n"
+            )
+            (Path(tmp) / "docs.site").mkdir()
+            roadmap = Path(tmp) / ".planning" / "ROADMAP.md"
+            mentions = sync.extract_phase_mentions(roadmap, "02", phase_dir / "02-CONTEXT.md")
+        self.assertEqual(mentions, ["docs.site/guide.md", ".planning/x.md"])
 
 
 class TestRecallParseFailure(unittest.TestCase):
