@@ -16,7 +16,7 @@ Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
 - **One skill is exposed.** The `beads-lifecycle` marketplace entry lists `skills: ["./.agents/skills/beads"]`; a real install showed 5 skills before and 1 after (.37).
 - **`.gsd-capabilities.json` is deleted.** It pointed at a removed path; the version test now reads `capability.json` and `plugin.json` (.38).
 
-- **Phase mentions are files, not prose.** A token with a `/` counts, except one starting with `../` or `/`. A bare name (no `/`) counts only when it is an existing file in the project root (`README.md`, `main.c`, `capability.json`), and then matches other plans' files by exact path, so `README.md` does not match `docs/README.md`. `e.g`, `i.e`, version numbers, URLs and domains (`example.com`, `Node.js`) do not count unless a root file has that name. A nested file or one not created yet needs a path with a slash (`./CONTRIBUTING.md`) (.26, .36, .41).
+- **Phase mentions are files, not prose.** A token with a `/` counts, except one starting with `../` or `/`, a numeric-only or very short one, and one whose first segment looks like a hostname unless that directory exists (`example.com/docs`, URLs). A bare name (no `/`) counts only when it is an existing file in the project root (`README.md`, `main.c`, `capability.json`), so `example.com` and `Node.js` do not count unless a root file has that name; it matches other plans' files by exact path, so `README.md` does not match `docs/README.md`. A nested file or one not created yet needs a path with a slash (`./CONTRIBUTING.md`) (.26, .36, .41).
 
 ### Fixed
 - `bd list` passes `-n 0`, so rows past 50 are seen (.7). Stored task ids are verified with one `bd` call and existing edges are skipped (.14).
