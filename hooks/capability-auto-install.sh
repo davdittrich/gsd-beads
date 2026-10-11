@@ -297,11 +297,13 @@ SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
 # the killed install. Unless the stable source already equals the installed
 # bundle (the install completed), it goes back, so unconsented candidate
 # bytes are never left recorded; a missing stable source just forces a
-# fresh publish below.
+# fresh publish below. Equal needs both hashes to succeed: two failures
+# print the same empty string.
 for _leaked_prev in "$STATE_DIR/.capability-auto-install-$CAP_ID.prev."*; do
   [ -d "$_leaked_prev/source" ] && [ ! -L "$_leaked_prev/source" ] || continue
-  if [ "$(canonical_tree_hash "$SOURCE_DIR")" != "$(canonical_tree_hash "$INSTALLED_BUNDLE")" ] \
-    || [ ! -d "$SOURCE_DIR" ]; then
+  if ! _source_hash="$(canonical_tree_hash "$SOURCE_DIR")" \
+    || ! _installed_hash="$(canonical_tree_hash "$INSTALLED_BUNDLE")" \
+    || [ "$_source_hash" != "$_installed_hash" ]; then
     rm -rf "$SOURCE_PARENT" 2>/dev/null
     mv "$_leaked_prev/source" "$SOURCE_PARENT" 2>/dev/null || {
       echo "capability-auto-install: stale source restore failed for $CAP_ID; projection not recorded" >&2

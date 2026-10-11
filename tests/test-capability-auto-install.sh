@@ -1000,6 +1000,24 @@ grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h2: expected a consent
 pass "case8h2: a holder killed mid-install never leaves unconsented bytes recorded"
 teardown
 
+### Case 8h3 (S6): two failed tree hashes never count as an equal source ###
+# A symlink makes canonical_tree_hash fail on both the stable source and the
+# installed bundle; two empty outputs compare equal but prove nothing.
+setup 0
+seed_selected "$SKILLS_ROOT"
+STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source"
+copy_allowlist "$PLUGIN_DIR" "$STABLE_SOURCE/beads"
+ln -s capability.json "$STABLE_SOURCE/beads/link"
+ln -s capability.json "$INSTALLED_BUNDLE/link"
+mkdir -p "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads"
+printf 'previous\n' > "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads/previous.marker"
+STUB_REQUIRE_CONSENT=1 run_script beads
+grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h3: expected a consent block: $(cat "$STDERR_FILE")"
+[ "$(LC_ALL=C ls -A "$STABLE_SOURCE/beads")" = previous.marker ] \
+  || fail "case8h3: unhashable source was kept instead of the parked one: $(LC_ALL=C ls -A "$STABLE_SOURCE/beads" | tr '\n' ' ')"
+pass "case8h3: two failed tree hashes never count as an equal source"
+teardown
+
 ### Case 8i (RS13): equal versions with different content do not flip between runtimes ###
 # Both runtimes share one installed bundle. The real CLI overwrites it at an
 # equal version, so without a policy every runtime switch reinstalls. The kept
