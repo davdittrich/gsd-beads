@@ -136,6 +136,13 @@ fence, then run
 python3 -I "$SYNC_PY" lifecycle-dispatch plan:pre
 ```
 
+Without an argument the point runs against `STATE.md`'s `current_phase`. To target another phase
+(for example when planning phase 2 while phase 1 is current), add it: `lifecycle-dispatch plan:pre 02`
+or a directory under `.planning/phases/`. The argument is confined to a direct child of that
+directory; anything else, or a path that escapes it, is skipped with a stderr notice and exit 0. The
+`PostToolUse` hook cannot supply it, because `render-hooks` carries no phase; that needs gsd-core to
+transport phase context ([gsd-core#4030](https://github.com/open-gsd/gsd-core/issues/4030)).
+
 Never run a cwd-relative `.gsd/capabilities/beads/scripts/sync.py`: that executes whatever
 script the current repository ships
 ([#20](https://github.com/davdittrich/gsd-beads/issues/20)). Skill fences and the hook
