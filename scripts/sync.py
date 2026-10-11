@@ -1661,6 +1661,7 @@ def resolve_milestone_epic(project_root):
                 if epic_id is not None and epic_id not in candidate_ids:
                     candidate_ids.append(epic_id)
 
+    closed_matches = []
     for candidate_id in candidate_ids:
         check = run_bd(["bd", "show", candidate_id, "--json"])
         try:
@@ -1669,20 +1670,31 @@ def resolve_milestone_epic(project_root):
             raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
-        # A closed milestone epic is history: reusing it would hang new work
-        # under a finished milestone.
-        if row is not None and row.get("status") != "closed":
-            candidate_title = row.get("title")
-            if not isinstance(candidate_title, str) or not candidate_title.strip():
-                raise EpicAuthorityError(
-                    f"bd show returned invalid title for {candidate_id!r}"
-                )
-            # `Milestone <m>: ` is the title older versions wrote whenever
-            # milestone_name was multi-word (single-token regex); reuse, not duplicate.
-            if candidate_title.rstrip() in (title, legacy_title.rstrip()):
+        if row is None:
+            continue
+        candidate_title = row.get("title")
+        if not isinstance(candidate_title, str) or not candidate_title.strip():
+            if row.get("status") == "closed":
+                continue
+            raise EpicAuthorityError(
+                f"bd show returned invalid title for {candidate_id!r}"
+            )
+        # `Milestone <m>: ` is the title older versions wrote whenever
+        # milestone_name was multi-word (single-token regex); reuse, not duplicate.
+        if candidate_title.rstrip() in (title, legacy_title.rstrip()):
+            # A closed milestone epic is history: reusing it would hang new
+            # work under a finished milestone.
+            if row.get("status") == "closed":
+                closed_matches.append(candidate_id)
+            else:
                 return candidate_id
 
-    if candidate_ids:
+    if closed_matches:
+        print(
+            f"divergence: closed epic {closed_matches[0]} matched title {title!r} but is "
+            "ignored (a closed epic is never reused) -- creating a new epic"
+        )
+    elif candidate_ids:
         print(
             f"divergence: {len(candidate_ids)} existing epic(s) found for this milestone but "
             f"none matched title {title!r} -- creating a new epic (STATE.md milestone/"

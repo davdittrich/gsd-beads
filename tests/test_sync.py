@@ -11422,6 +11422,28 @@ class TestIdempotentCreateIssues(unittest.TestCase):
         self.assertEqual(self._sync(fake, plan), 0)
         self.assertNotIn("beads_epic: ms-old", plan.read_text(encoding="utf-8"))
 
+    def test_closed_title_match_is_named_as_ignored_in_the_divergence_message(self):
+        """gsd-beads-cjbc.67 N17: 'none matched title' is false when a closed
+        epic does match; say that one was found and ignored."""
+        _, dirs = _write_milestone_workspace(
+            self.root, ["01-substrate", "03-enforcement"], milestone="v1.0",
+            milestone_name="core", epic_per="milestone",
+        )
+        (dirs["01-substrate"] / "01-01-PLAN.md").write_text(
+            _three_task_plan_text().replace("plan: 01\n", "plan: 01\nbeads_epic: ms-old\n"),
+            encoding="utf-8",
+        )
+        plan = dirs["03-enforcement"] / "03-01-PLAN.md"
+        plan.write_text(_three_task_plan_text().replace("01-substrate", "03-enforcement"), encoding="utf-8")
+        fake = _KeyedFakeBd()
+        fake.add("ms-old", "epic", {sync.SYNC_LABEL}, status="closed", title="Milestone v1.0: core")
+        out = io.StringIO()
+        with mock.patch.object(sync.subprocess, "run", side_effect=fake), \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(sync.create_issues(str(plan)), 0)
+        self.assertRegex(out.getvalue(), r"closed epic ms-old matched .*ignored")
+        self.assertNotIn("none matched", out.getvalue())
+
     @unittest.skipUnless(_bd_on_path(), "bd binary not found on PATH")
     def test_real_bd_lost_identity_rerun_creates_nothing(self):
         """Against a scratch bd db: restore the plan to its never-synced text
