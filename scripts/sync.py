@@ -321,10 +321,11 @@ _LEGACY_MILESTONE_NAME_RE = re.compile(r"^milestone_name:\s*(\S+)\s*$", re.MULTI
 _BD_CWD = None
 
 
-def _set_bd_root(start):
+def _set_bd_root(phase_dir=None):
+    """Pin bd to the project root of `phase_dir` (the cwd's when None)."""
     global _BD_CWD
     try:
-        _BD_CWD = str(find_project_root(Path(start).resolve()))
+        _BD_CWD = str(phase_project_root(phase_dir) if phase_dir else find_project_root(Path.cwd()))
     except (ValueError, OSError):
         _BD_CWD = None
 
@@ -380,6 +381,34 @@ def bd_available():
     return result.returncode == 0
 
 
+LOCK_FILE_NAME = ".gsd-beads.lock"
+
+
+@contextlib.contextmanager
+def _project_lock(planning_dir):
+    """Exclusive flock on <planning_dir>/.gsd-beads.lock, a regular file: flock
+    on a directory fd is EBADF on NFS. Used by append_state_blocker and
+    ensure_issue, so neither may be called while the other's lock is held (two
+    fds on one file deadlock even inside one process). Any OSError opening or
+    locking degrades to one stderr notice and an unlocked body; the body's own
+    exceptions propagate untouched."""
+    fd = None
+    try:
+        fd = os.open(
+            Path(planning_dir) / LOCK_FILE_NAME,
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+            0o600,
+        )
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError as exc:
+        print(f"{LOCK_FILE_NAME}: cannot lock ({exc}); proceeding unlocked", file=sys.stderr)
+    try:
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def append_state_blocker(state_path, message):
     """Append one dated bullet under STATE.md's Blockers/Concerns heading
     (D-08). `message` is folded onto one line first (gh-17 F-05): a message
@@ -399,33 +428,34 @@ def append_state_blocker(state_path, message):
         # A planted STATE.md -> elsewhere would take this append.
         print(f"STATE.md note skipped: {state_path} is a symlink", file=sys.stderr)
         return
-    # Serialise the whole read-modify-write on the parent directory: the
-    # atomic replace below swaps STATE.md's inode, so a lock on the file
-    # itself would be held on a dead file. The directory's inode is stable.
-    lock_fd = os.open(state_path.parent, os.O_RDONLY)
+    # Serialise the whole read-modify-write on the project lock file: the
+    # atomic replace below swaps STATE.md's inode, so a lock on STATE.md
+    # itself would be held on a dead file. A note that cannot be written
+    # (read-only tree) is dropped with a notice: every caller is a fail-open
+    # path that must not raise.
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        text = state_path.read_text(encoding="utf-8")
-        # A heading inside a fenced example is not the section; the mask keeps
-        # every offset, so an index found in it is valid in `text`.
-        idx = _mask_fenced_code_blocks(text).find("### Blockers/Concerns")
-        if idx == -1:
-            return
-        message = " ".join(message.split())
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        # CodeRabbit: compare the complete bullet line, not a bare substring --
-        # "failure" is a substring of an already-present "failure with details"
-        # bullet, so the naive `bullet in text` check silently dropped a
-        # genuinely distinct, shorter message.
-        bullet_line = f"- {date}: {message}"
-        if bullet_line in text.splitlines():
-            return
-        line_end = text.find("\n", idx)
-        if line_end == -1:
-            line_end = len(text)
-        _atomic_write_text(state_path, text[:line_end] + f"\n\n{bullet_line}" + text[line_end:])
-    finally:
-        os.close(lock_fd)
+        with _project_lock(state_path.parent):
+            text = state_path.read_text(encoding="utf-8")
+            # A heading inside a fenced example is not the section; the mask keeps
+            # every offset, so an index found in it is valid in `text`.
+            idx = _mask_fenced_code_blocks(text).find("### Blockers/Concerns")
+            if idx == -1:
+                return
+            message = " ".join(message.split())
+            date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            # CodeRabbit: compare the complete bullet line, not a bare substring --
+            # "failure" is a substring of an already-present "failure with details"
+            # bullet, so the naive `bullet in text` check silently dropped a
+            # genuinely distinct, shorter message.
+            bullet_line = f"- {date}: {message}"
+            if bullet_line in text.splitlines():
+                return
+            line_end = text.find("\n", idx)
+            if line_end == -1:
+                line_end = len(text)
+            _atomic_write_text(state_path, text[:line_end] + f"\n\n{bullet_line}" + text[line_end:])
+    except OSError as exc:
+        print(f"STATE.md note skipped: {exc}", file=sys.stderr)
 
 
 def find_project_root(start):
@@ -444,13 +474,21 @@ def find_project_root(start):
     raise ValueError(f"could not locate a .planning/ ancestor above {start}")
 
 
+def phase_project_root(phase_dir):
+    """Project root of a phase directory taken from argv. The lookup starts at
+    the phase dir's parent, so a planted <phase>/.planning/ is never taken for
+    the project root (it would redirect bd, the config read and the STATE.md
+    blocker). Every phase-argument root lookup goes through here."""
+    return find_project_root(Path(phase_dir).resolve().parent)
+
+
 def _skip_bd_unavailable(start, label):
     """B6/D-08: the shared bd-unavailable fail-open tail -- print NOTICE and
     record one STATE.md blocker naming `label` when a project root is found
     above `start` (none found: notice only)."""
     print(NOTICE)
     try:
-        project_root = find_project_root(start)
+        project_root = phase_project_root(start)
     except ValueError:
         return
     append_state_blocker(
@@ -1623,6 +1661,7 @@ def resolve_milestone_epic(project_root):
                 if epic_id is not None and epic_id not in candidate_ids:
                     candidate_ids.append(epic_id)
 
+    closed_matches = []
     for candidate_id in candidate_ids:
         check = run_bd(["bd", "show", candidate_id, "--json"])
         try:
@@ -1631,20 +1670,31 @@ def resolve_milestone_epic(project_root):
             raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
-        # A closed milestone epic is history: reusing it would hang new work
-        # under a finished milestone.
-        if row is not None and row.get("status") != "closed":
-            candidate_title = row.get("title")
-            if not isinstance(candidate_title, str) or not candidate_title.strip():
-                raise EpicAuthorityError(
-                    f"bd show returned invalid title for {candidate_id!r}"
-                )
-            # `Milestone <m>: ` is the title older versions wrote whenever
-            # milestone_name was multi-word (single-token regex); reuse, not duplicate.
-            if candidate_title.rstrip() in (title, legacy_title.rstrip()):
+        if row is None:
+            continue
+        candidate_title = row.get("title")
+        if not isinstance(candidate_title, str) or not candidate_title.strip():
+            if row.get("status") == "closed":
+                continue
+            raise EpicAuthorityError(
+                f"bd show returned invalid title for {candidate_id!r}"
+            )
+        # `Milestone <m>: ` is the title older versions wrote whenever
+        # milestone_name was multi-word (single-token regex); reuse, not duplicate.
+        if candidate_title.rstrip() in (title, legacy_title.rstrip()):
+            # A closed milestone epic is history: reusing it would hang new
+            # work under a finished milestone.
+            if row.get("status") == "closed":
+                closed_matches.append(candidate_id)
+            else:
                 return candidate_id
 
-    if candidate_ids:
+    if closed_matches:
+        print(
+            f"divergence: closed epic {closed_matches[0]} matched title {title!r} but is "
+            "ignored (a closed epic is never reused) -- creating a new epic"
+        )
+    elif candidate_ids:
         print(
             f"divergence: {len(candidate_ids)} existing epic(s) found for this milestone but "
             f"none matched title {title!r} -- creating a new epic (STATE.md milestone/"
@@ -1750,13 +1800,13 @@ def ensure_issue(key, create_args, kind):
     the plan (kill, timeout, failed write) is found by its key on the next
     run instead of duplicated. A closed match is history, not identity, so
     it yields a new issue. Concurrent creators on this host serialise on an
-    flock of the .planning directory of the project bd resolves its db from;
+    flock of <project>/.planning/.gsd-beads.lock, the project bd resolves its db from;
     a lockless racer elsewhere is caught by the re-query after create, where
     the oldest row wins and only the row this call made is closed -- never
     another caller's, which may already be bound to a plan.
 
     Never call append_state_blocker while holding the lock: it flocks the
-    same directory and would deadlock this process."""
+    same lock file and would deadlock this process."""
     title = create_args[create_args.index("--title") + 1] if "--title" in create_args else create_args[2]
     # bd resolves its db by walking up from its cwd; the lock must cover the
     # same project, so derive it the same way rather than fall back to an
@@ -1765,9 +1815,7 @@ def ensure_issue(key, create_args, kind):
         lock_root = Path(_BD_CWD) if _BD_CWD else find_project_root(Path.cwd())
     except ValueError as exc:
         raise RuntimeError(f"no project to lock for bd create: {exc}") from exc
-    lock_fd = os.open(lock_root / ".planning", os.O_RDONLY)
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    with _project_lock(lock_root / ".planning"):
         rows = _open_key_rows(key, kind, title)
         if rows:
             return rows[0]["id"]
@@ -1804,8 +1852,6 @@ def ensure_issue(key, create_args, kind):
                 print(f"ensure-issue: duplicate {issue_id} of {winner} not closed: "
                       f"{closed.stderr.strip()}", file=sys.stderr)
         return winner
-    finally:
-        os.close(lock_fd)
 
 
 def _bd_show_identifies(result, expected_id):
@@ -1969,7 +2015,7 @@ def _milestone_scoped(phase_dir):
     """True when phase_dir's project runs beads.epic_per=milestone, i.e. its
     epic is shared with every other phase of the milestone (gsd-beads-cjbc.9)."""
     try:
-        return read_epic_per(find_project_root(Path(phase_dir).resolve())) == "milestone"
+        return read_epic_per(phase_project_root(phase_dir)) == "milestone"
     except ValueError:
         return False
 
@@ -1983,7 +2029,7 @@ def collect_scope_task_ids(phase_dir, epic_id):
     caller must not treat any child as orphaned."""
     if not _milestone_scoped(phase_dir):
         return collect_epic_task_ids(phase_dir, epic_id)
-    phases_root = confined(find_project_root(Path(phase_dir).resolve()), ".planning", "phases")
+    phases_root = confined(phase_project_root(phase_dir), ".planning", "phases")
     ids = set()
     for other in sorted(p for p in phases_root.iterdir() if p.is_dir()):
         ids |= collect_epic_task_ids(other, epic_id)
@@ -2612,7 +2658,7 @@ def create_issues(plan_arg, allow_strip=True):
     """
     plan_path = Path(plan_arg).resolve()
     try:
-        project_root = find_project_root(plan_path.parent)
+        project_root = phase_project_root(plan_path.parent)
     except ValueError as exc:
         print(f"create-issues: {exc}", file=sys.stderr)
         return 1
@@ -2683,7 +2729,7 @@ def create_issues(plan_arg, allow_strip=True):
             return 1
 
     if not bd_available():
-        _skip_bd_unavailable(project_root, "beads-sync")
+        _skip_bd_unavailable(plan_path.parent, "beads-sync")
         return 0
 
     plan_filename_stem = plan_path.stem  # e.g. "01-01-PLAN" -> ordinal "01-01"
@@ -2801,7 +2847,7 @@ def create_issues(plan_arg, allow_strip=True):
         return 1
     except IdentityPersistError as exc:
         return _fail_preflight(project_root, str(exc))
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:
         print(NOTICE)
         append_state_blocker(
             confined(project_root, ".planning", "STATE.md"),
@@ -3114,7 +3160,7 @@ def beads_recall(phase_dir_arg):
         return 0
 
     phase_dir = Path(phase_dir_arg).resolve()
-    project_root = find_project_root(phase_dir)
+    project_root = phase_project_root(phase_dir)
     padded_phase = phase_dir.name.split("-", 1)[0]
 
     bd_error = None
@@ -3281,7 +3327,7 @@ def _note_plan_parse_error(phase_dir, plan_path, exc):
     anywhere the plan actually failed to parse."""
     message = f"plan parse failed in {plan_path.name}: {exc}"
     try:
-        project_root = find_project_root(phase_dir)
+        project_root = phase_project_root(phase_dir)
         append_state_blocker(confined(project_root, ".planning", "STATE.md"), message)
     except (ValueError, OSError) as write_exc:
         print(f"{message} (STATE.md note failed: {write_exc})", file=sys.stderr)
@@ -3397,17 +3443,24 @@ def regenerate_beads_md(phase_dir_arg):
             rejected.append(f"{extra} -> {aside.name}")
         except OSError as exc:
             rejected.append(f"{extra} could not be moved ({exc})")
+    # An aside from an earlier run is a rejection that nobody has reviewed:
+    # the gate stays closed (and the notice repeats) until the user removes it.
+    # The nested case's aside sits beside <phase>/.planning/BEADS.md.
+    for d in (phase_dir, phase_dir / ".planning"):
+        for aside in sorted(d.glob("*BEADS.md.rejected-*")):
+            if aside.is_file() and not any(r.endswith(f"-> {aside.name}") for r in rejected):
+                rejected.append(f"{aside} (kept aside, remove it once reviewed)")
     if rejected:
         message = (
             "BEADS.md: foreign ship-gate artifact(s) rejected, gate fails closed until "
             "reviewed: " + "; ".join(rejected)
         )
+        # stdout too: lifecycle-dispatch promotes stdout into the agent's context.
+        print(message)
         print(message, file=sys.stderr)
-        # Start above phase_dir: a planted <phase>/.planning/ would otherwise
-        # be taken for the project root and swallow the blocker.
         try:
             append_state_blocker(
-                confined(find_project_root(phase_dir.parent), ".planning", "STATE.md"), message
+                confined(phase_project_root(phase_dir), ".planning", "STATE.md"), message
             )
         except ValueError:
             pass
@@ -3794,7 +3847,7 @@ def ship_override(phase_dir_arg):
         return 1
 
     try:
-        project_root = find_project_root(phase_dir)
+        project_root = phase_project_root(phase_dir)
     except ValueError as exc:
         print(f"ship-override: {exc}")
         return 1
@@ -4101,11 +4154,14 @@ def _main(argv):
     )
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
-    path_arg = getattr(args, "phase_dir", None) or getattr(args, "plan_path", None)
     # bd finds its database by walking up from cwd, so every verb pins it: a
     # verb without a path argument (status, migrate-todos, lifecycle-dispatch,
     # resolve-task-content) falls back to the process cwd, not to "unpinned".
-    _set_bd_root(path_arg or Path.cwd())
+    _set_bd_root(
+        args.phase_dir if getattr(args, "phase_dir", None)
+        else Path(args.plan_path).resolve().parent if getattr(args, "plan_path", None)
+        else None
+    )
     if args.command == "resolve-task-content":
         return resolve_task_content(args.issue_id)
     if args.command == "create-issues":
@@ -4115,7 +4171,7 @@ def _main(argv):
         # Fail-open: an unresolvable project root falls back to the
         # shipped authoritative default rather than raising.
         try:
-            sync_mode_root = find_project_root(Path(args.plan_path).resolve().parent)
+            sync_mode_root = phase_project_root(Path(args.plan_path).resolve().parent)
         except ValueError:
             sync_mode_root = None
         sync_mode = (

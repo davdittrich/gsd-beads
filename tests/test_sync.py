@@ -1623,6 +1623,191 @@ class TestAppendStateBlockerHardening(unittest.TestCase):
         self.assertIn(": m1\n", text)
 
 
+class TestProjectLockFile(unittest.TestCase):
+    """gsd-beads-cjbc.67 M3: append_state_blocker and ensure_issue serialise on
+    one regular file, <root>/.planning/.gsd-beads.lock. flock on a directory fd
+    is EBADF on NFS; any failure to lock degrades to unlocked with one stderr
+    notice and never raises (B6/D-08 fail-open)."""
+
+    STATE = "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n"
+
+    def _root(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / ".planning").mkdir()
+        (root / ".planning" / "STATE.md").write_text(self.STATE, encoding="utf-8")
+        return root
+
+    def test_both_users_lock_one_regular_file_mode_0600(self):
+        root = self._root()
+        lock = root / ".planning" / ".gsd-beads.lock"
+        sync.append_state_blocker(root / ".planning" / "STATE.md", "x")
+        self.assertTrue(lock.is_file())
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+        lock.unlink()
+        with mock.patch.object(sync, "_BD_CWD", str(root)), \
+                mock.patch.object(sync, "_open_key_rows", return_value=[{"id": "p-1"}]):
+            self.assertEqual(sync.ensure_issue("gsd-key:k", ["bd", "create", "t"], "task"), "p-1")
+        self.assertTrue(lock.is_file())
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+
+    def test_flock_ebadf_proceeds_unlocked_with_one_notice_and_closes_fd(self):
+        import errno
+        root = self._root()
+        closed = []
+        real_close = os.close
+        err = io.StringIO()
+
+        def boom(fd, op):
+            raise OSError(errno.EBADF, "Bad file descriptor")
+
+        def spy_close(fd):
+            closed.append(fd)
+            return real_close(fd)
+
+        opened = []
+        real_open = os.open
+
+        def spy_open(path, *a, **k):
+            fd = real_open(path, *a, **k)
+            if str(path).endswith(".gsd-beads.lock"):
+                opened.append(fd)
+            return fd
+
+        with mock.patch.object(sync.fcntl, "flock", side_effect=boom), \
+                mock.patch.object(sync.os, "close", side_effect=spy_close), \
+                mock.patch.object(sync.os, "open", side_effect=spy_open), \
+                contextlib.redirect_stderr(err):
+            sync.append_state_blocker(root / ".planning" / "STATE.md", "ran unlocked")
+        self.assertIn("ran unlocked", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+        self.assertEqual(len(err.getvalue().splitlines()), 1, err.getvalue())
+        self.assertEqual(len(opened), 1)
+        self.assertIn(opened[0], closed)
+
+    def test_ensure_issue_flock_ebadf_proceeds_unlocked(self):
+        import errno
+        root = self._root()
+        err = io.StringIO()
+        with mock.patch.object(sync, "_BD_CWD", str(root)), \
+                mock.patch.object(sync.fcntl, "flock", side_effect=OSError(errno.EBADF, "bad")), \
+                mock.patch.object(sync, "_open_key_rows", return_value=[{"id": "p-1"}]), \
+                contextlib.redirect_stderr(err):
+            self.assertEqual(sync.ensure_issue("gsd-key:k", ["bd", "create", "t"], "task"), "p-1")
+        self.assertEqual(len(err.getvalue().splitlines()), 1, err.getvalue())
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    def test_read_only_planning_dir_neither_locks_nor_raises(self):
+        root = self._root()
+        planning = root / ".planning"
+        planning.chmod(0o500)
+        self.addCleanup(planning.chmod, 0o700)
+        phase = planning / "phases" / "01-x"
+        err, out = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            sync._skip_bd_unavailable(planning, "label")  # must return normally
+            with mock.patch.object(sync, "_BD_CWD", str(root)), \
+                    mock.patch.object(sync, "_open_key_rows", return_value=[{"id": "p-1"}]):
+                self.assertEqual(sync.ensure_issue("gsd-key:k", ["bd", "create", "t"], "task"), "p-1")
+        self.assertFalse((planning / ".gsd-beads.lock").exists())
+        self.assertIn(sync.NOTICE, out.getvalue())
+        self.assertIn("lock", err.getvalue())
+
+    def test_create_issues_swallows_oserror_from_bd_mid_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = _write_plan_workspace(
+                Path(tmp), (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8"), with_state=True
+            )
+            out = io.StringIO()
+            with mock.patch.object(sync, "bd_available", return_value=True), \
+                    mock.patch.object(sync, "run_bd", side_effect=FileNotFoundError("bd")), \
+                    contextlib.redirect_stdout(out):
+                rc = sync.create_issues(str(plan))
+        self.assertEqual(rc, 0)
+        self.assertIn(sync.NOTICE, out.getvalue())
+
+
+class TestPhaseProjectRoot(unittest.TestCase):
+    """gsd-beads-cjbc.67 S5: every phase-argument root lookup starts at the
+    phase dir's parent, so a planted <phase>/.planning/ is never the project
+    root (it would redirect bd, the config read and the STATE.md blocker)."""
+
+    def _ws(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        phase_dir = _write_wave_workspace(
+            Path(tmp.name), [("01-07", _regen_two_task_plan_text(), True)], with_state=True
+        )
+        planted = phase_dir / ".planning"
+        planted.mkdir()
+        (planted / "config.json").write_text(
+            '{"beads": {"epic_per": "milestone"}}', encoding="utf-8"
+        )
+        return Path(tmp.name).resolve(), phase_dir.resolve(), planted
+
+    def test_helper_skips_planted_dir_and_resolves_dot(self):
+        root, phase_dir, _ = self._ws()
+        self.assertEqual(sync.phase_project_root(phase_dir), root)
+        prev = os.getcwd()
+        os.chdir(phase_dir)
+        self.addCleanup(os.chdir, prev)
+        self.assertEqual(sync.phase_project_root(Path(".")), root)
+
+    def test_helper_raises_without_a_planning_ancestor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                sync.phase_project_root(Path(tmp) / "phase")
+
+    def test_milestone_scoped_ignores_planted_config(self):
+        _, phase_dir, _ = self._ws()
+        self.assertFalse(sync._milestone_scoped(phase_dir))
+
+    def test_collect_scope_task_ids_ignores_planted_config(self):
+        _, phase_dir, _ = self._ws()
+        with mock.patch.object(sync, "collect_epic_task_ids", return_value={"a"}) as per_phase:
+            self.assertEqual(sync.collect_scope_task_ids(phase_dir, "e"), {"a"})
+        per_phase.assert_called_once()
+
+    def test_skip_bd_unavailable_notes_the_real_state_md(self):
+        root, phase_dir, _ = self._ws()
+        with contextlib.redirect_stdout(io.StringIO()):
+            sync._skip_bd_unavailable(phase_dir, "label")
+        self.assertIn("label skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+    def test_main_pins_bd_to_the_real_root_for_phase_and_plan_args(self):
+        root, phase_dir, _ = self._ws()
+        seen = []
+
+        def spy(*a, **k):
+            seen.append(sync._BD_CWD)
+            return 0
+
+        for argv in (
+            ["regenerate-beads-md", str(phase_dir)],
+            ["create-issues", str(phase_dir / "01-07-PLAN.md")],
+        ):
+            with self.subTest(argv=argv[0]), \
+                    mock.patch.object(sync, "regenerate_beads_md", side_effect=spy), \
+                    mock.patch.object(sync, "create_issues", side_effect=spy):
+                sync.main(argv)
+        self.assertEqual(seen, [str(root)] * 2)
+
+    def test_create_issues_resolves_the_real_root(self):
+        root, phase_dir, _ = self._ws()
+        out = io.StringIO()
+        with mock.patch.object(sync, "bd_available", return_value=False), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(sync.create_issues(str(phase_dir / "01-07-PLAN.md")), 0)
+        self.assertIn("beads-sync skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+    def test_recall_resolves_the_real_root(self):
+        root, phase_dir, _ = self._ws()
+        with mock.patch.object(sync, "bd_available", return_value=False), \
+                contextlib.redirect_stdout(io.StringIO()):
+            sync.beads_recall(str(phase_dir))
+        self.assertIn("beads-recall skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+
 def _minimal_task(**overrides):
     """A hand-built task dict carrying only the fields `_task_description`
     reads, all empty/None by default -- callers override the fields under
@@ -11240,6 +11425,28 @@ class TestIdempotentCreateIssues(unittest.TestCase):
         self.assertEqual(self._sync(fake, plan), 0)
         self.assertNotIn("beads_epic: ms-old", plan.read_text(encoding="utf-8"))
 
+    def test_closed_title_match_is_named_as_ignored_in_the_divergence_message(self):
+        """gsd-beads-cjbc.67 N17: 'none matched title' is false when a closed
+        epic does match; say that one was found and ignored."""
+        _, dirs = _write_milestone_workspace(
+            self.root, ["01-substrate", "03-enforcement"], milestone="v1.0",
+            milestone_name="core", epic_per="milestone",
+        )
+        (dirs["01-substrate"] / "01-01-PLAN.md").write_text(
+            _three_task_plan_text().replace("plan: 01\n", "plan: 01\nbeads_epic: ms-old\n"),
+            encoding="utf-8",
+        )
+        plan = dirs["03-enforcement"] / "03-01-PLAN.md"
+        plan.write_text(_three_task_plan_text().replace("01-substrate", "03-enforcement"), encoding="utf-8")
+        fake = _KeyedFakeBd()
+        fake.add("ms-old", "epic", {sync.SYNC_LABEL}, status="closed", title="Milestone v1.0: core")
+        out = io.StringIO()
+        with mock.patch.object(sync.subprocess, "run", side_effect=fake), \
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(sync.create_issues(str(plan)), 0)
+        self.assertRegex(out.getvalue(), r"closed epic ms-old matched .*ignored")
+        self.assertNotIn("none matched", out.getvalue())
+
     @unittest.skipUnless(_bd_on_path(), "bd binary not found on PATH")
     def test_real_bd_lost_identity_rerun_creates_nothing(self):
         """Against a scratch bd db: restore the plan to its never-synced text
@@ -11278,6 +11485,55 @@ class TestIdempotentCreateIssues(unittest.TestCase):
         plan.write_text(original, encoding="utf-8")
         self.assertEqual(run(), first)
         self.assertEqual(count(), rows)
+
+
+class TestRejectedBeadsFilePersists(unittest.TestCase):
+    """gsd-beads-cjbc.67 S4: a rejected BEADS file keeps the ship gate closed
+    on every later regenerate until the user removes the aside, and the notice
+    reaches stdout (lifecycle-dispatch promotes stdout into the agent's
+    context, stderr is dropped)."""
+
+    FOREIGN = "---\nblocking_open: 0\ndiverged: 0\n---\nmy notes\n"
+
+    def _regen(self, phase_dir):
+        rows = json.dumps([{"id": "regen-epic.1", "title": "t", "status": "closed", "dependencies": []}])
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect(rows)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = sync.regenerate_beads_md(str(phase_dir))
+        return code, out.getvalue(), err.getvalue(), (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+
+    def _check(self, rel):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        phase_dir = _write_wave_workspace(
+            Path(tmp.name), [("01-07", _regen_two_task_plan_text(), False)], with_state=True
+        )
+        extra = phase_dir / rel
+        extra.parent.mkdir(parents=True, exist_ok=True)
+        extra.write_text(self.FOREIGN, encoding="utf-8")
+        code, out, _err, ours = self._regen(phase_dir)
+        self.assertEqual(code, 1)
+        self.assertIn(extra.name, out)  # first run: stdout carries the notice
+        aside = next(extra.parent.glob(extra.name + ".rejected-*"))
+        for _ in range(2):  # later runs: nothing new to move, gate stays closed
+            code, out, _err, ours = self._regen(phase_dir)
+            self.assertEqual(code, 1)
+            self.assertIn("blocking_open: unknown", ours)
+            self.assertIn(aside.name, out)
+        aside.unlink()  # the user's acknowledgement
+        code, out, _err, ours = self._regen(phase_dir)
+        self.assertEqual(code, 0)
+        self.assertIn("blocking_open: 0", ours)
+
+    def test_plain_beads_md_aside_keeps_gate_closed_until_removed(self):
+        self._check("BEADS.md")
+
+    def test_nested_planning_beads_md_aside_keeps_gate_closed_until_removed(self):
+        self._check(".planning/BEADS.md")
+
+    def test_sibling_nn_beads_md_aside_keeps_gate_closed_until_removed(self):
+        self._check("01-02-BEADS.md")
 
 
 class TestSingleBeadsMdCandidate(unittest.TestCase):
