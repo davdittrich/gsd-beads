@@ -1846,6 +1846,21 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertIn("os.execv(sys.executable", bootstrap)
         self.assertIn('"resolve-task-content", sys.argv[1]', bootstrap)
 
+    def test_resolver_bootstrap_refuses_a_relative_base(self):
+        # HOME=. made the base ./.gsd/... i.e. a cloned repo's own sync.py.
+        invoke = self._manifest()["taskContentResolver"]["invoke"]
+        argv = [invoke["binary"], *[a.replace("{{id}}", "bd-1") for a in invoke["args"]]]
+        with tempfile.TemporaryDirectory() as tmp:
+            cwd = Path(tmp)
+            spy = cwd / ".gsd/capabilities/beads/scripts/sync.py"
+            spy.parent.mkdir(parents=True)
+            spy.write_text("open('ran', 'w').close()\n", encoding="utf-8")
+            env = {k: v for k, v in os.environ.items() if k != "GSD_HOME"}
+            env["HOME"] = "."
+            result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=15)
+            self.assertNotEqual(result.returncode, 0, result)
+            self.assertFalse((cwd / "ran").exists())
+
     def test_release_docs_record_completed_installed_cutover(self):
         root = self.CAPABILITY_PATH.parent
         changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
