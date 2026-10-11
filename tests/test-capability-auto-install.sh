@@ -43,12 +43,16 @@ fi
 
 # Spy cases patch the hook's own python processes. -I ignores PYTHONPATH,
 # but a venv's site-packages still loads under -I, so the python3 wrapper
-# execs this venv with the hook's argv untouched; its sitecustomize runs the
-# case's spy only when GSD_TEST_SPY_SITE names one.
+# execs this venv with the hook's argv untouched. A .pth import line loads the
+# spy: distro pythons (Debian/Ubuntu) ship their own stdlib sitecustomize that
+# shadows a venv one. The loader runs the case's spy only when
+# GSD_TEST_SPY_SITE names one.
 SPY_VENV="$(mktemp -d)"
 trap '[ -n "${SCRATCH:-}" ] && rm -rf "$SCRATCH" 2>/dev/null; rm -rf "$SPY_VENV"' EXIT
 "$REAL_PYTHON" -m venv --without-pip "$SPY_VENV" || fail "spy venv creation failed"
-cat > "$("$SPY_VENV/bin/python3" -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/sitecustomize.py" <<'PY'
+SPY_PURELIB="$("$SPY_VENV/bin/python3" -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')"
+echo "import gsd_test_spy_loader" > "$SPY_PURELIB/gsd_test_spy_loader.pth"
+cat > "$SPY_PURELIB/gsd_test_spy_loader.py" <<'PY'
 import os
 
 _spy_site = os.environ.get("GSD_TEST_SPY_SITE", "")
