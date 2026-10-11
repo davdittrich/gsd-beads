@@ -9332,6 +9332,40 @@ class TestMilestoneScopedPhases(unittest.TestCase):
         self.assertNotIn("tracer-f5x.1 ", text)
         self.assertIn("tracer-f5x.11", text)
 
+    def _regen_with_extra_rows(self, extra, phase="02-visibility", break_phase1=False):
+        rows = self._rows() + extra
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dirs, _, _ = self._workspace(tmp, break_phase1=break_phase1)
+
+            def _side_effect(argv, **kwargs):
+                if argv[:2] == ["bd", "list"]:
+                    return _completed(0, stdout=json.dumps(rows))
+                return _completed(0)
+
+            with mock.patch("subprocess.run", side_effect=_side_effect):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    code = sync.regenerate_beads_md(str(phase_dirs[phase]))
+            return code, (phase_dirs[phase] / f"{phase[:2]}-BEADS.md").read_text(encoding="utf-8")
+
+    def test_unmapped_open_followup_blocks_every_phase(self):
+        # An issue filed under the milestone epic that no plan names belongs
+        # to no phase, so it must block all of them (fail closed).
+        extra = [
+            {"id": "tracer-f5x.99", "title": "follow-up", "status": "open", "labels": []},
+            {"id": "tracer-f5x.98", "title": "done follow-up", "status": "closed", "labels": []},
+        ]
+        for phase, own_open in (("01-substrate", 2), ("02-visibility", 1)):
+            with self.subTest(phase=phase):
+                code, text = self._regen_with_extra_rows(extra, phase)
+                self.assertEqual(code, 0)
+                self.assertIn(f"open: {own_open}\n", text)
+                self.assertIn(f"blocking_open: {own_open + 1}\n", text)
+
+    def test_unreadable_sibling_plan_makes_milestone_counts_unknown(self):
+        code, text = self._regen_with_extra_rows([], break_phase1=True)
+        self.assertEqual(code, 1)
+        self.assertIn("blocking_open: unknown\n", text)
+
     def test_status_mapping_does_not_list_other_phase_as_orphan(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dirs, _, _ = self._workspace(tmp)

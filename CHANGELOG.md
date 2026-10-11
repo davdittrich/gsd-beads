@@ -32,6 +32,7 @@ Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
 - Docs: `blocking_open` has one definition and `bd` 1.3.1 behaviour is corrected (.25); stale step pointers and the stale `check_shipmd_patch` name are fixed, README states what happens when `bd` is missing, and the ship gate reads the `verify:post` `BEADS.md` snapshot (.16, .40); agent prose is cut (.16).
 - CI: bd tarball sha256 check, commit-pinned actions and gsd-core fixture, read-only token, session-start test, skip guard also matches `expected failures=` (.10, .12, .39). Repo hygiene (.17). Hook tests fail on hook errors (.13).
 - Recall matches a slash mention to a file by equality or as a whole-segment suffix, never by substring, and ignores a leading `./` on both sides and in the description fallback (.45).
+- With `epic_per: milestone`, an open issue under the milestone epic that no plan of any phase names now counts in every phase's `blocking_open` (it is not a row of any phase, so `open` is unchanged); an unreadable plan in a sibling phase turns the counts `unknown` (.47).
 
 
 ## 0.8.1

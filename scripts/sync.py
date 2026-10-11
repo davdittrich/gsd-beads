@@ -3277,25 +3277,35 @@ def regenerate_beads_md(phase_dir_arg):
 
     degraded_plans = []
     ordinal_map = _resolve_task_ordinal_map(phase_dir, degraded_plans)
+    unmapped_open = 0
     if _milestone_scoped(phase_dir):
+        problem = None
         if degraded_plans:
             # The ordinal map filters the shared epic's rows: a plan that
             # failed to parse hides its own issues, so the counts are unknown.
+            problem = "degraded plan(s) " + ", ".join(degraded_plans)
+        else:
+            try:
+                known_ids = collect_scope_task_ids(phase_dir, epic_id) | ordinal_map.keys()
+            except (PlanParseError, OSError) as exc:
+                # A sibling phase's issues cannot be told apart from stray ones.
+                problem = f"sibling plan unreadable ({exc})"
+        if problem:
             write_unknown(argv)
-            print(
-                "BEADS.md: degraded plan(s) " + ", ".join(degraded_plans)
-                + " -- counts unknown, ship gate will block",
-                file=sys.stderr,
-            )
+            print(f"BEADS.md: {problem} -- counts unknown, ship gate will block", file=sys.stderr)
             return 1
         # The milestone epic is shared: other phases' children are not this
-        # phase's rows, counts or blockers (gsd-beads-cjbc.9).
+        # phase's rows or counts (gsd-beads-cjbc.9). An open issue no plan of
+        # any phase names belongs to no phase, so it blocks all of them.
+        unmapped_open = sum(
+            1 for r in rows if r.get("id") not in known_ids and r.get("status") != "closed"
+        )
         rows = [r for r in rows if r.get("id") in ordinal_map]
     closed_count = sum(1 for r in rows if r.get("status") == "closed")
     open_count = len(rows) - closed_count
-    # blocking_open IS open_count, no separate filtered variable -- D-01/D-02:
-    # every open issue under this phase's epic scope counts, no priority/type filter.
-    blocking_open = open_count
+    # D-01/D-02: every open issue under this phase's epic scope counts, no
+    # priority/type filter; plus any unmapped milestone follow-up.
+    blocking_open = open_count + unmapped_open
 
     completed_ids = _resolve_completed_task_ids(phase_dir)
     diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
