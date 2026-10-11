@@ -346,7 +346,11 @@ if [ "$STAGE_OK" -ne 1 ]; then
   exit 0
 fi
 
-SELECTED_SKILL_NAMES="$(python3 -I - "$BUNDLE_DIR/capability.json" 9>&- 2>/dev/null <<'PY'
+# The skills $BUNDLE_DIR/capability.json selects, into SELECTED_SKILL_ARR.
+# Called again when a kept install replaces $BUNDLE_DIR: its list governs.
+read_selected_skills() {
+  local _names
+  _names="$(python3 -I - "$BUNDLE_DIR/capability.json" 9>&- 2>/dev/null <<'PY'
 import json
 import pathlib
 import re
@@ -365,17 +369,14 @@ if len(skills) != len(set(skills)):
     raise SystemExit(1)
 print("\n".join(skills))
 PY
-)"
-SELECTED_SKILL_STATUS=$?
-if [ "$SELECTED_SKILL_STATUS" -ne 0 ] || [ -z "$SELECTED_SKILL_NAMES" ]; then
+)" && [ -n "$_names" ] || return 1
+  # Each name is validated (`[a-z][a-z0-9-]*`) by the python3 block above.
+  readarray -t SELECTED_SKILL_ARR <<<"$_names"
+}
+if ! read_selected_skills; then
   echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
   exit 0
 fi
-# Read once into an array and reuse it everywhere below -- each name is
-# already validated (`[a-z][a-z0-9-]*`, no glob/IFS characters possible) by
-# the python3 block above, so unquoted `for _stem in $SELECTED_SKILL_NAMES`
-# was already safe, but an array avoids relying on that invariant twice.
-readarray -t SELECTED_SKILL_ARR <<<"$SELECTED_SKILL_NAMES"
 
 gsd_tools() {
   "$GSD_TOOLS" "$@" 9>&-
@@ -736,6 +737,13 @@ PY
     KEPT=1
     BUNDLE_DIR="$INSTALLED_BUNDLE"
     SOURCE_GENERATION="$INSTALLED_GENERATION"
+    # The kept bundle may select other skills than this cache: guard,
+    # fingerprint and record its own list.
+    if ! read_selected_skills; then
+      echo "capability-auto-install: selected projection verification failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
+      exit 0
+    fi
+    SELECTED_FINGERPRINT="$(selected_fingerprint)" || SELECTED_FINGERPRINT=""
     ledger_has_current_row && exit 0
   elif [ "$GUARD_STATUS" -ne 0 ]; then
     echo "capability-auto-install: version check failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2

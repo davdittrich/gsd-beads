@@ -1105,6 +1105,45 @@ for _claude_cache in older newer; do
 done
 pass "case8i: equal versions with different content keep the other runtime's verified install unless this cache is newer"
 
+### Case 8i2 (gsd-beads-cjbc.68 N7): a kept install projects its own skill list ###
+# This cache lists a skill the kept installed bundle lacks. The selected
+# skills, the ownership guard and the recorded fingerprint must follow the
+# installed bundle's capability.json, not this cache's.
+setup 0
+export STUB_COPY_INSTALL=1 STUB_PROJECT_SET=1
+CODEX_PLUGIN_DIR="$PLUGIN_DIR"
+CLAUDE_PLUGIN_DIR="$CLAUDE_CONFIG_DIR/plugins/cache/gsd-beads/beads-lifecycle/test"
+make_plugin_root "$CLAUDE_PLUGIN_DIR"
+cp -R "$CLAUDE_PLUGIN_DIR/skills/beads-sync" "$CLAUDE_PLUGIN_DIR/skills/beads-extra"
+"$REAL_PYTHON" -I -c '
+import json, sys
+path = sys.argv[1]
+manifest = json.load(open(path))
+manifest["skills"].append("beads-extra")
+json.dump(manifest, open(path, "w"))
+' "$CLAUDE_PLUGIN_DIR/capability.json"
+touch -d '2001-01-01' "$CODEX_PLUGIN_DIR/capability.json"
+touch -d '2000-01-01' "$CLAUDE_PLUGIN_DIR/capability.json"
+run_script beads
+[ -f "$STATE_FILE" ] || fail "case8i2: first codex run did not converge: $(cat "$STDERR_FILE")"
+PLUGIN_DIR="$CLAUDE_PLUGIN_DIR"
+run_script beads
+grep -q 'keeping the installed' "$STDERR_FILE" || fail "case8i2: claude run did not keep the installed bundle: $(cat "$STDERR_FILE")"
+! grep -v 'keeping the installed' "$STDERR_FILE" | grep -q . \
+  || fail "case8i2: kept run failed: $(cat "$STDERR_FILE")"
+grep -q '^Auto-installed capability' "$STDOUT_FILE" || fail "case8i2: kept bundle was not projected"
+[ -d "$CLAUDE_SKILLS_ROOT/gsd-beads-sync" ] && [ ! -e "$CLAUDE_SKILLS_ROOT/gsd-beads-extra" ] \
+  || fail "case8i2: claude projection does not follow the installed skill list"
+[ "$(grep -c '^projection-v2 \(claude\|codex\) ' "$STATE_FILE")" -eq 2 ] \
+  || fail "case8i2: the kept runtime's projection was not recorded: $(cat "$STATE_FILE")"
+run_script beads
+[ ! -s "$STDOUT_FILE" ] && [ ! -s "$STDERR_FILE" ] \
+  || fail "case8i2: second kept run did not take the fast path: $(cat "$STDOUT_FILE" "$STDERR_FILE")"
+unset STUB_COPY_INSTALL STUB_PROJECT_SET
+PLUGIN_DIR="$CODEX_PLUGIN_DIR"
+teardown
+pass "case8i2: a kept install projects and records its own skill list, not this cache's"
+
 ### Case 9: an unmarked same-name user skill is preserved and blocks convergence ###
 setup 0
 rm -rf "$SKILLS_ROOT/gsd-beads-recall"
@@ -1918,17 +1957,28 @@ teardown
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 $REAL_PYTHON - "$CI_WORKFLOW" <<'PY' \
   || fail "case24a: CI does not provision, integrity-check and prove the pinned gsd-core 1.12.0 runtime before smoke"
+import json
 import pathlib
 import sys
 
-text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+workflow = pathlib.Path(sys.argv[1])
+# Comments repeat the tokens; only executed lines count.
+text = "\n".join(
+    line for line in workflow.read_text(encoding="utf-8").splitlines()
+    if not line.lstrip().startswith("#")
+)
+# npm ci fails when package.json and the lockfile disagree, so the exact
+# pin here is what fixes the installed version.
+pin = json.loads((workflow.parents[1] / "ci/gsd-core/package.json").read_text(encoding="utf-8"))
+if pin.get("dependencies") != {"@opengsd/gsd-core": "1.12.0"}:
+    raise SystemExit(1)
 ordered = (
     "repository: open-gsd/gsd-core",
     "ref: ceed559fd437b037755249e6e36ee36d0d785852",
     "fetch-depth: 0",
     "path: .ci/gsd-core",
-    "@opengsd/gsd-core@1.12.0",
     "\"$LOCK\")\" = \"$GSD_CORE_INTEGRITY\"",
+    "npm ci --ignore-scripts",
     "--codex --global --config-dir",
     "runtime-identity --raw",
     '"packageName":"@opengsd/gsd-core"',

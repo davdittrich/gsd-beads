@@ -119,7 +119,14 @@ CONSENT_ROOT="$SCRATCH/consent-plugin"
 mkdir -p "$CONSENT_ROOT/hooks" "$CONSENT_ROOT/.agents/skills/beads"
 cp "$HOOK" "$CONSENT_ROOT/hooks/session-start.sh"
 cp "$REPO_ROOT/.agents/skills/beads/PRIME.md" "$CONSENT_ROOT/.agents/skills/beads/PRIME.md"
-CONSENT_LINE='capability-auto-install: beads needs your consent before install; run: bash /p/hooks/capability-auto-install.sh --consent beads'
+# session-start.sh matches the installer's consent line by its prefix; take
+# that prefix from the installer itself so a reworded line fails here.
+CONSENT_PREFIX="$(grep -oF 'capability-auto-install: $CAP_ID needs your consent before install; run: ' \
+  "$REPO_ROOT/hooks/capability-auto-install.sh" | head -n 1)"
+[ -n "$CONSENT_PREFIX" ] || fail "consent prefix literal missing from capability-auto-install.sh"
+CONSENT_PREFIX="${CONSENT_PREFIX/\$CAP_ID/beads}"
+grep -qF "\"$CONSENT_PREFIX\"*)" "$HOOK" || fail "session-start.sh does not match the installer's consent prefix"
+CONSENT_LINE="${CONSENT_PREFIX}bash /p/hooks/capability-auto-install.sh --consent beads"
 printf '%s\n' '#!/usr/bin/env bash' "echo '$CONSENT_LINE' >&2" > "$CONSENT_ROOT/hooks/capability-auto-install.sh"
 check_consent_json() {
   python3 -I -c '
@@ -147,5 +154,37 @@ ln -s "$(command -v python3)" "$NOBD_BIN/python3"
 PATH="$NOBD_BIN" CLAUDE_PLUGIN_ROOT="$CONSENT_ROOT" run_hook
 check_consent_json "" || fail "case9: stdout is not the consent systemMessage alone: $(cat "$SCRATCH/stdout")"
 pass "case9: consent systemMessage is emitted without bd"
+
+# A bd stub printing exactly $1 (no trailing newline) from its own bin dir.
+bd_printing() {
+  local _bin="$SCRATCH/bd-$2"
+  mkdir -p "$_bin"
+  printf '#!/usr/bin/env bash\nprintf %%s %q\n' "$1" > "$_bin/bd"
+  chmod +x "$_bin/bd"
+  printf '%s' "$_bin"
+}
+
+# Case 10: bd's own systemMessage is kept; the consent request is appended.
+WORKDIR="$SCRATCH/case10"
+mkdir -p "$WORKDIR/.beads"
+PATH="$(bd_printing '{"stub":"bd prime","systemMessage":"from bd"}' 10):$PATH" \
+  CLAUDE_PLUGIN_ROOT="$CONSENT_ROOT" run_hook
+check_consent_json "bd prime" || fail "case10: consent systemMessage missing: $(cat "$SCRATCH/stdout")"
+python3 -I -c 'import json, sys; assert "from bd" in json.load(open(sys.argv[1]))["systemMessage"]' \
+  "$SCRATCH/stdout" || fail "case10: bd's own systemMessage was overwritten: $(cat "$SCRATCH/stdout")"
+pass "case10: consent request is appended to bd's systemMessage"
+
+# Cases 11-12: output that is not a JSON object passes through unchanged and
+# the consent request goes to stderr only.
+for _case in 'not json' '["a"]'; do
+  WORKDIR="$SCRATCH/case11-${#_case}"
+  mkdir -p "$WORKDIR/.beads"
+  PATH="$(bd_printing "$_case" "11-${#_case}"):$PATH" CLAUDE_PLUGIN_ROOT="$CONSENT_ROOT" run_hook
+  [ "$(cat "$SCRATCH/stdout"; printf x)" = "${_case}x" ] \
+    || fail "case11: bd output '$_case' was not passed through unchanged: $(cat "$SCRATCH/stdout")"
+  grep -q 'gsd-beads: the beads capability needs your consent' "$SCRATCH/stderr" \
+    || fail "case11: consent request missing from stderr for bd output '$_case'"
+done
+pass "case11-12: non-object bd output passes through unchanged, consent request on stderr"
 
 echo "ALL PASS"

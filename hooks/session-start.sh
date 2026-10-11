@@ -19,7 +19,10 @@ fi
 
 # stdout is parsed as hook JSON; the installer's notices belong on stderr.
 # Claude Code shows exit-0 hook stderr only in its debug log, so a consent
-# request also goes out as systemMessage, which both runtimes show the user.
+# request also goes out as systemMessage, which Claude Code shows the user.
+# Codex CLI 0.162.1 turns it into a `warning` entry of the hook/completed
+# app-server event, sent at the thread's first turn; that its UI displays
+# the entry is unverified.
 # The message tells the user to run the command themselves, never an agent.
 { INSTALL_ERR="$(bash "$PLUGIN_ROOT/hooks/capability-auto-install.sh" beads 2>&1 1>&3)"; } 3>&2
 [ -z "$INSTALL_ERR" ] || printf '%s\n' "$INSTALL_ERR" >&2
@@ -34,16 +37,22 @@ if [ -z "$CONSENT_COMMAND" ]; then
   command -v bd >/dev/null 2>&1 || exit 0
   exec bd prime --hook-json
 fi
-PRIME_JSON='{}'
-command -v bd >/dev/null 2>&1 && PRIME_JSON="$(bd prime --hook-json)"
-printf '%s' "$PRIME_JSON" | python3 -I -c '
+# Piped, not captured: $(...) would strip bd's trailing newlines. bd's own
+# systemMessage is kept. Output that is not a JSON object is not ours to
+# rewrite: it passes through byte for byte and the request goes to stderr.
+{ if command -v bd >/dev/null 2>&1; then bd prime --hook-json; fi; } | python3 -I -c '
 import json, sys
+raw = sys.stdin.buffer.read()
+message = sys.argv[1]
 try:
-    out = json.load(sys.stdin)
+    out = json.loads(raw) if raw.strip() else {}
 except ValueError:
-    out = {}
+    out = None
 if not isinstance(out, dict):
-    out = {}
-out["systemMessage"] = sys.argv[1]
+    sys.stdout.buffer.write(raw)
+    print(message, file=sys.stderr)
+    sys.exit(0)
+previous = out.get("systemMessage")
+out["systemMessage"] = f"{previous}\n{message}" if isinstance(previous, str) and previous else message
 print(json.dumps(out))
 ' "gsd-beads: the beads capability needs your consent before install. Run this yourself in a shell; an agent must not run it for you: $CONSENT_COMMAND"

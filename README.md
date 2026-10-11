@@ -221,8 +221,9 @@ resolver is the executed content authority, and Patch 2 has been retired.
 
 ### Capability projection updates
 
-Each SessionStart reconciles only the runtime that loaded the plugin: a validated `GSD_RUNTIME`
-wins, otherwise the installed Codex or Claude plugin cache identifies it. The hook delegates all
+Each SessionStart reconciles only the runtime that loaded the plugin: the installed Codex or
+Claude plugin cache that holds the plugin root identifies it. A set `GSD_RUNTIME` must name that
+same runtime, or the hook records nothing. The hook delegates all
 skill writing and pruning to that runtime's native `capability install` and `capability set`, and
 touches only same-name destinations that are absent or carry the exact Beads owner marker, so user
 skills, sibling capabilities, and the other runtime stay untouched. Completion is recorded in
@@ -232,8 +233,10 @@ diagnostic. The lock coordinates hook participants only: a direct writer that ra
 final check is repaired by native reconciliation at the next SessionStart. The hook never
 consents for you: when gsd-core requires consent, it leaves the recorded source untouched and
 prints one command, `bash <plugin-root>/hooks/capability-auto-install.sh --consent beads`, which
-runs the same install under the same lock with `--yes`. SessionStart shows that command to you as
-a `systemMessage`; you run it yourself in a shell, never an agent on your behalf.
+runs the same install under the same lock with `--yes`. SessionStart adds that command to its output
+as a `systemMessage`, which Claude Code shows you. Codex CLI 0.162.1 reports it as a `warning`
+hook entry at the session's first turn; whether the Codex UI displays it is unverified. You run the
+command yourself in a shell, never an agent on your behalf.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.
@@ -245,7 +248,7 @@ a `systemMessage`; you run it yourself in a shell, never an agent on your behalf
 | Variable | Read by | Default | Purpose |
 | :--- | :--- | :--- | :--- |
 | `CLAUDE_PLUGIN_ROOT` | `hooks/session-start.sh`, `hooks/capability-auto-install.sh` | `$(cd "$(dirname "$0")/.." && pwd)` | Resolves the plugin's own root directory. |
-| `GSD_RUNTIME` | `hooks/capability-auto-install.sh` | plugin-cache owner | Selects exactly `codex` or `claude` when the runtime exports it explicitly. |
+| `GSD_RUNTIME` | `hooks/capability-auto-install.sh` | plugin-cache owner | Confirms the runtime only: when set, it must equal the plugin-cache owner (`codex` or `claude`), else the hook records nothing. |
 | `CODEX_HOME` | `hooks/capability-auto-install.sh` | `$HOME/.codex` | Locates the selected Codex runtime's gsd-core CLI; Codex skills remain under `$HOME/.agents/skills`. |
 | `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the selected Claude runtime's gsd-core CLI and skills, plus the surviving Patch 1 check against `gsd-core/workflows/ship.md`. |
 | `GSD_HOME` | resolver bootstrap, `hooks/capability-auto-install.sh` | `Path.home()` / `$HOME` | Locates the installed native task-content resolver bundle and the shared per-capability `projection-v2` ledger. |
@@ -286,6 +289,10 @@ codex plugin remove beads-lifecycle@gsd-beads
   `### Blockers/Concerns` in `STATE.md`. Beads support is fail-open by design, not a hard
   dependency, with one exception: the `ship:pre` gate fails closed, so an unavailable `bd`
   blocks shipping until `bd` is back or `ship_gate: false` records an override.
+- **Add `.planning/.gsd-beads.lock` to your `.gitignore`.** `sync.py` creates this empty lock
+  file on its first issue creation or `STATE.md` note. `bd init` (checked with bd 1.3.1) ignores
+  only `.beads/*.lock`, and the commit step of `/gsd:fast` runs `git add -A`, which stages it unless
+  `commit_docs` is `false`.
 - **`resolves_issues` closes any open bd id.** A completed plan's `SUMMARY.md` frontmatter may list ids from outside the phase; they are syntax-checked only, so a typo or foreign id closes whatever it names.
 - **On a runtime without `PostToolUse`**, the native and patched points still run; drive the three
   compatibility points with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre`
