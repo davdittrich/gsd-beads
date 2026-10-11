@@ -11351,7 +11351,7 @@ class TestSingleBeadsMdCandidate(unittest.TestCase):
                 )
                 (phase_dir / "01-BEADS.md").write_text(self.GENERATED, encoding="utf-8")
                 (phase_dir / "BEADS.md").write_text(text, encoding="utf-8")
-                patch = (mock.patch("os.rename", side_effect=OSError("EBUSY")) if op == "rename"
+                patch = (mock.patch("os.link", side_effect=OSError("EBUSY")) if op == "rename"
                          else mock.patch.object(Path, "unlink", side_effect=OSError("EBUSY")))
                 err = io.StringIO()
                 with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect()), patch, \
@@ -11360,6 +11360,28 @@ class TestSingleBeadsMdCandidate(unittest.TestCase):
                 self.assertEqual(code, 1)
                 self.assertIn("blocking_open: unknown", (phase_dir / "01-BEADS.md").read_text(encoding="utf-8"))
                 self.assertIn("EBUSY", err.getvalue())
+
+    def test_rejection_never_overwrites_an_earlier_rejected_copy(self):
+        """Two rejections in the same second map to the same aside name; the
+        earlier copy must survive and the run still fails closed."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        phase_dir = _write_wave_workspace(
+            Path(tmp.name), [("01-07", _regen_two_task_plan_text(), False)], with_state=True
+        )
+        frozen = sync.datetime(2026, 1, 2, 3, 4, 5, tzinfo=sync.timezone.utc)
+        earlier = phase_dir / "BEADS.md.rejected-20260102T030405Z"
+        earlier.write_text("earlier\n", encoding="utf-8")
+        (phase_dir / "BEADS.md").write_text(self.FOREIGN, encoding="utf-8")
+        with mock.patch.object(sync, "datetime") as dt, \
+                mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect()), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            dt.now.return_value = frozen
+            code = sync.regenerate_beads_md(str(phase_dir))
+        self.assertEqual(code, 1)
+        self.assertEqual(earlier.read_text(encoding="utf-8"), "earlier\n")
+        self.assertEqual((phase_dir / "BEADS.md").read_text(encoding="utf-8"), self.FOREIGN)
+        self.assertIn("blocking_open: unknown", (phase_dir / "01-BEADS.md").read_text(encoding="utf-8"))
 
     def test_ship_override_refuses_when_another_candidate_exists(self):
         for rel in ("BEADS.md", ".planning/BEADS.md", "01-02-BEADS.md"):
