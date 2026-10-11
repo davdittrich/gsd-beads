@@ -321,10 +321,11 @@ _LEGACY_MILESTONE_NAME_RE = re.compile(r"^milestone_name:\s*(\S+)\s*$", re.MULTI
 _BD_CWD = None
 
 
-def _set_bd_root(start):
+def _set_bd_root(phase_dir=None):
+    """Pin bd to the project root of `phase_dir` (the cwd's when None)."""
     global _BD_CWD
     try:
-        _BD_CWD = str(find_project_root(Path(start).resolve()))
+        _BD_CWD = str(phase_project_root(phase_dir) if phase_dir else find_project_root(Path.cwd()))
     except (ValueError, OSError):
         _BD_CWD = None
 
@@ -473,13 +474,21 @@ def find_project_root(start):
     raise ValueError(f"could not locate a .planning/ ancestor above {start}")
 
 
+def phase_project_root(phase_dir):
+    """Project root of a phase directory taken from argv. The lookup starts at
+    the phase dir's parent, so a planted <phase>/.planning/ is never taken for
+    the project root (it would redirect bd, the config read and the STATE.md
+    blocker). Every phase-argument root lookup goes through here."""
+    return find_project_root(Path(phase_dir).resolve().parent)
+
+
 def _skip_bd_unavailable(start, label):
     """B6/D-08: the shared bd-unavailable fail-open tail -- print NOTICE and
     record one STATE.md blocker naming `label` when a project root is found
     above `start` (none found: notice only)."""
     print(NOTICE)
     try:
-        project_root = find_project_root(start)
+        project_root = phase_project_root(start)
     except ValueError:
         return
     append_state_blocker(
@@ -1994,7 +2003,7 @@ def _milestone_scoped(phase_dir):
     """True when phase_dir's project runs beads.epic_per=milestone, i.e. its
     epic is shared with every other phase of the milestone (gsd-beads-cjbc.9)."""
     try:
-        return read_epic_per(find_project_root(Path(phase_dir).resolve())) == "milestone"
+        return read_epic_per(phase_project_root(phase_dir)) == "milestone"
     except ValueError:
         return False
 
@@ -2008,7 +2017,7 @@ def collect_scope_task_ids(phase_dir, epic_id):
     caller must not treat any child as orphaned."""
     if not _milestone_scoped(phase_dir):
         return collect_epic_task_ids(phase_dir, epic_id)
-    phases_root = confined(find_project_root(Path(phase_dir).resolve()), ".planning", "phases")
+    phases_root = confined(phase_project_root(phase_dir), ".planning", "phases")
     ids = set()
     for other in sorted(p for p in phases_root.iterdir() if p.is_dir()):
         ids |= collect_epic_task_ids(other, epic_id)
@@ -2637,7 +2646,7 @@ def create_issues(plan_arg, allow_strip=True):
     """
     plan_path = Path(plan_arg).resolve()
     try:
-        project_root = find_project_root(plan_path.parent)
+        project_root = phase_project_root(plan_path.parent)
     except ValueError as exc:
         print(f"create-issues: {exc}", file=sys.stderr)
         return 1
@@ -2708,7 +2717,7 @@ def create_issues(plan_arg, allow_strip=True):
             return 1
 
     if not bd_available():
-        _skip_bd_unavailable(project_root, "beads-sync")
+        _skip_bd_unavailable(plan_path.parent, "beads-sync")
         return 0
 
     plan_filename_stem = plan_path.stem  # e.g. "01-01-PLAN" -> ordinal "01-01"
@@ -3139,7 +3148,7 @@ def beads_recall(phase_dir_arg):
         return 0
 
     phase_dir = Path(phase_dir_arg).resolve()
-    project_root = find_project_root(phase_dir)
+    project_root = phase_project_root(phase_dir)
     padded_phase = phase_dir.name.split("-", 1)[0]
 
     bd_error = None
@@ -3306,7 +3315,7 @@ def _note_plan_parse_error(phase_dir, plan_path, exc):
     anywhere the plan actually failed to parse."""
     message = f"plan parse failed in {plan_path.name}: {exc}"
     try:
-        project_root = find_project_root(phase_dir)
+        project_root = phase_project_root(phase_dir)
         append_state_blocker(confined(project_root, ".planning", "STATE.md"), message)
     except (ValueError, OSError) as write_exc:
         print(f"{message} (STATE.md note failed: {write_exc})", file=sys.stderr)
@@ -3428,11 +3437,9 @@ def regenerate_beads_md(phase_dir_arg):
             "reviewed: " + "; ".join(rejected)
         )
         print(message, file=sys.stderr)
-        # Start above phase_dir: a planted <phase>/.planning/ would otherwise
-        # be taken for the project root and swallow the blocker.
         try:
             append_state_blocker(
-                confined(find_project_root(phase_dir.parent), ".planning", "STATE.md"), message
+                confined(phase_project_root(phase_dir), ".planning", "STATE.md"), message
             )
         except ValueError:
             pass
@@ -3819,7 +3826,7 @@ def ship_override(phase_dir_arg):
         return 1
 
     try:
-        project_root = find_project_root(phase_dir)
+        project_root = phase_project_root(phase_dir)
     except ValueError as exc:
         print(f"ship-override: {exc}")
         return 1
@@ -4126,11 +4133,14 @@ def _main(argv):
     )
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
-    path_arg = getattr(args, "phase_dir", None) or getattr(args, "plan_path", None)
     # bd finds its database by walking up from cwd, so every verb pins it: a
     # verb without a path argument (status, migrate-todos, lifecycle-dispatch,
     # resolve-task-content) falls back to the process cwd, not to "unpinned".
-    _set_bd_root(path_arg or Path.cwd())
+    _set_bd_root(
+        args.phase_dir if getattr(args, "phase_dir", None)
+        else Path(args.plan_path).resolve().parent if getattr(args, "plan_path", None)
+        else None
+    )
     if args.command == "resolve-task-content":
         return resolve_task_content(args.issue_id)
     if args.command == "create-issues":
@@ -4140,7 +4150,7 @@ def _main(argv):
         # Fail-open: an unresolvable project root falls back to the
         # shipped authoritative default rather than raising.
         try:
-            sync_mode_root = find_project_root(Path(args.plan_path).resolve().parent)
+            sync_mode_root = phase_project_root(Path(args.plan_path).resolve().parent)
         except ValueError:
             sync_mode_root = None
         sync_mode = (

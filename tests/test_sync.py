@@ -1727,6 +1727,87 @@ class TestProjectLockFile(unittest.TestCase):
         self.assertIn(sync.NOTICE, out.getvalue())
 
 
+class TestPhaseProjectRoot(unittest.TestCase):
+    """gsd-beads-cjbc.67 S5: every phase-argument root lookup starts at the
+    phase dir's parent, so a planted <phase>/.planning/ is never the project
+    root (it would redirect bd, the config read and the STATE.md blocker)."""
+
+    def _ws(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        phase_dir = _write_wave_workspace(
+            Path(tmp.name), [("01-07", _regen_two_task_plan_text(), True)], with_state=True
+        )
+        planted = phase_dir / ".planning"
+        planted.mkdir()
+        (planted / "config.json").write_text(
+            '{"beads": {"epic_per": "milestone"}}', encoding="utf-8"
+        )
+        return Path(tmp.name).resolve(), phase_dir.resolve(), planted
+
+    def test_helper_skips_planted_dir_and_resolves_dot(self):
+        root, phase_dir, _ = self._ws()
+        self.assertEqual(sync.phase_project_root(phase_dir), root)
+        prev = os.getcwd()
+        os.chdir(phase_dir)
+        self.addCleanup(os.chdir, prev)
+        self.assertEqual(sync.phase_project_root(Path(".")), root)
+
+    def test_helper_raises_without_a_planning_ancestor(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                sync.phase_project_root(Path(tmp) / "phase")
+
+    def test_milestone_scoped_ignores_planted_config(self):
+        _, phase_dir, _ = self._ws()
+        self.assertFalse(sync._milestone_scoped(phase_dir))
+
+    def test_collect_scope_task_ids_ignores_planted_config(self):
+        _, phase_dir, _ = self._ws()
+        with mock.patch.object(sync, "collect_epic_task_ids", return_value={"a"}) as per_phase:
+            self.assertEqual(sync.collect_scope_task_ids(phase_dir, "e"), {"a"})
+        per_phase.assert_called_once()
+
+    def test_skip_bd_unavailable_notes_the_real_state_md(self):
+        root, phase_dir, _ = self._ws()
+        with contextlib.redirect_stdout(io.StringIO()):
+            sync._skip_bd_unavailable(phase_dir, "label")
+        self.assertIn("label skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+    def test_main_pins_bd_to_the_real_root_for_phase_and_plan_args(self):
+        root, phase_dir, _ = self._ws()
+        seen = []
+
+        def spy(*a, **k):
+            seen.append(sync._BD_CWD)
+            return 0
+
+        for argv in (
+            ["regenerate-beads-md", str(phase_dir)],
+            ["create-issues", str(phase_dir / "01-07-PLAN.md")],
+        ):
+            with self.subTest(argv=argv[0]), \
+                    mock.patch.object(sync, "regenerate_beads_md", side_effect=spy), \
+                    mock.patch.object(sync, "create_issues", side_effect=spy):
+                sync.main(argv)
+        self.assertEqual(seen, [str(root)] * 2)
+
+    def test_create_issues_resolves_the_real_root(self):
+        root, phase_dir, _ = self._ws()
+        out = io.StringIO()
+        with mock.patch.object(sync, "bd_available", return_value=False), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(sync.create_issues(str(phase_dir / "01-07-PLAN.md")), 0)
+        self.assertIn("beads-sync skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+    def test_recall_resolves_the_real_root(self):
+        root, phase_dir, _ = self._ws()
+        with mock.patch.object(sync, "bd_available", return_value=False), \
+                contextlib.redirect_stdout(io.StringIO()):
+            sync.beads_recall(str(phase_dir))
+        self.assertIn("beads-recall skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+
 def _minimal_task(**overrides):
     """A hand-built task dict carrying only the fields `_task_description`
     reads, all empty/None by default -- callers override the fields under
