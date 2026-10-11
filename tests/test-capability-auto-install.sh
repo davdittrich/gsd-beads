@@ -41,7 +41,22 @@ else
   TEST_HASH_CMD=(shasum -a 256)
 fi
 
-trap '[ -n "${SCRATCH:-}" ] && rm -rf "$SCRATCH" 2>/dev/null' EXIT
+# Spy cases patch the hook's own python processes. -I ignores PYTHONPATH,
+# but a venv's site-packages still loads under -I, so the python3 wrapper
+# execs this venv with the hook's argv untouched; its sitecustomize runs the
+# case's spy only when GSD_TEST_SPY_SITE names one.
+SPY_VENV="$(mktemp -d)"
+trap '[ -n "${SCRATCH:-}" ] && rm -rf "$SCRATCH" 2>/dev/null; rm -rf "$SPY_VENV"' EXIT
+"$REAL_PYTHON" -m venv --without-pip "$SPY_VENV" || fail "spy venv creation failed"
+cat > "$("$SPY_VENV/bin/python3" -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/sitecustomize.py" <<'PY'
+import os
+
+_spy_site = os.environ.get("GSD_TEST_SPY_SITE", "")
+if _spy_site:
+    _spy_path = os.path.join(_spy_site, "sitecustomize.py")
+    with open(_spy_path, encoding="utf-8") as _stream:
+        exec(compile(_stream.read(), _spy_path, "exec"), {"__name__": "gsd_test_spy"})
+PY
 
 # setup <stub-exit-status>
 # Builds a scratch plugin root (root-manifest layout, plus dev-only noise), a
@@ -71,13 +86,10 @@ setup() {
   mkdir -p "$BIN_DIR"
   TEST_BIN="$SCRATCH/test-bin"
   mkdir -p "$TEST_BIN"
-  # The hook runs python3 -I, which ignores PYTHONPATH. Spy cases inject a
-  # sitecustomize through PYTHONPATH, so only they get -I dropped; every other
-  # case (case3e's planted-module check included) runs the hook's argv as is.
+  # Every case runs the hook's argv as is (-I included) on the spy venv.
   cat > "$TEST_BIN/python3" <<SHIM
 #!/usr/bin/env bash
-if [ -n "\${PYTHONPATH:-}" ] && [ "\${1:-}" = "-I" ]; then shift; fi
-exec "$REAL_PYTHON" "\$@"
+exec "$SPY_VENV/bin/python3" "\$@"
 SHIM
   chmod +x "$TEST_BIN/python3"
   STUB_LOG="$SCRATCH/stub.log"
@@ -135,6 +147,7 @@ STUB
   STDOUT_FILE="$SCRATCH/stdout"
   STDERR_FILE="$SCRATCH/stderr"
   TEST_PYTHONPATH=""
+  TEST_SPY_SITE=""
   R1_LOCK_SPY_LOG=""
   R2_PUBLISH_SPY_LOG=""
   R2_LEGACY_PATH=""
@@ -206,7 +219,7 @@ teardown() {
 run_script() {
   HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="${GSD_RUNTIME:-}" \
-    PYTHONPATH="${TEST_PYTHONPATH:-}" R1_LOCK_SPY_LOG="${R1_LOCK_SPY_LOG:-}" \
+    PYTHONPATH="${TEST_PYTHONPATH:-}" GSD_TEST_SPY_SITE="${TEST_SPY_SITE:-}" R1_LOCK_SPY_LOG="${R1_LOCK_SPY_LOG:-}" \
     R2_PUBLISH_SPY_LOG="${R2_PUBLISH_SPY_LOG:-}" R2_LEGACY_PATH="${R2_LEGACY_PATH:-}" \
     R2_LEDGER_PATH="${R2_LEDGER_PATH:-}" PYTHONDONTWRITEBYTECODE=1 \
     R2_REPLACE_FAIL="${R2_REPLACE_FAIL:-}" R2_REPLACE_READY="${R2_REPLACE_READY:-}" \
@@ -1017,12 +1030,14 @@ def _execvpe(file, args, env):
     _append(f"execvpe:{file}")
     return _real_execvpe(file, args, env)
 
+import sys
+_append(f"isolated:{sys.flags.isolated}")
 fcntl.flock = _flock
 os.set_inheritable = _set_inheritable
 os.execvpe = _execvpe
 PY
 R1_LOCK_SPY_LOG="$SCRATCH/lock-spy.log"
-TEST_PYTHONPATH="$SPY_DIR"
+TEST_SPY_SITE="$SPY_DIR"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case12a: exit status $STATUS, expected 0"
 [ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
@@ -1033,6 +1048,8 @@ run_script beads
   || fail "case12a: acquired descriptor was not made inheritable once"
 [ "$(grep -cx 'execvpe:bash' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
   || fail "case12a: acquisition did not re-exec the hook in the same process"
+grep -qx 'isolated:1' "$R1_LOCK_SPY_LOG" && ! grep -q '^isolated:0' "$R1_LOCK_SPY_LOG" \
+  || fail "case12a: spy did not run under the hook's real -I flag"
 pass "case12a: one kernel lock is acquired then confirmed across same-process hook re-exec"
 teardown
 
@@ -1061,7 +1078,7 @@ R1_LOCK_SPY_LOG="$SCRATCH/forged-lock-spy.log"
 HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="" \
   GSD_AUTO_INSTALL_LOCK_FD=9 GSD_AUTO_INSTALL_SKILLS_ROOT="$SKILLS_ROOT" \
-  PYTHONPATH="$SPY_DIR" R1_LOCK_SPY_LOG="$R1_LOCK_SPY_LOG" PYTHONDONTWRITEBYTECODE=1 \
+  GSD_TEST_SPY_SITE="$SPY_DIR" R1_LOCK_SPY_LOG="$R1_LOCK_SPY_LOG" PYTHONDONTWRITEBYTECODE=1 \
   PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads 9<> "$STATE_FILE.lock" \
   >"$STDOUT_FILE" 2>"$STDERR_FILE"
 STATUS=$?
@@ -1258,7 +1275,7 @@ install_publish_spy() {
   R2_PUBLISH_SPY_LOG="$SCRATCH/publish-spy.log"
   R2_LEGACY_PATH="$LEGACY_STATE_FILE"
   R2_LEDGER_PATH="$STATE_FILE"
-  TEST_PYTHONPATH="$PUBLISH_SPY_DIR"
+  TEST_SPY_SITE="$PUBLISH_SPY_DIR"
   cat > "$PUBLISH_SPY_DIR/sitecustomize.py" <<'PY'
 import os
 import pathlib
@@ -1603,7 +1620,7 @@ STUB
 chmod +x "$BIN_DIR/gsd-tools.cjs"
 HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
-  PYTHONPATH="$TEST_PYTHONPATH" PYTHONDONTWRITEBYTECODE=1 \
+  GSD_TEST_SPY_SITE="$TEST_SPY_SITE" PYTHONDONTWRITEBYTECODE=1 \
   R2_PUBLISH_SPY_LOG="$R2_PUBLISH_SPY_LOG" R2_LEGACY_PATH="$R2_LEGACY_PATH" \
   R2_LEDGER_PATH="$R2_LEDGER_PATH" R2_REPLACE_READY="$R2_REPLACE_READY" \
   R2_REPLACE_RELEASE="$R2_REPLACE_RELEASE" PATH="$TEST_BIN:/usr/bin:/bin" \
