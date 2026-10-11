@@ -10353,6 +10353,25 @@ class TestRegenFailClosedV1(unittest.TestCase):
         self.assertIn("blocking_open: 0", text)
         self.assertIn("degraded", err)
 
+    def test_per_phase_degraded_plan_leaves_row_counts_exact(self):
+        # Per-phase counts come from the bd rows under the epic, not from the
+        # ordinal map, so a degraded plan hiding its issue from the map must
+        # not change them (only diverged is map-derived). The open row below
+        # belongs to nothing the map knows.
+        bad = _regen_two_task_plan_text().replace("plan: 07", "plan: 08").replace("</task>", "", 1)
+        rows = [
+            {"id": "regen-epic.8", "title": "hidden", "status": "open", "dependencies": []},
+            {"id": "regen-epic.9", "title": "t", "status": "open", "dependencies": []},
+            {"id": "regen-epic.10", "title": "t", "status": "closed", "dependencies": []},
+        ]
+        code, text, _err, _ = self._run(
+            [("01-07", _regen_two_task_plan_text()), ("01-08", bad)],
+            list_response=json.dumps(rows),
+        )
+        self.assertEqual(code, 0)
+        for line in ("open: 2\n", "closed: 1\n", "blocking_open: 2\n", "diverged: unknown\n"):
+            self.assertIn(line, text)
+
     def test_plain_generated_beads_md_is_removed_before_anything_else(self):
         """gsd-core's gate resolves <phase>/BEADS.md before NN-BEADS.md."""
         for patched in (None, mock.patch.object(sync, "bd_available", return_value=False)):
