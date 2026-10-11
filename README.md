@@ -38,13 +38,14 @@ the single source of truth for task state, so no duplicated task-state bookkeepi
 
 ## Requirements
 
-- `bd` on `PATH`
+- `bd` >= 1.2.2 on `PATH` (check: `bd --version`)
 - Python 3 (standard library only)
-- gsd-core >= 1.10.0
+- gsd-core >= 1.11.0
 
-The manifest keeps 1.10.0 as the compatibility floor. The real reconciliation fixture and CI
-separately pin public gsd-core 1.12.0 as the current runtime identity; that current-runtime gate
-does not raise the declared floor.
+The floor is 1.11.0: gsd-core 1.10 `ship.md` silently drops the whole `ship:pre` gate, and
+`onError: halt` is honoured only from 1.11.0. The real reconciliation fixture and CI separately
+pin public gsd-core 1.12.0 as the current runtime identity; that current-runtime gate does not
+raise the declared floor.
 
 ## Install
 
@@ -280,6 +281,7 @@ codex plugin remove beads-lifecycle@gsd-beads
   `### Blockers/Concerns` in `STATE.md`. Beads support is fail-open by design, not a hard
   dependency, with one exception: the `ship:pre` gate fails closed, so an unavailable `bd`
   blocks shipping until `bd` is back or `ship_gate: false` records an override.
+- **`resolves_issues` closes any open bd id.** A completed plan's `SUMMARY.md` frontmatter may list ids from outside the phase; they are syntax-checked only, so a typo or foreign id closes whatever it names.
 - **On a runtime without `PostToolUse`**, the native and patched points still run; drive the three
   compatibility points with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre`
   `<beads_status>` block is phase-wide because the hook carries no wave plan-id list: a superset of

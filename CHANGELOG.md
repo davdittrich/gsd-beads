@@ -13,10 +13,11 @@ Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
 - **Orphan sweep closes only `gsd-sync`-labelled children.** Task issues created before 0.8.0 carry no label: when one is removed from a plan it stays open and counts in `blocking_open`, so the ship gate blocks. Close such issues by hand (.21).
 - **Milestone scoping.** With `epic_per: milestone`, the orphan sweep and `blocking_open` count only the current phase's issues (.9).
 - **Release is gated.** `release.yml` runs CI at the tagged commit, requires tag == `plugin.json` version, requires the tagged commit to be an ancestor of `origin/main`, and never republishes an existing release (.4, .39). `ci.yml` runs on branch pushes and pull requests, so a tag runs CI once (.39).
-- **One skill is exposed.** The `beads-lifecycle` marketplace entry lists `skills: ["./.agents/skills/beads"]`; a real install showed 5 skills before and 1 after (.37).
+- **One skill is exposed.** The `beads-lifecycle` marketplace entry lists `skills: ["./.agents/skills/beads"]`; a real install showed 5 skills before and 1 after (.37). That limit holds for Claude Code only: Codex ignores the marketplace-entry key, so `plugin.json` `skills` lists all five skill directories and Codex loads all five (.62).
 - **`.gsd-capabilities.json` is deleted.** It pointed at a removed path; the version test now reads `capability.json` and `plugin.json` (.38).
 
 - **Phase mentions are files, not prose.** A token with a `/` counts, except one starting with `../` or `/`, a numeric-only or very short one, and one whose first segment looks like a hostname unless that directory exists (`example.com/docs`, URLs). A bare name (no `/`) counts only when it is an existing file in the project root (`README.md`, `main.c`, `capability.json`), so `example.com` and `Node.js` do not count unless a root file has that name; it matches other plans' files by exact path, so `README.md` does not match `docs/README.md`. A nested file or one not created yet needs a path with a slash (`./CONTRIBUTING.md`) (.26, .36, .41).
+- **gsd-core floor is 1.11.0.** `capability.json` `engines.gsd`, the README and the registry entry required `>=1.10.0`, but 1.10 `ship.md` has no generic gate arm and silently drops the whole `ship:pre` gate; `onError: halt` is honoured from 1.11.0 (.61).
 
 ### Fixed
 - `bd list` passes `-n 0`, so rows past 50 are seen (.7). Stored task ids are verified with one `bd` call and existing edges are skipped (.14).

@@ -1831,6 +1831,28 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertEqual(len(gates), 2)
         self.assertEqual([g["onError"] for g in gates], ["halt", "halt"])
 
+    def test_engines_floor_is_the_first_release_that_honours_halt(self):
+        """cjbc.61: gsd-core 1.10 ship.md drops the whole ship:pre gate;
+        onError:halt is honoured from 1.11.0."""
+        self.assertEqual(self._manifest()["engines"]["gsd"], ">=1.11.0")
+
+    def test_plugin_manifest_lists_all_five_skills_for_codex(self):
+        """cjbc.62: Codex ignores the marketplace-entry skills key and, when
+        plugin.json has a skills key, loads only those paths."""
+        plugin = json.loads(
+            (self.CAPABILITY_PATH.parent / ".claude-plugin/plugin.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(
+            plugin["skills"],
+            [
+                "./.agents/skills/beads",
+                "./skills/beads-sync",
+                "./skills/beads-status",
+                "./skills/beads-recall",
+                "./skills/beads-migrate-todos",
+            ],
+        )
+
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
