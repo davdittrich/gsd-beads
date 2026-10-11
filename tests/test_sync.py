@@ -11462,6 +11462,55 @@ class TestIdempotentCreateIssues(unittest.TestCase):
         self.assertEqual(count(), rows)
 
 
+class TestRejectedBeadsFilePersists(unittest.TestCase):
+    """gsd-beads-cjbc.67 S4: a rejected BEADS file keeps the ship gate closed
+    on every later regenerate until the user removes the aside, and the notice
+    reaches stdout (lifecycle-dispatch promotes stdout into the agent's
+    context, stderr is dropped)."""
+
+    FOREIGN = "---\nblocking_open: 0\ndiverged: 0\n---\nmy notes\n"
+
+    def _regen(self, phase_dir):
+        rows = json.dumps([{"id": "regen-epic.1", "title": "t", "status": "closed", "dependencies": []}])
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect(rows)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = sync.regenerate_beads_md(str(phase_dir))
+        return code, out.getvalue(), err.getvalue(), (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+
+    def _check(self, rel):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        phase_dir = _write_wave_workspace(
+            Path(tmp.name), [("01-07", _regen_two_task_plan_text(), False)], with_state=True
+        )
+        extra = phase_dir / rel
+        extra.parent.mkdir(parents=True, exist_ok=True)
+        extra.write_text(self.FOREIGN, encoding="utf-8")
+        code, out, _err, ours = self._regen(phase_dir)
+        self.assertEqual(code, 1)
+        self.assertIn(extra.name, out)  # first run: stdout carries the notice
+        aside = next(extra.parent.glob(extra.name + ".rejected-*"))
+        for _ in range(2):  # later runs: nothing new to move, gate stays closed
+            code, out, _err, ours = self._regen(phase_dir)
+            self.assertEqual(code, 1)
+            self.assertIn("blocking_open: unknown", ours)
+            self.assertIn(aside.name, out)
+        aside.unlink()  # the user's acknowledgement
+        code, out, _err, ours = self._regen(phase_dir)
+        self.assertEqual(code, 0)
+        self.assertIn("blocking_open: 0", ours)
+
+    def test_plain_beads_md_aside_keeps_gate_closed_until_removed(self):
+        self._check("BEADS.md")
+
+    def test_nested_planning_beads_md_aside_keeps_gate_closed_until_removed(self):
+        self._check(".planning/BEADS.md")
+
+    def test_sibling_nn_beads_md_aside_keeps_gate_closed_until_removed(self):
+        self._check("01-02-BEADS.md")
+
+
 class TestSingleBeadsMdCandidate(unittest.TestCase):
     """RS2 (gsd-beads-cjbc.43): gsd-core's findPhaseArtifact (1.10-1.16)
     returns the first of <phase>/BEADS.md, <phase>/.planning/BEADS.md, then

@@ -3431,11 +3431,20 @@ def regenerate_beads_md(phase_dir_arg):
             rejected.append(f"{extra} -> {aside.name}")
         except OSError as exc:
             rejected.append(f"{extra} could not be moved ({exc})")
+    # An aside from an earlier run is a rejection that nobody has reviewed:
+    # the gate stays closed (and the notice repeats) until the user removes it.
+    # The nested case's aside sits beside <phase>/.planning/BEADS.md.
+    for d in (phase_dir, phase_dir / ".planning"):
+        for aside in sorted(d.glob("*BEADS.md.rejected-*")):
+            if aside.is_file() and not any(r.endswith(f"-> {aside.name}") for r in rejected):
+                rejected.append(f"{aside} (kept aside, remove it once reviewed)")
     if rejected:
         message = (
             "BEADS.md: foreign ship-gate artifact(s) rejected, gate fails closed until "
             "reviewed: " + "; ".join(rejected)
         )
+        # stdout too: lifecycle-dispatch promotes stdout into the agent's context.
+        print(message)
         print(message, file=sys.stderr)
         try:
             append_state_blocker(
