@@ -41,7 +41,22 @@ else
   TEST_HASH_CMD=(shasum -a 256)
 fi
 
-trap '[ -n "${SCRATCH:-}" ] && rm -rf "$SCRATCH" 2>/dev/null' EXIT
+# Spy cases patch the hook's own python processes. -I ignores PYTHONPATH,
+# but a venv's site-packages still loads under -I, so the python3 wrapper
+# execs this venv with the hook's argv untouched; its sitecustomize runs the
+# case's spy only when GSD_TEST_SPY_SITE names one.
+SPY_VENV="$(mktemp -d)"
+trap '[ -n "${SCRATCH:-}" ] && rm -rf "$SCRATCH" 2>/dev/null; rm -rf "$SPY_VENV"' EXIT
+"$REAL_PYTHON" -m venv --without-pip "$SPY_VENV" || fail "spy venv creation failed"
+cat > "$("$SPY_VENV/bin/python3" -I -c 'import sysconfig; print(sysconfig.get_path("purelib"))')/sitecustomize.py" <<'PY'
+import os
+
+_spy_site = os.environ.get("GSD_TEST_SPY_SITE", "")
+if _spy_site:
+    _spy_path = os.path.join(_spy_site, "sitecustomize.py")
+    with open(_spy_path, encoding="utf-8") as _stream:
+        exec(compile(_stream.read(), _spy_path, "exec"), {"__name__": "gsd_test_spy"})
+PY
 
 # setup <stub-exit-status>
 # Builds a scratch plugin root (root-manifest layout, plus dev-only noise), a
@@ -71,13 +86,10 @@ setup() {
   mkdir -p "$BIN_DIR"
   TEST_BIN="$SCRATCH/test-bin"
   mkdir -p "$TEST_BIN"
-  # The hook runs python3 -I, which ignores PYTHONPATH. Spy cases inject a
-  # sitecustomize through PYTHONPATH, so only they get -I dropped; every other
-  # case (case3e's planted-module check included) runs the hook's argv as is.
+  # Every case runs the hook's argv as is (-I included) on the spy venv.
   cat > "$TEST_BIN/python3" <<SHIM
 #!/usr/bin/env bash
-if [ -n "\${PYTHONPATH:-}" ] && [ "\${1:-}" = "-I" ]; then shift; fi
-exec "$REAL_PYTHON" "\$@"
+exec "$SPY_VENV/bin/python3" "\$@"
 SHIM
   chmod +x "$TEST_BIN/python3"
   STUB_LOG="$SCRATCH/stub.log"
@@ -110,6 +122,10 @@ case "\$*" in
       exit 1
     fi
     _p="\$3"
+    # Like gsd-core, a consented install copies the source bundle into place.
+    if [ -n "\${STUB_REQUIRE_CONSENT:-}\${STUB_COPY_INSTALL:-}" ]; then
+      rm -rf "$INSTALLED_BUNDLE" && cp -R "\$_p" "$INSTALLED_BUNDLE" || exit 1
+    fi
     if [ -d "\$_p" ]; then
       printf '%s\n' "\$_p" > "$SCRATCH/staged.path"
       LC_ALL=C ls -A "\$_p" | tr '\n' ' ' > "$SCRATCH/staged.ls"
@@ -135,6 +151,7 @@ STUB
   STDOUT_FILE="$SCRATCH/stdout"
   STDERR_FILE="$SCRATCH/stderr"
   TEST_PYTHONPATH=""
+  TEST_SPY_SITE=""
   R1_LOCK_SPY_LOG=""
   R2_PUBLISH_SPY_LOG=""
   R2_LEGACY_PATH=""
@@ -206,13 +223,13 @@ teardown() {
 run_script() {
   HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
     CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="${GSD_RUNTIME:-}" \
-    PYTHONPATH="${TEST_PYTHONPATH:-}" R1_LOCK_SPY_LOG="${R1_LOCK_SPY_LOG:-}" \
+    PYTHONPATH="${TEST_PYTHONPATH:-}" GSD_TEST_SPY_SITE="${TEST_SPY_SITE:-}" R1_LOCK_SPY_LOG="${R1_LOCK_SPY_LOG:-}" \
     R2_PUBLISH_SPY_LOG="${R2_PUBLISH_SPY_LOG:-}" R2_LEGACY_PATH="${R2_LEGACY_PATH:-}" \
     R2_LEDGER_PATH="${R2_LEDGER_PATH:-}" PYTHONDONTWRITEBYTECODE=1 \
     R2_REPLACE_FAIL="${R2_REPLACE_FAIL:-}" R2_REPLACE_READY="${R2_REPLACE_READY:-}" \
     R2_REPLACE_RELEASE="${R2_REPLACE_RELEASE:-}" PATH="$TEST_BIN:/usr/bin:/bin" \
     GSD_AUTO_INSTALL_LOCK_WAIT_SECONDS="${LOCK_WAIT_SECONDS:-0}" \
-    bash "$SCRIPT" "$1" >"$STDOUT_FILE" 2>"$STDERR_FILE"
+    bash "$SCRIPT" "$@" >"$STDOUT_FILE" 2>"$STDERR_FILE"
   STATUS=$?
 }
 
@@ -385,30 +402,55 @@ setup 0
 teardown
 pass "case3g: relative or unset HOME/GSD_HOME/CODEX_HOME/CLAUDE_CONFIG_DIR fail closed"
 
-### Case 3h (R23): a consent-requiring install is never auto-consented ###
-setup 0
-seed_selected "$SKILLS_ROOT"
-# Installed bytes differ from the bundle: the install is genuinely needed.
-printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
-export STUB_REQUIRE_CONSENT=1
-run_script beads
-unset STUB_REQUIRE_CONSENT
-[ "$STATUS" -eq 0 ] || fail "case3h: exit status $STATUS, expected 0"
-! grep -q -- '--yes' "$STUB_LOG" || fail "case3h: hook passed --yes"
-! grep -q '^capability set' "$STUB_LOG" || fail "case3h: consent-blocked install reached capability set"
-[ -z "$(cat "$STDOUT_FILE")" ] || fail "case3h: consent block wrote stdout"
-[ "$(grep -c "needs your consent" "$STDERR_FILE")" -eq 1 ] \
-  || fail "case3h: consent requirement not printed exactly once: $(cat "$STDERR_FILE")"
-grep -qF "capability install $GSD_HOME/.gsd/capability-auto-install-beads.source/beads --scope global --yes" "$STDERR_FILE" \
-  || fail "case3h: consent message lacks the exact command: $(cat "$STDERR_FILE")"
-cmp -s "$PLUGIN_DIR/GSD-CORE-PATCH.md" "$GSD_HOME/.gsd/capability-auto-install-beads.source/beads/GSD-CORE-PATCH.md" \
-  || fail "case3h: the printed consent command does not point at the candidate bundle"
-[ ! -e "$STATE_FILE" ] || fail "case3h: consent-blocked install recorded a ledger row"
-pass "case3h: consent-requiring install prints the requirement and exits 0"
-teardown
+### Case 3h (R23/RS1): consent is never automatic; --consent installs under the lock ###
+# The stable source is what `capability update` re-fetches, so until the user
+# consents it must keep its previous bytes (or stay absent).
+for _prior in present absent; do
+  setup 0
+  seed_selected "$SKILLS_ROOT"
+  # Installed bytes differ from the bundle: the install is genuinely needed.
+  printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+  PRIOR_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source/beads"
+  if [ "$_prior" = present ]; then
+    mkdir -p "$PRIOR_SOURCE"
+    printf 'previous\n' > "$PRIOR_SOURCE/previous.marker"
+  fi
+  export STUB_REQUIRE_CONSENT=1
+  run_script beads
+  [ "$STATUS" -eq 0 ] || fail "case3h($_prior): exit status $STATUS, expected 0"
+  ! grep -q -- '--yes' "$STUB_LOG" || fail "case3h($_prior): hook passed --yes"
+  ! grep -q '^capability set' "$STUB_LOG" || fail "case3h($_prior): consent-blocked install reached capability set"
+  [ -z "$(cat "$STDOUT_FILE")" ] || fail "case3h($_prior): consent block wrote stdout"
+  [ "$(cat "$STDERR_FILE")" = "capability-auto-install: beads needs your consent before install; run: bash $PLUGIN_DIR/hooks/capability-auto-install.sh --consent beads" ] \
+    || fail "case3h($_prior): consent message is not the single consent-mode command: $(cat "$STDERR_FILE")"
+  if [ "$_prior" = present ]; then
+    [ "$(LC_ALL=C ls -A "$PRIOR_SOURCE")" = previous.marker ] \
+      && [ "$(cat "$PRIOR_SOURCE/previous.marker")" = previous ] \
+      || fail "case3h: consent block changed the stable source"
+  else
+    [ ! -e "$GSD_HOME/.gsd/capability-auto-install-beads.source" ] \
+      || fail "case3h: consent block created the stable source"
+  fi
+  [ ! -e "$STATE_FILE" ] || fail "case3h($_prior): consent-blocked install recorded a ledger row"
+  [ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.*')" ] \
+    || fail "case3h($_prior): temporary directories leaked"
+  run_script --consent beads
+  unset STUB_REQUIRE_CONSENT
+  [ "$STATUS" -eq 0 ] || fail "case3h($_prior): consent run exit status $STATUS, expected 0"
+  [ "$(grep -c -- "^capability install $PRIOR_SOURCE --scope global --yes\$" "$STUB_LOG")" -eq 1 ] \
+    || fail "case3h($_prior): consent run did not install the stable source with --yes once: $(cat "$STUB_LOG")"
+  [ "$(cat "$STDOUT_FILE")" = "Auto-installed capability: beads (user scope)" ] && [ -z "$(cat "$STDERR_FILE")" ] \
+    || fail "case3h($_prior): consent run did not complete: $(cat "$STDERR_FILE")"
+  cmp -s "$PLUGIN_DIR/GSD-CORE-PATCH.md" "$PRIOR_SOURCE/GSD-CORE-PATCH.md" \
+    && [ ! -e "$PRIOR_SOURCE/previous.marker" ] \
+    || fail "case3h($_prior): consent run did not publish the candidate as the stable source"
+  [ -f "$STATE_FILE" ] || fail "case3h($_prior): consent run recorded no ledger row"
+  teardown
+done
+pass "case3h: consent is never automatic, leaves the stable source untouched, and --consent installs"
 
 ### Case 3i (V4/S4): consent already given converges instead of re-asking ###
-# The user ran the printed --yes command: installed bytes now equal the
+# The user consented outside the hook: installed bytes now equal the
 # bundle, but a bare install still answers requiresConsent. Re-asking every
 # SessionStart was a dead end; the hook must project and record instead.
 setup 0
@@ -423,8 +465,8 @@ grep -qx "capability set beads --runtime codex --scope global --config-dir $CODE
 [ -f "$STATE_FILE" ] || fail "case3i: consented install did not record a ledger row: $(cat "$STDERR_FILE")"
 [ "$(cat "$STDOUT_FILE")" = "Auto-installed capability: beads (user scope)" ] \
   || fail "case3i: converged install did not print the notice: $(cat "$STDOUT_FILE")"
-[ "$(grep -c "needs your consent" "$STDERR_FILE")" -eq 1 ] \
-  || fail "case3i: consent command not printed exactly once: $(cat "$STDERR_FILE")"
+[ -z "$(cat "$STDERR_FILE")" ] \
+  || fail "case3i: converged install still asked for consent: $(cat "$STDERR_FILE")"
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
 STUB_REQUIRE_CONSENT=1 run_script beads
 [ -z "$(cat "$STDERR_FILE")" ] || fail "case3i: converged rerun re-asked for consent: $(cat "$STDERR_FILE")"
@@ -877,6 +919,128 @@ grep -q 'projection transaction busy' "$STDERR_FILE" || fail "case8d: bounded wa
 pass "case8d: a held lock is waited for up to the bound, then reported busy"
 teardown
 
+### Case 8g (RS14): a lock-wait request above 30s is clamped to 30s ###
+# A fake clock makes the wait instant: sleep advances it, and the last value
+# logged is how long the waiter would have waited on a real clock.
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$(dirname "$STATE_FILE")"
+: > "$STATE_FILE.lock"
+SPY_DIR="$SCRATCH/clock-spy"
+mkdir -p "$SPY_DIR"
+cat > "$SPY_DIR/sitecustomize.py" <<'PY'
+import os
+import time
+
+_log_path = os.environ["R1_LOCK_SPY_LOG"]
+_clock = [0.0]
+
+def _sleep(seconds):
+    _clock[0] += seconds
+    with open(_log_path, "a", encoding="utf-8") as stream:
+        stream.write(f"{_clock[0]:.1f}\n")
+
+time.monotonic = lambda: _clock[0]
+time.sleep = _sleep
+PY
+"$REAL_PYTHON" -I -c 'import fcntl,os,sys,time; fd=os.open(sys.argv[1],os.O_RDWR); fcntl.flock(fd,fcntl.LOCK_EX); open(sys.argv[2],"w").close(); time.sleep(30)' \
+  "$STATE_FILE.lock" "$SCRATCH/held" &
+HOLDER_PID=$!
+until [ -e "$SCRATCH/held" ]; do sleep 0.05; done
+R1_LOCK_SPY_LOG="$SCRATCH/clock-spy.log"
+TEST_SPY_SITE="$SPY_DIR"
+LOCK_WAIT_SECONDS=100 run_script beads
+kill "$HOLDER_PID" 2>/dev/null; wait "$HOLDER_PID" 2>/dev/null
+grep -q 'projection transaction busy' "$STDERR_FILE" || fail "case8g: clamped wait did not report busy"
+CLAMPED_WAIT="$(tail -n 1 "$R1_LOCK_SPY_LOG")"
+"$REAL_PYTHON" -I -c 'import sys; raise SystemExit(0 if 29.9 <= float(sys.argv[1]) <= 30.1 else 1)' "$CLAMPED_WAIT" \
+  || fail "case8g: a 100s request waited ${CLAMPED_WAIT}s, expected the 30s clamp"
+pass "case8g: a lock-wait request above 30s is clamped to 30s"
+teardown
+
+### Case 8h (RS14): stage/prev dirs leaked by a killed holder are swept under the lock ###
+setup 0
+seed_selected "$SKILLS_ROOT"
+mkdir -p "$GSD_HOME/.gsd/.capability-auto-install-beads.stage.LEAKED/beads" \
+  "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.LEAKED/source/beads" \
+  "$GSD_HOME/.gsd/.capability-auto-install-beads-x.stage.KEEP"
+run_script beads
+[ "$STATUS" -eq 0 ] || fail "case8h: exit status $STATUS, expected 0"
+[ -f "$STATE_FILE" ] || fail "case8h: sweep blocked the projection"
+LEAKED="$(find "$GSD_HOME/.gsd" -maxdepth 1 \( -name '.capability-auto-install-beads.stage.*' -o -name '.capability-auto-install-beads.prev.*' \))"
+[ -z "$LEAKED" ] || fail "case8h: leaked dirs survived: $LEAKED"
+[ -d "$GSD_HOME/.gsd/.capability-auto-install-beads-x.stage.KEEP" ] \
+  || fail "case8h: another capability's staging dir was swept"
+pass "case8h: stage/prev dirs leaked by a killed holder are swept under the lock"
+teardown
+
+### Case 8h2 (RS14/RS1): a holder killed mid-install never leaves unconsented bytes recorded ###
+# Killed after the candidate replaced the stable source but before the install
+# outcome: the parked previous source is the only copy of consented bytes.
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source"
+copy_allowlist "$PLUGIN_DIR" "$STABLE_SOURCE/beads"
+mkdir -p "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads"
+printf 'previous\n' > "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads/previous.marker"
+STUB_REQUIRE_CONSENT=1 run_script beads
+grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h2: expected a consent block: $(cat "$STDERR_FILE")"
+[ "$(LC_ALL=C ls -A "$STABLE_SOURCE/beads")" = previous.marker ] \
+  || fail "case8h2: unconsented candidate left at the stable source: $(LC_ALL=C ls -A "$STABLE_SOURCE/beads" | tr '\n' ' ')"
+[ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.*')" ] \
+  || fail "case8h2: leaked dirs survived"
+pass "case8h2: a holder killed mid-install never leaves unconsented bytes recorded"
+teardown
+
+### Case 8i (RS13): equal versions with different content do not flip between runtimes ###
+# Both runtimes share one installed bundle. The real CLI overwrites it at an
+# equal version, so without a policy every runtime switch reinstalls.
+for _claude_cache in older newer; do
+  setup 0
+  seed_selected "$SKILLS_ROOT"
+  seed_selected "$CLAUDE_SKILLS_ROOT"
+  export STUB_COPY_INSTALL=1
+  CODEX_PLUGIN_DIR="$PLUGIN_DIR"
+  CLAUDE_PLUGIN_DIR="$CLAUDE_CONFIG_DIR/plugins/cache/gsd-beads/beads-lifecycle/test"
+  make_plugin_root "$CLAUDE_PLUGIN_DIR"
+  printf '\nclaude cache content\n' >> "$CLAUDE_PLUGIN_DIR/GSD-CORE-PATCH.md"
+  touch -d '2001-01-01' "$CODEX_PLUGIN_DIR/capability.json"
+  if [ "$_claude_cache" = older ]; then
+    touch -d '2000-01-01' "$CLAUDE_PLUGIN_DIR/capability.json"
+  else
+    touch -d '2099-01-01' "$CLAUDE_PLUGIN_DIR/capability.json"
+  fi
+  PLUGIN_DIR="$CODEX_PLUGIN_DIR"
+  run_script beads
+  [ -f "$STATE_FILE" ] || fail "case8i($_claude_cache): first codex run did not converge: $(cat "$STDERR_FILE")"
+  CHANGES=0
+  KEEPS=0
+  LAST_GENERATION="$(fixture_tree_hash "$INSTALLED_BUNDLE")"
+  for _runtime in claude codex claude codex; do
+    if [ "$_runtime" = claude ]; then PLUGIN_DIR="$CLAUDE_PLUGIN_DIR"; else PLUGIN_DIR="$CODEX_PLUGIN_DIR"; fi
+    run_script beads
+    [ "$STATUS" -eq 0 ] || fail "case8i($_claude_cache): $_runtime exit status $STATUS"
+    ! grep -v 'keeping the installed' "$STDERR_FILE" | grep -q . \
+      || fail "case8i($_claude_cache): $_runtime run failed: $(cat "$STDERR_FILE")"
+    KEEPS=$((KEEPS + $(grep -c 'keeping the installed' "$STDERR_FILE")))
+    _generation="$(fixture_tree_hash "$INSTALLED_BUNDLE")"
+    [ "$_generation" = "$LAST_GENERATION" ] || CHANGES=$((CHANGES + 1))
+    LAST_GENERATION="$_generation"
+  done
+  unset STUB_COPY_INSTALL
+  PLUGIN_DIR="$CODEX_PLUGIN_DIR"
+  if [ "$_claude_cache" = older ]; then
+    [ "$CHANGES" -eq 0 ] && [ "$KEEPS" -eq 1 ] \
+      || fail "case8i(older): installed bundle changed $CHANGES times, kept $KEEPS times; expected 0 and 1"
+  else
+    [ "$CHANGES" -eq 1 ] && [ "$KEEPS" -eq 1 ] \
+      || fail "case8i(newer): installed bundle changed $CHANGES times, kept $KEEPS times; expected 1 and 1"
+  fi
+  teardown
+done
+pass "case8i: equal versions with different content keep the other runtime's verified install unless this cache is newer"
+
 ### Case 9: an unmarked same-name user skill is preserved and blocks convergence ###
 setup 0
 rm -rf "$SKILLS_ROOT/gsd-beads-recall"
@@ -1017,12 +1181,14 @@ def _execvpe(file, args, env):
     _append(f"execvpe:{file}")
     return _real_execvpe(file, args, env)
 
+import sys
+_append(f"isolated:{sys.flags.isolated}")
 fcntl.flock = _flock
 os.set_inheritable = _set_inheritable
 os.execvpe = _execvpe
 PY
 R1_LOCK_SPY_LOG="$SCRATCH/lock-spy.log"
-TEST_PYTHONPATH="$SPY_DIR"
+TEST_SPY_SITE="$SPY_DIR"
 run_script beads
 [ "$STATUS" -eq 0 ] || fail "case12a: exit status $STATUS, expected 0"
 [ -f "$STATE_FILE.lock" ] && [ ! -L "$STATE_FILE.lock" ] \
@@ -1033,6 +1199,8 @@ run_script beads
   || fail "case12a: acquired descriptor was not made inheritable once"
 [ "$(grep -cx 'execvpe:bash' "$R1_LOCK_SPY_LOG")" -eq 1 ] \
   || fail "case12a: acquisition did not re-exec the hook in the same process"
+grep -qx 'isolated:1' "$R1_LOCK_SPY_LOG" && ! grep -q '^isolated:0' "$R1_LOCK_SPY_LOG" \
+  || fail "case12a: spy did not run under the hook's real -I flag"
 pass "case12a: one kernel lock is acquired then confirmed across same-process hook re-exec"
 teardown
 
@@ -1061,7 +1229,7 @@ R1_LOCK_SPY_LOG="$SCRATCH/forged-lock-spy.log"
 HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" GSD_RUNTIME="" \
   GSD_AUTO_INSTALL_LOCK_FD=9 GSD_AUTO_INSTALL_SKILLS_ROOT="$SKILLS_ROOT" \
-  PYTHONPATH="$SPY_DIR" R1_LOCK_SPY_LOG="$R1_LOCK_SPY_LOG" PYTHONDONTWRITEBYTECODE=1 \
+  GSD_TEST_SPY_SITE="$SPY_DIR" R1_LOCK_SPY_LOG="$R1_LOCK_SPY_LOG" PYTHONDONTWRITEBYTECODE=1 \
   PATH="$TEST_BIN:/usr/bin:/bin" bash "$SCRIPT" beads 9<> "$STATE_FILE.lock" \
   >"$STDOUT_FILE" 2>"$STDERR_FILE"
 STATUS=$?
@@ -1258,7 +1426,7 @@ install_publish_spy() {
   R2_PUBLISH_SPY_LOG="$SCRATCH/publish-spy.log"
   R2_LEGACY_PATH="$LEGACY_STATE_FILE"
   R2_LEDGER_PATH="$STATE_FILE"
-  TEST_PYTHONPATH="$PUBLISH_SPY_DIR"
+  TEST_SPY_SITE="$PUBLISH_SPY_DIR"
   cat > "$PUBLISH_SPY_DIR/sitecustomize.py" <<'PY'
 import os
 import pathlib
@@ -1603,7 +1771,7 @@ STUB
 chmod +x "$BIN_DIR/gsd-tools.cjs"
 HOME="$SCRATCH" CODEX_HOME="$CODEX_HOME" CLAUDE_CONFIG_DIR="$CLAUDE_CONFIG_DIR" \
   CLAUDE_PLUGIN_ROOT="$PLUGIN_DIR" GSD_HOME="$GSD_HOME" \
-  PYTHONPATH="$TEST_PYTHONPATH" PYTHONDONTWRITEBYTECODE=1 \
+  GSD_TEST_SPY_SITE="$TEST_SPY_SITE" PYTHONDONTWRITEBYTECODE=1 \
   R2_PUBLISH_SPY_LOG="$R2_PUBLISH_SPY_LOG" R2_LEGACY_PATH="$R2_LEGACY_PATH" \
   R2_LEDGER_PATH="$R2_LEDGER_PATH" R2_REPLACE_READY="$R2_REPLACE_READY" \
   R2_REPLACE_RELEASE="$R2_REPLACE_RELEASE" PATH="$TEST_BIN:/usr/bin:/bin" \
@@ -2106,6 +2274,92 @@ real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
   capability set beads --enable --runtime codex --scope global --config-dir "$ACTUAL_CODEX" \
   > "$REAL_ROOT/enable.log" 2>&1 || fail "case24: real re-enable failed: $(cat "$REAL_ROOT/enable.log")"
 [ -f "$ACTUAL_SKILLS_ROOT/gsd-beads-sync/SKILL.md" ] || fail "case24: real re-enable did not restore the selected skills"
+
+### Case 24b (RS1): real CLI consent: the printed command is the only way in ###
+# A declared hook makes gsd-core's evaluateInstallTrust set requiresConsent.
+# The user runs the printed command literally, from a plain shell: no
+# CLAUDE_PLUGIN_ROOT, no GSD_RUNTIME.
+CONSENT_CODEX="$REAL_ROOT/consent/.codex"
+CONSENT_HOME="$REAL_ROOT/consent/home"
+CONSENT_CLAUDE="$REAL_ROOT/consent/.claude"
+CONSENT_PROJECT="$REAL_ROOT/consent/project"
+prepare_current_runtime "$CONSENT_CODEX" "$CONSENT_HOME" "$CONSENT_CLAUDE" "$CONSENT_PROJECT"
+CONSENT_PLUGIN="$CONSENT_CODEX/plugins/cache/gsd-beads/beads-lifecycle/current"
+copy_allowlist "$GENERATION_B" "$CONSENT_PLUGIN" && plant_noise "$CONSENT_PLUGIN"
+mkdir -p "$CONSENT_PLUGIN/hooks" && cp -f "$SCRIPT" "$CONSENT_PLUGIN/hooks/capability-auto-install.sh"
+$REAL_PYTHON -I -c 'import json,sys; p=sys.argv[1]; m=json.load(open(p)); m["hooks"]=[{"event":"SessionStart","script":"scripts/sync.py"}]; open(p,"w").write(json.dumps(m,indent=2)+"\n")' \
+  "$CONSENT_PLUGIN/capability.json"
+CONSENT_REAL_TOOLS="$CONSENT_CODEX/gsd-core/bin/gsd-tools-real.cjs"
+CONSENT_SPY_LOG="$REAL_ROOT/consent-spy.log"
+cp -f "$CONSENT_CODEX/gsd-core/bin/gsd-tools.cjs" "$CONSENT_REAL_TOOLS"
+cat > "$CONSENT_CODEX/gsd-core/bin/gsd-tools.cjs" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$CONSENT_SPY_LOG"
+exec "$CONSENT_REAL_TOOLS" "\$@"
+STUB
+chmod +x "$CONSENT_CODEX/gsd-core/bin/gsd-tools.cjs" "$CONSENT_REAL_TOOLS"
+CONSENT_SOURCE="$CONSENT_HOME/.gsd/capability-auto-install-beads.source"
+CONSENT_LEDGER="$CONSENT_HOME/.gsd/capability-auto-install-beads.projections"
+consent_session() {
+  : > "$CONSENT_SPY_LOG"
+  (
+    cd "$CONSENT_PROJECT" || exit 1
+    env TMPDIR="$REAL_TMP" HOME="$CONSENT_HOME" GSD_HOME="$CONSENT_HOME" \
+      CODEX_HOME="$CONSENT_CODEX" CLAUDE_CONFIG_DIR="$CONSENT_CLAUDE" \
+      CLAUDE_PLUGIN_ROOT="$CONSENT_PLUGIN" GSD_RUNTIME=codex \
+      bash "$CONSENT_PLUGIN/hooks/capability-auto-install.sh" beads
+  ) > "$REAL_HOOK_OUT" 2> "$REAL_HOOK_ERR"
+}
+consent_by_user() {
+  local _command
+  _command="$(sed -n 's/^capability-auto-install: beads needs your consent before install; run: //p' "$REAL_HOOK_ERR")"
+  [ "$_command" = "bash $CONSENT_PLUGIN/hooks/capability-auto-install.sh --consent beads" ] \
+    || fail "case24b: printed command is not the consent mode: $(cat "$REAL_HOOK_ERR")"
+  : > "$CONSENT_SPY_LOG"
+  (
+    cd "$CONSENT_PROJECT" || exit 1
+    env -u CLAUDE_PLUGIN_ROOT -u GSD_RUNTIME TMPDIR="$REAL_TMP" HOME="$CONSENT_HOME" \
+      GSD_HOME="$CONSENT_HOME" CODEX_HOME="$CONSENT_CODEX" CLAUDE_CONFIG_DIR="$CONSENT_CLAUDE" \
+      bash -c "$_command"
+  ) > "$REAL_HOOK_OUT" 2> "$REAL_HOOK_ERR"
+}
+for _round in first-install update; do
+  if [ "$_round" = update ]; then
+    printf '\nconsent round two\n' >> "$CONSENT_PLUGIN/GSD-CORE-PATCH.md"
+  fi
+  SOURCE_BEFORE="absent"
+  [ ! -e "$CONSENT_SOURCE" ] || SOURCE_BEFORE="$(fixture_tree_hash "$CONSENT_SOURCE")"
+  INSTALLED_BEFORE="absent"
+  [ ! -e "$CONSENT_HOME/.gsd/capabilities/beads" ] \
+    || INSTALLED_BEFORE="$(fixture_tree_hash "$CONSENT_HOME/.gsd/capabilities/beads")"
+  consent_session
+  [ -z "$(cat "$REAL_HOOK_OUT")" ] || fail "case24b($_round): consent block wrote stdout"
+  [ "$(wc -l < "$REAL_HOOK_ERR")" -eq 1 ] || fail "case24b($_round): expected one consent line: $(cat "$REAL_HOOK_ERR")"
+  grep -Eq '^capability install /[^ ]+ --scope global$' "$CONSENT_SPY_LOG" \
+    || fail "case24b($_round): session did not ask the real CLI without --yes"
+  ! grep -q -- '--yes' "$CONSENT_SPY_LOG" || fail "case24b($_round): session passed --yes"
+  ! grep -q '^capability set' "$CONSENT_SPY_LOG" || fail "case24b($_round): session reached capability set"
+  SOURCE_AFTER="absent"
+  [ ! -e "$CONSENT_SOURCE" ] || SOURCE_AFTER="$(fixture_tree_hash "$CONSENT_SOURCE")"
+  [ "$SOURCE_AFTER" = "$SOURCE_BEFORE" ] || fail "case24b($_round): stable source changed before consent"
+  INSTALLED_AFTER="absent"
+  [ ! -e "$CONSENT_HOME/.gsd/capabilities/beads" ] \
+    || INSTALLED_AFTER="$(fixture_tree_hash "$CONSENT_HOME/.gsd/capabilities/beads")"
+  [ "$INSTALLED_AFTER" = "$INSTALLED_BEFORE" ] || fail "case24b($_round): installed bundle changed before consent"
+  consent_by_user
+  [ "$(cat "$REAL_HOOK_OUT")" = 'Auto-installed capability: beads (user scope)' ] && [ -z "$(cat "$REAL_HOOK_ERR")" ] \
+    || fail "case24b($_round): consent run failed: $(cat "$REAL_HOOK_ERR")"
+  [ "$(grep -c -- '--yes' "$CONSENT_SPY_LOG")" -eq 1 ] \
+    && grep -qx "capability install $CONSENT_SOURCE/beads --scope global --yes" "$CONSENT_SPY_LOG" \
+    || fail "case24b($_round): consent run did not install the stable source with --yes once: $(cat "$CONSENT_SPY_LOG")"
+  cmp -s "$CONSENT_PLUGIN/GSD-CORE-PATCH.md" "$CONSENT_HOME/.gsd/capabilities/beads/GSD-CORE-PATCH.md" \
+    || fail "case24b($_round): consent run did not install the candidate"
+  grep -q '^projection-v2 codex ' "$CONSENT_LEDGER" || fail "case24b($_round): consent run recorded no ledger row"
+  consent_session
+  [ -z "$(cat "$REAL_HOOK_OUT")" ] && [ -z "$(cat "$REAL_HOOK_ERR")" ] \
+    || fail "case24b($_round): the session after consent was not silent: $(cat "$REAL_HOOK_ERR")"
+done
+pass "case24b: real CLI requires consent, leaves the stable source untouched until the printed --consent command, then converges"
 
 EVIDENCE_ROOT="$ACTUAL_SKILLS_ROOT"
 rm -rf "$REAL_ROOT"

@@ -7,6 +7,14 @@
 # Never aborts the session: no `set -e`.
 set -u
 
+# `--consent <id>` is the command the hook prints when gsd-core requires
+# consent: the same flow under the same lock, with the user's --yes.
+HOOK_ARGS=("$@")
+CONSENT=0
+if [ "${1:-}" = --consent ]; then
+  CONSENT=1
+  shift
+fi
 CAP_ID="${1:-}"
 
 # Defense in depth (ASVS V5): call sites only ever pass a hard-coded literal,
@@ -153,7 +161,7 @@ mkdir -p "$STATE_DIR" 2>/dev/null || {
 }
 
 if [ -z "${GSD_AUTO_INSTALL_LOCK_FD:-}" ]; then
-  python3 -I - "$LOCK_PATH" "$0" "$CAP_ID" "$SKILLS_ROOT" 8>&2 2>/dev/null <<'PY'
+  python3 -I - "$LOCK_PATH" "$0" "$SKILLS_ROOT" "${HOOK_ARGS[@]}" 8>&2 2>/dev/null <<'PY'
 import errno
 import fcntl
 import os
@@ -161,7 +169,7 @@ import stat
 import sys
 import time
 
-lock_path, hook_path, capability_id, skills_root = sys.argv[1:]
+lock_path, hook_path, skills_root, *hook_args = sys.argv[1:]
 # Bounded wait: a concurrent session finishes its install before this one
 # proceeds to bd prime, yet a wedged holder never stalls SessionStart past
 # 30s. The override exists for tests and can only shorten the bound.
@@ -219,7 +227,7 @@ try:
     environment["GSD_AUTO_INSTALL_SKILLS_ROOT"] = skills_root
     os.dup2(8, 2)
     os.close(8)
-    os.execvpe("bash", ["bash", hook_path, capability_id], environment)
+    os.execvpe("bash", ["bash", hook_path, *hook_args], environment)
 except SystemExit:
     raise
 except BaseException:
@@ -278,13 +286,36 @@ if [ "$LOCK_CHILD_STATUS" -ne 0 ]; then
 fi
 unset GSD_AUTO_INSTALL_LOCK_FD GSD_AUTO_INSTALL_SKILLS_ROOT
 
+# The stable path gsd-core records as the ledger source that `capability
+# update` re-fetches (R28).
+SOURCE_PARENT="$STATE_DIR/capability-auto-install-$CAP_ID.source"
+SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
+
+# Only a lock holder creates stage/prev dirs and its EXIT trap removes them,
+# so any found while holding the lock leaked from a killed holder: no pid or
+# age test is needed. A leaked prev holds the source that was recorded before
+# the killed install. Unless the stable source already equals the installed
+# bundle (the install completed), it goes back, so unconsented candidate
+# bytes are never left recorded; a missing stable source just forces a
+# fresh publish below.
+for _leaked_prev in "$STATE_DIR/.capability-auto-install-$CAP_ID.prev."*; do
+  [ -d "$_leaked_prev/source" ] && [ ! -L "$_leaked_prev/source" ] || continue
+  if [ "$(canonical_tree_hash "$SOURCE_DIR")" != "$(canonical_tree_hash "$INSTALLED_BUNDLE")" ] \
+    || [ ! -d "$SOURCE_DIR" ]; then
+    rm -rf "$SOURCE_PARENT" 2>/dev/null
+    mv "$_leaked_prev/source" "$SOURCE_PARENT" 2>/dev/null || {
+      echo "capability-auto-install: stale source restore failed for $CAP_ID; projection not recorded" >&2
+      exit 0
+    }
+  fi
+done
+rm -rf "$STATE_DIR/.capability-auto-install-$CAP_ID.stage."* \
+  "$STATE_DIR/.capability-auto-install-$CAP_ID.prev."* 2>/dev/null
+
 # Stage the allowlist into a private temp dir (mktemp -d is 0700) and run every
 # hash/verify step against it. cp -P keeps symlinks as symlinks so the hash and
 # ownership checks below still reject them. The stage sits in STATE_DIR so it
-# can be renamed to SOURCE_DIR, the stable path gsd-core records as the
-# ledger source that `capability update` re-fetches (R28).
-SOURCE_PARENT="$STATE_DIR/capability-auto-install-$CAP_ID.source"
-SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
+# can be renamed to SOURCE_DIR.
 STAGE_DIR="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.stage.XXXXXX" 2>/dev/null)" \
   && [ -d "$STAGE_DIR" ] || STAGE_DIR=""
 PREV_SOURCE=""
@@ -628,9 +659,20 @@ fi
 # Refuse a downgrade: two runtimes' plugin caches can carry different
 # bundle versions and share one global install, which would otherwise flip
 # on every runtime switch. An unparsable installed version fails closed.
+# At an equal version with different bytes, keep the installed bundle only
+# on positive evidence that it is the other runtime's verified projection
+# (its ledger row records these bytes, ours does not) and this plugin cache
+# is not newer. Cache mtime is the time the runtime extracted that plugin
+# version; the installed copy's mtime is its install time. Anything else,
+# drift included, is replaced. This narrows the ticket's "ours or older"
+# rule, which read literally never repairs drift: an install always leaves
+# the installed copy newer than the cache it came from.
 if [ -e "$INSTALLED_BUNDLE/capability.json" ] || [ -L "$INSTALLED_BUNDLE/capability.json" ]; then
-  if ! python3 -I - "$BUNDLE_DIR/capability.json" "$INSTALLED_BUNDLE/capability.json" 9>&- 2>/dev/null <<'PY'
+  python3 -I - "$BUNDLE_DIR/capability.json" "$INSTALLED_BUNDLE/capability.json" \
+    "$PLUGIN_ROOT/capability.json" "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
+    "$INSTALLED_GENERATION" 9>&- 2>/dev/null <<'PY'
 import json
+import os
 import pathlib
 import re
 import sys
@@ -648,10 +690,39 @@ try:
     source, installed = version(sys.argv[1]), version(sys.argv[2])
 except (OSError, KeyError, TypeError, ValueError):
     raise SystemExit(1)
-raise SystemExit(0 if source >= installed else 1)
+if source != installed:
+    raise SystemExit(0 if source > installed else 1)
+plugin_manifest, ledger, runtime, source_generation, installed_generation = sys.argv[3:]
+if source_generation == installed_generation:
+    raise SystemExit(0)
+try:
+    rows = pathlib.Path(ledger).read_text().splitlines() if not pathlib.Path(ledger).is_symlink() else []
+    cache_newer = os.stat(plugin_manifest).st_mtime_ns > os.lstat(sys.argv[2]).st_mtime_ns
+except OSError:
+    raise SystemExit(0)
+recorders = {
+    match.group(1)
+    for match in map(re.compile(r"projection-v2 (claude|codex) ([0-9a-f]{64}) [0-9a-f]{64}").fullmatch, rows)
+    if match and match.group(2) == installed_generation
+}
+raise SystemExit(2 if recorders and runtime not in recorders and not cache_newer else 0)
 PY
-  then
+  GUARD_STATUS=$?
+  if [ "$GUARD_STATUS" -eq 1 ]; then
     echo "capability-auto-install: refusing to replace a newer or unreadable installed $CAP_ID with this bundle on $ACTIVE_RUNTIME; projection not recorded" >&2
+    exit 0
+  elif [ "$GUARD_STATUS" -eq 2 ]; then
+    # Log once per kept generation: this repeats every SessionStart until a
+    # plugin update, and a repeated line would teach the user to ignore it.
+    KEPT_MARKER="$STATE_DIR/capability-auto-install-$CAP_ID.$ACTIVE_RUNTIME.kept"
+    if [ -L "$KEPT_MARKER" ] || [ "$(cat "$KEPT_MARKER" 2>/dev/null)" != "$INSTALLED_GENERATION" ]; then
+      echo "capability-auto-install: keeping the installed $CAP_ID the other runtime verified, which differs from this older equal-version bundle on $ACTIVE_RUNTIME; projection not recorded" >&2
+      rm -f "$KEPT_MARKER" 2>/dev/null
+      ( set -C; printf '%s\n' "$INSTALLED_GENERATION" > "$KEPT_MARKER" ) 2>/dev/null
+    fi
+    exit 0
+  elif [ "$GUARD_STATUS" -ne 0 ]; then
+    echo "capability-auto-install: version check failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
     exit 0
   fi
 fi
@@ -686,15 +757,18 @@ fi
 STAGE_DIR=""
 BUNDLE_DIR="$SOURCE_DIR"
 
-# Never --yes: consent to an executable surface is the user's, not a
-# SessionStart side effect. gsd-core reports the block as a JSON envelope.
-# The candidate stays at SOURCE_DIR so the printed command installs it. When
-# the installed bytes already equal it (the user ran that command), the
-# consent is already given: proceed to project and record rather than
-# re-asking every SessionStart; the success path re-verifies the generation.
-INSTALL_OUTPUT="$(gsd_tools capability install "$BUNDLE_DIR" --scope global 2>/dev/null)"
+# --yes only in consent mode: consent to an executable surface is the
+# user's, not a SessionStart side effect. gsd-core reports the block as a
+# JSON envelope. When the installed bytes already equal the candidate, the
+# consent was already given: project and record rather than re-ask every
+# SessionStart; the success path re-verifies the generation. Otherwise the
+# stable source goes back to its previous bytes, because `capability update`
+# re-fetches it and must never pick up bytes the user has not consented to.
+CONSENT_FLAG=()
+[ "$CONSENT" -eq 0 ] || CONSENT_FLAG=(--yes)
+INSTALL_OUTPUT="$(gsd_tools capability install "$BUNDLE_DIR" --scope global ${CONSENT_FLAG[@]+"${CONSENT_FLAG[@]}"} 2>/dev/null)"
 INSTALL_STATUS=$?
-if [ "$INSTALL_STATUS" -ne 0 ] && printf '%s' "$INSTALL_OUTPUT" | python3 -I -c '
+if [ "$INSTALL_STATUS" -ne 0 ] && [ "$CONSENT" -eq 0 ] && printf '%s' "$INSTALL_OUTPUT" | python3 -I -c '
 import json, sys
 try:
     envelope = json.load(sys.stdin)
@@ -702,8 +776,12 @@ except ValueError:
     sys.exit(1)
 sys.exit(0 if isinstance(envelope, dict) and envelope.get("requiresConsent") is True else 1)
 ' 9>&- 2>/dev/null; then
-  echo "capability-auto-install: $CAP_ID needs your consent before install; run: $GSD_TOOLS capability install $BUNDLE_DIR --scope global --yes" >&2
-  [ "$INSTALLED_STATUS" -eq 0 ] && [ "$INSTALLED_GENERATION" = "$SOURCE_GENERATION" ] || exit 0
+  if [ "$INSTALLED_STATUS" -ne 0 ] || [ "$INSTALLED_GENERATION" != "$SOURCE_GENERATION" ]; then
+    restore_source
+    printf -v CONSENT_COMMAND 'bash %q --consent %q' "$PLUGIN_ROOT/hooks/capability-auto-install.sh" "$CAP_ID"
+    echo "capability-auto-install: $CAP_ID needs your consent before install; run: $CONSENT_COMMAND" >&2
+    exit 0
+  fi
   INSTALL_STATUS=0
 fi
 
