@@ -9730,6 +9730,24 @@ class TestPhaseMentionRules(unittest.TestCase):
             sync.scope_match("i", {"i": ["CONTRIBUTING.md"]}, got), "files"
         )
 
+    def test_slash_mention_matches_whole_segments_not_substrings(self):
+        # a bare file must not match a longer slash mention, and a partial
+        # segment must not match either
+        self.assertIsNone(sync.scope_match("i", {"i": ["README.md"]}, ["docs/README.md"]))
+        self.assertIsNone(sync.scope_match("i", {"i": ["xsrc/a.py"]}, ["src/a.py"]))
+        self.assertEqual(sync.scope_match("i", {"i": ["pkg/src/a.py"]}, ["src/a.py"]), "files")
+        self.assertEqual(sync.scope_match("i", {"i": ["src/a.py"]}, ["src/a.py"]), "files")
+
+    def test_leading_dot_slash_is_normalized_on_both_sides(self):
+        self.assertEqual(sync.scope_match("i", {"i": ["./src/a.py"]}, ["src/a.py"]), "files")
+        self.assertEqual(sync.scope_match("i", {"i": ["src/a.py"]}, ["./src/a.py"]), "files")
+        self.assertEqual(sync.scope_match("i", {"i": ["./a.md"]}, ["a.md"]), "files")
+        self.assertIsNone(sync.scope_match("i", {"i": ["./docs/a.md"]}, ["a.md"]))
+
+    def test_description_fallback_strips_leading_dot_slash_from_the_mention(self):
+        issue = {"description": "Please add CONTRIBUTING.md soon."}
+        self.assertEqual(sync.desc_contains_match(issue, ["./contributing.md"]), "description")
+
 
 class TestRecallParseFailure(unittest.TestCase):
     @mock.patch("subprocess.run")

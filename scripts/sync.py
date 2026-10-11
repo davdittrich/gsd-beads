@@ -18,7 +18,7 @@ import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 BD_TIMEOUT = 15  # seconds; bounded timeout on every bd subprocess call
 GIT_TIMEOUT = 15  # seconds; bounded timeout on every git subprocess call (ship_override)
@@ -2885,17 +2885,20 @@ def scope_match(issue_id, files_index, phase_mentions):
     """Pure technique-1 check: return "files" when one of issue_id's
     reverse-looked-up files matches a phase_mentions token; return None when
     issue_id has no reverse-lookup entry at all (caller falls back to
-    technique 2) or its files simply don't overlap. A bare token (no `/`)
-    matches by exact path equality, so README.md never matches
-    docs/README.md; a slash token matches by substring in either direction."""
+    technique 2) or its files simply don't overlap. A leading `./` is dropped
+    on both sides. A bare token (no `/`) matches by exact path equality, so
+    README.md never matches docs/README.md; a slash token matches by equality
+    or as a whole-segment suffix of the file (`src/a.py` matches
+    `pkg/src/a.py`, never `xsrc/a.py` or a longer mention)."""
     if issue_id not in files_index:
         return None
     for issue_file in files_index[issue_id]:
+        issue_file = PurePosixPath(issue_file).as_posix()
         for mention in phase_mentions:
-            if "/" not in mention:
-                if issue_file == mention:
-                    return "files"
-            elif issue_file in mention or mention in issue_file:
+            mention = PurePosixPath(mention).as_posix()
+            if issue_file == mention or (
+                "/" in mention and issue_file.endswith("/" + mention)
+            ):
                 return "files"
     return None
 
@@ -2917,7 +2920,9 @@ def desc_contains_match(issue, folded_phase_mentions):
     documented, deliberate narrowing, not a semantic-parity claim."""
     description = (issue.get("description") or "").casefold()
     for token in folded_phase_mentions:
-        if token in description:
+        # extract_phase_mentions keeps the `./` that marks a not-yet-created
+        # root file; prose never writes it, so match the bare path.
+        if token.removeprefix("./") in description:
             return "description"
     return None
 
