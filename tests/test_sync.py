@@ -22,6 +22,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import sync  # noqa: E402
 
 FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
+# bd_available() caches the `bd --version` floor check per process; pin it so
+# fakes that never answer `bd --version` see the same calls in any test
+# order. TestBdVersionFloor clears it to exercise the check.
+sync._BD_VERSION_OK = True
 
 
 def _bd_on_path():
@@ -11377,6 +11381,63 @@ class TestSummaryStatusAllowlist(unittest.TestCase):
             )
             ids, _ = sync._resolve_marked_issue_ids(phase_dir)
             self.assertEqual(ids, set())
+
+
+class TestBdVersionFloor(unittest.TestCase):
+    """RS22 (gsd-beads-cjbc.63): bd below 1.2.2 lacks flags sync.py uses
+    (`bd list --id`, label lookup), so bd_available() checks `bd --version`
+    once per process: older -> one notice and unavailable (fail-open path);
+    an unparseable version proceeds to the usual probe."""
+
+    def setUp(self):
+        self._saved = sync._BD_VERSION_OK
+        sync._BD_VERSION_OK = None
+
+    def tearDown(self):
+        sync._BD_VERSION_OK = self._saved
+
+    def _available(self, version_stdout, version_rc=0):
+        calls = []
+
+        def run(argv, **kwargs):
+            calls.append(argv)
+            if argv == ["bd", "--version"]:
+                return _completed(version_rc, stdout=version_stdout)
+            return _completed(0, stdout="[]\n")
+
+        err = io.StringIO()
+        with mock.patch("shutil.which", return_value="/usr/bin/bd"), \
+                mock.patch("subprocess.run", side_effect=run), contextlib.redirect_stderr(err):
+            first = sync.bd_available()
+            second = sync.bd_available()
+        return first, second, calls, err.getvalue()
+
+    def test_supported_versions_are_available(self):
+        for out in ("bd version 1.2.2 (abc)\n", "bd version 1.3.1 (c1c4b642a)\n", "bd version 2.0.0\n"):
+            with self.subTest(out=out):
+                sync._BD_VERSION_OK = None
+                first, second, calls, err = self._available(out)
+                self.assertEqual((first, second), (True, True))
+                self.assertEqual(calls.count(["bd", "--version"]), 1)
+                self.assertEqual(err, "")
+
+    def test_older_bd_is_unavailable_with_one_notice(self):
+        for out in ("bd version 1.2.1 (x)\n", "bd version 0.9.9\n", "bd version 1.1.10\n"):
+            with self.subTest(out=out):
+                sync._BD_VERSION_OK = None
+                first, second, calls, err = self._available(out)
+                self.assertEqual((first, second), (False, False))
+                self.assertEqual(calls.count(["bd", "--version"]), 1)
+                self.assertNotIn(["bd", "list", "--json", "-n", "1"], calls)
+                self.assertEqual(err.count("1.2.2"), 1, err)
+
+    def test_unparseable_version_proceeds_to_probe(self):
+        for out, rc in (("bd dev build\n", 0), ("", 1)):
+            with self.subTest(out=out, rc=rc):
+                sync._BD_VERSION_OK = None
+                first, _second, calls, _err = self._available(out, rc)
+                self.assertTrue(first)
+                self.assertIn(["bd", "list", "--json", "-n", "1"], calls)
 
 
 if __name__ == "__main__":

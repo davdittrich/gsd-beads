@@ -334,11 +334,43 @@ def run_bd(argv, timeout=BD_TIMEOUT):
     return subprocess.run(argv, capture_output=True, text=True, timeout=timeout, cwd=_BD_CWD)
 
 
+# Oldest bd this script is tested against (bd 1.2.2 tarball and 1.3.1):
+# older releases lack flags it relies on, e.g. `bd list --id`.
+BD_MIN_VERSION = (1, 2, 2)
+BD_VERSION_RE = re.compile(r"\bversion\s+v?(\d+)\.(\d+)\.(\d+)")
+_BD_VERSION_OK = None  # per-process verdict of the floor check; None = not yet run
+
+
+def _bd_version_ok():
+    """Run `bd --version` once per process. Below BD_MIN_VERSION: one stderr
+    notice and False. Output that does not parse (a dev build, a changed
+    format, a failed call) proceeds as True -- refusing a bd we cannot
+    identify would disable sync on every future format change, and the
+    availability probe still runs."""
+    global _BD_VERSION_OK
+    if _BD_VERSION_OK is None:
+        try:
+            out = run_bd(["bd", "--version"]).stdout or ""
+        except (subprocess.TimeoutExpired, OSError):
+            out = ""
+        m = BD_VERSION_RE.search(out if isinstance(out, str) else "")
+        found = tuple(int(g) for g in m.groups()) if m else None
+        _BD_VERSION_OK = found is None or found >= BD_MIN_VERSION
+        if not _BD_VERSION_OK:
+            print(
+                f"bd {'.'.join(map(str, found))} is older than the minimum "
+                f"{'.'.join(map(str, BD_MIN_VERSION))} -- treating bd as unavailable; upgrade bd",
+                file=sys.stderr,
+            )
+    return _BD_VERSION_OK
+
+
 def bd_available():
-    """B6/D-08 fail-open detection point: locate the binary, run one cheap read
-    command. Absent, non-zero exit, or timeout all take the same "unavailable"
-    path -- this function is the single point of truth for that decision."""
-    if shutil.which("bd") is None:
+    """B6/D-08 fail-open detection point: locate the binary, check its version
+    floor, run one cheap read command. Absent, too old, non-zero exit, or
+    timeout all take the same "unavailable" path -- this function is the
+    single point of truth for that decision."""
+    if shutil.which("bd") is None or not _bd_version_ok():
         return False
     try:
         result = run_bd(["bd", "list", "--json", "-n", "1"])
