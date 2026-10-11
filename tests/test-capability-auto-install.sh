@@ -242,10 +242,10 @@ import sys
 
 manifest_path, readme_path = map(pathlib.Path, sys.argv[1:])
 manifest = json.loads(manifest_path.read_text())
-if manifest["engines"]["gsd"] != ">=1.10.0":
-    raise SystemExit("manifest does not require gsd-core >=1.10.0")
-if "gsd-core >= 1.10.0" not in readme_path.read_text():
-    raise SystemExit("README does not state gsd-core >= 1.10.0")
+if manifest["engines"]["gsd"] != ">=1.11.0":
+    raise SystemExit("manifest does not require gsd-core >=1.11.0")
+if "gsd-core >= 1.11.0" not in readme_path.read_text():
+    raise SystemExit("README does not state gsd-core >= 1.11.0")
 PY
 setup 0
 seed_selected "$SKILLS_ROOT"
@@ -1875,13 +1875,13 @@ mkdir -p "$REAL_TMP"
 
 [ -d "$GSD_CORE_REPO/.git" ] || fail "case24: gsd-core source repository is unavailable"
 [ -x "$ACTIVE_GSD_TOOLS" ] || fail "case24: active/current gsd-tools is unavailable"
-FLOOR_SHA="$(git -C "$GSD_CORE_REPO" rev-parse 'v1.10.0^{commit}' 2>/dev/null)" \
-  || fail "case24: official v1.10.0 tag is unavailable"
-[ "$FLOOR_SHA" = "68a04ccf8ef74803bdb651e12c3b85b218bbccdf" ] \
-  || fail "case24: official v1.10.0 tag peeled to $FLOOR_SHA"
+FLOOR_SHA="$(git -C "$GSD_CORE_REPO" rev-parse 'v1.11.0^{commit}' 2>/dev/null)" \
+  || fail "case24: official v1.11.0 tag is unavailable"
+[ "$FLOOR_SHA" = "182f60b4c170785d96f1deb87fea8b108e9b985f" ] \
+  || fail "case24: official v1.11.0 tag peeled to $FLOOR_SHA"
 FLOOR_PACKAGE_FILE="$REAL_ROOT/floor-package.json"
 git -C "$GSD_CORE_REPO" show "$FLOOR_SHA:package.json" > "$FLOOR_PACKAGE_FILE" 2>/dev/null \
-  || fail "case24: official v1.10.0 package metadata is unavailable"
+  || fail "case24: official v1.11.0 package metadata is unavailable"
 FLOOR_PACKAGE="$($REAL_PYTHON - "$FLOOR_PACKAGE_FILE" <<'PY'
 import json
 import pathlib
@@ -1890,8 +1890,8 @@ import sys
 metadata = json.loads(pathlib.Path(sys.argv[1]).read_text())
 print(f"{metadata.get('name')}@{metadata.get('version')}")
 PY
-)" || fail "case24: official v1.10.0 package metadata is invalid"
-[ "$FLOOR_PACKAGE" = "@opengsd/gsd-core@1.10.0" ] \
+)" || fail "case24: official v1.11.0 package metadata is invalid"
+[ "$FLOOR_PACKAGE" = "@opengsd/gsd-core@1.11.0" ] \
   || fail "case24: official floor package is $FLOOR_PACKAGE"
 
 ACTIVE_IDENTITY="$($ACTIVE_GSD_TOOLS runtime-identity --raw 2>/dev/null)" \
