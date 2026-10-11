@@ -1788,7 +1788,14 @@ def ensure_issue(key, create_args, kind):
             raise error(f"bd create ({kind}) returned unsafe id: {issue_id!r}")
         rows = _open_key_rows(key, kind, title)
         if issue_id not in {r["id"] for r in rows}:
-            raise BdTransientError(f"bd list -l {key} does not show just-created {issue_id}")
+            # The lookup cannot see what bd just wrote (a title bd stores
+            # differently, an older bd's row shape). Raising would leave the
+            # issue unbound and every rerun would add one more; return it so
+            # it is persisted -- stored-id verification keeps later runs
+            # idempotent. No STATE note: this lock is the one it takes.
+            print(f"ensure-issue: bd list -l {key} does not show just-created {issue_id}; "
+                  "dedup by key is blind for this issue", file=sys.stderr)
+            return issue_id
         winner = rows[0]["id"]
         if winner != issue_id:
             closed = run_bd(["bd", "close", issue_id, "--reason", f"duplicate of {winner} ({key})"])

@@ -10978,7 +10978,10 @@ class TestEnsureIssue(unittest.TestCase):
                 sync.ensure_issue("gsd-key:01-01-t1", ["bd", "create", "T", "--type", "task"], "task")
         self.assertEqual(fake.creates, [])
 
-    def test_created_id_missing_from_requery_fails_loud(self):
+    def test_created_id_missing_from_requery_is_returned_with_warning(self):
+        """If the lookup cannot see rows (a title bd stores differently, an
+        older bd's row shape), raising would leave the live issue unbound
+        and every rerun would create another; return it so it is persisted."""
         fake = _KeyedFakeBd()
 
         def side_effect(argv, **kwargs):
@@ -10986,9 +10989,11 @@ class TestEnsureIssue(unittest.TestCase):
                 return _completed(0, stdout="[]\n")
             return fake(argv, **kwargs)
 
-        with mock.patch.object(sync.subprocess, "run", side_effect=side_effect):
-            with self.assertRaises(sync.BdTransientError):
-                sync.ensure_issue("gsd-key:01-01-t1", ["bd", "create", "T", "--type", "task"], "task")
+        err = io.StringIO()
+        with mock.patch.object(sync.subprocess, "run", side_effect=side_effect), contextlib.redirect_stderr(err):
+            issue_id = sync.ensure_issue("gsd-key:01-01-t1", ["bd", "create", "T", "--type", "task"], "task")
+        self.assertEqual(fake.creates, [issue_id])
+        self.assertIn(issue_id, err.getvalue())
 
     def test_concurrent_creators_yield_one_open_issue(self):
         fake = _KeyedFakeBd(create_delay=0.05)
@@ -11134,6 +11139,25 @@ class TestIdempotentCreateIssues(unittest.TestCase):
         self.assertEqual(self._sync(fake, plan), 0)  # fail-open notice path
         self.assertEqual(plan.read_bytes(), before)
         self.assertIn("already bound", (self.root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+    def test_blind_lookup_still_binds_and_rerun_creates_nothing(self):
+        """A bd whose label lookup always comes back empty degrades to the
+        pre-key behaviour: ids are persisted and the rerun verifies them."""
+        plan = _write_plan_workspace(self.root, _three_task_plan_text(), with_state=True)
+        base = _make_bd_side_effect()
+
+        def side_effect(argv, **kwargs):
+            if argv[:3] == ["bd", "list", "-l"]:
+                return _completed(0, stdout="[]\n")
+            return base(argv, **kwargs)
+
+        for _ in range(2):
+            with mock.patch.object(sync.subprocess, "run", side_effect=side_effect) as mock_run, \
+                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(sync.create_issues(str(plan)), 0)
+        creates = [c for c in mock_run.call_args_list if c.args[0][:2] == ["bd", "create"]]
+        self.assertEqual(creates, [])
+        self.assertEqual(len(sync.BEADS_ID_RE.findall(plan.read_text(encoding="utf-8"))), 3)
 
     def test_migrate_todos_ambiguous_timeout_is_adopted_in_the_same_run(self):
         pending = _write_todo_pending_workspace(self.root)
