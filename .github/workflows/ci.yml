@@ -18,7 +18,7 @@ env:
   BD_VERSION: 1.2.2
   # sha256 of beads_${BD_VERSION}_linux_amd64.tar.gz; bump together with BD_VERSION.
   BD_SHA256: 8140098a51d3b81d5548d1c5e6db1a2d9930e5d141efe2a4bff7d079c4d321e8
-  # sha512 (npm dist.integrity) of the pinned gsd-core npm package; bump with the version in the provision step.
+  # sha512 (npm dist.integrity) of the pinned gsd-core npm package; bump with .github/ci/gsd-core/ (regenerate the lockfile with `npm install --package-lock-only --ignore-scripts`).
   GSD_CORE_INTEGRITY: sha512-fMjtqWQLJooD9HrkRLsfwmVmKwLN96Lea3TKTPhFl0CZ9ZFsv4Dr5f/vB0TxIgR1Hm2MgzkeMynS0MQy382N5A==
   # actionlint release asset sha256 (from the release's published checksums.txt).
   ACTIONLINT_VERSION: 1.7.12
@@ -43,15 +43,17 @@ jobs:
         run: |
           set -euo pipefail
           GSD_CI_CODEX_HOME="$RUNNER_TEMP/gsd-codex"
-          # npx would trust whatever the registry serves; install only the tarball whose
-          # sha512 matches the committed constant.
-          PACK_DIR="$(mktemp -d)"
-          (cd "$PACK_DIR" && npm pack @opengsd/gsd-core@1.12.0 --silent)
-          TGZ="$(ls "$PACK_DIR"/*.tgz)"
-          ACTUAL="sha512-$(openssl dgst -sha512 -binary "$TGZ" | base64 -w0)"
-          test "$ACTUAL" = "$GSD_CORE_INTEGRITY" \
-            || { echo "gsd-core tarball integrity mismatch: $ACTUAL" >&2; exit 1; }
-          npx --yes "file:$TGZ" \
+          # @opengsd/gsd-core@1.12.0 and every dependency (claude-agent-sdk, ws, ...) come
+          # from the committed lockfile, which `npm ci` verifies entry by entry against its
+          # sha512 integrity values; --ignore-scripts keeps lifecycle scripts out of the
+          # install. The lockfile's top entry must still equal GSD_CORE_INTEGRITY.
+          LOCK=.github/ci/gsd-core/package-lock.json
+          test "$(jq -r '.packages["node_modules/@opengsd/gsd-core"].integrity' "$LOCK")" = "$GSD_CORE_INTEGRITY" \
+            || { echo "gsd-core lockfile integrity differs from GSD_CORE_INTEGRITY" >&2; exit 1; }
+          NPM_DIR="$(mktemp -d)"
+          cp .github/ci/gsd-core/package.json "$LOCK" "$NPM_DIR"
+          (cd "$NPM_DIR" && npm ci --ignore-scripts --no-audit --no-fund)
+          node "$NPM_DIR/node_modules/@opengsd/gsd-core/bin/install.js" \
             --codex --global --config-dir "$GSD_CI_CODEX_HOME" --profile=full
           GSD_IDENTITY="$(node "$GSD_CI_CODEX_HOME/gsd-core/bin/gsd-tools.cjs" runtime-identity --raw)"
           GSD_EXPECTED_IDENTITY='{"packageName":"@opengsd/gsd-core","version":"1.12.0"}'
