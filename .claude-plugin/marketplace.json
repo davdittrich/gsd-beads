@@ -17,7 +17,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/davdittrich/ponytail-everywhere.git",
-        "sha": "e19e9e5630ecd608679a339221c216f248520750"
+        "sha": "6774aceace18557f459a2d237c5bcceff8ec36cb"
       },
       "description": "Lazy-ladder discipline, native Quick planner dispatch, and proportionality checks across gsd's lifecycle"
     },
@@ -26,7 +26,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/davdittrich/sota-numerics.git",
-        "sha": "7e269d149b0f276238cded2a5aee623ebaa38fe2"
+        "sha": "004ff409b53320083abc693d81b8c154b1a34708"
       },
       "description": "Makes GSD compare mechanisms before execution and keeps numerical precision and measured performance visible through shipping: four advisory prompts, plus a blocking plan:post gate that requires a compliant Alternatives Considered section on every plan in a phase."
     },
