@@ -1154,16 +1154,25 @@ def migrate_todos(pending_dir_arg):
     ]
     if moved:
         lines.append("  moved:")
-        lines.extend(f"    {name} -> {issue_id}" for name, issue_id in moved)
+        lines.extend(f"    {_sanitize_notice_value(name, 200)} -> {issue_id}" for name, issue_id in moved)
     if parse_errors:
         lines.append("  could not be interpreted:")
-        lines.extend(f"    {name}: {reason}" for name, reason in parse_errors)
+        lines.extend(
+            f"    {_sanitize_notice_value(name, 200)}: {_sanitize_notice_value(reason, 400)}"
+            for name, reason in parse_errors
+        )
     if bd_create_failed:
         lines.append("  bd create failed:")
-        lines.extend(f"    {name}: {reason}" for name, reason in bd_create_failed)
+        lines.extend(
+            f"    {_sanitize_notice_value(name, 200)}: {_sanitize_notice_value(reason, 400)}"
+            for name, reason in bd_create_failed
+        )
     if not_deleted:
         lines.append("  created but not deleted:")
-        lines.extend(f"    {name}: {reason}" for name, reason in not_deleted)
+        lines.extend(
+            f"    {_sanitize_notice_value(name, 200)}: {_sanitize_notice_value(reason, 400)}"
+            for name, reason in not_deleted
+        )
     print("\n".join(lines))
     return 0
 
@@ -1256,7 +1265,11 @@ def apply_dependency_edges(edges):
     for blocked_id, blocker_id in edges:
         result = run_bd(["bd", "dep", "add", blocked_id, "--depends-on", blocker_id])
         if result.returncode != 0:
-            print(f"dependency edge failed: {blocked_id} depends-on {blocker_id}")
+            # A prerequisite plan's last beads-id is unvalidated plan text.
+            print(
+                f"dependency edge failed: {_sanitize_notice_value(blocked_id)} depends-on "
+                f"{_sanitize_notice_value(blocker_id)}"
+            )
             print(f"dependency edge failed: {result.stderr.strip()}", file=sys.stderr)
 
 
@@ -2475,9 +2488,10 @@ def close_wave(phase_dir_arg, plan_ids):
         reason = f"wave complete: {', '.join(plan_ids)}"
         result = run_bd(["bd", "close", *to_close, "--reason", reason])
         if result.returncode != 0:
-            print(f"close-wave: bd close failed: {result.stderr.strip()}")
+            print("close-wave: bd close failed (details on stderr)")
+            print(f"close-wave: bd close failed: {result.stderr.strip()}", file=sys.stderr)
 
-    per_plan = ", ".join(f"{pid}:{n}" for pid, n in plan_counts)
+    per_plan = ", ".join(f"{_sanitize_notice_value(pid)}:{n}" for pid, n in plan_counts)
     print(
         f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) ({per_plan}); "
         f"skipped {skipped_total} task(s) (no beads-id or plan not complete)"
@@ -3702,7 +3716,10 @@ def render_status_mapping(phase_dir_arg):
     lines.append("## Plan tasks with no bd issue")
     lines.append("")
     if task_side_orphans:
-        lines.extend(f"- {plan_name}: {task_name}" for plan_name, task_name in task_side_orphans)
+        lines.extend(
+            f"- {_sanitize_notice_value(plan_name, 200)}: {_sanitize_notice_value(task_name, 200)}"
+            for plan_name, task_name in task_side_orphans
+        )
     else:
         lines.append("None.")
 
@@ -3802,10 +3819,13 @@ def _read_beads_md_frontmatter(phase_dir):
     extras = _beads_md_extras(phase_dir, beads_md_path)
     if extras:
         print("ship-override: other BEADS file(s) the gate may read: "
-              + ", ".join(e.name for e in extras))
+              + ", ".join(_sanitize_notice_value(e.name, 200) for e in extras))
         return {}
     if not _is_generated_beads_md(beads_md_path):
-        print(f"ship-override: {beads_md_path.name} has no generated_from frontmatter")
+        print(
+            f"ship-override: {_sanitize_notice_value(beads_md_path.name, 200)} has no "
+            "generated_from frontmatter"
+        )
         return {}
     text = beads_md_path.read_text(encoding="utf-8")
     fm_match = FRONTMATTER_RE.match(text)
