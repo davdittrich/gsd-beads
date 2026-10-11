@@ -7,5 +7,5 @@
     "email": "davdittrich@gmail.com"
   },
   "license": "MIT",
-  "skills": ["./.agents/skills/beads", "./skills/beads-sync", "./skills/beads-status", "./skills/beads-recall", "./skills/beads-migrate-todos"]
+  "skills": ["./.agents/skills/beads"]
 }
