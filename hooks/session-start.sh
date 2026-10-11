@@ -19,7 +19,10 @@ fi
 
 # stdout is parsed as hook JSON; the installer's notices belong on stderr.
 # Claude Code shows exit-0 hook stderr only in its debug log, so a consent
-# request also goes out as systemMessage, which both runtimes show the user.
+# request also goes out as systemMessage, which Claude Code shows the user.
+# Codex CLI 0.162.1 turns it into a `warning` entry of the hook/completed
+# app-server event, sent at the thread's first turn; that its UI displays
+# the entry is unverified.
 # The message tells the user to run the command themselves, never an agent.
 { INSTALL_ERR="$(bash "$PLUGIN_ROOT/hooks/capability-auto-install.sh" beads 2>&1 1>&3)"; } 3>&2
 [ -z "$INSTALL_ERR" ] || printf '%s\n' "$INSTALL_ERR" >&2
