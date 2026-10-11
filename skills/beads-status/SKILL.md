@@ -155,6 +155,7 @@ python3 -I "$SYNC_PY" status [phase directory]
 
 Print stdout verbatim, including both orphan sections ("Issues with no matching plan task" and
 "Plan tasks with no bd issue"). Print it and stop: this branch only reads `bd`.
+
 ## Step 2f -- execute:wave:post: close completed plans' issues
 
 The `PostToolUse` hook runs `sync.py lifecycle-dispatch execute:wave:post` here. It reconciles the

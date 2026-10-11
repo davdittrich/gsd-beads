@@ -49,7 +49,7 @@
     "beads.ship_gate": {
       "type": "boolean",
       "default": true,
-      "description": "When true, ship:pre blocks on blocking_open>0 or diverged>0 in BEADS.md."
+      "description": "When true, ship:pre blocks when blocking_open or diverged is not 0 (unknown counts) in BEADS.md."
     },
     "beads.epic_per": {
       "type": "enum",
