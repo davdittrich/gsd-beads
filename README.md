@@ -286,6 +286,9 @@ codex plugin remove beads-lifecycle@gsd-beads
   `### Blockers/Concerns` in `STATE.md`. Beads support is fail-open by design, not a hard
   dependency, with one exception: the `ship:pre` gate fails closed, so an unavailable `bd`
   blocks shipping until `bd` is back or `ship_gate: false` records an override.
+- **Add `.planning/.gsd-beads.lock` to your `.gitignore`.** `sync.py` creates this empty lock
+  file on its first issue creation or `STATE.md` note. Neither `bd init` nor gsd-core ignores it, so
+  a `git add -A` (for example, the commit step of `/gsd:fast`) commits it.
 - **`resolves_issues` closes any open bd id.** A completed plan's `SUMMARY.md` frontmatter may list ids from outside the phase; they are syntax-checked only, so a typo or foreign id closes whatever it names.
 - **On a runtime without `PostToolUse`**, the native and patched points still run; drive the three
   compatibility points with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre`
