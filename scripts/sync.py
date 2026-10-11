@@ -380,6 +380,34 @@ def bd_available():
     return result.returncode == 0
 
 
+LOCK_FILE_NAME = ".gsd-beads.lock"
+
+
+@contextlib.contextmanager
+def _project_lock(planning_dir):
+    """Exclusive flock on <planning_dir>/.gsd-beads.lock, a regular file: flock
+    on a directory fd is EBADF on NFS. Used by append_state_blocker and
+    ensure_issue, so neither may be called while the other's lock is held (two
+    fds on one file deadlock even inside one process). Any OSError opening or
+    locking degrades to one stderr notice and an unlocked body; the body's own
+    exceptions propagate untouched."""
+    fd = None
+    try:
+        fd = os.open(
+            Path(planning_dir) / LOCK_FILE_NAME,
+            os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW,
+            0o600,
+        )
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    except OSError as exc:
+        print(f"{LOCK_FILE_NAME}: cannot lock ({exc}); proceeding unlocked", file=sys.stderr)
+    try:
+        yield
+    finally:
+        if fd is not None:
+            os.close(fd)
+
+
 def append_state_blocker(state_path, message):
     """Append one dated bullet under STATE.md's Blockers/Concerns heading
     (D-08). `message` is folded onto one line first (gh-17 F-05): a message
@@ -399,33 +427,34 @@ def append_state_blocker(state_path, message):
         # A planted STATE.md -> elsewhere would take this append.
         print(f"STATE.md note skipped: {state_path} is a symlink", file=sys.stderr)
         return
-    # Serialise the whole read-modify-write on the parent directory: the
-    # atomic replace below swaps STATE.md's inode, so a lock on the file
-    # itself would be held on a dead file. The directory's inode is stable.
-    lock_fd = os.open(state_path.parent, os.O_RDONLY)
+    # Serialise the whole read-modify-write on the project lock file: the
+    # atomic replace below swaps STATE.md's inode, so a lock on STATE.md
+    # itself would be held on a dead file. A note that cannot be written
+    # (read-only tree) is dropped with a notice: every caller is a fail-open
+    # path that must not raise.
     try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
-        text = state_path.read_text(encoding="utf-8")
-        # A heading inside a fenced example is not the section; the mask keeps
-        # every offset, so an index found in it is valid in `text`.
-        idx = _mask_fenced_code_blocks(text).find("### Blockers/Concerns")
-        if idx == -1:
-            return
-        message = " ".join(message.split())
-        date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-        # CodeRabbit: compare the complete bullet line, not a bare substring --
-        # "failure" is a substring of an already-present "failure with details"
-        # bullet, so the naive `bullet in text` check silently dropped a
-        # genuinely distinct, shorter message.
-        bullet_line = f"- {date}: {message}"
-        if bullet_line in text.splitlines():
-            return
-        line_end = text.find("\n", idx)
-        if line_end == -1:
-            line_end = len(text)
-        _atomic_write_text(state_path, text[:line_end] + f"\n\n{bullet_line}" + text[line_end:])
-    finally:
-        os.close(lock_fd)
+        with _project_lock(state_path.parent):
+            text = state_path.read_text(encoding="utf-8")
+            # A heading inside a fenced example is not the section; the mask keeps
+            # every offset, so an index found in it is valid in `text`.
+            idx = _mask_fenced_code_blocks(text).find("### Blockers/Concerns")
+            if idx == -1:
+                return
+            message = " ".join(message.split())
+            date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            # CodeRabbit: compare the complete bullet line, not a bare substring --
+            # "failure" is a substring of an already-present "failure with details"
+            # bullet, so the naive `bullet in text` check silently dropped a
+            # genuinely distinct, shorter message.
+            bullet_line = f"- {date}: {message}"
+            if bullet_line in text.splitlines():
+                return
+            line_end = text.find("\n", idx)
+            if line_end == -1:
+                line_end = len(text)
+            _atomic_write_text(state_path, text[:line_end] + f"\n\n{bullet_line}" + text[line_end:])
+    except OSError as exc:
+        print(f"STATE.md note skipped: {exc}", file=sys.stderr)
 
 
 def find_project_root(start):
@@ -1750,13 +1779,13 @@ def ensure_issue(key, create_args, kind):
     the plan (kill, timeout, failed write) is found by its key on the next
     run instead of duplicated. A closed match is history, not identity, so
     it yields a new issue. Concurrent creators on this host serialise on an
-    flock of the .planning directory of the project bd resolves its db from;
+    flock of <project>/.planning/.gsd-beads.lock, the project bd resolves its db from;
     a lockless racer elsewhere is caught by the re-query after create, where
     the oldest row wins and only the row this call made is closed -- never
     another caller's, which may already be bound to a plan.
 
     Never call append_state_blocker while holding the lock: it flocks the
-    same directory and would deadlock this process."""
+    same lock file and would deadlock this process."""
     title = create_args[create_args.index("--title") + 1] if "--title" in create_args else create_args[2]
     # bd resolves its db by walking up from its cwd; the lock must cover the
     # same project, so derive it the same way rather than fall back to an
@@ -1765,9 +1794,7 @@ def ensure_issue(key, create_args, kind):
         lock_root = Path(_BD_CWD) if _BD_CWD else find_project_root(Path.cwd())
     except ValueError as exc:
         raise RuntimeError(f"no project to lock for bd create: {exc}") from exc
-    lock_fd = os.open(lock_root / ".planning", os.O_RDONLY)
-    try:
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+    with _project_lock(lock_root / ".planning"):
         rows = _open_key_rows(key, kind, title)
         if rows:
             return rows[0]["id"]
@@ -1804,8 +1831,6 @@ def ensure_issue(key, create_args, kind):
                 print(f"ensure-issue: duplicate {issue_id} of {winner} not closed: "
                       f"{closed.stderr.strip()}", file=sys.stderr)
         return winner
-    finally:
-        os.close(lock_fd)
 
 
 def _bd_show_identifies(result, expected_id):
@@ -2801,7 +2826,7 @@ def create_issues(plan_arg, allow_strip=True):
         return 1
     except IdentityPersistError as exc:
         return _fail_preflight(project_root, str(exc))
-    except RuntimeError as exc:
+    except (RuntimeError, OSError) as exc:
         print(NOTICE)
         append_state_blocker(
             confined(project_root, ".planning", "STATE.md"),

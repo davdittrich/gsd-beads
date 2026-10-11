@@ -1623,6 +1623,110 @@ class TestAppendStateBlockerHardening(unittest.TestCase):
         self.assertIn(": m1\n", text)
 
 
+class TestProjectLockFile(unittest.TestCase):
+    """gsd-beads-cjbc.67 M3: append_state_blocker and ensure_issue serialise on
+    one regular file, <root>/.planning/.gsd-beads.lock. flock on a directory fd
+    is EBADF on NFS; any failure to lock degrades to unlocked with one stderr
+    notice and never raises (B6/D-08 fail-open)."""
+
+    STATE = "## Accumulated Context\n\n### Blockers/Concerns\n\nNone yet.\n"
+
+    def _root(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = Path(tmp.name)
+        (root / ".planning").mkdir()
+        (root / ".planning" / "STATE.md").write_text(self.STATE, encoding="utf-8")
+        return root
+
+    def test_both_users_lock_one_regular_file_mode_0600(self):
+        root = self._root()
+        lock = root / ".planning" / ".gsd-beads.lock"
+        sync.append_state_blocker(root / ".planning" / "STATE.md", "x")
+        self.assertTrue(lock.is_file())
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+        lock.unlink()
+        with mock.patch.object(sync, "_BD_CWD", str(root)), \
+                mock.patch.object(sync, "_open_key_rows", return_value=[{"id": "p-1"}]):
+            self.assertEqual(sync.ensure_issue("gsd-key:k", ["bd", "create", "t"], "task"), "p-1")
+        self.assertTrue(lock.is_file())
+        self.assertEqual(lock.stat().st_mode & 0o777, 0o600)
+
+    def test_flock_ebadf_proceeds_unlocked_with_one_notice_and_closes_fd(self):
+        import errno
+        root = self._root()
+        closed = []
+        real_close = os.close
+        err = io.StringIO()
+
+        def boom(fd, op):
+            raise OSError(errno.EBADF, "Bad file descriptor")
+
+        def spy_close(fd):
+            closed.append(fd)
+            return real_close(fd)
+
+        opened = []
+        real_open = os.open
+
+        def spy_open(path, *a, **k):
+            fd = real_open(path, *a, **k)
+            if str(path).endswith(".gsd-beads.lock"):
+                opened.append(fd)
+            return fd
+
+        with mock.patch.object(sync.fcntl, "flock", side_effect=boom), \
+                mock.patch.object(sync.os, "close", side_effect=spy_close), \
+                mock.patch.object(sync.os, "open", side_effect=spy_open), \
+                contextlib.redirect_stderr(err):
+            sync.append_state_blocker(root / ".planning" / "STATE.md", "ran unlocked")
+        self.assertIn("ran unlocked", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+        self.assertEqual(len(err.getvalue().splitlines()), 1, err.getvalue())
+        self.assertEqual(len(opened), 1)
+        self.assertIn(opened[0], closed)
+
+    def test_ensure_issue_flock_ebadf_proceeds_unlocked(self):
+        import errno
+        root = self._root()
+        err = io.StringIO()
+        with mock.patch.object(sync, "_BD_CWD", str(root)), \
+                mock.patch.object(sync.fcntl, "flock", side_effect=OSError(errno.EBADF, "bad")), \
+                mock.patch.object(sync, "_open_key_rows", return_value=[{"id": "p-1"}]), \
+                contextlib.redirect_stderr(err):
+            self.assertEqual(sync.ensure_issue("gsd-key:k", ["bd", "create", "t"], "task"), "p-1")
+        self.assertEqual(len(err.getvalue().splitlines()), 1, err.getvalue())
+
+    @unittest.skipIf(os.geteuid() == 0, "root ignores directory permissions")
+    def test_read_only_planning_dir_neither_locks_nor_raises(self):
+        root = self._root()
+        planning = root / ".planning"
+        planning.chmod(0o500)
+        self.addCleanup(planning.chmod, 0o700)
+        phase = planning / "phases" / "01-x"
+        err, out = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out):
+            sync._skip_bd_unavailable(planning, "label")  # must return normally
+            with mock.patch.object(sync, "_BD_CWD", str(root)), \
+                    mock.patch.object(sync, "_open_key_rows", return_value=[{"id": "p-1"}]):
+                self.assertEqual(sync.ensure_issue("gsd-key:k", ["bd", "create", "t"], "task"), "p-1")
+        self.assertFalse((planning / ".gsd-beads.lock").exists())
+        self.assertIn(sync.NOTICE, out.getvalue())
+        self.assertIn("lock", err.getvalue())
+
+    def test_create_issues_swallows_oserror_from_bd_mid_sync(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan = _write_plan_workspace(
+                Path(tmp), (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8"), with_state=True
+            )
+            out = io.StringIO()
+            with mock.patch.object(sync, "bd_available", return_value=True), \
+                    mock.patch.object(sync, "run_bd", side_effect=FileNotFoundError("bd")), \
+                    contextlib.redirect_stdout(out):
+                rc = sync.create_issues(str(plan))
+        self.assertEqual(rc, 0)
+        self.assertIn(sync.NOTICE, out.getvalue())
+
+
 def _minimal_task(**overrides):
     """A hand-built task dict carrying only the fields `_task_description`
     reads, all empty/None by default -- callers override the fields under
