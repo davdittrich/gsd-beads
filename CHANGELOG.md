@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.1
+
+Plugin 1.8.1, capability 0.9.1.
+
+### Added
+- **`lifecycle-dispatch` accepts an explicit phase.** `sync.py lifecycle-dispatch <point> [phase]` takes a phase token (`2`, `02`) or a directory under `.planning/phases/` and uses it instead of `STATE.md`'s `current_phase`; omitting it keeps the old behaviour. The argument is resolved once and confined to a direct child of `.planning/phases` for token, name and path alike (a symlinked child is refused); invalid input exits 0 with a stderr notice. The `PostToolUse` hook still cannot supply it until gsd-core carries phase context (gsd-core#4030). Refs #5.
+
+### Changed
+- Marketplace pins: ponytail-everywhere 0.9.4, sota-numerics 0.2.3.
+
 ## 0.9.0
 
 Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
