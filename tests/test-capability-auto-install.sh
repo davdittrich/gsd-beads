@@ -1903,6 +1903,17 @@ run_script beads
 pass "case23b: post-observation external drift is invalidated and repaired next start"
 teardown
 
+### Case 23c (N18): --consent without an id prints usage and changes nothing ###
+setup 0
+run_script --consent
+[ "$STATUS" -eq 0 ] || fail "case23c: exit status $STATUS, expected 0"
+[ ! -s "$STDOUT_FILE" ] || fail "case23c: wrote stdout: $(cat "$STDOUT_FILE")"
+grep -qx 'usage: .*capability-auto-install.sh --consent <capability-id>' "$STDERR_FILE" \
+  || fail "case23c: no usage on stderr: $(cat "$STDERR_FILE")"
+[ ! -s "$STUB_LOG" ] || fail "case23c: invoked gsd-tools: $(cat "$STUB_LOG")"
+pass "case23c: --consent without an id prints usage and changes nothing"
+teardown
+
 ### Case 24a: CI pins and proves the current public runtime before smoke ###
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 $REAL_PYTHON - "$CI_WORKFLOW" <<'PY' \

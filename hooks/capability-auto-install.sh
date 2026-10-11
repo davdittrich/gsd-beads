@@ -20,7 +20,10 @@ CAP_ID="${1:-}"
 # Defense in depth (ASVS V5): call sites only ever pass a hard-coded literal,
 # but validate the id shape gsd-core itself enforces before it reaches any
 # path construction.
-[[ "$CAP_ID" =~ ^[a-z][a-z0-9-]*$ ]] || exit 0
+if [[ ! "$CAP_ID" =~ ^[a-z][a-z0-9-]*$ ]]; then
+  [ "$CONSENT" -eq 0 ] || echo "usage: bash $0 --consent <capability-id>" >&2
+  exit 0
+fi
 
 # Resolved physical path: ownership below is a prefix test, so a cache-path
 # symlink into an arbitrary tree must not inherit the cache's trust. An
