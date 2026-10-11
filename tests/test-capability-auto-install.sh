@@ -122,6 +122,10 @@ case "\$*" in
       exit 1
     fi
     _p="\$3"
+    # Like gsd-core, a consented install copies the source bundle into place.
+    if [ -n "\${STUB_REQUIRE_CONSENT:-}" ]; then
+      rm -rf "$INSTALLED_BUNDLE" && cp -R "\$_p" "$INSTALLED_BUNDLE" || exit 1
+    fi
     if [ -d "\$_p" ]; then
       printf '%s\n' "\$_p" > "$SCRATCH/staged.path"
       LC_ALL=C ls -A "\$_p" | tr '\n' ' ' > "$SCRATCH/staged.ls"
@@ -225,7 +229,7 @@ run_script() {
     R2_REPLACE_FAIL="${R2_REPLACE_FAIL:-}" R2_REPLACE_READY="${R2_REPLACE_READY:-}" \
     R2_REPLACE_RELEASE="${R2_REPLACE_RELEASE:-}" PATH="$TEST_BIN:/usr/bin:/bin" \
     GSD_AUTO_INSTALL_LOCK_WAIT_SECONDS="${LOCK_WAIT_SECONDS:-0}" \
-    bash "$SCRIPT" "$1" >"$STDOUT_FILE" 2>"$STDERR_FILE"
+    bash "$SCRIPT" "$@" >"$STDOUT_FILE" 2>"$STDERR_FILE"
   STATUS=$?
 }
 
@@ -398,30 +402,55 @@ setup 0
 teardown
 pass "case3g: relative or unset HOME/GSD_HOME/CODEX_HOME/CLAUDE_CONFIG_DIR fail closed"
 
-### Case 3h (R23): a consent-requiring install is never auto-consented ###
-setup 0
-seed_selected "$SKILLS_ROOT"
-# Installed bytes differ from the bundle: the install is genuinely needed.
-printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
-export STUB_REQUIRE_CONSENT=1
-run_script beads
-unset STUB_REQUIRE_CONSENT
-[ "$STATUS" -eq 0 ] || fail "case3h: exit status $STATUS, expected 0"
-! grep -q -- '--yes' "$STUB_LOG" || fail "case3h: hook passed --yes"
-! grep -q '^capability set' "$STUB_LOG" || fail "case3h: consent-blocked install reached capability set"
-[ -z "$(cat "$STDOUT_FILE")" ] || fail "case3h: consent block wrote stdout"
-[ "$(grep -c "needs your consent" "$STDERR_FILE")" -eq 1 ] \
-  || fail "case3h: consent requirement not printed exactly once: $(cat "$STDERR_FILE")"
-grep -qF "capability install $GSD_HOME/.gsd/capability-auto-install-beads.source/beads --scope global --yes" "$STDERR_FILE" \
-  || fail "case3h: consent message lacks the exact command: $(cat "$STDERR_FILE")"
-cmp -s "$PLUGIN_DIR/GSD-CORE-PATCH.md" "$GSD_HOME/.gsd/capability-auto-install-beads.source/beads/GSD-CORE-PATCH.md" \
-  || fail "case3h: the printed consent command does not point at the candidate bundle"
-[ ! -e "$STATE_FILE" ] || fail "case3h: consent-blocked install recorded a ledger row"
-pass "case3h: consent-requiring install prints the requirement and exits 0"
-teardown
+### Case 3h (R23/RS1): consent is never automatic; --consent installs under the lock ###
+# The stable source is what `capability update` re-fetches, so until the user
+# consents it must keep its previous bytes (or stay absent).
+for _prior in present absent; do
+  setup 0
+  seed_selected "$SKILLS_ROOT"
+  # Installed bytes differ from the bundle: the install is genuinely needed.
+  printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+  PRIOR_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source/beads"
+  if [ "$_prior" = present ]; then
+    mkdir -p "$PRIOR_SOURCE"
+    printf 'previous\n' > "$PRIOR_SOURCE/previous.marker"
+  fi
+  export STUB_REQUIRE_CONSENT=1
+  run_script beads
+  [ "$STATUS" -eq 0 ] || fail "case3h($_prior): exit status $STATUS, expected 0"
+  ! grep -q -- '--yes' "$STUB_LOG" || fail "case3h($_prior): hook passed --yes"
+  ! grep -q '^capability set' "$STUB_LOG" || fail "case3h($_prior): consent-blocked install reached capability set"
+  [ -z "$(cat "$STDOUT_FILE")" ] || fail "case3h($_prior): consent block wrote stdout"
+  [ "$(cat "$STDERR_FILE")" = "capability-auto-install: beads needs your consent before install; run: bash $PLUGIN_DIR/hooks/capability-auto-install.sh --consent beads" ] \
+    || fail "case3h($_prior): consent message is not the single consent-mode command: $(cat "$STDERR_FILE")"
+  if [ "$_prior" = present ]; then
+    [ "$(LC_ALL=C ls -A "$PRIOR_SOURCE")" = previous.marker ] \
+      && [ "$(cat "$PRIOR_SOURCE/previous.marker")" = previous ] \
+      || fail "case3h: consent block changed the stable source"
+  else
+    [ ! -e "$GSD_HOME/.gsd/capability-auto-install-beads.source" ] \
+      || fail "case3h: consent block created the stable source"
+  fi
+  [ ! -e "$STATE_FILE" ] || fail "case3h($_prior): consent-blocked install recorded a ledger row"
+  [ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.*')" ] \
+    || fail "case3h($_prior): temporary directories leaked"
+  run_script --consent beads
+  unset STUB_REQUIRE_CONSENT
+  [ "$STATUS" -eq 0 ] || fail "case3h($_prior): consent run exit status $STATUS, expected 0"
+  [ "$(grep -c -- "^capability install $PRIOR_SOURCE --scope global --yes\$" "$STUB_LOG")" -eq 1 ] \
+    || fail "case3h($_prior): consent run did not install the stable source with --yes once: $(cat "$STUB_LOG")"
+  [ "$(cat "$STDOUT_FILE")" = "Auto-installed capability: beads (user scope)" ] && [ -z "$(cat "$STDERR_FILE")" ] \
+    || fail "case3h($_prior): consent run did not complete: $(cat "$STDERR_FILE")"
+  cmp -s "$PLUGIN_DIR/GSD-CORE-PATCH.md" "$PRIOR_SOURCE/GSD-CORE-PATCH.md" \
+    && [ ! -e "$PRIOR_SOURCE/previous.marker" ] \
+    || fail "case3h($_prior): consent run did not publish the candidate as the stable source"
+  [ -f "$STATE_FILE" ] || fail "case3h($_prior): consent run recorded no ledger row"
+  teardown
+done
+pass "case3h: consent is never automatic, leaves the stable source untouched, and --consent installs"
 
 ### Case 3i (V4/S4): consent already given converges instead of re-asking ###
-# The user ran the printed --yes command: installed bytes now equal the
+# The user consented outside the hook: installed bytes now equal the
 # bundle, but a bare install still answers requiresConsent. Re-asking every
 # SessionStart was a dead end; the hook must project and record instead.
 setup 0
@@ -436,8 +465,8 @@ grep -qx "capability set beads --runtime codex --scope global --config-dir $CODE
 [ -f "$STATE_FILE" ] || fail "case3i: consented install did not record a ledger row: $(cat "$STDERR_FILE")"
 [ "$(cat "$STDOUT_FILE")" = "Auto-installed capability: beads (user scope)" ] \
   || fail "case3i: converged install did not print the notice: $(cat "$STDOUT_FILE")"
-[ "$(grep -c "needs your consent" "$STDERR_FILE")" -eq 1 ] \
-  || fail "case3i: consent command not printed exactly once: $(cat "$STDERR_FILE")"
+[ -z "$(cat "$STDERR_FILE")" ] \
+  || fail "case3i: converged install still asked for consent: $(cat "$STDERR_FILE")"
 PREV_LOG_LINES="$(wc -l < "$STUB_LOG")"
 STUB_REQUIRE_CONSENT=1 run_script beads
 [ -z "$(cat "$STDERR_FILE")" ] || fail "case3i: converged rerun re-asked for consent: $(cat "$STDERR_FILE")"
@@ -2123,6 +2152,92 @@ real_cli "$ACTUAL_CODEX" "$ACTUAL_HOME" "$ACTUAL_CLAUDE" "$ACTUAL_PROJECT" \
   capability set beads --enable --runtime codex --scope global --config-dir "$ACTUAL_CODEX" \
   > "$REAL_ROOT/enable.log" 2>&1 || fail "case24: real re-enable failed: $(cat "$REAL_ROOT/enable.log")"
 [ -f "$ACTUAL_SKILLS_ROOT/gsd-beads-sync/SKILL.md" ] || fail "case24: real re-enable did not restore the selected skills"
+
+### Case 24b (RS1): real CLI consent: the printed command is the only way in ###
+# A declared hook makes gsd-core's evaluateInstallTrust set requiresConsent.
+# The user runs the printed command literally, from a plain shell: no
+# CLAUDE_PLUGIN_ROOT, no GSD_RUNTIME.
+CONSENT_CODEX="$REAL_ROOT/consent/.codex"
+CONSENT_HOME="$REAL_ROOT/consent/home"
+CONSENT_CLAUDE="$REAL_ROOT/consent/.claude"
+CONSENT_PROJECT="$REAL_ROOT/consent/project"
+prepare_current_runtime "$CONSENT_CODEX" "$CONSENT_HOME" "$CONSENT_CLAUDE" "$CONSENT_PROJECT"
+CONSENT_PLUGIN="$CONSENT_CODEX/plugins/cache/gsd-beads/beads-lifecycle/current"
+copy_allowlist "$GENERATION_B" "$CONSENT_PLUGIN" && plant_noise "$CONSENT_PLUGIN"
+mkdir -p "$CONSENT_PLUGIN/hooks" && cp -f "$SCRIPT" "$CONSENT_PLUGIN/hooks/capability-auto-install.sh"
+$REAL_PYTHON -I -c 'import json,sys; p=sys.argv[1]; m=json.load(open(p)); m["hooks"]=[{"event":"SessionStart","script":"scripts/sync.py"}]; open(p,"w").write(json.dumps(m,indent=2)+"\n")' \
+  "$CONSENT_PLUGIN/capability.json"
+CONSENT_REAL_TOOLS="$CONSENT_CODEX/gsd-core/bin/gsd-tools-real.cjs"
+CONSENT_SPY_LOG="$REAL_ROOT/consent-spy.log"
+cp -f "$CONSENT_CODEX/gsd-core/bin/gsd-tools.cjs" "$CONSENT_REAL_TOOLS"
+cat > "$CONSENT_CODEX/gsd-core/bin/gsd-tools.cjs" <<STUB
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$CONSENT_SPY_LOG"
+exec "$CONSENT_REAL_TOOLS" "\$@"
+STUB
+chmod +x "$CONSENT_CODEX/gsd-core/bin/gsd-tools.cjs" "$CONSENT_REAL_TOOLS"
+CONSENT_SOURCE="$CONSENT_HOME/.gsd/capability-auto-install-beads.source"
+CONSENT_LEDGER="$CONSENT_HOME/.gsd/capability-auto-install-beads.projections"
+consent_session() {
+  : > "$CONSENT_SPY_LOG"
+  (
+    cd "$CONSENT_PROJECT" || exit 1
+    env TMPDIR="$REAL_TMP" HOME="$CONSENT_HOME" GSD_HOME="$CONSENT_HOME" \
+      CODEX_HOME="$CONSENT_CODEX" CLAUDE_CONFIG_DIR="$CONSENT_CLAUDE" \
+      CLAUDE_PLUGIN_ROOT="$CONSENT_PLUGIN" GSD_RUNTIME=codex \
+      bash "$CONSENT_PLUGIN/hooks/capability-auto-install.sh" beads
+  ) > "$REAL_HOOK_OUT" 2> "$REAL_HOOK_ERR"
+}
+consent_by_user() {
+  local _command
+  _command="$(sed -n 's/^capability-auto-install: beads needs your consent before install; run: //p' "$REAL_HOOK_ERR")"
+  [ "$_command" = "bash $CONSENT_PLUGIN/hooks/capability-auto-install.sh --consent beads" ] \
+    || fail "case24b: printed command is not the consent mode: $(cat "$REAL_HOOK_ERR")"
+  : > "$CONSENT_SPY_LOG"
+  (
+    cd "$CONSENT_PROJECT" || exit 1
+    env -u CLAUDE_PLUGIN_ROOT -u GSD_RUNTIME TMPDIR="$REAL_TMP" HOME="$CONSENT_HOME" \
+      GSD_HOME="$CONSENT_HOME" CODEX_HOME="$CONSENT_CODEX" CLAUDE_CONFIG_DIR="$CONSENT_CLAUDE" \
+      bash -c "$_command"
+  ) > "$REAL_HOOK_OUT" 2> "$REAL_HOOK_ERR"
+}
+for _round in first-install update; do
+  if [ "$_round" = update ]; then
+    printf '\nconsent round two\n' >> "$CONSENT_PLUGIN/GSD-CORE-PATCH.md"
+  fi
+  SOURCE_BEFORE="absent"
+  [ ! -e "$CONSENT_SOURCE" ] || SOURCE_BEFORE="$(fixture_tree_hash "$CONSENT_SOURCE")"
+  INSTALLED_BEFORE="absent"
+  [ ! -e "$CONSENT_HOME/.gsd/capabilities/beads" ] \
+    || INSTALLED_BEFORE="$(fixture_tree_hash "$CONSENT_HOME/.gsd/capabilities/beads")"
+  consent_session
+  [ -z "$(cat "$REAL_HOOK_OUT")" ] || fail "case24b($_round): consent block wrote stdout"
+  [ "$(wc -l < "$REAL_HOOK_ERR")" -eq 1 ] || fail "case24b($_round): expected one consent line: $(cat "$REAL_HOOK_ERR")"
+  grep -Eq '^capability install /[^ ]+ --scope global$' "$CONSENT_SPY_LOG" \
+    || fail "case24b($_round): session did not ask the real CLI without --yes"
+  ! grep -q -- '--yes' "$CONSENT_SPY_LOG" || fail "case24b($_round): session passed --yes"
+  ! grep -q '^capability set' "$CONSENT_SPY_LOG" || fail "case24b($_round): session reached capability set"
+  SOURCE_AFTER="absent"
+  [ ! -e "$CONSENT_SOURCE" ] || SOURCE_AFTER="$(fixture_tree_hash "$CONSENT_SOURCE")"
+  [ "$SOURCE_AFTER" = "$SOURCE_BEFORE" ] || fail "case24b($_round): stable source changed before consent"
+  INSTALLED_AFTER="absent"
+  [ ! -e "$CONSENT_HOME/.gsd/capabilities/beads" ] \
+    || INSTALLED_AFTER="$(fixture_tree_hash "$CONSENT_HOME/.gsd/capabilities/beads")"
+  [ "$INSTALLED_AFTER" = "$INSTALLED_BEFORE" ] || fail "case24b($_round): installed bundle changed before consent"
+  consent_by_user
+  [ "$(cat "$REAL_HOOK_OUT")" = 'Auto-installed capability: beads (user scope)' ] && [ -z "$(cat "$REAL_HOOK_ERR")" ] \
+    || fail "case24b($_round): consent run failed: $(cat "$REAL_HOOK_ERR")"
+  [ "$(grep -c -- '--yes' "$CONSENT_SPY_LOG")" -eq 1 ] \
+    && grep -qx "capability install $CONSENT_SOURCE/beads --scope global --yes" "$CONSENT_SPY_LOG" \
+    || fail "case24b($_round): consent run did not install the stable source with --yes once: $(cat "$CONSENT_SPY_LOG")"
+  cmp -s "$CONSENT_PLUGIN/GSD-CORE-PATCH.md" "$CONSENT_HOME/.gsd/capabilities/beads/GSD-CORE-PATCH.md" \
+    || fail "case24b($_round): consent run did not install the candidate"
+  grep -q '^projection-v2 codex ' "$CONSENT_LEDGER" || fail "case24b($_round): consent run recorded no ledger row"
+  consent_session
+  [ -z "$(cat "$REAL_HOOK_OUT")" ] && [ -z "$(cat "$REAL_HOOK_ERR")" ] \
+    || fail "case24b($_round): the session after consent was not silent: $(cat "$REAL_HOOK_ERR")"
+done
+pass "case24b: real CLI requires consent, leaves the stable source untouched until the printed --consent command, then converges"
 
 EVIDENCE_ROOT="$ACTUAL_SKILLS_ROOT"
 rm -rf "$REAL_ROOT"

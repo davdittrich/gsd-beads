@@ -227,7 +227,10 @@ skills, sibling capabilities, and the other runtime stay untouched. Completion i
 `${GSD_HOME:-$HOME}/.gsd/capability-auto-install-beads.projections` (one `projection-v2` row per
 runtime, published atomically) under one exclusive `flock`; a contender returns a single busy
 diagnostic. The lock coordinates hook participants only: a direct writer that races past the
-final check is repaired by native reconciliation at the next SessionStart.
+final check is repaired by native reconciliation at the next SessionStart. The hook never
+consents for you: when gsd-core requires consent, it leaves the recorded source untouched and
+prints one command, `bash <plugin-root>/hooks/capability-auto-install.sh --consent beads`, which
+runs the same install under the same lock with `--yes`.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.
