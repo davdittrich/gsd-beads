@@ -119,7 +119,14 @@ CONSENT_ROOT="$SCRATCH/consent-plugin"
 mkdir -p "$CONSENT_ROOT/hooks" "$CONSENT_ROOT/.agents/skills/beads"
 cp "$HOOK" "$CONSENT_ROOT/hooks/session-start.sh"
 cp "$REPO_ROOT/.agents/skills/beads/PRIME.md" "$CONSENT_ROOT/.agents/skills/beads/PRIME.md"
-CONSENT_LINE='capability-auto-install: beads needs your consent before install; run: bash /p/hooks/capability-auto-install.sh --consent beads'
+# session-start.sh matches the installer's consent line by its prefix; take
+# that prefix from the installer itself so a reworded line fails here.
+CONSENT_PREFIX="$(grep -oF 'capability-auto-install: $CAP_ID needs your consent before install; run: ' \
+  "$REPO_ROOT/hooks/capability-auto-install.sh" | head -n 1)"
+[ -n "$CONSENT_PREFIX" ] || fail "consent prefix literal missing from capability-auto-install.sh"
+CONSENT_PREFIX="${CONSENT_PREFIX/\$CAP_ID/beads}"
+grep -qF "\"$CONSENT_PREFIX\"*)" "$HOOK" || fail "session-start.sh does not match the installer's consent prefix"
+CONSENT_LINE="${CONSENT_PREFIX}bash /p/hooks/capability-auto-install.sh --consent beads"
 printf '%s\n' '#!/usr/bin/env bash' "echo '$CONSENT_LINE' >&2" > "$CONSENT_ROOT/hooks/capability-auto-install.sh"
 check_consent_json() {
   python3 -I -c '
