@@ -221,8 +221,9 @@ resolver is the executed content authority, and Patch 2 has been retired.
 
 ### Capability projection updates
 
-Each SessionStart reconciles only the runtime that loaded the plugin: a validated `GSD_RUNTIME`
-wins, otherwise the installed Codex or Claude plugin cache identifies it. The hook delegates all
+Each SessionStart reconciles only the runtime that loaded the plugin: the installed Codex or
+Claude plugin cache that holds the plugin root identifies it. A set `GSD_RUNTIME` must name that
+same runtime, or the hook records nothing. The hook delegates all
 skill writing and pruning to that runtime's native `capability install` and `capability set`, and
 touches only same-name destinations that are absent or carry the exact Beads owner marker, so user
 skills, sibling capabilities, and the other runtime stay untouched. Completion is recorded in
@@ -245,7 +246,7 @@ a `systemMessage`; you run it yourself in a shell, never an agent on your behalf
 | Variable | Read by | Default | Purpose |
 | :--- | :--- | :--- | :--- |
 | `CLAUDE_PLUGIN_ROOT` | `hooks/session-start.sh`, `hooks/capability-auto-install.sh` | `$(cd "$(dirname "$0")/.." && pwd)` | Resolves the plugin's own root directory. |
-| `GSD_RUNTIME` | `hooks/capability-auto-install.sh` | plugin-cache owner | Selects exactly `codex` or `claude` when the runtime exports it explicitly. |
+| `GSD_RUNTIME` | `hooks/capability-auto-install.sh` | plugin-cache owner | Confirms the runtime only: when set, it must equal the plugin-cache owner (`codex` or `claude`), else the hook records nothing. |
 | `CODEX_HOME` | `hooks/capability-auto-install.sh` | `$HOME/.codex` | Locates the selected Codex runtime's gsd-core CLI; Codex skills remain under `$HOME/.agents/skills`. |
 | `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the selected Claude runtime's gsd-core CLI and skills, plus the surviving Patch 1 check against `gsd-core/workflows/ship.md`. |
 | `GSD_HOME` | resolver bootstrap, `hooks/capability-auto-install.sh` | `Path.home()` / `$HOME` | Locates the installed native task-content resolver bundle and the shared per-capability `projection-v2` ledger. |
