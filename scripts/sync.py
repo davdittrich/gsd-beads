@@ -2434,7 +2434,7 @@ def close_wave(phase_dir_arg, plan_ids):
     per_plan = ", ".join(f"{pid}:{n}" for pid, n in plan_counts)
     print(
         f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) ({per_plan}); "
-        f"skipped {skipped_total} task(s) (no beads-id or plan halted)"
+        f"skipped {skipped_total} task(s) (no beads-id or plan not complete)"
     )
     return 0
 
@@ -2498,7 +2498,7 @@ def reconcile_stale_closed(phase_dir_arg):
 
     print(
         f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) in {phase_dir.name}; "
-        f"skipped {skipped_total} task(s) (no beads-id or plan halted); "
+        f"skipped {skipped_total} task(s) (no beads-id or plan not complete); "
         f"closed {len(marked_to_close)} marker issue(s), rejected {rejected}"
     )
     return 0
