@@ -395,7 +395,7 @@ for stem in skills:
     text = skill_file.read_text()
     if "execute-plan" in text:
         raise SystemExit(21)
-    for declaration in re.findall(r'^python3 "\$SYNC_PY" (.+)$', text, re.MULTILINE):
+    for declaration in re.findall(r'^python3 (?:-I )?"\$SYNC_PY" (.+)$', text, re.MULTILINE):
         prefix = []
         for token in shlex.split(declaration):
             if "<" in token or "[" in token:

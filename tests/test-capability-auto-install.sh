@@ -910,7 +910,7 @@ import subprocess
 import sys
 
 sync_py, skill_path = map(pathlib.Path, sys.argv[1:])
-declared = re.findall(r'^python3 "\$SYNC_PY" (.+)$', skill_path.read_text(), re.MULTILINE)
+declared = re.findall(r'^python3 (?:-I )?"\$SYNC_PY" (.+)$', skill_path.read_text(), re.MULTILINE)
 if not declared:
     raise SystemExit("selected recall skill declares no sync.py commands")
 for command in declared:
@@ -1681,7 +1681,7 @@ import sys
 text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 ordered = (
     "repository: open-gsd/gsd-core",
-    "ref: v1.12.0",
+    "ref: ceed559fd437b037755249e6e36ee36d0d785852",
     "fetch-depth: 0",
     "path: .ci/gsd-core",
     "@opengsd/gsd-core@1.12.0",
@@ -2011,7 +2011,7 @@ for skill in skills:
     text = (skills_root / f"gsd-{skill}" / "SKILL.md").read_text()
     if "execute-plan" in text:
         raise SystemExit("retired execute-plan remains selected")
-    for declaration in re.findall(r'^python3 "\$SYNC_PY" (.+)$', text, re.MULTILINE):
+    for declaration in re.findall(r'^python3 (?:-I )?"\$SYNC_PY" (.+)$', text, re.MULTILINE):
         prefix = []
         for token in shlex.split(declaration):
             if "<" in token or "[" in token:
