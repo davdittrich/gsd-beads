@@ -122,6 +122,16 @@ case "\$*" in
       exit 1
     fi
     _p="\$3"
+    # SIGKILL the lock holder (and its command-substitution subshell) mid-install.
+    if [ -n "\${STUB_KILL_INSTALL:-}" ]; then
+      _pid=\$PPID _victims=""
+      while grep -qz '^GSD_AUTO_INSTALL_LOCK_FD=' "/proc/\$_pid/environ" 2>/dev/null; do
+        _victims="\$_victims \$_pid"
+        read -r _ _ _ _pid _ < "/proc/\$_pid/stat"
+      done
+      [ -n "\$_victims" ] && kill -9 \$_victims
+      exit 1
+    fi
     # Like gsd-core, a consented install copies the source bundle into place.
     if [ -n "\${STUB_REQUIRE_CONSENT:-}\${STUB_COPY_INSTALL:-}" ]; then
       rm -rf "$INSTALLED_BUNDLE" && cp -R "\$_p" "$INSTALLED_BUNDLE" || exit 1
@@ -1016,6 +1026,25 @@ grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h3: expected a consent
 [ "$(LC_ALL=C ls -A "$STABLE_SOURCE/beads")" = previous.marker ] \
   || fail "case8h3: unhashable source was kept instead of the parked one: $(LC_ALL=C ls -A "$STABLE_SOURCE/beads" | tr '\n' ' ')"
 pass "case8h3: two failed tree hashes never count as an equal source"
+teardown
+
+### Case 8h4 (S7): a holder killed after publishing a first stable source is swept ###
+# With no previous stable source there is nothing to park, but the candidate
+# is already recorded once the stage is swapped in: the empty prev dir is the
+# only trace that the next run must remove it.
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source"
+STUB_KILL_INSTALL=1 run_script beads
+[ -d "$STABLE_SOURCE/beads" ] || fail "case8h4: the killed holder never swapped in the candidate"
+STUB_REQUIRE_CONSENT=1 run_script beads
+grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h4: expected a consent block: $(cat "$STDERR_FILE")"
+[ ! -e "$STABLE_SOURCE" ] \
+  || fail "case8h4: unconsented candidate left at the stable source: $(LC_ALL=C ls -A "$STABLE_SOURCE/beads" | tr '\n' ' ')"
+[ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.*')" ] \
+  || fail "case8h4: leaked dirs survived"
+pass "case8h4: a holder killed after publishing a first stable source is swept"
 teardown
 
 ### Case 8i (RS13): equal versions with different content do not flip between runtimes ###

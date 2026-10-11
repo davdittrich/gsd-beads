@@ -298,14 +298,19 @@ SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
 # bundle (the install completed), it goes back, so unconsented candidate
 # bytes are never left recorded; a missing stable source just forces a
 # fresh publish below. Equal needs both hashes to succeed: two failures
-# print the same empty string.
+# print the same empty string. An empty prev means no source was recorded
+# before, so restoring it removes the stable source.
 for _leaked_prev in "$STATE_DIR/.capability-auto-install-$CAP_ID.prev."*; do
-  [ -d "$_leaked_prev/source" ] && [ ! -L "$_leaked_prev/source" ] || continue
+  [ -d "$_leaked_prev" ] && [ ! -L "$_leaked_prev" ] || continue
+  if [ -e "$_leaked_prev/source" ] || [ -L "$_leaked_prev/source" ]; then
+    [ -d "$_leaked_prev/source" ] && [ ! -L "$_leaked_prev/source" ] || continue
+  fi
   if ! _source_hash="$(canonical_tree_hash "$SOURCE_DIR")" \
     || ! _installed_hash="$(canonical_tree_hash "$INSTALLED_BUNDLE")" \
     || [ "$_source_hash" != "$_installed_hash" ]; then
     rm -rf "$SOURCE_PARENT" 2>/dev/null
-    mv "$_leaked_prev/source" "$SOURCE_PARENT" 2>/dev/null || {
+    { [ ! -d "$_leaked_prev/source" ] && [ ! -e "$SOURCE_PARENT" ]; } \
+      || mv "$_leaked_prev/source" "$SOURCE_PARENT" 2>/dev/null || {
       echo "capability-auto-install: stale source restore failed for $CAP_ID; projection not recorded" >&2
       exit 0
     }
@@ -748,16 +753,17 @@ fi
 # bundle skips all of this: the stable source is the other runtime's.
 INSTALL_STATUS=0
 if [ "$KEPT" -eq 0 ]; then
-if [ -d "$SOURCE_PARENT" ] && [ ! -L "$SOURCE_PARENT" ]; then
-  PREV_SOURCE="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.prev.XXXXXX" 2>/dev/null)" \
-    && mv "$SOURCE_PARENT" "$PREV_SOURCE/source" 2>/dev/null || {
-    echo "capability-auto-install: stable source publish failed for $CAP_ID; projection not recorded" >&2
-    exit 0
-  }
+# The prev dir exists even with no source to park: left empty, it tells the
+# sweep that a killed holder's swapped-in candidate must go.
+PREV_SOURCE="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.prev.XXXXXX" 2>/dev/null)" || PREV_SOURCE=""
+if [ -z "$PREV_SOURCE" ] || { [ -d "$SOURCE_PARENT" ] && [ ! -L "$SOURCE_PARENT" ] \
+  && ! mv "$SOURCE_PARENT" "$PREV_SOURCE/source" 2>/dev/null; }; then
+  echo "capability-auto-install: stable source publish failed for $CAP_ID; projection not recorded" >&2
+  exit 0
 fi
 restore_source() {
   rm -rf "$SOURCE_PARENT" 2>/dev/null
-  [ -z "$PREV_SOURCE" ] || mv "$PREV_SOURCE/source" "$SOURCE_PARENT" 2>/dev/null
+  [ ! -d "$PREV_SOURCE/source" ] || mv "$PREV_SOURCE/source" "$SOURCE_PARENT" 2>/dev/null
 }
 rm -rf "$SOURCE_PARENT" 2>/dev/null
 if [ -e "$SOURCE_PARENT" ] || [ -L "$SOURCE_PARENT" ] || ! mv "$STAGE_DIR" "$SOURCE_PARENT" 2>/dev/null; then
