@@ -8439,7 +8439,7 @@ class TestCreateIssuesCliSyncModeGate(unittest.TestCase):
     """17-02 Task 3 (D-06): `sync.py create-issues <plan>` computes its
     strip permission from `beads.sync_mode` -- mirror withholds the strip,
     authoritative (default, no config file, and the retired `off` value)
-    behaves as today. No CLI flag is added: `beads-sync/SKILL.md` Step 3
+    behaves as today. No CLI flag is added: `beads-sync/SKILL.md` Step 2
     invokes this verb with no strip-related argument."""
 
     def _run_create_issues(self, sync_mode_payload):
