@@ -3294,6 +3294,31 @@ def _render_beads_md_table(rows, ordinal_map, task_status_by_id):
     return "\n".join(lines)
 
 
+def _beads_md_extras(phase_dir, out_path):
+    """Every file besides out_path that gsd-core's findPhaseArtifact (1.10-
+    1.16) could answer the BEADS.md ship gate with: <phase>/BEADS.md, then
+    <phase>/.planning/BEADS.md, then the first readdir entry ending in
+    -BEADS.md or equal to BEADS.md. It takes the first match, so any extra
+    file is a gate bypass."""
+    candidates = [phase_dir / "BEADS.md", phase_dir / ".planning" / "BEADS.md"]
+    try:
+        names = sorted(os.listdir(phase_dir))
+    except OSError:
+        names = []
+    candidates += [phase_dir / n for n in names if n.endswith("-BEADS.md")]
+    return [c for c in dict.fromkeys(candidates) if c != out_path and c.is_file()]
+
+
+def _is_generated_beads_md(path):
+    """True when `path` carries this tool's `generated_from:` frontmatter key
+    -- a mention anywhere else in the file proves nothing."""
+    try:
+        fm = FRONTMATTER_RE.match(path.read_text(encoding="utf-8", errors="replace"))
+    except OSError:
+        return False
+    return bool(fm) and re.search(r"^generated_from:", fm.group(1), re.MULTILINE) is not None
+
+
 def regenerate_beads_md(phase_dir_arg):
     """B11/execute:wave:pre (read-only) and execute:wave:post (unchanged):
     always fully overwrite `{phase_dir}/{padded_phase}-BEADS.md` from a
@@ -3303,19 +3328,33 @@ def regenerate_beads_md(phase_dir_arg):
     padded_phase = phase_dir.name.split("-", 1)[0]
     out_path = phase_dir / f"{padded_phase}-BEADS.md"
 
-    # gsd-core's gate resolves <phase>/BEADS.md before any NN-BEADS.md, so a
-    # plain file would outlive every fail-closed write below. Remove one this
-    # tool generated; leave a hand-written one alone but say it wins.
-    plain = phase_dir / "BEADS.md"
-    if plain.is_file():
-        if "generated_from:" in plain.read_text(encoding="utf-8", errors="replace"):
-            plain.unlink()
-        else:
-            print(
-                f"BEADS.md: {plain} takes precedence over {out_path.name} in the "
-                "ship gate and is never regenerated -- remove it",
-                file=sys.stderr,
+    # Any other BEADS file the gate could read would outlive every fail-closed
+    # write below. Ours (e.g. a renumbered phase's NN-BEADS.md) are removed;
+    # a foreign one is moved out of the gate's view with its content kept,
+    # and this run fails closed so someone looks at it.
+    rejected = []
+    for extra in _beads_md_extras(phase_dir, out_path):
+        if _is_generated_beads_md(extra):
+            extra.unlink()
+            continue
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        aside = extra.with_name(f"{extra.name}.rejected-{stamp}")
+        os.rename(extra, aside)
+        rejected.append(f"{extra} -> {aside.name}")
+    if rejected:
+        message = (
+            "BEADS.md: foreign ship-gate artifact(s) rejected, gate fails closed until "
+            "reviewed: " + "; ".join(rejected)
+        )
+        print(message, file=sys.stderr)
+        # Start above phase_dir: a planted <phase>/.planning/ would otherwise
+        # be taken for the project root and swallow the blocker.
+        try:
+            append_state_blocker(
+                confined(find_project_root(phase_dir.parent), ".planning", "STATE.md"), message
             )
+        except ValueError:
+            pass
 
     try:
         epic_id = resolve_phase_epic(phase_dir)
@@ -3352,6 +3391,8 @@ def regenerate_beads_md(phase_dir_arg):
         out_path.unlink(missing_ok=True)
     else:
         write_unknown(["regeneration", "incomplete"])
+    if rejected:
+        return 1
 
     if not bd_available():
         if epic_id is not None:
@@ -3632,6 +3673,16 @@ def _read_beads_md_frontmatter(phase_dir):
     padded_phase = phase_dir.name.split("-", 1)[0]
     beads_md_path = phase_dir / f"{padded_phase}-BEADS.md"
     if not beads_md_path.exists():
+        return {}
+    # The gate may have read a different file than this one: recording these
+    # counts would misstate what was bypassed.
+    extras = _beads_md_extras(phase_dir, beads_md_path)
+    if extras:
+        print("ship-override: other BEADS file(s) the gate may read: "
+              + ", ".join(e.name for e in extras))
+        return {}
+    if not _is_generated_beads_md(beads_md_path):
+        print(f"ship-override: {beads_md_path.name} has no generated_from frontmatter")
         return {}
     text = beads_md_path.read_text(encoding="utf-8")
     fm_match = FRONTMATTER_RE.match(text)

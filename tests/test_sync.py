@@ -10605,19 +10605,6 @@ class TestRegenFailClosedV1(unittest.TestCase):
                 )
                 self.assertIsNone(text)
 
-    def test_plain_hand_written_beads_md_is_kept_with_warning(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_wave_workspace(Path(tmp), [("01-07", _regen_two_task_plan_text(), False)])
-            plain = phase_dir / "BEADS.md"
-            plain.write_text("my notes\n", encoding="utf-8")
-            err = io.StringIO()
-            with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect()), \
-                    contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
-                sync.regenerate_beads_md(str(phase_dir))
-            self.assertTrue(plain.exists())
-            self.assertIn("BEADS.md", err.getvalue())
-            self.assertIn("precedence", err.getvalue())
-
 
 class TestMilestoneSweepUnreadableSibling(unittest.TestCase):
     """gsd-beads-cjbc.32: a sibling phase's unreadable PLAN.md hides its ids;
@@ -11238,6 +11225,112 @@ class TestIdempotentCreateIssues(unittest.TestCase):
         plan.write_text(original, encoding="utf-8")
         self.assertEqual(run(), first)
         self.assertEqual(count(), rows)
+
+
+class TestSingleBeadsMdCandidate(unittest.TestCase):
+    """RS2 (gsd-beads-cjbc.43): gsd-core's findPhaseArtifact (1.10-1.16)
+    returns the first of <phase>/BEADS.md, <phase>/.planning/BEADS.md, then
+    the first readdir entry ending in -BEADS.md or equal to BEADS.md -- so
+    any file besides ours can answer the ship gate. Exactly one generated
+    BEADS file may exist: our own extras are removed, foreign ones renamed
+    aside (content kept) and the gate fails closed."""
+
+    GENERATED = '---\nepic: old\nblocking_open: 0\ndiverged: 0\ngenerated_from: "bd list"\n---\n'
+    FOREIGN = "---\nblocking_open: 0\ndiverged: 0\n---\nmy notes\n"
+
+    def _run(self, extra_rel, extra_text, with_epic=True):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        plan = _regen_two_task_plan_text()
+        if not with_epic:
+            plan = plan.replace("beads_epic: regen-epic\n", "")
+        phase_dir = _write_wave_workspace(Path(tmp.name), [("01-07", plan, False)], with_state=True)
+        extra = None
+        if extra_rel is not None:
+            extra = phase_dir / extra_rel
+            extra.parent.mkdir(parents=True, exist_ok=True)
+            extra.write_text(extra_text, encoding="utf-8")
+        rows = json.dumps([{"id": "regen-epic.1", "title": "t", "status": "closed", "dependencies": []}])
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect(rows)), \
+                contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            code = sync.regenerate_beads_md(str(phase_dir))
+        ours = phase_dir / "01-BEADS.md"
+        state = (phase_dir.parent.parent / "STATE.md").read_text(encoding="utf-8")
+        return code, phase_dir, extra, ours, err.getvalue(), state
+
+    def _assert_rejected(self, extra_rel):
+        code, phase_dir, extra, ours, err, state = self._run(extra_rel, self.FOREIGN)
+        self.assertEqual(code, 1)
+        self.assertFalse(extra.exists())
+        aside = list(extra.parent.glob(extra.name + ".rejected-*"))
+        self.assertEqual(len(aside), 1, list(extra.parent.iterdir()))
+        self.assertRegex(aside[0].name, r"\.rejected-\d{8}T\d{6}Z$")
+        self.assertEqual(aside[0].read_text(encoding="utf-8"), self.FOREIGN)
+        self.assertIn("blocking_open: unknown", ours.read_text(encoding="utf-8"))
+        self.assertIn(extra.name, err)
+        self.assertIn("rejected", state)
+        return phase_dir
+
+    def test_1_foreign_plain_beads_md_is_renamed_aside_and_gate_fails_closed(self):
+        self._assert_rejected("BEADS.md")
+
+    def test_2_generated_plain_beads_md_is_removed(self):
+        code, _pd, extra, ours, _err, _state = self._run("BEADS.md", self.GENERATED)
+        self.assertEqual(code, 0)
+        self.assertFalse(extra.exists())
+        self.assertIn("blocking_open: 0", ours.read_text(encoding="utf-8"))
+
+    def test_3_foreign_nested_planning_beads_md_is_renamed_aside(self):
+        self._assert_rejected(".planning/BEADS.md")
+
+    def test_4_foreign_sibling_nn_beads_md_is_renamed_aside(self):
+        self._assert_rejected("01-02-BEADS.md")
+
+    def test_5_generated_beads_md_of_renumbered_phase_is_removed(self):
+        code, _pd, extra, ours, _err, _state = self._run("22-BEADS.md", self.GENERATED)
+        self.assertEqual(code, 0)
+        self.assertFalse(extra.exists())
+        self.assertIn("blocking_open: 0", ours.read_text(encoding="utf-8"))
+
+    def test_6_only_our_file_regenerates_normally(self):
+        code, phase_dir, _extra, ours, err, _state = self._run(None, None)
+        self.assertEqual(code, 0)
+        self.assertIn("blocking_open: 0", ours.read_text(encoding="utf-8"))
+        self.assertEqual(sorted(p.name for p in phase_dir.glob("*BEADS.md*")), ["01-BEADS.md"])
+
+    def test_generated_from_only_in_body_is_foreign(self):
+        code, _pd, extra, _ours, _err, _state = self._run("BEADS.md", "notes\ngenerated_from: x\n")
+        self.assertEqual(code, 1)
+        self.assertFalse(extra.exists())
+        self.assertEqual(len(list(extra.parent.glob("BEADS.md.rejected-*"))), 1)
+
+    def test_foreign_extra_without_epic_leaves_no_gate_file(self):
+        code, _pd, extra, ours, _err, _state = self._run("BEADS.md", self.FOREIGN, with_epic=False)
+        self.assertEqual(code, 1)
+        self.assertFalse(extra.exists())
+        self.assertFalse(ours.exists())
+
+    def test_ship_override_refuses_when_another_candidate_exists(self):
+        for rel in ("BEADS.md", ".planning/BEADS.md", "01-02-BEADS.md"):
+            with self.subTest(rel=rel), tempfile.TemporaryDirectory() as tmp:
+                phase_dir = _write_ship_override_workspace(Path(tmp), _ship_override_beads_md_text())
+                extra = phase_dir / rel
+                extra.parent.mkdir(parents=True, exist_ok=True)
+                extra.write_text(self.FOREIGN, encoding="utf-8")
+                out = io.StringIO()
+                with mock.patch("subprocess.run") as mock_run, contextlib.redirect_stdout(out):
+                    self.assertEqual(sync.ship_override(str(phase_dir)), 1)
+                mock_run.assert_not_called()
+                self.assertIn(rel.rsplit("/", 1)[-1], out.getvalue())
+
+    def test_ship_override_refuses_our_path_without_generated_frontmatter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            text = _ship_override_beads_md_text().replace('generated_from: "bd list --parent ship-epic --all --json -n 0"\n', "")
+            phase_dir = _write_ship_override_workspace(Path(tmp), text)
+            with mock.patch("subprocess.run") as mock_run, contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(sync.ship_override(str(phase_dir)), 1)
+            mock_run.assert_not_called()
 
 
 if __name__ == "__main__":
