@@ -326,7 +326,8 @@ def _set_bd_root(phase_dir=None):
     global _BD_CWD
     try:
         _BD_CWD = str(phase_project_root(phase_dir) if phase_dir else find_project_root(Path.cwd()))
-    except (ValueError, OSError):
+    except (ValueError, OSError, RuntimeError):
+        # RuntimeError: Path.resolve() on a symlink loop before Python 3.13.
         _BD_CWD = None
 
 
@@ -1511,7 +1512,11 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
                     )
                 phase_dir = supplied
             # One resolve-and-confine check for token, name and path alike: a
-            # symlinked child must be refused whichever way it was spelled.
+            # symlinked child must be refused whichever way it was spelled,
+            # including a link to a sibling phase (it would still resolve to a
+            # direct child and dispatch the wrong phase).
+            if phase_dir.is_symlink():
+                raise ValueError(f"phase directory {phase_dir} is a symlink")
             phase_dir = phase_dir.resolve()
             if phase_dir.parent != phases_root or not phase_dir.is_dir():
                 raise ValueError(

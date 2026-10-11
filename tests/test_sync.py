@@ -8016,6 +8016,34 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
                         self.assertEqual(sync.lifecycle_dispatch("plan:pre", token), 0)
             recall.assert_not_called()
 
+    def test_explicit_phase_alias_symlink_inside_phases_root_is_rejected(self):
+        """A symlinked child that points at another phase under the same root
+        still resolves to a direct child, so it would dispatch phase 08's
+        request to phase 07. Reject the link itself, whichever way it is spelled."""
+        with self._in_workspace() as state_phase_dir:
+            phases_root = state_phase_dir.parent
+            target = phases_root / "07-demo"
+            target.mkdir(exist_ok=True)
+            (phases_root / "08-alias").symlink_to(target, target_is_directory=True)
+            with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
+                 mock.patch.object(sync, "check_patch", return_value=0), \
+                 mock.patch.object(sync, "check_sync_mode_value", return_value=0):
+                for arg in ("08", "8", "08-alias", str(phases_root / "08-alias")):
+                    with self.subTest(arg=arg):
+                        self.assertEqual(sync.lifecycle_dispatch("plan:pre", arg), 0)
+            recall.assert_not_called()
+
+    def test_set_bd_root_survives_runtime_error_from_path_resolution(self):
+        """Python before 3.13 raises RuntimeError on a symlink loop; the
+        lifecycle verb's contract is exit 0, so pinning bd must not escape."""
+        prev = sync._BD_CWD
+        try:
+            with mock.patch.object(sync, "phase_project_root", side_effect=RuntimeError("Symlink loop")):
+                sync._set_bd_root("any/phase")
+            self.assertIsNone(sync._BD_CWD)
+        finally:
+            sync._BD_CWD = prev
+
     def test_explicit_phase_never_resolves_the_state_default(self):
         with self._in_workspace() as state_phase_dir:
             requested = state_phase_dir.parent / "08-requested"
