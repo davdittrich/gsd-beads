@@ -1031,6 +1031,7 @@ def migrate_todos(pending_dir_arg):
     moved = []
     parse_errors = []
     bd_create_failed = []
+    not_deleted = []
     for todo_path in todo_paths:
         try:
             todo = parse_todo(todo_path)
@@ -1077,7 +1078,7 @@ def migrate_todos(pending_dir_arg):
         try:
             todo_path.unlink()  # D-05: delete only after a confirmed issue id
         except OSError as exc:
-            bd_create_failed.append(
+            not_deleted.append(
                 (todo_path.name, f"created {issue_id} but could not delete the todo file ({exc}); delete it manually")
             )
             continue
@@ -1085,7 +1086,7 @@ def migrate_todos(pending_dir_arg):
 
     lines = [
         f"Migrated {len(moved)} todo(s), {len(parse_errors)} could not be interpreted, "
-        f"{len(bd_create_failed)} bd create failed"
+        f"{len(bd_create_failed)} bd create failed, {len(not_deleted)} created but not deleted"
     ]
     if moved:
         lines.append("  moved:")
@@ -1096,6 +1097,9 @@ def migrate_todos(pending_dir_arg):
     if bd_create_failed:
         lines.append("  bd create failed:")
         lines.extend(f"    {name}: {reason}" for name, reason in bd_create_failed)
+    if not_deleted:
+        lines.append("  created but not deleted:")
+        lines.extend(f"    {name}: {reason}" for name, reason in not_deleted)
     print("\n".join(lines))
     return 0
 

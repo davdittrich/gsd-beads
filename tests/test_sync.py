@@ -7061,6 +7061,22 @@ class TestMigrateTodosSafety(unittest.TestCase):
         self.assertIn("Migrated 1 todo(s)", out)
         self.assertIn("may already exist", out)
 
+    def test_unlink_failure_has_its_own_heading_not_bd_create_failed(self):
+        real_unlink = Path.unlink
+
+        def flaky_unlink(self, *a, **k):
+            if self.name == "a.md":
+                raise PermissionError("denied")
+            return real_unlink(self, *a, **k)
+
+        with mock.patch.object(Path, "unlink", flaky_unlink):
+            rc, out, exists, _ = self._run(lambda a: _completed(0, stdout="x-7\n"), [("a.md", "A")])
+        self.assertIn("0 bd create failed", out)
+        self.assertIn("1 created but not deleted", out)
+        self.assertNotIn("  bd create failed:", out)
+        self.assertIn("  created but not deleted:", out)
+        self.assertIn("x-7", out)
+
     def test_unlink_oserror_reports_issue_id_and_continues(self):
         real_unlink = Path.unlink
 

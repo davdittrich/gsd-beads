@@ -36,6 +36,7 @@ Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
 - STATE.md blocker notes are appended under a lock with an atomic replace, so two concurrent appenders both land, and a `### Blockers/Concerns` heading inside a code fence is ignored (.50).
 - `close-wave` and `reconcile-stale-closed` close nothing, and print the bd-unavailable notice, when the bd status query fails; they used to treat every id as open and try to close it (.51).
 - Every `sync.py` verb runs `bd` from the project root; `status`, `migrate-todos`, `lifecycle-dispatch` and `resolve-task-content` used to use the process cwd (.52).
+- `migrate-todos` reports a todo whose issue was created but whose file could not be deleted under its own heading, not as a `bd create` failure (.53).
 
 
 ## 0.8.1
