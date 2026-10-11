@@ -60,12 +60,19 @@ jobs:
       - name: Publish release
         run: |
           set -euo pipefail
-          # A published release is immutable: a moved tag must not republish it.
-          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            echo "release $RELEASE_TAG already exists; delete it by hand to republish" >&2
+          # A rerun of the same commit must succeed (re-upload only); a moved tag
+          # (different commit) must not silently republish the release. The release
+          # API's targetCommitish is useless here (the tag already exists, so it reads
+          # "main"), hence the commit is recorded in the notes at create time.
+          if EXISTING="$(gh release view "$RELEASE_TAG" --json body --jq .body 2>/dev/null)"; then
+            if printf "%s" "$EXISTING" | grep -qF "Release commit: $GITHUB_SHA"; then
+              gh release upload "$RELEASE_TAG" gsd-beads.zip --clobber
+              exit 0
+            fi
+            echo "release $RELEASE_TAG was not created from $GITHUB_SHA; delete it by hand to republish" >&2
             exit 1
           fi
-          gh release create "$RELEASE_TAG" gsd-beads.zip --generate-notes --target "$GITHUB_SHA"
+          gh release create "$RELEASE_TAG" gsd-beads.zip --generate-notes --notes "Release commit: $GITHUB_SHA" --target "$GITHUB_SHA"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ github.ref_name }}
