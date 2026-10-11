@@ -1918,17 +1918,28 @@ teardown
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 $REAL_PYTHON - "$CI_WORKFLOW" <<'PY' \
   || fail "case24a: CI does not provision, integrity-check and prove the pinned gsd-core 1.12.0 runtime before smoke"
+import json
 import pathlib
 import sys
 
-text = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+workflow = pathlib.Path(sys.argv[1])
+# Comments repeat the tokens; only executed lines count.
+text = "\n".join(
+    line for line in workflow.read_text(encoding="utf-8").splitlines()
+    if not line.lstrip().startswith("#")
+)
+# npm ci fails when package.json and the lockfile disagree, so the exact
+# pin here is what fixes the installed version.
+pin = json.loads((workflow.parents[1] / "ci/gsd-core/package.json").read_text(encoding="utf-8"))
+if pin.get("dependencies") != {"@opengsd/gsd-core": "1.12.0"}:
+    raise SystemExit(1)
 ordered = (
     "repository: open-gsd/gsd-core",
     "ref: ceed559fd437b037755249e6e36ee36d0d785852",
     "fetch-depth: 0",
     "path: .ci/gsd-core",
-    "@opengsd/gsd-core@1.12.0",
     "\"$LOCK\")\" = \"$GSD_CORE_INTEGRITY\"",
+    "npm ci --ignore-scripts",
     "--codex --global --config-dir",
     "runtime-identity --raw",
     '"packageName":"@opengsd/gsd-core"',
