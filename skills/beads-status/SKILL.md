@@ -46,7 +46,7 @@ One Bash call, passing the phase directory and **every** plan id in the wave:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
@@ -73,7 +73,7 @@ One Bash call, passing only the phase directory:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
@@ -98,7 +98,7 @@ Otherwise print nothing.
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
@@ -117,7 +117,7 @@ Always runs at `ship:pre`, whether or not Step 2c did anything.
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
@@ -142,7 +142,7 @@ Pass `$ARGUMENTS` through as the phase directory (or number). With no argument, 
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
@@ -170,7 +170,7 @@ Pass the whole list to one invocation:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi

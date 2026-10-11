@@ -34,7 +34,7 @@ Run it against the PLAN.md path from `$ARGUMENTS`:
 _B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi

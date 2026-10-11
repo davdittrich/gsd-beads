@@ -8868,7 +8868,7 @@ class TestDirectSkillSyncResolver(unittest.TestCase):
     RESOLVER = """_B="${GSD_HOME:-${HOME:-}}"
 case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
 _G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
 if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
 elif [ -f "$_P" ]; then SYNC_PY="$_P"
 else SYNC_PY=; fi
@@ -9001,6 +9001,35 @@ fi"""
                         capture_output=True, text=True, env=env, timeout=15,
                     )
                     self.assertEqual(result.stdout, "")
+
+    def test_plugin_rung_is_empty_when_plugin_root_is_relative(self):
+        # A relative CLAUDE_PLUGIN_ROOT would resolve against the cwd, i.e. a
+        # cloned repo's own scripts/sync.py (the hook already blocks this).
+        sources = sorted((self.ROOT / "skills").glob("*/SKILL.md"))
+        env = dict(os.environ, CLAUDE_PLUGIN_ROOT=".")
+        for source in sources:
+            for line in source.read_text(encoding="utf-8").splitlines():
+                if not line.startswith("_P="):
+                    continue
+                with self.subTest(source=source.name):
+                    result = subprocess.run(
+                        ["bash", "-c", line + '\nprintf %s "$_P"'],
+                        capture_output=True, text=True, env=env, timeout=15,
+                    )
+                    self.assertEqual(result.stdout, "")
+
+    def test_relative_plugin_root_never_runs_cwd_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            cwd, home = base / "cwd", base / "home"
+            home.mkdir()
+            spy_log = base / "spy.jsonl"
+            self._write_spy(cwd, self.PLUGIN_SYNC)
+            env = dict(os.environ, GSD_HOME=str(home), HOME=str(home), CLAUDE_PLUGIN_ROOT=".", SPY_LOG=str(spy_log), UNRELATED_CWD=str(cwd))
+            result = self._run(env, "status")
+            self.assertEqual(result.returncode, 1, result)
+            self.assertEqual(result.stderr, self.DIAGNOSTIC + "\n")
+            self.assertFalse(spy_log.exists())
 
     def test_all_ten_fences_have_exact_static_contract(self):
         texts = {}
