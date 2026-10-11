@@ -11,6 +11,7 @@ T-01-01).
 import argparse
 import contextlib
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -1008,12 +1009,11 @@ def migrate_todos(pending_dir_arg):
     `.planning/todos/pending/*.md` file into a mapped bd issue, then delete
     that file (D-05); an unparseable file is left untouched and reported
     under "could not be interpreted", distinct from a "bd create failed"
-    entry (D-04/Pitfall 2). No duplicate check against existing bd issues
-    (D-06): every parseable todo always creates a new issue. A file is
-    deleted only after bd returns a SAFE_BD_ID_RE-valid id (R20); a timeout
-    or OS error on one file is recorded and the loop continues. No title
-    lookup is done before a retry after an ambiguous timeout -- the failure
-    line tells the user to check bd first.
+    entry (D-04/Pitfall 2). Each todo is created through ensure_issue under
+    a key derived from its file name and title, so a rerun after an
+    ambiguous timeout or an undeletable file adopts the issue instead of
+    duplicating it. A file is deleted only after a SAFE_BD_ID_RE-valid id
+    (R20); a failure on one file is recorded and the loop continues.
     """
     if not bd_available():
         _skip_bd_unavailable(Path(pending_dir_arg).resolve(), "migrate-todos")
@@ -1039,8 +1039,12 @@ def migrate_todos(pending_dir_arg):
             parse_errors.append((todo_path.name, str(exc)))
             continue
 
+        key = "gsd-key:todo-" + hashlib.sha1(
+            f"{todo_path.name}\0{todo['title']}".encode("utf-8")
+        ).hexdigest()[:12]
         try:
-            result = run_bd(
+            issue_id = ensure_issue(
+                key,
                 [
                     "bd",
                     "create",
@@ -1055,25 +1059,13 @@ def migrate_todos(pending_dir_arg):
                     "-l",
                     ",".join(f"area-{a}" for a in todo["area"].split(",")),
                     "--silent",
-                ]
+                ],
+                "task",
             )
-        except (subprocess.TimeoutExpired, OSError) as exc:
-            # Ambiguous: bd may have created the issue before the kill. No
-            # title lookup before a retry (not implemented): the user is told
-            # to check bd first, since a rerun would duplicate (D-06).
-            bd_create_failed.append(
-                (todo_path.name, f"{type(exc).__name__}; an issue may already exist -- check bd before rerunning")
-            )
-            continue
-        if result.returncode != 0:
-            bd_create_failed.append((todo_path.name, result.stderr.strip()))
-            continue
-
-        issue_id = result.stdout.strip()
-        if not SAFE_BD_ID_RE.fullmatch(issue_id):
-            bd_create_failed.append(
-                (todo_path.name, f"bd create returned no issue id ({issue_id[:60]!r}); an issue may already exist -- check bd before rerunning")
-            )
+        except (RuntimeError, subprocess.TimeoutExpired, OSError) as exc:
+            # The file stays; a rerun looks the key up first, so whatever
+            # bd may have written is adopted, never duplicated.
+            bd_create_failed.append((todo_path.name, f"{type(exc).__name__}: {exc}"))
             continue
         try:
             todo_path.unlink()  # D-05: delete only after a confirmed issue id
@@ -1605,7 +1597,9 @@ def resolve_milestone_epic(project_root):
             raise
         except RuntimeError as exc:
             raise EpicAuthorityError(str(exc)) from exc
-        if row is not None:
+        # A closed milestone epic is history: reusing it would hang new work
+        # under a finished milestone.
+        if row is not None and row.get("status") != "closed":
             candidate_title = row.get("title")
             if not isinstance(candidate_title, str) or not candidate_title.strip():
                 raise EpicAuthorityError(
@@ -1627,10 +1621,10 @@ def resolve_milestone_epic(project_root):
     if milestone_bullet:
         argv += ["-d", _epic_description(milestone_bullet)]
     argv += ["-l", SYNC_LABEL, "--type", "epic", "--silent"]
-    result = run_bd(argv)
-    if result.returncode != 0:
-        raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
-    return result.stdout.strip()
+    # bd labels are comma-separated on create, so the slug keeps only
+    # [a-z0-9.] runs: "Milestone v1.0: core mvp" -> milestone-v1.0-core-mvp.
+    slug = "-".join(re.findall(r"[a-z0-9.]+", title.lower().removeprefix("milestone ")))
+    return ensure_issue(f"gsd-key:milestone-{slug}", argv, "epic")
 
 
 def _unwrap_bd_list(payload):
@@ -1690,6 +1684,89 @@ def _bd_show_row(result, expected_id):
     return payload[0]
 
 
+def _open_key_rows(key, kind, title):
+    """Non-closed `kind` rows labelled `key` and titled `title`, oldest first
+    by (created_at, id). Filtering on issue_type is load-bearing: bd copies a
+    parent's labels onto every child created with --parent, so an epic's key
+    also labels each of its tasks. The title must match too: a task key
+    carries its ordinal, which shifts when a plan is edited, so a replaced
+    task would otherwise adopt (and run) its predecessor's issue. created_at
+    has one-second granularity, so the id breaks ties and every process
+    agrees on the same winner."""
+    result = run_bd(["bd", "list", "-l", key, "--all", "-n", "0", "--json"])
+    rows = _checked_bd_list_rows(result)
+    if rows is None:
+        raise BdTransientError(f"bd list -l {key} failed: {(result.stderr or '').strip()}")
+    return sorted(
+        (
+            r for r in rows
+            if isinstance(r, dict) and r.get("issue_type") == kind and r.get("title") == title
+            and r.get("status") != "closed" and isinstance(r.get("id"), str)
+        ),
+        key=lambda r: (str(r.get("created_at", "")), r["id"]),
+    )
+
+
+def ensure_issue(key, create_args, kind):
+    """Return the id of the one open `kind` issue labelled `key` and titled as
+    `create_args` (a full `bd create ...` argv) would title it, creating it
+    only when none exists.
+
+    The single create path in this file: a create whose id never reached
+    the plan (kill, timeout, failed write) is found by its key on the next
+    run instead of duplicated. A closed match is history, not identity, so
+    it yields a new issue. Concurrent creators on this host serialise on an
+    flock of the .planning directory of the project bd resolves its db from;
+    a lockless racer elsewhere is caught by the re-query after create, where
+    the oldest row wins and only the row this call made is closed -- never
+    another caller's, which may already be bound to a plan.
+
+    Never call append_state_blocker while holding the lock: it flocks the
+    same directory and would deadlock this process."""
+    title = create_args[create_args.index("--title") + 1] if "--title" in create_args else create_args[2]
+    # bd resolves its db by walking up from its cwd; the lock must cover the
+    # same project, so derive it the same way rather than fall back to an
+    # unrelated directory that would serialise nothing.
+    try:
+        lock_root = Path(_BD_CWD) if _BD_CWD else find_project_root(Path.cwd())
+    except ValueError as exc:
+        raise RuntimeError(f"no project to lock for bd create: {exc}") from exc
+    lock_fd = os.open(lock_root / ".planning", os.O_RDONLY)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        rows = _open_key_rows(key, kind, title)
+        if rows:
+            return rows[0]["id"]
+        try:
+            result = run_bd(create_args + ["-l", key])
+        except subprocess.TimeoutExpired as exc:
+            # bd may have written the row before the kill: look before failing.
+            rows = _open_key_rows(key, kind, title)
+            if rows:
+                return rows[0]["id"]
+            raise BdTransientError(f"bd create ({kind}) timed out and no {key} issue exists") from exc
+        if result.returncode != 0:
+            raise RuntimeError(f"bd create ({kind}) failed: {(result.stderr or '').strip()}")
+        issue_id = result.stdout.strip() if isinstance(result.stdout, str) else ""
+        if not SAFE_BD_ID_RE.fullmatch(issue_id):
+            # Every task hangs off the epic, so a garbled epic id stops the
+            # sync (rc 1); a garbled task id fails open like any bd failure.
+            error = EpicAuthorityError if kind == "epic" else RuntimeError
+            raise error(f"bd create ({kind}) returned unsafe id: {issue_id!r}")
+        rows = _open_key_rows(key, kind, title)
+        if issue_id not in {r["id"] for r in rows}:
+            raise BdTransientError(f"bd list -l {key} does not show just-created {issue_id}")
+        winner = rows[0]["id"]
+        if winner != issue_id:
+            closed = run_bd(["bd", "close", issue_id, "--reason", f"duplicate of {winner} ({key})"])
+            if closed.returncode != 0:
+                print(f"ensure-issue: duplicate {issue_id} of {winner} not closed: "
+                      f"{closed.stderr.strip()}", file=sys.stderr)
+        return winner
+    finally:
+        os.close(lock_fd)
+
+
 def _bd_show_identifies(result, expected_id):
     """Return False on absence; require exact one-row JSON on success."""
     return _bd_show_row(result, expected_id) is not None
@@ -1737,12 +1814,7 @@ def resolve_epic(frontmatter, roadmap_path, phase_num, phase_dir, project_root, 
     if description:
         argv += ["-d", description]
     argv += ["-l", SYNC_LABEL, "--type", "epic", "--silent"]
-    result = run_bd(argv)
-    if result.returncode != 0:
-        raise RuntimeError(f"bd create (epic) failed: {result.stderr.strip()}")
-    epic_id = result.stdout.strip() if isinstance(result.stdout, str) else ""
-    if not SAFE_BD_ID_RE.fullmatch(epic_id):
-        raise EpicAuthorityError(f"bd create (epic) returned unsafe id: {epic_id!r}")
+    epic_id = ensure_issue(f"gsd-key:{phase_num}-epic".lower(), argv, "epic")
     return epic_id, True, stale_epic_id
 
 
@@ -1801,12 +1873,7 @@ def resolve_issue(task, epic_id, ordinal_prefix, task_index):
     if task["acceptance_criteria"]:
         argv += ["--acceptance", task["acceptance_criteria"]]
     argv += ["-l", SYNC_LABEL, "--type", "task", "--parent", epic_id, "--silent"]
-    result = run_bd(argv)
-    if result.returncode != 0:
-        raise RuntimeError(f"bd create (task) failed: {result.stderr.strip()}")
-    issue_id = result.stdout.strip() if isinstance(result.stdout, str) else ""
-    if not SAFE_BD_ID_RE.fullmatch(issue_id):
-        raise RuntimeError(f"bd create (task) returned unsafe id: {issue_id!r}")
+    issue_id = ensure_issue(f"gsd-key:{ordinal_prefix}-t{task_index}".lower(), argv, "task")
     return issue_id, True, False
 
 
@@ -2659,6 +2726,13 @@ def create_issues(plan_arg, allow_strip=True):
                 issue_id, created, divergent = resolve_issue(
                     task, epic_id, ordinal_prefix, i
                 )
+                # ensure_issue adopts by key+title; a duplicate task name at a
+                # shifted ordinal can match an issue another task here owns.
+                if issue_id in task_ids or issue_id in stored.values():
+                    raise RuntimeError(
+                        f"task {task['name']!r} resolved to {issue_id}, already bound "
+                        f"in {plan_path.name} -- rename the duplicate task"
+                    )
             if created:
                 created_count += 1
                 if task["beads_id"]:

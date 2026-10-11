@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -61,6 +62,42 @@ def _completed(returncode=0, stdout="", stderr=""):
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
+def _key_aware(side_effect):
+    """Give a create-capable bd fake the label lookup ensure_issue (RS3)
+    performs before and after every create: `bd list -l gsd-key:...` is
+    answered from the creates this fake has handed back, with a child
+    inheriting its parent's labels as real bd does. Every other call passes
+    through unchanged."""
+    rows = {}
+
+    def _wrapped(argv, **kwargs):
+        if argv[:2] == ["bd", "list"] and "-l" in argv and argv[argv.index("-l") + 1].startswith("gsd-key:"):
+            key = argv[argv.index("-l") + 1]
+            return _completed(0, stdout=json.dumps([r for r in rows.values() if key in r["labels"]]) + "\n")
+        result = side_effect(argv, **kwargs)
+        if argv[:2] == ["bd", "create"] and result.returncode == 0 and isinstance(result.stdout, str):
+            labels = set()
+            for i, arg in enumerate(argv[:-1]):
+                if arg in ("-l", "--labels"):
+                    labels.update(argv[i + 1].split(","))
+            type_flag = "--type" if "--type" in argv else "-t"
+            parent = argv[argv.index("--parent") + 1] if "--parent" in argv else None
+            if parent in rows:
+                labels |= set(rows[parent]["labels"])
+            issue_id = result.stdout.strip()
+            rows[issue_id] = {
+                "id": issue_id, "status": "open", "created_at": "2026-01-01T00:00:00Z",
+                "title": argv[argv.index("--title") + 1] if "--title" in argv else argv[2],
+                "issue_type": argv[argv.index(type_flag) + 1] if type_flag in argv else "task",
+                "labels": sorted(labels),
+            }
+        if argv[:2] == ["bd", "close"] and len(argv) > 2 and argv[2] in rows and result.returncode == 0:
+            rows[argv[2]]["status"] = "closed"
+        return result
+
+    return _wrapped
+
+
 def _make_bd_side_effect():
     """A subprocess.run stand-in that answers every bd subcommand this
     module's tests exercise: list/show succeed, create hands back a fresh
@@ -84,7 +121,7 @@ def _make_bd_side_effect():
             return _completed(0)
         return _completed(1, stderr=f"unexpected bd invocation: {argv}")
 
-    return _side_effect
+    return _key_aware(_side_effect)
 
 
 def _three_task_plan_text():
@@ -2409,7 +2446,7 @@ class TestTransientBdShow(unittest.TestCase):
                 return show_result
             return _make_bd_side_effect()(argv, **kwargs)
 
-        return _side_effect
+        return _key_aware(_side_effect)
 
     def _run(self, plan_text, show_result):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2490,7 +2527,7 @@ class TestCreateIssuesCrashSafety(unittest.TestCase):
                 return _completed(0, stdout="[]\n")
             return _completed(0)
 
-        return state, _side_effect
+        return state, _key_aware(_side_effect)
 
     def _run(self, plan_copy, side_effect):
         with mock.patch("subprocess.run", side_effect=side_effect), \
@@ -2521,7 +2558,7 @@ class TestCreateIssuesCrashSafety(unittest.TestCase):
                 return _completed(0, stdout="[]\n")
             return _completed(0)
 
-        return _side_effect
+        return _key_aware(_side_effect)
 
     def test_error_mid_run_persists_created_ids_and_rerun_does_not_duplicate(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -2990,7 +3027,10 @@ class TestIdentityBinding(unittest.TestCase):
                 # then the final write (native tracker-id).
                 self.assertEqual(len(self._write_calls(path_open)), 2)
                 self.assertEqual(len(task_creates), 1)
-                self.assertEqual(task_creates[0][-5:], ["--type", "task", "--parent", "mock-e1", "--silent"])
+                self.assertEqual(
+                    task_creates[0][-7:],
+                    ["--type", "task", "--parent", "mock-e1", "--silent", "-l", "gsd-key:01-01-t1"],
+                )
 
     def test_newly_created_identity_second_pass_is_byte_create_update_write_noop(self):
         plan_text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
@@ -3720,7 +3760,7 @@ class TestIdempotency(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             plan_text = (FIXTURES_DIR / "plan-placeholder.md").read_text(encoding="utf-8")
             plan_copy = _write_plan_workspace(Path(tmp), plan_text)
-            with mock.patch("subprocess.run", side_effect=_side_effect) as mock_run:
+            with mock.patch("subprocess.run", side_effect=_key_aware(_side_effect)) as mock_run:
                 with contextlib.redirect_stdout(captured):
                     exit_code = sync.create_issues(str(plan_copy))
             new_text = plan_copy.read_text(encoding="utf-8")
@@ -3808,7 +3848,7 @@ class TestIdempotency(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             plan_text = (FIXTURES_DIR / "plan-synced.md").read_text(encoding="utf-8")
             plan_copy = _write_plan_workspace(Path(tmp), plan_text)
-            with mock.patch("subprocess.run", side_effect=_side_effect):
+            with mock.patch("subprocess.run", side_effect=_key_aware(_side_effect)):
                 with contextlib.redirect_stdout(captured):
                     exit_code = sync.create_issues(str(plan_copy))
             new_text = plan_copy.read_text(encoding="utf-8")
@@ -3905,7 +3945,7 @@ class TestIdempotency(unittest.TestCase):
             plan_copy = _write_plan_workspace(Path(tmp), plan_text)
             before = plan_copy.read_bytes()
             with mock.patch.object(sync, "bd_available", return_value=True):
-                with mock.patch.object(sync, "run_bd", side_effect=_side_effect) as mock_run:
+                with mock.patch.object(sync, "run_bd", side_effect=_key_aware(_side_effect)) as mock_run:
                     exit_code = sync.create_issues(str(plan_copy))
             after = plan_copy.read_bytes()
 
@@ -4088,7 +4128,7 @@ Plan B: same shared epic as plan A, one task not yet synced.
             plan_copy = _write_plan_workspace(Path(tmp), plan_text)
             captured = io.StringIO()
             with contextlib.redirect_stdout(captured):
-                with mock.patch("subprocess.run", side_effect=_side_effect):
+                with mock.patch("subprocess.run", side_effect=_key_aware(_side_effect)):
                     exit_code = sync.create_issues(str(plan_copy))
 
         self.assertEqual(exit_code, 0)
@@ -7020,7 +7060,7 @@ class TestMigrateTodosSafety(unittest.TestCase):
                 return base(argv, **kwargs)
 
             out = io.StringIO()
-            with mock.patch("subprocess.run", side_effect=effect) as m:
+            with mock.patch("subprocess.run", side_effect=_key_aware(effect)) as m:
                 with contextlib.redirect_stdout(out):
                     rc = sync.migrate_todos(str(pending))
             creates = [c.args[0] for c in m.call_args_list if c.args[0][:2] == ["bd", "create"]]
@@ -7059,7 +7099,8 @@ class TestMigrateTodosSafety(unittest.TestCase):
         self.assertEqual(exists, [True, False])
         self.assertEqual(len(creates), 2)
         self.assertIn("Migrated 1 todo(s)", out)
-        self.assertIn("may already exist", out)
+        # RS3: the key lookup after the timeout proved bd holds no issue.
+        self.assertIn("timed out and no gsd-key:todo-", out)
 
     def test_unlink_failure_has_its_own_heading_not_bd_create_failed(self):
         real_unlink = Path.unlink
@@ -7194,7 +7235,7 @@ def _make_milestone_bd_side_effect(seed_titles=None):
             return _completed(0)
         return _completed(1, stderr=f"unexpected bd invocation: {argv}")
 
-    return _side_effect
+    return _key_aware(_side_effect)
 
 
 def _write_milestone_workspace(
@@ -10275,10 +10316,12 @@ class TestParserNits27(unittest.TestCase):
 
     @mock.patch("subprocess.run")
     def test_multi_area_becomes_one_label_per_area(self, mock_run):
-        mock_run.side_effect = _make_bd_side_effect()
         for raw, want in (("a,b", "area-a,area-b"), ("a, b", "area-a,area-b"), ("sync", "area-sync")):
             with self.subTest(raw=raw):
                 mock_run.reset_mock()
+                # Fresh bd per case: the same todo file would otherwise be
+                # adopted by its gsd-key label instead of created (RS3).
+                mock_run.side_effect = _make_bd_side_effect()
                 with tempfile.TemporaryDirectory() as tmp:
                     pending = _write_todo_pending_workspace(Path(tmp))
                     (pending / "t.md").write_text(
@@ -10711,7 +10754,9 @@ class TestPersistIdentityFailure(unittest.TestCase):
         self.assertIn("mock-e1.4", state)
 
     def test_rerun_after_persist_failure_leaves_one_open_issue_per_task(self):
-        """The stranded issue is closed by the orphan sweep on the rerun."""
+        """RS3 (gsd-beads-cjbc.44): the rerun adopts the stranded issue by its
+        gsd-key label instead of creating a duplicate the orphan sweep then
+        has to close."""
         children, created = {}, {"n": 0}
 
         def bd(argv, **kwargs):
@@ -10746,13 +10791,453 @@ class TestPersistIdentityFailure(unittest.TestCase):
             quiet = contextlib.ExitStack()
             quiet.enter_context(contextlib.redirect_stdout(io.StringIO()))
             quiet.enter_context(contextlib.redirect_stderr(io.StringIO()))
-            with quiet, mock.patch("subprocess.run", side_effect=bd):
+            with quiet, mock.patch("subprocess.run", side_effect=_key_aware(bd)):
                 with mock.patch.object(sync, "_atomic_write_text", side_effect=flaky):
                     self.assertEqual(sync.create_issues(str(plan)), 1)
                 self.assertEqual(sync.create_issues(str(plan)), 0)
         open_ids = sorted(i for i, c in children.items() if c["child"] and c["status"] == "open")
         self.assertEqual(len(open_ids), 3, children)
-        self.assertEqual(children["mock-e1.3"]["status"], "closed")
+        self.assertEqual(created["n"], 4)  # epic + 3 tasks, nothing recreated
+        self.assertEqual(children["mock-e1.3"]["status"], "open")
+
+
+class _KeyedFakeBd:
+    """Stateful subprocess.run stand-in modelling the bd behaviour
+    ensure_issue relies on, as observed on a scratch bd 1.3.1 db (R0):
+
+        bd create "Epic" -l gsd-sync,gsd-key:01-epic --type epic --silent -> r0-rv1
+        bd create "rep" -l gsd-sync --parent r0-rv1 -l gsd-key:01-02-t2 ... -> r0-rv1.1
+        bd list -l gsd-key:01-epic --all -n 0 --json
+          -> r0-rv1.1 task [gsd-key:01-02-t2, gsd-key:01-epic, gsd-sync]
+             r0-rv1   epic [gsd-key:01-epic, gsd-sync]
+
+    i.e. repeated -l flags accumulate, a child inherits its parent's labels,
+    `list -l` is an exact, case-sensitive label match, `--all` includes
+    closed rows, and created_at has one-second granularity (two creates in
+    the same second tie)."""
+
+    def __init__(self, create_delay=0.0):
+        self.rows = {}
+        self.creates = []
+        self.closes = []
+        self.create_delay = create_delay
+        self.fail_create_with = None  # exception raised AFTER the row exists
+        self._n = 0
+        self._mutex = threading.Lock()
+
+    def add(self, issue_id, kind, labels, status="open", created_at="2026-01-01T00:00:00Z",
+            parent=None, title="T"):
+        self.rows[issue_id] = {
+            "id": issue_id, "issue_type": kind, "labels": sorted(labels), "title": title,
+            "status": status, "created_at": created_at, "parent": parent,
+        }
+
+    def __call__(self, argv, **kwargs):
+        if argv[:2] == ["bd", "create"]:
+            return self._create(argv)
+        if argv[:2] == ["bd", "list"]:
+            with self._mutex:
+                rows = list(self.rows.values())
+            if "-l" in argv:
+                label = argv[argv.index("-l") + 1]
+                rows = [r for r in rows if label in r["labels"]]
+            if "--id" in argv:
+                ids = argv[argv.index("--id") + 1].split(",")
+                rows = [r for r in rows if r["id"] in ids]
+            if "--parent" in argv:
+                parent = argv[argv.index("--parent") + 1]
+                rows = [r for r in rows if r["parent"] == parent]
+            if "--all" not in argv:
+                rows = [r for r in rows if r["status"] != "closed"]
+            if "-n" in argv and argv[argv.index("-n") + 1] == "1":
+                rows = rows[:1]
+            return _completed(0, stdout=json.dumps(rows) + "\n")
+        if argv[:2] == ["bd", "show"]:
+            row = self.rows.get(argv[2])
+            if row is None:
+                return _completed(1, stderr=f"Issue {argv[2]} not found")
+            return _completed(0, stdout=json.dumps([row]) + "\n")
+        if argv[:2] == ["bd", "close"]:
+            self.closes.append(argv[2])
+            self.rows[argv[2]]["status"] = "closed"
+            return _completed(0)
+        if argv[:3] == ["bd", "dep", "add"]:
+            return _completed(0)
+        return _completed(1, stderr=f"unexpected bd invocation: {argv}")
+
+    def _create(self, argv):
+        labels = []
+        for i, arg in enumerate(argv):
+            if arg in ("-l", "--labels"):
+                labels.extend(argv[i + 1].split(","))
+        kind = argv[argv.index("--type") + 1] if "--type" in argv else argv[argv.index("-t") + 1]
+        parent = argv[argv.index("--parent") + 1] if "--parent" in argv else None
+        if self.create_delay:
+            time.sleep(self.create_delay)
+        with self._mutex:
+            self._n += 1
+            issue_id = f"{parent}.{self._n}" if parent else f"fk-{self._n:03d}"
+            if parent:
+                labels += self.rows[parent]["labels"]
+            title = argv[argv.index("--title") + 1] if "--title" in argv else argv[2]
+            self.add(issue_id, kind, set(labels), parent=parent, title=title)
+            self.creates.append(issue_id)
+        if self.fail_create_with is not None:
+            raise self.fail_create_with
+        return _completed(0, stdout=f"{issue_id}\n")
+
+
+class TestEnsureIssue(unittest.TestCase):
+    """RS3 (gsd-beads-cjbc.44): every bd create goes through ensure_issue,
+    which looks the stable `gsd-key:` label up first, so a create whose id
+    was never persisted (kill, timeout, failed write) is adopted on rerun
+    instead of duplicated."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        (self.root / ".planning").mkdir()
+        sync._BD_CWD = str(self.root)
+
+    def tearDown(self):
+        sync._BD_CWD = None
+        self._tmp.cleanup()
+
+    def _run(self, fake, key="gsd-key:01-01-t1", kind="task", argv=None):
+        argv = argv or ["bd", "create", "T", "-l", sync.SYNC_LABEL, "--type", kind, "--silent"]
+        with mock.patch.object(sync.subprocess, "run", side_effect=fake):
+            return sync.ensure_issue(key, argv, kind)
+
+    def test_no_match_creates_once_with_key_label(self):
+        fake = _KeyedFakeBd()
+        issue_id = self._run(fake)
+        self.assertEqual(fake.creates, [issue_id])
+        self.assertIn("gsd-key:01-01-t1", fake.rows[issue_id]["labels"])
+        self.assertIn(sync.SYNC_LABEL, fake.rows[issue_id]["labels"])
+
+    def test_open_match_is_adopted_without_create(self):
+        fake = _KeyedFakeBd()
+        fake.add("old-1", "task", {"gsd-key:01-01-t1"})
+        self.assertEqual(self._run(fake), "old-1")
+        self.assertEqual(fake.creates, [])
+
+    def test_closed_match_is_not_reused(self):
+        fake = _KeyedFakeBd()
+        fake.add("old-1", "task", {"gsd-key:01-01-t1"}, status="closed")
+        issue_id = self._run(fake)
+        self.assertNotEqual(issue_id, "old-1")
+        self.assertEqual(fake.creates, [issue_id])
+
+    def test_child_inheriting_epic_key_is_neither_adopted_nor_closed(self):
+        fake = _KeyedFakeBd()
+        fake.add("ep-1.1", "task", {"gsd-key:01-epic", "gsd-key:01-01-t1"}, parent="ep-1")
+        issue_id = self._run(fake, key="gsd-key:01-epic", kind="epic")
+        self.assertEqual(fake.creates, [issue_id])
+        self.assertEqual(fake.closes, [])
+        self.assertEqual(fake.rows["ep-1.1"]["status"], "open")
+
+    def test_two_open_matches_with_equal_created_at_pick_min_id_and_close_nothing(self):
+        fake = _KeyedFakeBd()
+        fake.add("zz-9", "task", {"gsd-key:01-01-t1"})
+        fake.add("aa-1", "task", {"gsd-key:01-01-t1"})
+        self.assertEqual(self._run(fake), "aa-1")
+        self.assertEqual(fake.closes, [])
+
+    def test_older_row_appearing_after_create_wins_and_own_row_is_closed(self):
+        """A lockless racer (another host) created first: the re-query after
+        our create sees both; the older one wins and only ours is closed."""
+        fake = _KeyedFakeBd()
+        real_create = fake._create
+
+        def racing_create(argv):
+            fake.add("racer-1", "task", {"gsd-key:01-01-t1"}, created_at="2025-12-31T23:59:59Z")
+            return real_create(argv)
+
+        fake._create = racing_create
+        self.assertEqual(self._run(fake), "racer-1")
+        self.assertEqual(fake.closes, fake.creates)
+        self.assertEqual(fake.rows["racer-1"]["status"], "open")
+
+    def test_create_timeout_adopts_the_row_bd_wrote(self):
+        fake = _KeyedFakeBd()
+        fake.fail_create_with = subprocess.TimeoutExpired("bd", 15)
+        issue_id = self._run(fake)
+        self.assertEqual(fake.creates, [issue_id])
+
+    def test_create_timeout_without_row_raises_transient(self):
+        fake = _KeyedFakeBd()
+
+        def timeout_create(argv):
+            raise subprocess.TimeoutExpired("bd", 15)
+
+        fake._create = timeout_create
+        with self.assertRaises(sync.BdTransientError):
+            self._run(fake)
+
+    def test_failed_lookup_fails_loud_and_never_creates(self):
+        fake = _KeyedFakeBd()
+
+        def side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(1, stderr="database locked")
+            return fake(argv, **kwargs)
+
+        with mock.patch.object(sync.subprocess, "run", side_effect=side_effect):
+            with self.assertRaises(sync.BdTransientError):
+                sync.ensure_issue("gsd-key:01-01-t1", ["bd", "create", "T", "--type", "task"], "task")
+        self.assertEqual(fake.creates, [])
+
+    def test_created_id_missing_from_requery_fails_loud(self):
+        fake = _KeyedFakeBd()
+
+        def side_effect(argv, **kwargs):
+            if argv[:2] == ["bd", "list"]:
+                return _completed(0, stdout="[]\n")
+            return fake(argv, **kwargs)
+
+        with mock.patch.object(sync.subprocess, "run", side_effect=side_effect):
+            with self.assertRaises(sync.BdTransientError):
+                sync.ensure_issue("gsd-key:01-01-t1", ["bd", "create", "T", "--type", "task"], "task")
+
+    def test_concurrent_creators_yield_one_open_issue(self):
+        fake = _KeyedFakeBd(create_delay=0.05)
+        results = []
+        with mock.patch.object(sync.subprocess, "run", side_effect=fake):
+            threads = [
+                threading.Thread(
+                    target=lambda: results.append(
+                        sync.ensure_issue(
+                            "gsd-key:01-01-t1", ["bd", "create", "T", "--type", "task"], "task"
+                        )
+                    )
+                )
+                for _ in range(4)
+            ]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+        self.assertEqual(len(results), 4)
+        self.assertEqual(len(set(results)), 1)
+        self.assertEqual(len(fake.creates), 1)
+        self.assertEqual([r for r in fake.rows.values() if r["status"] != "closed"], [fake.rows[results[0]]])
+
+
+class TestIdempotentCreateIssues(unittest.TestCase):
+    """RS3 (gsd-beads-cjbc.44) through the public create_issues /
+    migrate_todos entry points."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self._tmp.name)
+        sync._BD_CWD = str(self.root)
+
+    def tearDown(self):
+        sync._BD_CWD = None
+        self._tmp.cleanup()
+
+    def _sync(self, fake, plan):
+        with mock.patch.object(sync.subprocess, "run", side_effect=fake), \
+             contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return sync.create_issues(str(plan))
+
+    def test_kill_between_create_and_persist_then_rerun_creates_nothing_new(self):
+        plan = _write_plan_workspace(self.root, _three_task_plan_text(), with_state=True)
+        fake = _KeyedFakeBd()
+        real_write = sync._atomic_write_text
+        calls = {"n": 0}
+
+        def killed_on_third_write(path, content):
+            # Dies on the 3rd identity write: epic + task 1 persisted, task 2
+            # exists in bd only -- the kill window this ticket closes.
+            calls["n"] += 1
+            if calls["n"] == 3:
+                raise KeyboardInterrupt
+            return real_write(path, content)
+
+        with mock.patch.object(sync, "_atomic_write_text", side_effect=killed_on_third_write):
+            with self.assertRaises(KeyboardInterrupt):
+                self._sync(fake, plan)
+        self.assertEqual(len(fake.creates), 3)  # epic, t1, t2
+        self.assertEqual(self._sync(fake, plan), 0)
+        self.assertEqual(len(fake.creates), 4)  # only t3 is new
+        bound = [m.group(1).strip() for m in sync.BEADS_ID_RE.finditer(plan.read_text(encoding="utf-8"))]
+        self.assertEqual(len(set(bound)), 3)
+        self.assertEqual(
+            sorted(r["id"] for r in fake.rows.values() if r["issue_type"] == "task"), sorted(bound)
+        )
+
+    def test_stranded_epic_is_adopted_on_rerun(self):
+        plan = _write_plan_workspace(self.root, _three_task_plan_text(), with_state=True)
+        fake = _KeyedFakeBd()
+        fake.add("strand-1", "epic", {sync.SYNC_LABEL, "gsd-key:01-epic"}, title="Phase 1: Substrate")
+        self.assertEqual(self._sync(fake, plan), 0)
+        self.assertIn("beads_epic: strand-1", plan.read_text(encoding="utf-8"))
+        self.assertEqual([i for i in fake.creates if fake.rows[i]["issue_type"] == "epic"], [])
+
+    def test_closed_epic_is_not_reused(self):
+        plan = _write_plan_workspace(self.root, _three_task_plan_text(), with_state=True)
+        fake = _KeyedFakeBd()
+        fake.add("done-1", "epic", {sync.SYNC_LABEL, "gsd-key:01-epic"}, status="closed", title="Phase 1: Substrate")
+        self.assertEqual(self._sync(fake, plan), 0)
+        self.assertNotIn("beads_epic: done-1", plan.read_text(encoding="utf-8"))
+        self.assertEqual(len([i for i in fake.creates if fake.rows[i]["issue_type"] == "epic"]), 1)
+
+    def test_task_inserted_above_bound_tasks_never_shares_their_issue(self):
+        """t<ordinal> keys shift when a task is inserted above bound ones: the
+        new task must not adopt the issue a bound task already owns."""
+        plan = _write_plan_workspace(self.root, _three_task_plan_text(), with_state=True)
+        fake = _KeyedFakeBd()
+        self.assertEqual(self._sync(fake, plan), 0)
+        text = plan.read_text(encoding="utf-8")
+        new_task = (
+            '<task type="auto">\n  <name>Task 0: Inserted</name>\n'
+            "  <files>src/example.py</files>\n  <action>New.</action>\n"
+            "  <verify>true</verify>\n  <done>Done.</done>\n</task>\n\n"
+        )
+        first = text.index("<task ")
+        plan.write_text(text[:first] + new_task + text[first:], encoding="utf-8")
+        self._sync(fake, plan)
+        bound = [m.group(1).strip() for m in sync.BEADS_ID_RE.finditer(plan.read_text(encoding="utf-8"))]
+        self.assertEqual(len(bound), len(set(bound)), bound)
+        self.assertEqual(len(bound), 4, bound)
+
+    def test_task_replaced_at_same_ordinal_gets_a_fresh_issue(self):
+        """Deleting task 1 and adding a different task in its place frees the
+        old issue (unbound, still labelled t1): the new task must not adopt
+        it and run the old task's content; the orphan sweep closes it."""
+        plan = _write_plan_workspace(self.root, _three_task_plan_text(), with_state=True)
+        fake = _KeyedFakeBd()
+        self.assertEqual(self._sync(fake, plan), 0)
+        text = plan.read_text(encoding="utf-8")
+        old_id = sync.BEADS_ID_RE.search(text).group(1).strip()
+        start, end = text.index("<task "), text.index("</task>") + len("</task>")
+        replacement = (
+            '<task type="auto">\n  <name>Task 1: Something else</name>\n'
+            "  <files>src/example.py</files>\n  <action>New.</action>\n"
+            "  <verify>true</verify>\n  <done>Done.</done>\n</task>"
+        )
+        plan.write_text(text[:start] + replacement + text[end:], encoding="utf-8")
+        self.assertEqual(self._sync(fake, plan), 0)
+        bound = [m.group(1).strip() for m in sync.BEADS_ID_RE.finditer(plan.read_text(encoding="utf-8"))]
+        self.assertNotIn(old_id, bound)
+        self.assertEqual(len(set(bound)), 3)
+        self.assertEqual(fake.rows[old_id]["status"], "closed")
+
+    def test_adopted_issue_already_bound_in_plan_blocks_loudly(self):
+        """Backstop: a duplicate task name inserted at a shifted ordinal
+        matches a bound task's key and title; binding one issue to two
+        tasks must stop the sync, never write the plan."""
+        plan = _write_plan_workspace(self.root, _three_task_plan_text(), with_state=True)
+        fake = _KeyedFakeBd()
+        self.assertEqual(self._sync(fake, plan), 0)
+        text = plan.read_text(encoding="utf-8")
+        second = text.index("<task ", text.index("</task>"))
+        dup = (
+            '<task type="auto">\n  <name>Task 2: Do thing 2</name>\n'
+            "  <files>src/example.py</files>\n  <action>Dup.</action>\n"
+            "  <verify>true</verify>\n  <done>Done.</done>\n</task>\n\n"
+        )
+        plan.write_text(text[:second] + dup + text[second:], encoding="utf-8")
+        before = plan.read_bytes()
+        self.assertEqual(self._sync(fake, plan), 0)  # fail-open notice path
+        self.assertEqual(plan.read_bytes(), before)
+        self.assertIn("already bound", (self.root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+    def test_migrate_todos_ambiguous_timeout_is_adopted_in_the_same_run(self):
+        pending = _write_todo_pending_workspace(self.root)
+        todo = _write_fixture_todo(pending, "todo-wellformed.md")
+        fake = _KeyedFakeBd()
+        fake.fail_create_with = subprocess.TimeoutExpired("bd", 15)
+        out = io.StringIO()
+        with mock.patch.object(sync.subprocess, "run", side_effect=fake), contextlib.redirect_stdout(out):
+            sync.migrate_todos(str(pending))
+        self.assertEqual(len(fake.creates), 1)
+        self.assertFalse(todo.exists(), out.getvalue())
+        key = [l for l in fake.rows[fake.creates[0]]["labels"] if l.startswith("gsd-key:todo-")]
+        self.assertEqual(len(key), 1)
+        self.assertRegex(key[0], r"^gsd-key:todo-[0-9a-f]{12}$")
+
+    def test_migrate_todos_rerun_after_undeleted_file_adopts(self):
+        pending = _write_todo_pending_workspace(self.root)
+        _write_fixture_todo(pending, "todo-wellformed.md")
+        fake = _KeyedFakeBd()
+        with mock.patch.object(sync.subprocess, "run", side_effect=fake), \
+             mock.patch.object(Path, "unlink", side_effect=OSError("busy")), \
+             contextlib.redirect_stdout(io.StringIO()):
+            sync.migrate_todos(str(pending))
+        with mock.patch.object(sync.subprocess, "run", side_effect=fake), \
+             contextlib.redirect_stdout(io.StringIO()):
+            sync.migrate_todos(str(pending))
+        self.assertEqual(len(fake.creates), 1)
+
+    def test_milestone_epic_key_adopts_stranded_epic(self):
+        _, dirs = _write_milestone_workspace(
+            self.root, ["01-substrate"], milestone="v1.0", milestone_name="core mvp", epic_per="milestone"
+        )
+        plan = dirs["01-substrate"] / "01-01-PLAN.md"
+        plan.write_text(_three_task_plan_text(), encoding="utf-8")
+        fake = _KeyedFakeBd()
+        fake.add("ms-strand", "epic", {sync.SYNC_LABEL, "gsd-key:milestone-v1.0-core-mvp"},
+                 title="Milestone v1.0: core mvp")
+        self.assertEqual(self._sync(fake, plan), 0)
+        self.assertIn("beads_epic: ms-strand", plan.read_text(encoding="utf-8"))
+        self.assertEqual([i for i in fake.creates if fake.rows[i]["issue_type"] == "epic"], [])
+
+    def test_closed_milestone_candidate_with_matching_title_is_not_reused(self):
+        _, dirs = _write_milestone_workspace(
+            self.root, ["01-substrate", "03-enforcement"], milestone="v1.0",
+            milestone_name="core", epic_per="milestone",
+        )
+        (dirs["01-substrate"] / "01-01-PLAN.md").write_text(
+            _three_task_plan_text().replace("plan: 01\n", "plan: 01\nbeads_epic: ms-old\n"),
+            encoding="utf-8",
+        )
+        plan = dirs["03-enforcement"] / "03-01-PLAN.md"
+        plan.write_text(_three_task_plan_text().replace("01-substrate", "03-enforcement"), encoding="utf-8")
+        fake = _KeyedFakeBd()
+        fake.add("ms-old", "epic", {sync.SYNC_LABEL}, status="closed", title="Milestone v1.0: core")
+        self.assertEqual(self._sync(fake, plan), 0)
+        self.assertNotIn("beads_epic: ms-old", plan.read_text(encoding="utf-8"))
+
+    @unittest.skipUnless(_bd_on_path(), "bd binary not found on PATH")
+    def test_real_bd_lost_identity_rerun_creates_nothing(self):
+        """Against a scratch bd db: restore the plan to its never-synced text
+        (the state a kill before any persist leaves) and rerun -- bd's row
+        count must not change and the same ids come back."""
+        plan = _write_plan_workspace(self.root, _three_task_plan_text(), with_state=True)
+        original = plan.read_text(encoding="utf-8")
+        init = subprocess.run(
+            ["bd", "init", "--prefix", "idem", "-q"], cwd=self.root,
+            capture_output=True, text=True, timeout=60,
+        )
+        self.assertEqual(init.returncode, 0, init.stderr)
+
+        def run():
+            r = subprocess.run(
+                [sys.executable, str(Path(sync.__file__)), "create-issues", str(plan)],
+                cwd=self.root, capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            text = plan.read_text(encoding="utf-8")
+            return sync.BEADS_EPIC_RE.search(text).group(1), sorted(
+                m.group(1).strip() for m in sync.BEADS_ID_RE.finditer(text)
+            )
+
+        def count():
+            r = subprocess.run(
+                ["bd", "list", "--all", "-n", "0", "--json"], cwd=self.root,
+                capture_output=True, text=True, timeout=60,
+            )
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return len(json.loads(r.stdout))
+
+        first = run()
+        self.assertEqual(len(first[1]), 3)
+        rows = count()
+        plan.write_text(original, encoding="utf-8")
+        self.assertEqual(run(), first)
+        self.assertEqual(count(), rows)
 
 
 if __name__ == "__main__":
