@@ -1256,10 +1256,8 @@ def apply_dependency_edges(edges):
     for blocked_id, blocker_id in edges:
         result = run_bd(["bd", "dep", "add", blocked_id, "--depends-on", blocker_id])
         if result.returncode != 0:
-            print(
-                f"dependency edge failed: {blocked_id} depends-on {blocker_id}: "
-                f"{result.stderr.strip()}"
-            )
+            print(f"dependency edge failed: {blocked_id} depends-on {blocker_id}")
+            print(f"dependency edge failed: {result.stderr.strip()}", file=sys.stderr)
 
 
 def get_phase_header(roadmap_path, phase_num):
@@ -1331,15 +1329,15 @@ SYNC_MODE_VALUES = frozenset({"authoritative", "mirror"})
 
 
 def _sanitize_notice_value(value, max_len=80):
-    """Bound and single-line an untrusted config value before it enters
+    """Bound and single-line an untrusted value before it enters
     agent-readable `additionalContext` (T-17-03-02): drop every
     non-printable character -- `str.isprintable()` is False for both
-    control characters and newlines -- and truncate to `max_len`, so a
-    crafted config value cannot inject additional lines or fabricate
-    structure into the notice. Non-string values are stringified first: one
-    code path for every JSON type the key could hold."""
+    control characters and newlines -- plus `<`, `>` and backticks
+    (gsd-beads-cjbc.68: a one-line `</beads_status>` still fabricates
+    structure), and truncate to `max_len`. Non-string values are
+    stringified first: one code path for every JSON type the key could hold."""
     text = value if isinstance(value, str) else str(value)
-    text = "".join(ch for ch in text if ch.isprintable())
+    text = "".join(ch for ch in text if ch.isprintable() and ch not in "<>`")
     return text[:max_len]
 
 
@@ -1691,13 +1689,15 @@ def resolve_milestone_epic(project_root):
 
     if closed_matches:
         print(
-            f"divergence: closed epic {closed_matches[0]} matched title {title!r} but is "
+            f"divergence: closed epic {closed_matches[0]} matched title "
+            f"{_sanitize_notice_value(title, 200)!r} but is "
             "ignored (a closed epic is never reused) -- creating a new epic"
         )
     elif candidate_ids:
         print(
             f"divergence: {len(candidate_ids)} existing epic(s) found for this milestone but "
-            f"none matched title {title!r} -- creating a new epic (STATE.md milestone/"
+            f"none matched title {_sanitize_notice_value(title, 200)!r} -- creating a new "
+            "epic (STATE.md milestone/"
             "milestone_name may have changed)"
         )
 
@@ -2520,7 +2520,8 @@ def reconcile_stale_closed(phase_dir_arg):
         reason = f"phase-wide reconciliation: {phase_dir.name}"
         result = run_bd(["bd", "close", *to_close, "--reason", reason])
         if result.returncode != 0:
-            print(f"reconcile-stale-closed: bd close failed: {result.stderr.strip()}")
+            print("reconcile-stale-closed: bd close failed (details on stderr)")
+            print(f"reconcile-stale-closed: bd close failed: {result.stderr.strip()}", file=sys.stderr)
 
     # 260820-j6g (bd gsd-beads-72u): a second, separately-reasoned close call
     # for standalone issues named only via `resolves_issues:` markers -- a
@@ -2540,10 +2541,12 @@ def reconcile_stale_closed(phase_dir_arg):
         marker_reason = f"resolves_issues marker: {phase_dir.name}"
         marker_result = run_bd(["bd", "close", *marked_to_close, "--reason", marker_reason])
         if marker_result.returncode != 0:
-            print(f"reconcile-stale-closed: bd close failed: {marker_result.stderr.strip()}")
+            print("reconcile-stale-closed: bd close failed (details on stderr)")
+            print(f"reconcile-stale-closed: bd close failed: {marker_result.stderr.strip()}", file=sys.stderr)
 
     print(
-        f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) in {phase_dir.name}; "
+        f"Closed {len(to_close)} issue(s) across {len(plan_ids)} plan(s) in "
+        f"{_sanitize_notice_value(phase_dir.name)}; "
         f"skipped {skipped_total} task(s) (no beads-id or plan not complete); "
         f"closed {len(marked_to_close)} marker issue(s), rejected {rejected}"
     )
@@ -2856,7 +2859,7 @@ def create_issues(plan_arg, allow_strip=True):
         return 0
 
     for name, missing_id in divergences:
-        print(f"divergence: task {name!r} beads-id {missing_id} not found in bd")
+        print(f"divergence: task {_sanitize_notice_value(name, 200)!r} beads-id {missing_id} not found in bd")
 
     # GH#7: an all-diverged run creates and binds nothing -- the per-task
     # lines above read as noise, not as "zero issues were synced"; say so
@@ -2915,13 +2918,17 @@ def create_issues(plan_arg, allow_strip=True):
             # prints on a non-zero return code; this one silently swallowed
             # a failed orphan close.
             if close_result.returncode != 0:
-                print(f"create-issues: orphan close failed for {orphan_id}: {close_result.stderr.strip()}")
+                print(f"create-issues: orphan close failed for {_sanitize_notice_value(orphan_id)} (details on stderr)")
+                print(f"create-issues: orphan close failed: {close_result.stderr.strip()}", file=sys.stderr)
 
     prereq_last_ids = []
     for prereq_id in parse_depends_on(frontmatter):
         last_id = resolve_prereq_last_task_id(plan_path.parent, prereq_id)
         if last_id is None:
-            print(f"prerequisite plan {prereq_id} not yet synced -- skipping cross-plan edge")
+            print(
+                f"prerequisite plan {_sanitize_notice_value(prereq_id)} not yet synced -- "
+                "skipping cross-plan edge"
+            )
         else:
             prereq_last_ids.append(last_id)
     # Rows already carry dependencies[]: skip edges bd has, so an unchanged
@@ -3195,7 +3202,8 @@ def beads_recall(phase_dir_arg):
 
     if bd_error is not None:
         _write_beads_recall_failure(phase_dir, bd_error)
-        print(f"BEADS-RECALL.md recall failed: {bd_error}")
+        print("BEADS-RECALL.md recall failed: bd list failed (details on stderr)")
+        print(f"BEADS-RECALL.md recall failed: {bd_error}", file=sys.stderr)
         return 0
 
     # Two-technique scope match (D-01 revised): reverse <beads-id> lookup
@@ -3217,7 +3225,8 @@ def beads_recall(phase_dir_arg):
     except (OSError, ValueError) as exc:  # PlanParseError is a ValueError
         reason = f"a plan could not be read for the file index: {exc}"
         _write_beads_recall_failure(phase_dir, reason)
-        print(f"BEADS-RECALL.md recall failed: {reason}")
+        print("BEADS-RECALL.md recall failed: a plan could not be read (details on stderr)")
+        print(f"BEADS-RECALL.md recall failed: {reason}", file=sys.stderr)
         return 0
 
     matched = []
@@ -3455,8 +3464,13 @@ def regenerate_beads_md(phase_dir_arg):
             "BEADS.md: foreign ship-gate artifact(s) rejected, gate fails closed until "
             "reviewed: " + "; ".join(rejected)
         )
-        # stdout too: lifecycle-dispatch promotes stdout into the agent's context.
-        print(message)
+        # lifecycle-dispatch promotes stdout into the agent's context, and a
+        # planted file name can carry newlines and <beads_status> tags: stdout
+        # gets a fixed sentence and a count, the names only stderr and STATE.md.
+        print(
+            f"BEADS.md: {len(rejected)} foreign ship-gate artifact(s) rejected; the gate "
+            "fails closed until they are reviewed (names on stderr and in STATE.md)"
+        )
         print(message, file=sys.stderr)
         try:
             append_state_blocker(
