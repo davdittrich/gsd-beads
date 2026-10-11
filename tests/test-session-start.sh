@@ -113,4 +113,39 @@ sys.exit(0 if timeouts and all(isinstance(v, int) and v >= 60 for v in timeouts)
 PY
 pass "case7: SessionStart hook declares an explicit timeout"
 
+# Claude Code shows exit-0 hook stderr only in its debug log; a
+# systemMessage is shown to the user.
+CONSENT_ROOT="$SCRATCH/consent-plugin"
+mkdir -p "$CONSENT_ROOT/hooks" "$CONSENT_ROOT/.agents/skills/beads"
+cp "$HOOK" "$CONSENT_ROOT/hooks/session-start.sh"
+cp "$REPO_ROOT/.agents/skills/beads/PRIME.md" "$CONSENT_ROOT/.agents/skills/beads/PRIME.md"
+CONSENT_LINE='capability-auto-install: beads needs your consent before install; run: bash /p/hooks/capability-auto-install.sh --consent beads'
+printf '%s\n' '#!/usr/bin/env bash' "echo '$CONSENT_LINE' >&2" > "$CONSENT_ROOT/hooks/capability-auto-install.sh"
+check_consent_json() {
+  python3 -I -c '
+import json, sys
+out = json.load(open(sys.argv[1]))
+message = out.get("systemMessage", "")
+assert "bash /p/hooks/capability-auto-install.sh --consent beads" in message, message
+assert "yourself" in message and "agent" in message, message
+assert out.get("stub") == sys.argv[2] or (sys.argv[2] == "" and set(out) == {"systemMessage"}), out
+' "$SCRATCH/stdout" "$1"
+}
+
+# Case 8: a consent request reaches the user as systemMessage beside bd's JSON.
+WORKDIR="$SCRATCH/case8"
+mkdir -p "$WORKDIR/.beads"
+CLAUDE_PLUGIN_ROOT="$CONSENT_ROOT" run_hook
+check_consent_json "bd prime" || fail "case8: stdout is not bd JSON plus the consent systemMessage: $(cat "$SCRATCH/stdout")"
+grep -qxF "$CONSENT_LINE" "$SCRATCH/stderr" || fail "case8: consent line no longer on stderr"
+pass "case8: consent command reaches the user as systemMessage, stdout stays one JSON object"
+
+# Case 9: without bd the consent request is still one JSON object.
+WORKDIR="$SCRATCH/case9"
+mkdir -p "$WORKDIR/.beads"
+ln -s "$(command -v python3)" "$NOBD_BIN/python3"
+PATH="$NOBD_BIN" CLAUDE_PLUGIN_ROOT="$CONSENT_ROOT" run_hook
+check_consent_json "" || fail "case9: stdout is not the consent systemMessage alone: $(cat "$SCRATCH/stdout")"
+pass "case9: consent systemMessage is emitted without bd"
+
 echo "ALL PASS"

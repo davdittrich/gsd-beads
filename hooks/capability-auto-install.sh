@@ -20,7 +20,10 @@ CAP_ID="${1:-}"
 # Defense in depth (ASVS V5): call sites only ever pass a hard-coded literal,
 # but validate the id shape gsd-core itself enforces before it reaches any
 # path construction.
-[[ "$CAP_ID" =~ ^[a-z][a-z0-9-]*$ ]] || exit 0
+if [[ ! "$CAP_ID" =~ ^[a-z][a-z0-9-]*$ ]]; then
+  [ "$CONSENT" -eq 0 ] || echo "usage: bash $0 --consent <capability-id>" >&2
+  exit 0
+fi
 
 # Resolved physical path: ownership below is a prefix test, so a cache-path
 # symlink into an arbitrary tree must not inherit the cache's trust. An
@@ -297,13 +300,20 @@ SOURCE_DIR="$SOURCE_PARENT/$CAP_ID"
 # the killed install. Unless the stable source already equals the installed
 # bundle (the install completed), it goes back, so unconsented candidate
 # bytes are never left recorded; a missing stable source just forces a
-# fresh publish below.
+# fresh publish below. Equal needs both hashes to succeed: two failures
+# print the same empty string. An empty prev means no source was recorded
+# before, so restoring it removes the stable source.
 for _leaked_prev in "$STATE_DIR/.capability-auto-install-$CAP_ID.prev."*; do
-  [ -d "$_leaked_prev/source" ] && [ ! -L "$_leaked_prev/source" ] || continue
-  if [ "$(canonical_tree_hash "$SOURCE_DIR")" != "$(canonical_tree_hash "$INSTALLED_BUNDLE")" ] \
-    || [ ! -d "$SOURCE_DIR" ]; then
+  [ -d "$_leaked_prev" ] && [ ! -L "$_leaked_prev" ] || continue
+  if [ -e "$_leaked_prev/source" ] || [ -L "$_leaked_prev/source" ]; then
+    [ -d "$_leaked_prev/source" ] && [ ! -L "$_leaked_prev/source" ] || continue
+  fi
+  if ! _source_hash="$(canonical_tree_hash "$SOURCE_DIR")" \
+    || ! _installed_hash="$(canonical_tree_hash "$INSTALLED_BUNDLE")" \
+    || [ "$_source_hash" != "$_installed_hash" ]; then
     rm -rf "$SOURCE_PARENT" 2>/dev/null
-    mv "$_leaked_prev/source" "$SOURCE_PARENT" 2>/dev/null || {
+    { [ ! -d "$_leaked_prev/source" ] && [ ! -e "$SOURCE_PARENT" ]; } \
+      || mv "$_leaked_prev/source" "$SOURCE_PARENT" 2>/dev/null || {
       echo "capability-auto-install: stale source restore failed for $CAP_ID; projection not recorded" >&2
       exit 0
     }
@@ -661,12 +671,15 @@ fi
 # on every runtime switch. An unparsable installed version fails closed.
 # At an equal version with different bytes, keep the installed bundle only
 # on positive evidence that it is the other runtime's verified projection
-# (its ledger row records these bytes, ours does not) and this plugin cache
+# (its ledger row records these bytes) and this plugin cache
 # is not newer. Cache mtime is the time the runtime extracted that plugin
 # version; the installed copy's mtime is its install time. Anything else,
 # drift included, is replaced. This narrows the ticket's "ours or older"
 # rule, which read literally never repairs drift: an install always leaves
-# the installed copy newer than the cache it came from.
+# the installed copy newer than the cache it came from. A kept bundle is still
+# set, verified and recorded for this runtime: the other runtime's install
+# and set never project this runtime's skills root.
+KEPT=0
 if [ -e "$INSTALLED_BUNDLE/capability.json" ] || [ -L "$INSTALLED_BUNDLE/capability.json" ]; then
   python3 -I - "$BUNDLE_DIR/capability.json" "$INSTALLED_BUNDLE/capability.json" \
     "$PLUGIN_ROOT/capability.json" "$LEDGER" "$ACTIVE_RUNTIME" "$SOURCE_GENERATION" \
@@ -705,7 +718,7 @@ recorders = {
     for match in map(re.compile(r"projection-v2 (claude|codex) ([0-9a-f]{64}) [0-9a-f]{64}").fullmatch, rows)
     if match and match.group(2) == installed_generation
 }
-raise SystemExit(2 if recorders and runtime not in recorders and not cache_newer else 0)
+raise SystemExit(2 if recorders - {runtime} and not cache_newer else 0)
 PY
   GUARD_STATUS=$?
   if [ "$GUARD_STATUS" -eq 1 ]; then
@@ -716,11 +729,14 @@ PY
     # plugin update, and a repeated line would teach the user to ignore it.
     KEPT_MARKER="$STATE_DIR/capability-auto-install-$CAP_ID.$ACTIVE_RUNTIME.kept"
     if [ -L "$KEPT_MARKER" ] || [ "$(cat "$KEPT_MARKER" 2>/dev/null)" != "$INSTALLED_GENERATION" ]; then
-      echo "capability-auto-install: keeping the installed $CAP_ID the other runtime verified, which differs from this older equal-version bundle on $ACTIVE_RUNTIME; projection not recorded" >&2
+      echo "capability-auto-install: keeping the installed $CAP_ID the other runtime verified, which differs from this older equal-version bundle on $ACTIVE_RUNTIME; projecting the installed bundle" >&2
       rm -f "$KEPT_MARKER" 2>/dev/null
       ( set -C; printf '%s\n' "$INSTALLED_GENERATION" > "$KEPT_MARKER" ) 2>/dev/null
     fi
-    exit 0
+    KEPT=1
+    BUNDLE_DIR="$INSTALLED_BUNDLE"
+    SOURCE_GENERATION="$INSTALLED_GENERATION"
+    ledger_has_current_row && exit 0
   elif [ "$GUARD_STATUS" -ne 0 ]; then
     echo "capability-auto-install: version check failed for $CAP_ID on $ACTIVE_RUNTIME; projection not recorded" >&2
     exit 0
@@ -736,17 +752,21 @@ fi
 # so the install must run from there -- but a failed install must not leave
 # unverified bytes recorded. Park the previous source until the install
 # outcome is known; restore_source puts it back (or removes the candidate
-# when there was none). A symlinked source is never kept or restored.
-if [ -d "$SOURCE_PARENT" ] && [ ! -L "$SOURCE_PARENT" ]; then
-  PREV_SOURCE="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.prev.XXXXXX" 2>/dev/null)" \
-    && mv "$SOURCE_PARENT" "$PREV_SOURCE/source" 2>/dev/null || {
-    echo "capability-auto-install: stable source publish failed for $CAP_ID; projection not recorded" >&2
-    exit 0
-  }
+# when there was none). A symlinked source is never kept or restored. A kept
+# bundle skips all of this: the stable source is the other runtime's.
+INSTALL_STATUS=0
+if [ "$KEPT" -eq 0 ]; then
+# The prev dir exists even with no source to park: left empty, it tells the
+# sweep that a killed holder's swapped-in candidate must go.
+PREV_SOURCE="$(mktemp -d "$STATE_DIR/.capability-auto-install-$CAP_ID.prev.XXXXXX" 2>/dev/null)" || PREV_SOURCE=""
+if [ -z "$PREV_SOURCE" ] || { [ -d "$SOURCE_PARENT" ] && [ ! -L "$SOURCE_PARENT" ] \
+  && ! mv "$SOURCE_PARENT" "$PREV_SOURCE/source" 2>/dev/null; }; then
+  echo "capability-auto-install: stable source publish failed for $CAP_ID; projection not recorded" >&2
+  exit 0
 fi
 restore_source() {
   rm -rf "$SOURCE_PARENT" 2>/dev/null
-  [ -z "$PREV_SOURCE" ] || mv "$PREV_SOURCE/source" "$SOURCE_PARENT" 2>/dev/null
+  [ ! -d "$PREV_SOURCE/source" ] || mv "$PREV_SOURCE/source" "$SOURCE_PARENT" 2>/dev/null
 }
 rm -rf "$SOURCE_PARENT" 2>/dev/null
 if [ -e "$SOURCE_PARENT" ] || [ -L "$SOURCE_PARENT" ] || ! mv "$STAGE_DIR" "$SOURCE_PARENT" 2>/dev/null; then
@@ -784,6 +804,7 @@ sys.exit(0 if isinstance(envelope, dict) and envelope.get("requiresConsent") is 
   fi
   INSTALL_STATUS=0
 fi
+fi # KEPT -eq 0
 
 # A failure after install leaves the new bundle live but unverified: disable
 # it, record that the hook did so, and name the command that undoes it. The

@@ -122,6 +122,16 @@ case "\$*" in
       exit 1
     fi
     _p="\$3"
+    # SIGKILL the lock holder (and its command-substitution subshell) mid-install.
+    if [ -n "\${STUB_KILL_INSTALL:-}" ]; then
+      _pid=\$PPID _victims=""
+      while grep -qz '^GSD_AUTO_INSTALL_LOCK_FD=' "/proc/\$_pid/environ" 2>/dev/null; do
+        _victims="\$_victims \$_pid"
+        read -r _ _ _ _pid _ < "/proc/\$_pid/stat"
+      done
+      [ -n "\$_victims" ] && kill -9 \$_victims
+      exit 1
+    fi
     # Like gsd-core, a consented install copies the source bundle into place.
     if [ -n "\${STUB_REQUIRE_CONSENT:-}\${STUB_COPY_INSTALL:-}" ]; then
       rm -rf "$INSTALLED_BUNDLE" && cp -R "\$_p" "$INSTALLED_BUNDLE" || exit 1
@@ -142,6 +152,13 @@ case "\$*" in
   "capability set beads --disable "*) echo false > "$SCRATCH/enabled" ;;
   "capability set beads --enable "*) echo true > "$SCRATCH/enabled" ;;
 esac
+# Like gsd-core, set projects the installed bundle into that runtime's root.
+if [ -n "\${STUB_PROJECT_SET:-}" ] && [ -n "\$_target" ]; then
+  for _skill in "$INSTALLED_BUNDLE"/skills/*; do
+    _dest="\$_target/gsd-\$(basename "\$_skill")"
+    rm -rf "\$_dest" && cp -R "\$_skill" "\$_dest" && printf '%s\n' beads > "\$_dest/.gsd-capability-skill"
+  done
+fi
 exit $stub_status
 STUB
   chmod +x "$BIN_DIR/gsd-tools.cjs"
@@ -993,18 +1010,58 @@ grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h2: expected a consent
 pass "case8h2: a holder killed mid-install never leaves unconsented bytes recorded"
 teardown
 
+### Case 8h3 (S6): two failed tree hashes never count as an equal source ###
+# A symlink makes canonical_tree_hash fail on both the stable source and the
+# installed bundle; two empty outputs compare equal but prove nothing.
+setup 0
+seed_selected "$SKILLS_ROOT"
+STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source"
+copy_allowlist "$PLUGIN_DIR" "$STABLE_SOURCE/beads"
+ln -s capability.json "$STABLE_SOURCE/beads/link"
+ln -s capability.json "$INSTALLED_BUNDLE/link"
+mkdir -p "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads"
+printf 'previous\n' > "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads/previous.marker"
+STUB_REQUIRE_CONSENT=1 run_script beads
+grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h3: expected a consent block: $(cat "$STDERR_FILE")"
+[ "$(LC_ALL=C ls -A "$STABLE_SOURCE/beads")" = previous.marker ] \
+  || fail "case8h3: unhashable source was kept instead of the parked one: $(LC_ALL=C ls -A "$STABLE_SOURCE/beads" | tr '\n' ' ')"
+pass "case8h3: two failed tree hashes never count as an equal source"
+teardown
+
+### Case 8h4 (S7): a holder killed after publishing a first stable source is swept ###
+# With no previous stable source there is nothing to park, but the candidate
+# is already recorded once the stage is swapped in: the empty prev dir is the
+# only trace that the next run must remove it.
+setup 0
+seed_selected "$SKILLS_ROOT"
+printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source"
+STUB_KILL_INSTALL=1 run_script beads
+[ -d "$STABLE_SOURCE/beads" ] || fail "case8h4: the killed holder never swapped in the candidate"
+STUB_REQUIRE_CONSENT=1 run_script beads
+grep -q 'needs your consent' "$STDERR_FILE" || fail "case8h4: expected a consent block: $(cat "$STDERR_FILE")"
+[ ! -e "$STABLE_SOURCE" ] \
+  || fail "case8h4: unconsented candidate left at the stable source: $(LC_ALL=C ls -A "$STABLE_SOURCE/beads" | tr '\n' ' ')"
+[ -z "$(find "$GSD_HOME/.gsd" -maxdepth 1 -name '.capability-auto-install-beads.*')" ] \
+  || fail "case8h4: leaked dirs survived"
+pass "case8h4: a holder killed after publishing a first stable source is swept"
+teardown
+
 ### Case 8i (RS13): equal versions with different content do not flip between runtimes ###
 # Both runtimes share one installed bundle. The real CLI overwrites it at an
-# equal version, so without a policy every runtime switch reinstalls.
+# equal version, so without a policy every runtime switch reinstalls. The kept
+# runtime starts with no projection: the other runtime's install and set never
+# project it (real CLI: a claude install+set left the codex root stale; a bare
+# codex set projected the installed bundle), so the hook must set it.
 for _claude_cache in older newer; do
   setup 0
-  seed_selected "$SKILLS_ROOT"
-  seed_selected "$CLAUDE_SKILLS_ROOT"
-  export STUB_COPY_INSTALL=1
+  export STUB_COPY_INSTALL=1 STUB_PROJECT_SET=1
+  PROJECTS=0
   CODEX_PLUGIN_DIR="$PLUGIN_DIR"
   CLAUDE_PLUGIN_DIR="$CLAUDE_CONFIG_DIR/plugins/cache/gsd-beads/beads-lifecycle/test"
   make_plugin_root "$CLAUDE_PLUGIN_DIR"
   printf '\nclaude cache content\n' >> "$CLAUDE_PLUGIN_DIR/GSD-CORE-PATCH.md"
+  printf '\nclaude cache skill\n' >> "$CLAUDE_PLUGIN_DIR/skills/beads-sync/SKILL.md"
   touch -d '2001-01-01' "$CODEX_PLUGIN_DIR/capability.json"
   if [ "$_claude_cache" = older ]; then
     touch -d '2000-01-01' "$CLAUDE_PLUGIN_DIR/capability.json"
@@ -1024,19 +1081,26 @@ for _claude_cache in older newer; do
     ! grep -v 'keeping the installed' "$STDERR_FILE" | grep -q . \
       || fail "case8i($_claude_cache): $_runtime run failed: $(cat "$STDERR_FILE")"
     KEEPS=$((KEEPS + $(grep -c 'keeping the installed' "$STDERR_FILE")))
+    PROJECTS=$((PROJECTS + $(grep -c '^Auto-installed capability' "$STDOUT_FILE")))
     _generation="$(fixture_tree_hash "$INSTALLED_BUNDLE")"
     [ "$_generation" = "$LAST_GENERATION" ] || CHANGES=$((CHANGES + 1))
     LAST_GENERATION="$_generation"
   done
-  unset STUB_COPY_INSTALL
+  unset STUB_COPY_INSTALL STUB_PROJECT_SET
   PLUGIN_DIR="$CODEX_PLUGIN_DIR"
   if [ "$_claude_cache" = older ]; then
-    [ "$CHANGES" -eq 0 ] && [ "$KEEPS" -eq 1 ] \
-      || fail "case8i(older): installed bundle changed $CHANGES times, kept $KEEPS times; expected 0 and 1"
+    [ "$CHANGES" -eq 0 ] && [ "$KEEPS" -eq 1 ] && [ "$PROJECTS" -eq 1 ] \
+      || fail "case8i(older): installed bundle changed $CHANGES times, kept $KEEPS times, projected $PROJECTS times; expected 0, 1 and 1"
   else
-    [ "$CHANGES" -eq 1 ] && [ "$KEEPS" -eq 1 ] \
-      || fail "case8i(newer): installed bundle changed $CHANGES times, kept $KEEPS times; expected 1 and 1"
+    [ "$CHANGES" -eq 1 ] && [ "$KEEPS" -eq 1 ] && [ "$PROJECTS" -eq 2 ] \
+      || fail "case8i(newer): installed bundle changed $CHANGES times, kept $KEEPS times, projected $PROJECTS times; expected 1, 1 and 2"
   fi
+  [ "$(grep -c '^projection-v2 \(claude\|codex\) ' "$STATE_FILE")" -eq 2 ] \
+    || fail "case8i($_claude_cache): the kept runtime's projection was not recorded: $(cat "$STATE_FILE")"
+  for _root in "$SKILLS_ROOT" "$CLAUDE_SKILLS_ROOT"; do
+    cmp -s "$INSTALLED_BUNDLE/skills/beads-sync/SKILL.md" "$_root/gsd-beads-sync/SKILL.md" \
+      || fail "case8i($_claude_cache): $_root does not project the kept installed bundle"
+  done
   teardown
 done
 pass "case8i: equal versions with different content keep the other runtime's verified install unless this cache is newer"
@@ -1839,10 +1903,21 @@ run_script beads
 pass "case23b: post-observation external drift is invalidated and repaired next start"
 teardown
 
+### Case 23c (N18): --consent without an id prints usage and changes nothing ###
+setup 0
+run_script --consent
+[ "$STATUS" -eq 0 ] || fail "case23c: exit status $STATUS, expected 0"
+[ ! -s "$STDOUT_FILE" ] || fail "case23c: wrote stdout: $(cat "$STDOUT_FILE")"
+grep -qx 'usage: .*capability-auto-install.sh --consent <capability-id>' "$STDERR_FILE" \
+  || fail "case23c: no usage on stderr: $(cat "$STDERR_FILE")"
+[ ! -s "$STUB_LOG" ] || fail "case23c: invoked gsd-tools: $(cat "$STUB_LOG")"
+pass "case23c: --consent without an id prints usage and changes nothing"
+teardown
+
 ### Case 24a: CI pins and proves the current public runtime before smoke ###
 CI_WORKFLOW="$REPO_ROOT/.github/workflows/ci.yml"
 $REAL_PYTHON - "$CI_WORKFLOW" <<'PY' \
-  || fail "case24a: CI does not provision and prove the pinned gsd-core 1.12.0 runtime before smoke"
+  || fail "case24a: CI does not provision, integrity-check and prove the pinned gsd-core 1.12.0 runtime before smoke"
 import pathlib
 import sys
 
@@ -1853,6 +1928,7 @@ ordered = (
     "fetch-depth: 0",
     "path: .ci/gsd-core",
     "@opengsd/gsd-core@1.12.0",
+    "test \"$ACTUAL\" = \"$GSD_CORE_INTEGRITY\"",
     "--codex --global --config-dir",
     "runtime-identity --raw",
     '"packageName":"@opengsd/gsd-core"',

@@ -232,7 +232,8 @@ diagnostic. The lock coordinates hook participants only: a direct writer that ra
 final check is repaired by native reconciliation at the next SessionStart. The hook never
 consents for you: when gsd-core requires consent, it leaves the recorded source untouched and
 prints one command, `bash <plugin-root>/hooks/capability-auto-install.sh --consent beads`, which
-runs the same install under the same lock with `--yes`.
+runs the same install under the same lock with `--yes`. SessionStart shows that command to you as
+a `systemMessage`; you run it yourself in a shell, never an agent on your behalf.
 
 - Under `authoritative`, task content originates in PLAN.md at first sync; PLAN.md task text is
   never re-synced from later `bd` edits.
