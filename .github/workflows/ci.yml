@@ -50,6 +50,8 @@ jobs:
           LOCK=.github/ci/gsd-core/package-lock.json
           test "$(jq -r '.packages["node_modules/@opengsd/gsd-core"].integrity' "$LOCK")" = "$GSD_CORE_INTEGRITY" \
             || { echo "gsd-core lockfile integrity differs from GSD_CORE_INTEGRITY" >&2; exit 1; }
+          test "@opengsd/gsd-core@$(jq -r '.packages["node_modules/@opengsd/gsd-core"].version' "$LOCK")" = "@opengsd/gsd-core@1.12.0" \
+            || { echo "gsd-core lockfile version is not 1.12.0" >&2; exit 1; }
           NPM_DIR="$(mktemp -d)"
           cp .github/ci/gsd-core/package.json "$LOCK" "$NPM_DIR"
           (cd "$NPM_DIR" && npm ci --ignore-scripts --no-audit --no-fund)
