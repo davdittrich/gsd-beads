@@ -3368,13 +3368,18 @@ def regenerate_beads_md(phase_dir_arg):
     # and this run fails closed so someone looks at it.
     rejected = []
     for extra in _beads_md_extras(phase_dir, out_path):
-        if _is_generated_beads_md(extra):
-            extra.unlink()
-            continue
-        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-        aside = extra.with_name(f"{extra.name}.rejected-{stamp}")
-        os.rename(extra, aside)
-        rejected.append(f"{extra} -> {aside.name}")
+        # A file that cannot be moved still answers the gate: report it and
+        # fail closed rather than crash before ours is overwritten below.
+        try:
+            if _is_generated_beads_md(extra):
+                extra.unlink()
+                continue
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            aside = extra.with_name(f"{extra.name}.rejected-{stamp}")
+            os.rename(extra, aside)
+            rejected.append(f"{extra} -> {aside.name}")
+        except OSError as exc:
+            rejected.append(f"{extra} could not be moved ({exc})")
     if rejected:
         message = (
             "BEADS.md: foreign ship-gate artifact(s) rejected, gate fails closed until "

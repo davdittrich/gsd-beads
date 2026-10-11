@@ -11315,6 +11315,28 @@ class TestSingleBeadsMdCandidate(unittest.TestCase):
         self.assertFalse(extra.exists())
         self.assertFalse(ours.exists())
 
+    def test_extra_that_cannot_be_moved_still_fails_closed(self):
+        """A rename/unlink failure must not crash before the previous run's
+        passing NN-BEADS.md is overwritten with unknown counts."""
+        for text, op in ((self.FOREIGN, "rename"), (self.GENERATED, "unlink")):
+            with self.subTest(op=op):
+                tmp = tempfile.TemporaryDirectory()
+                self.addCleanup(tmp.cleanup)
+                phase_dir = _write_wave_workspace(
+                    Path(tmp.name), [("01-07", _regen_two_task_plan_text(), False)], with_state=True
+                )
+                (phase_dir / "01-BEADS.md").write_text(self.GENERATED, encoding="utf-8")
+                (phase_dir / "BEADS.md").write_text(text, encoding="utf-8")
+                patch = (mock.patch("os.rename", side_effect=OSError("EBUSY")) if op == "rename"
+                         else mock.patch.object(Path, "unlink", side_effect=OSError("EBUSY")))
+                err = io.StringIO()
+                with mock.patch("subprocess.run", side_effect=_make_beads_md_bd_side_effect()), patch, \
+                        contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+                    code = sync.regenerate_beads_md(str(phase_dir))
+                self.assertEqual(code, 1)
+                self.assertIn("blocking_open: unknown", (phase_dir / "01-BEADS.md").read_text(encoding="utf-8"))
+                self.assertIn("EBUSY", err.getvalue())
+
     def test_ship_override_refuses_when_another_candidate_exists(self):
         for rel in ("BEADS.md", ".planning/BEADS.md", "01-02-BEADS.md"):
             with self.subTest(rel=rel), tempfile.TemporaryDirectory() as tmp:
