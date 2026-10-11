@@ -12,6 +12,7 @@ import argparse
 import contextlib
 import fcntl
 import hashlib
+import itertools
 import json
 import os
 import re
@@ -3382,10 +3383,16 @@ def regenerate_beads_md(phase_dir_arg):
                 extra.unlink()
                 continue
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            aside = extra.with_name(f"{extra.name}.rejected-{stamp}")
-            # link+unlink, not rename: rename silently replaces an earlier
-            # rejected copy with the same timestamp; link refuses to.
-            os.link(extra, aside, follow_symlinks=False)
+            # link+unlink, not rename: rename silently replaces an existing
+            # aside (an earlier same-second rejection, or one planted to keep
+            # this file in the gate's view); link refuses, so try the next name.
+            for n in itertools.count(1):
+                aside = extra.with_name(f"{extra.name}.rejected-{stamp}" + (f"-{n}" if n > 1 else ""))
+                try:
+                    os.link(extra, aside, follow_symlinks=False)
+                    break
+                except FileExistsError:
+                    continue
             extra.unlink()
             rejected.append(f"{extra} -> {aside.name}")
         except OSError as exc:

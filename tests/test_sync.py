@@ -11362,8 +11362,9 @@ class TestSingleBeadsMdCandidate(unittest.TestCase):
                 self.assertIn("EBUSY", err.getvalue())
 
     def test_rejection_never_overwrites_an_earlier_rejected_copy(self):
-        """Two rejections in the same second map to the same aside name; the
-        earlier copy must survive and the run still fails closed."""
+        """Two rejections in the same second (or a pre-planted aside name)
+        map to the same timestamp; the earlier copy must survive AND the
+        foreign file must still leave the gate's view."""
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         phase_dir = _write_wave_workspace(
@@ -11380,7 +11381,9 @@ class TestSingleBeadsMdCandidate(unittest.TestCase):
             code = sync.regenerate_beads_md(str(phase_dir))
         self.assertEqual(code, 1)
         self.assertEqual(earlier.read_text(encoding="utf-8"), "earlier\n")
-        self.assertEqual((phase_dir / "BEADS.md").read_text(encoding="utf-8"), self.FOREIGN)
+        self.assertFalse((phase_dir / "BEADS.md").exists())
+        second = phase_dir / "BEADS.md.rejected-20260102T030405Z-2"
+        self.assertEqual(second.read_text(encoding="utf-8"), self.FOREIGN)
         self.assertIn("blocking_open: unknown", (phase_dir / "01-BEADS.md").read_text(encoding="utf-8"))
 
     def test_ship_override_refuses_when_another_candidate_exists(self):
