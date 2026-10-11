@@ -9696,6 +9696,15 @@ class TestPhaseMentionRules(unittest.TestCase):
     def test_bare_name_that_exists_only_nested_does_not_count(self):
         self.assertEqual(self._mentions("See SKILL.md.\n", root_files=("skills/a/SKILL.md",)), [])
 
+    def test_overlong_hostlike_segment_does_not_blank_the_other_mentions(self):
+        # A 300-char hostname-looking first segment makes Path.is_dir() raise
+        # ENAMETOOLONG on some Pythons; the extractor must still return the rest.
+        host = ("a" * 300) + ".com"
+        too_long = OSError(36, "File name too long")
+        with mock.patch.object(Path, "is_dir", side_effect=too_long):
+            got = self._mentions(f"Touch {host}/x.md and src/mod.py.\n")
+        self.assertEqual(got, ["src/mod.py"])
+
     def test_parent_and_absolute_tokens_are_rejected(self):
         got = self._mentions("Read ../x.py and /etc/hosts.txt, ok src/y.py.\n")
         self.assertEqual(got, ["src/y.py"])

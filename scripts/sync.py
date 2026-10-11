@@ -2872,7 +2872,7 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path, project_root=N
                 continue
             # "docs.site/guide.md" is a URL unless that directory exists.
             first = token.split("/", 1)[0]
-            if HOSTNAME_SEGMENT_RE.fullmatch(first) and not (project_root / first).is_dir():
+            if HOSTNAME_SEGMENT_RE.fullmatch(first) and not os.path.isdir(project_root / first):
                 continue
         elif not os.path.isfile(project_root / token):  # isfile: no ENAMETOOLONG raise
             continue
