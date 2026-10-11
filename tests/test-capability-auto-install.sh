@@ -1928,7 +1928,7 @@ ordered = (
     "fetch-depth: 0",
     "path: .ci/gsd-core",
     "@opengsd/gsd-core@1.12.0",
-    "test \"$ACTUAL\" = \"$GSD_CORE_INTEGRITY\"",
+    "\"$LOCK\")\" = \"$GSD_CORE_INTEGRITY\"",
     "--codex --global --config-dir",
     "runtime-identity --raw",
     '"packageName":"@opengsd/gsd-core"',
