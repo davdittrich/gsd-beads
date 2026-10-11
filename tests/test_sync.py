@@ -1933,22 +1933,14 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         onError:halt is honoured from 1.11.0."""
         self.assertEqual(self._manifest()["engines"]["gsd"], ">=1.11.0")
 
-    def test_plugin_manifest_lists_all_five_skills_for_codex(self):
-        """cjbc.62: Codex ignores the marketplace-entry skills key and, when
-        plugin.json has a skills key, loads only those paths."""
+    def test_plugin_manifest_lists_only_the_beads_skill(self):
+        """cjbc.67: Codex loads every plugin.json skills path. The four gsd-beads-*
+        skills are projected by the capability (hidden by `capability set --disable`);
+        a plugin-level copy would stay visible after disable and duplicate each one."""
         plugin = json.loads(
             (self.CAPABILITY_PATH.parent / ".claude-plugin/plugin.json").read_text(encoding="utf-8")
         )
-        self.assertEqual(
-            plugin["skills"],
-            [
-                "./.agents/skills/beads",
-                "./skills/beads-sync",
-                "./skills/beads-status",
-                "./skills/beads-recall",
-                "./skills/beads-migrate-todos",
-            ],
-        )
+        self.assertEqual(plugin["skills"], ["./.agents/skills/beads"])
 
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
@@ -2048,6 +2040,17 @@ class TestTaskContentResolverManifest(unittest.TestCase):
                 self.assertNotIn("python3 .gsd/capabilities/beads/scripts/sync.py", text)
                 self.assertIn('python3 -I "$SYNC_PY" lifecycle-dispatch', text)
                 self.assertIn("gsd-beads-sync", text)
+
+    def test_docs_state_plan_completion_as_allowlist(self):
+        # sync.py completes a plan only for top-level status `complete` or absent;
+        # "not halted or blocked" prose would call `incomplete`/unknown done.
+        root = self.CAPABILITY_PATH.parent
+        for relative in ("README.md", "skills/beads-status/SKILL.md"):
+            with self.subTest(doc=relative):
+                text = " ".join((root / relative).read_text(encoding="utf-8").split())
+                self.assertIn("`status` is `complete` or absent", text)
+                self.assertNotIn("neither `halted` nor `blocked`", text)
+                self.assertNotIn("is not `halted` or `blocked`", text)
 
     def test_prime_matches_readme_dispatch_ownership(self):
         root = self.CAPABILITY_PATH.parent

@@ -160,8 +160,8 @@ Print stdout verbatim, including both orphan sections ("Issues with no matching 
 
 The `PostToolUse` hook runs `sync.py lifecycle-dispatch execute:wave:post` here. It reconciles the
 whole phase: every completed plan's open issues close, so a wave whose dispatch was skipped heals
-on the next one. A plan is **complete** when its `SUMMARY.md` exists and its `status` frontmatter
-is neither `halted` nor `blocked`; tasks without a `<beads-id>` are skipped without error.
+on the next one. A plan is **complete** when its `SUMMARY.md` exists and its top-level frontmatter
+`status` is `complete` or absent (`halted`, `blocked`, `incomplete`, an unknown or an empty value is not complete); tasks without a `<beads-id>` are skipped without error.
 
 `close-wave` is the manual form, for a runtime without `PostToolUse` or a call carrying
 `WAVE_PLAN_IDS` (the plan ids completed in this wave: several plans, each with several tasks).
