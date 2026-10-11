@@ -2823,26 +2823,30 @@ def _render_beads_recall_body(matched, unscoped):
     return "\n".join(parts)
 
 
-# A path-like token must contain a `/` or be a bare filename (stem of 2+
-# word chars, 2-4 letter extension: README.md, capability.json) so "e.g",
-# "i.e", "v1.2" never match; enforced on the match, not in the regex, because
-# backtracking can shorten a match ("example.com/docs" -> "example.com").
+# Candidate path-like tokens; `extract_phase_mentions` decides which count. The
+# filter lives there, not in the regex, because backtracking can shorten a
+# match ("example.com/docs" -> "example.com").
 PATH_TOKEN_RE = re.compile(r"[\w\-./]+\.\w{1,4}")
 PATH_TOKEN_MIN_LEN = 4
 # GH#11: digits are `\w`, so a bare version number ("2.39") matches
 # PATH_TOKEN_RE too but is never a path/extension -- excluded below.
 NUMERIC_ONLY_TOKEN_RE = re.compile(r"[\d.]+")
-BARE_FILENAME_RE = re.compile(r"[\w\-]{2,}\.[A-Za-z]{2,4}")
 HOSTNAME_SEGMENT_RE = re.compile(r"[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}")
 
 
-def extract_phase_mentions(roadmap_path, phase_num, context_path):
-    """Return deduplicated path-like tokens (a `/`-containing or bare-filename,
-    dotted-extension substring) mentioned in the phase's ROADMAP.md section (from
-    its header to the next `### Phase` heading) plus context_path's full
+def extract_phase_mentions(roadmap_path, phase_num, context_path, project_root=None):
+    """Return deduplicated file mentions from the phase's ROADMAP.md section
+    (from its header to the next `### Phase` heading) plus context_path's full
     text when it exists -- the only file-scope signal available at plan:pre
     time for the phase being planned, since no PLAN.md exists yet for it
     (D-01 revised).
+
+    A token containing `/` counts (it may name a file the phase will create),
+    unless it starts with `../` or `/` or looks like a URL host. A token
+    without `/` counts only when it is an existing file in `project_root`
+    (default: the grandparent of ROADMAP.md): "example.com" and "Node.js" are
+    prose. A bare file that does not exist yet is not a mention; write it with
+    a slash ("./CONTRIBUTING.md").
     """
     text = Path(roadmap_path).read_text(encoding="utf-8")
     pattern = re.compile(
@@ -2857,28 +2861,20 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
     if context_path.exists():
         context_text = context_path.read_text(encoding="utf-8")
 
-    # ROADMAP.md lives in <root>/.planning/, so its grandparent is the project.
-    project_root = Path(roadmap_path).resolve().parent.parent
+    if project_root is None:  # ROADMAP.md lives in <root>/.planning/
+        project_root = Path(roadmap_path).resolve().parent.parent
     seen = []
     for token in PATH_TOKEN_RE.findall(section_text) + PATH_TOKEN_RE.findall(context_text):
-        if (
-            not ("/" in token or BARE_FILENAME_RE.fullmatch(token))
-            or len(token) < PATH_TOKEN_MIN_LEN
-            or NUMERIC_ONLY_TOKEN_RE.fullmatch(token)
-        ):
+        if token.startswith(("../", "/")):  # also the remnant of "https://host/..."
             continue
-        # A bare name is a mention only when it names a real project file;
-        # otherwise it is prose ("Node.js", "example.com"). A slash path whose
-        # first segment looks like a hostname is a URL unless that directory
-        # exists ("docs.site/guide.md"); other slash paths may name files the
-        # phase will create.
-        first = token.split("/", 1)[0]
-        if token.startswith("//"):  # remnant of "https://host/..."
-            continue
-        if "/" not in token:
-            if not (project_root / token).is_file():
+        if "/" in token:
+            if len(token) < PATH_TOKEN_MIN_LEN or NUMERIC_ONLY_TOKEN_RE.fullmatch(token):
                 continue
-        elif HOSTNAME_SEGMENT_RE.fullmatch(first) and not (project_root / first).is_dir():
+            # "docs.site/guide.md" is a URL unless that directory exists.
+            first = token.split("/", 1)[0]
+            if HOSTNAME_SEGMENT_RE.fullmatch(first) and not (project_root / first).is_dir():
+                continue
+        elif not os.path.isfile(project_root / token):  # isfile: no ENAMETOOLONG raise
             continue
         if token not in seen:
             seen.append(token)
@@ -2886,16 +2882,20 @@ def extract_phase_mentions(roadmap_path, phase_num, context_path):
 
 
 def scope_match(issue_id, files_index, phase_mentions):
-    """Pure technique-1 check: return "files" when issue_id's reverse-
-    looked-up file list shares a substring with any phase_mentions token
-    (either direction); return None when issue_id has no reverse-lookup
-    entry at all (caller falls back to technique 2) or its files simply
-    don't overlap."""
+    """Pure technique-1 check: return "files" when one of issue_id's
+    reverse-looked-up files matches a phase_mentions token; return None when
+    issue_id has no reverse-lookup entry at all (caller falls back to
+    technique 2) or its files simply don't overlap. A bare token (no `/`)
+    matches by exact path equality, so README.md never matches
+    docs/README.md; a slash token matches by substring in either direction."""
     if issue_id not in files_index:
         return None
     for issue_file in files_index[issue_id]:
         for mention in phase_mentions:
-            if issue_file in mention or mention in issue_file:
+            if "/" not in mention:
+                if issue_file == mention:
+                    return "files"
+            elif issue_file in mention or mention in issue_file:
                 return "files"
     return None
 
@@ -3014,7 +3014,9 @@ def beads_recall(phase_dir_arg):
     roadmap_path = confined(project_root, ".planning", "ROADMAP.md")
     context_path = phase_dir / f"{padded_phase}-CONTEXT.md"
     try:
-        phase_mentions = extract_phase_mentions(roadmap_path, padded_phase, context_path)
+        phase_mentions = extract_phase_mentions(
+            roadmap_path, padded_phase, context_path, project_root=project_root
+        )
     except (OSError, ValueError):
         phase_mentions = []
     folded_phase_mentions = [token.casefold() for token in phase_mentions]

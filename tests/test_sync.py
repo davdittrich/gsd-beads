@@ -9674,6 +9674,54 @@ class TestPhaseMentionTokens(unittest.TestCase):
         self.assertEqual(mentions, ["docs.site/guide.md", ".planning/x.md"])
 
 
+class TestPhaseMentionRules(unittest.TestCase):
+    def _mentions(self, section, root_files=(), **kwargs):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_recall_phase_workspace(Path(tmp), roadmap_section=section)
+            for name in root_files:
+                path = Path(tmp) / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("x\n", encoding="utf-8")
+            roadmap = Path(tmp) / ".planning" / "ROADMAP.md"
+            return sync.extract_phase_mentions(roadmap, "02", phase_dir / "02-CONTEXT.md", **kwargs)
+
+    def test_any_existing_root_file_counts(self):
+        # No filename-shape gate: .c, 3+ dots, multi-dot names are real files.
+        got = self._mentions(
+            "Edit main.c and docker-compose.override.yml.\n",
+            root_files=("main.c", "docker-compose.override.yml"),
+        )
+        self.assertEqual(got, ["main.c", "docker-compose.override.yml"])
+
+    def test_bare_name_that_exists_only_nested_does_not_count(self):
+        self.assertEqual(self._mentions("See SKILL.md.\n", root_files=("skills/a/SKILL.md",)), [])
+
+    def test_parent_and_absolute_tokens_are_rejected(self):
+        got = self._mentions("Read ../x.py and /etc/hosts.txt, ok src/y.py.\n")
+        self.assertEqual(got, ["src/y.py"])
+
+    def test_explicit_project_root_is_used(self):
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as other:
+            phase_dir = _write_recall_phase_workspace(Path(tmp), roadmap_section="See NOTES.md.\n")
+            (Path(other) / "NOTES.md").write_text("x\n", encoding="utf-8")
+            roadmap = Path(tmp) / ".planning" / "ROADMAP.md"
+            got = sync.extract_phase_mentions(
+                roadmap, "02", phase_dir / "02-CONTEXT.md", project_root=Path(other)
+            )
+        self.assertEqual(got, ["NOTES.md"])
+
+    def test_bare_mention_matches_by_exact_path_only(self):
+        self.assertIsNone(sync.scope_match("i", {"i": ["docs/README.md"]}, ["README.md"]))
+        self.assertEqual(sync.scope_match("i", {"i": ["README.md"]}, ["README.md"]), "files")
+
+    def test_dot_slash_workaround_matches_a_not_yet_created_root_file(self):
+        got = self._mentions("Add CONTRIBUTING.md and ./CONTRIBUTING.md.\n")
+        self.assertEqual(got, ["./CONTRIBUTING.md"])
+        self.assertEqual(
+            sync.scope_match("i", {"i": ["CONTRIBUTING.md"]}, got), "files"
+        )
+
+
 class TestRecallParseFailure(unittest.TestCase):
     @mock.patch("subprocess.run")
     def test_unparseable_plan_writes_failure_marker_not_stale_ok(self, mock_run):
