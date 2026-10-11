@@ -142,6 +142,13 @@ case "\$*" in
   "capability set beads --disable "*) echo false > "$SCRATCH/enabled" ;;
   "capability set beads --enable "*) echo true > "$SCRATCH/enabled" ;;
 esac
+# Like gsd-core, set projects the installed bundle into that runtime's root.
+if [ -n "\${STUB_PROJECT_SET:-}" ] && [ -n "\$_target" ]; then
+  for _skill in "$INSTALLED_BUNDLE"/skills/*; do
+    _dest="\$_target/gsd-\$(basename "\$_skill")"
+    rm -rf "\$_dest" && cp -R "\$_skill" "\$_dest" && printf '%s\n' beads > "\$_dest/.gsd-capability-skill"
+  done
+fi
 exit $stub_status
 STUB
   chmod +x "$BIN_DIR/gsd-tools.cjs"
@@ -995,16 +1002,19 @@ teardown
 
 ### Case 8i (RS13): equal versions with different content do not flip between runtimes ###
 # Both runtimes share one installed bundle. The real CLI overwrites it at an
-# equal version, so without a policy every runtime switch reinstalls.
+# equal version, so without a policy every runtime switch reinstalls. The kept
+# runtime starts with no projection: the other runtime's install and set never
+# project it (real CLI: a claude install+set left the codex root stale; a bare
+# codex set projected the installed bundle), so the hook must set it.
 for _claude_cache in older newer; do
   setup 0
-  seed_selected "$SKILLS_ROOT"
-  seed_selected "$CLAUDE_SKILLS_ROOT"
-  export STUB_COPY_INSTALL=1
+  export STUB_COPY_INSTALL=1 STUB_PROJECT_SET=1
+  PROJECTS=0
   CODEX_PLUGIN_DIR="$PLUGIN_DIR"
   CLAUDE_PLUGIN_DIR="$CLAUDE_CONFIG_DIR/plugins/cache/gsd-beads/beads-lifecycle/test"
   make_plugin_root "$CLAUDE_PLUGIN_DIR"
   printf '\nclaude cache content\n' >> "$CLAUDE_PLUGIN_DIR/GSD-CORE-PATCH.md"
+  printf '\nclaude cache skill\n' >> "$CLAUDE_PLUGIN_DIR/skills/beads-sync/SKILL.md"
   touch -d '2001-01-01' "$CODEX_PLUGIN_DIR/capability.json"
   if [ "$_claude_cache" = older ]; then
     touch -d '2000-01-01' "$CLAUDE_PLUGIN_DIR/capability.json"
@@ -1024,19 +1034,26 @@ for _claude_cache in older newer; do
     ! grep -v 'keeping the installed' "$STDERR_FILE" | grep -q . \
       || fail "case8i($_claude_cache): $_runtime run failed: $(cat "$STDERR_FILE")"
     KEEPS=$((KEEPS + $(grep -c 'keeping the installed' "$STDERR_FILE")))
+    PROJECTS=$((PROJECTS + $(grep -c '^Auto-installed capability' "$STDOUT_FILE")))
     _generation="$(fixture_tree_hash "$INSTALLED_BUNDLE")"
     [ "$_generation" = "$LAST_GENERATION" ] || CHANGES=$((CHANGES + 1))
     LAST_GENERATION="$_generation"
   done
-  unset STUB_COPY_INSTALL
+  unset STUB_COPY_INSTALL STUB_PROJECT_SET
   PLUGIN_DIR="$CODEX_PLUGIN_DIR"
   if [ "$_claude_cache" = older ]; then
-    [ "$CHANGES" -eq 0 ] && [ "$KEEPS" -eq 1 ] \
-      || fail "case8i(older): installed bundle changed $CHANGES times, kept $KEEPS times; expected 0 and 1"
+    [ "$CHANGES" -eq 0 ] && [ "$KEEPS" -eq 1 ] && [ "$PROJECTS" -eq 1 ] \
+      || fail "case8i(older): installed bundle changed $CHANGES times, kept $KEEPS times, projected $PROJECTS times; expected 0, 1 and 1"
   else
-    [ "$CHANGES" -eq 1 ] && [ "$KEEPS" -eq 1 ] \
-      || fail "case8i(newer): installed bundle changed $CHANGES times, kept $KEEPS times; expected 1 and 1"
+    [ "$CHANGES" -eq 1 ] && [ "$KEEPS" -eq 1 ] && [ "$PROJECTS" -eq 2 ] \
+      || fail "case8i(newer): installed bundle changed $CHANGES times, kept $KEEPS times, projected $PROJECTS times; expected 1, 1 and 2"
   fi
+  [ "$(grep -c '^projection-v2 \(claude\|codex\) ' "$STATE_FILE")" -eq 2 ] \
+    || fail "case8i($_claude_cache): the kept runtime's projection was not recorded: $(cat "$STATE_FILE")"
+  for _root in "$SKILLS_ROOT" "$CLAUDE_SKILLS_ROOT"; do
+    cmp -s "$INSTALLED_BUNDLE/skills/beads-sync/SKILL.md" "$_root/gsd-beads-sync/SKILL.md" \
+      || fail "case8i($_claude_cache): $_root does not project the kept installed bundle"
+  done
   teardown
 done
 pass "case8i: equal versions with different content keep the other runtime's verified install unless this cache is newer"
