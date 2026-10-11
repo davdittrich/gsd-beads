@@ -86,8 +86,9 @@ gsd-core's own lifecycle commands drive `bd` state directly:
    (a `beads_epic` frontmatter key and a `<beads-id>` element per task).
 2. `/gsd:execute-phase` — before a wave of tasks runs, `beads-status` puts that wave's live
    issue state into the orchestrator's context; after the wave finishes, it closes the `bd`
-   issues of every completed plan in the phase (complete = `SUMMARY.md` exists and its `status`
-   is not `halted` or `blocked`).
+   issues of every completed plan in the phase (complete = `SUMMARY.md` exists and its top-level
+   `status` is `complete` or absent; `halted`, `blocked`, `incomplete`, an unknown or an empty
+   value is not complete).
 3. `/gsd:verify-work` — after verification, `beads-status` regenerates the projected `BEADS.md`
    from live `bd` state (read-only: it closes nothing).
 4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and

@@ -2049,6 +2049,17 @@ class TestTaskContentResolverManifest(unittest.TestCase):
                 self.assertIn('python3 -I "$SYNC_PY" lifecycle-dispatch', text)
                 self.assertIn("gsd-beads-sync", text)
 
+    def test_docs_state_plan_completion_as_allowlist(self):
+        # sync.py completes a plan only for top-level status `complete` or absent;
+        # "not halted or blocked" prose would call `incomplete`/unknown done.
+        root = self.CAPABILITY_PATH.parent
+        for relative in ("README.md", "skills/beads-status/SKILL.md"):
+            with self.subTest(doc=relative):
+                text = " ".join((root / relative).read_text(encoding="utf-8").split())
+                self.assertIn("`status` is `complete` or absent", text)
+                self.assertNotIn("neither `halted` nor `blocked`", text)
+                self.assertNotIn("is not `halted` or `blocked`", text)
+
     def test_prime_matches_readme_dispatch_ownership(self):
         root = self.CAPABILITY_PATH.parent
         readme = (root / "README.md").read_text(encoding="utf-8")
