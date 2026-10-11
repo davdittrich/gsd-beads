@@ -3292,6 +3292,17 @@ def regenerate_beads_md(phase_dir_arg):
 
     completed_ids = _resolve_completed_task_ids(phase_dir)
     diverged_count, task_status_by_id = _compute_diverged(rows, ordinal_map, completed_ids)
+    if degraded_plans:
+        # A plan that failed to parse hides its issues from ordinal_map, and
+        # _compute_diverged skips them: the count is an undercount. The row
+        # counts above are exact (per-phase mode counts every row), so only
+        # the gate field turns non-numeric; the table still renders.
+        diverged_count = "unknown"
+        print(
+            "BEADS.md: degraded plan(s) " + ", ".join(degraded_plans)
+            + " -- diverged unknown, ship gate will block",
+            file=sys.stderr,
+        )
     table = _render_beads_md_table(rows, ordinal_map, task_status_by_id)
 
     frontmatter = (

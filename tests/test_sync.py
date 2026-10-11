@@ -10262,6 +10262,22 @@ class TestRegenFailClosedV1(unittest.TestCase):
         self.assertIn("blocking_open: unknown", text)
         self.assertIn("degraded", err)
 
+    def test_per_phase_degraded_plan_makes_diverged_unknown(self):
+        # A degraded plan's issues are absent from the ordinal map, so
+        # _compute_diverged skips them: a numeric `diverged: 0` would undercount.
+        bad = _regen_two_task_plan_text().replace("plan: 07", "plan: 08").replace("</task>", "", 1)
+        good = _regen_two_task_plan_text()
+        code, text, err, _ = self._run(
+            [("01-07", good), ("01-08", bad)],
+            list_response=json.dumps(
+                [{"id": "regen-epic.9", "title": "t", "status": "closed", "dependencies": []}]
+            ),
+        )
+        self.assertEqual(code, 0)
+        self.assertIn("diverged: unknown", text)
+        self.assertIn("blocking_open: 0", text)
+        self.assertIn("degraded", err)
+
     def test_plain_generated_beads_md_is_removed_before_anything_else(self):
         """gsd-core's gate resolves <phase>/BEADS.md before NN-BEADS.md."""
         for patched in (None, mock.patch.object(sync, "bd_available", return_value=False)):
