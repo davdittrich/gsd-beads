@@ -159,7 +159,8 @@ FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?\r?\n)---(?:\r?\n|\Z)", re.DOTALL)
 # SUMMARY.md's frontmatter to decide halt-propagation -- this must stay the
 # one place this capability decides the same thing, so the two readers of
 # the identical artifact can never contradict each other again.
-STATUS_RE = re.compile(r"^status:\s*(.*)$", re.MULTILINE)
+# [ \t]*, not \s*: an empty `status:` must not swallow the next line.
+STATUS_RE = re.compile(r"^status:[ \t]*(.*)$", re.MULTILINE)
 BEADS_EPIC_RE = re.compile(r"^beads_epic:\s*(\S+)\s*$", re.MULTILINE)
 BEADS_EPIC_DECL_RE = re.compile(r"^beads_epic[ \t]*:(.*)$", re.MULTILINE)
 DEPENDS_ON_RE = re.compile(r"^depends_on:\s*\[(.*?)\]\s*$", re.MULTILINE)
@@ -2159,8 +2160,8 @@ def _resolve_marked_issue_ids(phase_dir):
     it fullmatches SAFE_BD_ID_RE; anything else is dropped and counted in
     rejected_count rather than ever reaching a `bd close` argv.
 
-    GH#10: a halted or blocked plan's `resolves_issues:` claim is never
-    trusted either -- neither status is a genuine, unretracted completion
+    GH#10: a plan whose status is not complete never has its
+    `resolves_issues:` claim trusted either -- it is no completion
     record (see find_completed_task_ids), so a marker named there is
     excluded from this candidate set the same way its own tasks are.
     """
@@ -2170,8 +2171,7 @@ def _resolve_marked_issue_ids(phase_dir):
         summary_path = plan_path.with_name(f"{plan_id}-SUMMARY.md")
         if not summary_path.exists():
             continue
-        status = _read_summary_status(summary_path)
-        if _is_halted_status(status) or _is_blocked_status(status):
+        if not _is_complete_status(_read_summary_status(summary_path)):
             continue
         try:
             text = summary_path.read_text(encoding="utf-8")
@@ -2232,12 +2232,15 @@ def _normalize_summary_status(value):
     return value
 
 
-def _is_halted_status(value):
-    """Mirror gsd-core's plan-dependency-graph.cjs `isHaltedStatus`: case-
-    insensitive comparison after normalization -- so this reader's
-    definition of "halted" can never drift from the JS side's (GH#10)."""
-    normalized = _normalize_summary_status(value)
-    return normalized is not None and normalized.lower() == "halted"
+def _is_complete_status(value):
+    """Allowlist, not denylist (gsd-beads-cjbc.48): only `complete` (case-
+    insensitive after normalization) is a completion record. gsd-core
+    documents `complete` and `halted`; `blocked` is a failure record; any
+    other value is unknown and must not close every task. A SUMMARY with no
+    top-level `status` (None) predates the field and counts as complete."""
+    if value is None:
+        return True
+    return _normalize_summary_status(value).lower() == "complete"
 
 
 def _is_blocked_status(value):
@@ -2268,16 +2271,15 @@ def find_completed_task_ids(phase_dir, plan_id):
 
     Completion is plan-granular: a plan whose SUMMARY.md exists has finished
     every one of its tasks (gsd-core's own completion marker -- see
-    wave_granularity_fact) UNLESS that SUMMARY declares `status: halted` or
-    `status: blocked` (GH#10). `blocked` (#3345) is a failure record, not a
+    wave_granularity_fact) only when that SUMMARY's top-level `status` is
+    `complete` or absent (_is_complete_status). `blocked` (#3345) is a failure record, not a
     completion record at all -- gsd-core's own has_summary:false treatment,
     so it contributes nothing here either, same as no SUMMARY.md existing.
-    `halted` is a designed stop that intentionally left tasks unfinished; the
-    SUMMARY template carries no per-task completion field, so a halted plan
+    `halted` (a designed stop) or any other status left tasks unfinished; the
+    SUMMARY template carries no per-task completion field, so such a plan
     cannot be disambiguated task-by-task -- every one of its tasks is
     skipped (fail closed) rather than guessed at. A plan with no SUMMARY.md
-    yet contributes nothing. Within a completed (non-halted, non-blocked)
-    plan, a task with no <beads-id> (never synced, e.g. a checkpoint task)
+    yet contributes nothing. Within a complete plan, a task with no <beads-id> (never synced, e.g. a checkpoint task)
     is counted skipped rather than raised.
     """
     plan_path = discover_plan_files(phase_dir).get(plan_id)
@@ -2301,7 +2303,7 @@ def find_completed_task_ids(phase_dir, plan_id):
         raise PlanParseError(
             f"completed-task authority invalid in {plan_path.name}: {exc}"
         ) from exc
-    if _is_halted_status(status):
+    if not _is_complete_status(status):
         return [], len(tasks)
     ids = []
     skipped = 0

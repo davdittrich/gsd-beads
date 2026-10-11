@@ -11333,5 +11333,51 @@ class TestSingleBeadsMdCandidate(unittest.TestCase):
             mock_run.assert_not_called()
 
 
+class TestSummaryStatusAllowlist(unittest.TestCase):
+    """RS7 (gsd-beads-cjbc.48): only `status: complete` (after quotes, case
+    and a trailing ` # comment`) or no top-level status at all (pre-status
+    SUMMARYs) marks a plan's tasks done. gsd-core documents complete and
+    halted; blocked is a failure record; anything else is unknown and must
+    not close every task."""
+
+    def _ids(self, summary_text):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(summary_text, encoding="utf-8")
+            return sync.find_completed_task_ids(phase_dir, "01-04")
+
+    def test_complete_variants_count_as_complete(self):
+        for fm in ("status: complete", "status: Complete", 'status: "complete"',
+                   "status: 'COMPLETE'", "status: complete # all done", "status:   complete  "):
+            with self.subTest(fm=fm):
+                ids, skipped = self._ids(f"---\n{fm}\n---\n")
+                self.assertEqual((sorted(ids), skipped), (["tracer-wave1.1", "tracer-wave1.2"], 0))
+
+    def test_missing_status_counts_as_complete(self):
+        for text in ("---\nplan: 01-04\n---\n", "no frontmatter\n", "---\nmeta:\n  status: halted\n---\n"):
+            with self.subTest(text=text):
+                ids, _ = self._ids(text)
+                self.assertEqual(len(ids), 2)
+
+    def test_any_other_status_is_not_complete_and_skips_every_task(self):
+        for value in ("halted", "incomplete", "partial", "completed", "in-progress", "", '""', "complete-ish"):
+            with self.subTest(value=value):
+                self.assertEqual(self._ids(f"---\nstatus: {value}\nplan: 01-04\n---\n"), ([], 2))
+
+    def test_blocked_is_a_failure_record_contributing_nothing(self):
+        self.assertEqual(self._ids("---\nstatus: blocked\n---\n"), ([], 0))
+
+    def test_unknown_status_resolves_issues_marker_is_not_trusted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            plan_a = (FIXTURES_DIR / "plan-wave-a.md").read_text(encoding="utf-8")
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-04", plan_a, True)])
+            (phase_dir / "01-04-SUMMARY.md").write_text(
+                "---\nstatus: partial\nresolves_issues: [other-1]\n---\n", encoding="utf-8"
+            )
+            ids, _ = sync._resolve_marked_issue_ids(phase_dir)
+            self.assertEqual(ids, set())
+
+
 if __name__ == "__main__":
     unittest.main()
