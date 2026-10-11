@@ -35,6 +35,7 @@ Plugin 1.8.0, capability 0.9.0. Ticket ids are `gsd-beads-cjbc.N`.
 - With `epic_per: milestone`, an open issue under the milestone epic that no plan of any phase names now counts in every phase's `blocking_open` (it is not a row of any phase, so `open` is unchanged); an unreadable plan in a sibling phase turns the counts `unknown` (.47).
 - STATE.md blocker notes are appended under a lock with an atomic replace, so two concurrent appenders both land, and a `### Blockers/Concerns` heading inside a code fence is ignored (.50).
 - `close-wave` and `reconcile-stale-closed` close nothing, and print the bd-unavailable notice, when the bd status query fails; they used to treat every id as open and try to close it (.51).
+- Every `sync.py` verb runs `bd` from the project root; `status`, `migrate-todos`, `lifecycle-dispatch` and `resolve-task-content` used to use the process cwd (.52).
 
 
 ## 0.8.1

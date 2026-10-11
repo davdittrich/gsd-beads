@@ -9984,6 +9984,35 @@ class TestBdRunsFromProjectRoot(unittest.TestCase):
     """gsd-beads-cjbc.26: bd resolves its database from the process cwd, so a
     verb pointed at a project from elsewhere must run bd in that project."""
 
+    def test_verbs_without_a_path_run_bd_in_the_root_above_the_process_cwd(self):
+        # bd finds its database by walking up from cwd, so a verb run from a
+        # directory outside the project (a hook's cwd) must still pin the root.
+        # Each verb's body is stubbed to record the cwd run_bd would receive.
+        cases = (
+            (["status"], "render_status_mapping"),
+            (["migrate-todos"], "migrate_todos"),
+            (["lifecycle-dispatch", "plan:pre"], "lifecycle_dispatch"),
+            (["resolve-task-content", "x-1"], "resolve_task_content"),
+        )
+        for argv, target in cases:
+            with self.subTest(argv=argv), tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp).resolve()
+                (root / ".planning" / "todos" / "pending").mkdir(parents=True)
+                sub = root / "sub"
+                sub.mkdir()
+                seen = []
+                prev = Path.cwd()
+                os.chdir(sub)
+                try:
+                    with mock.patch.object(sync, target, side_effect=lambda *a: seen.append(sync._BD_CWD) or 0), \
+                            mock.patch.object(sync, "_resolve_default_phase_dir", return_value=root), \
+                            contextlib.redirect_stdout(io.StringIO()), \
+                            contextlib.redirect_stderr(io.StringIO()):
+                        sync.main(argv)
+                finally:
+                    os.chdir(prev)
+                self.assertEqual(seen, [str(root)])
+
     def test_main_runs_bd_in_the_project_root_of_its_path_argument(self):
         self.addCleanup(setattr, sync, "_BD_CWD", None)
         with tempfile.TemporaryDirectory() as tmp:

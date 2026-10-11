@@ -3917,8 +3917,10 @@ def _main(argv):
     status_p.add_argument("phase_dir", nargs="?", default=None)
     args = parser.parse_args(argv)
     path_arg = getattr(args, "phase_dir", None) or getattr(args, "plan_path", None)
-    if path_arg:
-        _set_bd_root(path_arg)
+    # bd finds its database by walking up from cwd, so every verb pins it: a
+    # verb without a path argument (status, migrate-todos, lifecycle-dispatch,
+    # resolve-task-content) falls back to the process cwd, not to "unpinned".
+    _set_bd_root(path_arg or Path.cwd())
     if args.command == "resolve-task-content":
         return resolve_task_content(args.issue_id)
     if args.command == "create-issues":
