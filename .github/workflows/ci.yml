@@ -92,6 +92,9 @@ jobs:
       - name: Session-start hook smoke test
         run: bash tests/test-session-start.sh
 
+      - name: PRIME.md skill ids resolve
+        run: bash tests/test-prime-skill-ids.sh
+
       # The live gsd_run / installed-workflow tests skip silently unless the
       # provisioned gsd-core is discoverable: CLAUDE_CONFIG_DIR points the test
       # helpers at it and gsd_run must resolve in a login shell. Scoped to this

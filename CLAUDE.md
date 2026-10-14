@@ -9,6 +9,7 @@ Python 3 stdlib only; no build step. Run each suite with a throwaway `HOME`: tes
 ```bash
 HOME=$(mktemp -d) python3 -I -m pytest tests -q -p no:cacheprovider   # CI runs `python3 -m unittest discover -s tests -t tests`
 HOME=$(mktemp -d) bash tests/test-session-start.sh
+HOME=$(mktemp -d) bash tests/test-prime-skill-ids.sh
 HOME=$(mktemp -d) TMPDIR=/dev/shm bash tests/test-capability-auto-install.sh
 ```
 
