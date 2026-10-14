@@ -107,6 +107,7 @@ def _make_bd_side_effect():
     module's tests exercise: list/show succeed, create hands back a fresh
     hierarchical id each call (a realistic stdout shape for --silent)."""
     counter = {"n": 0}
+    stored = {}
 
     def _side_effect(argv, **kwargs):
         if argv[:2] == ["bd", "list"]:
@@ -115,9 +116,14 @@ def _make_bd_side_effect():
                 return _completed(0, stdout=json.dumps([{"id": i} for i in ids]) + "\n")
             return _completed(0, stdout="[]\n")
         if argv[:2] == ["bd", "show"]:
-            return _completed(0, stdout=json.dumps([{"id": argv[2]}]) + "\n")
+            row = {"id": argv[2]}
+            if argv[2] in stored:
+                row["description"] = stored[argv[2]]
+            return _completed(0, stdout=json.dumps([row]) + "\n")
         if argv[:2] == ["bd", "create"]:
             counter["n"] += 1
+            if "-d" in argv:
+                stored[f"mock-e1.{counter['n']}"] = argv[argv.index("-d") + 1]
             return _completed(0, stdout=f"mock-e1.{counter['n']}\n")
         if argv[:3] == ["bd", "dep", "add"]:
             return _completed(0)
@@ -1725,6 +1731,101 @@ class TestProjectLockFile(unittest.TestCase):
                 rc = sync.create_issues(str(plan))
         self.assertEqual(rc, 0)
         self.assertIn(sync.NOTICE, out.getvalue())
+
+
+class TestVerbatimTaskText(unittest.TestCase):
+    """gh#24: plan task text reaches bd's `-d` description unaltered, and the
+    resolver reads it back as the same fields."""
+
+    PROSE = "- docs/x.md freeze amendment items 5-7 (recipe, dispositions, OOM rule)"
+
+    def _created_description(self, read_first, action="Do it."):
+        text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        text = text.replace(
+            "<read_first>src/example.py</read_first>",
+            f"<read_first>{read_first}</read_first>",
+        ).replace("<action>Implement the thing.</action>", f"<action>{action}</action>")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = _make_bd_side_effect()
+            self.assertEqual(
+                sync.create_issues(str(_write_plan_workspace(Path(tmp), text))), 0
+            )
+            creates = [
+                c.args[0] for c in mock_run.call_args_list
+                if c.args[0][1:2] == ["create"] and "task" in c.args[0]
+            ]
+        self.assertEqual(len(creates), 1)
+        return creates[0][creates[0].index("-d") + 1]
+
+    def _resolved(self, description):
+        row = {"id": "native-24", "description": description}
+        result = subprocess.CompletedProcess(["bd"], 0, stdout=json.dumps([row]), stderr="")
+        out = io.StringIO()
+        with mock.patch.object(sync, "run_bd", return_value=result), \
+                contextlib.redirect_stdout(out):
+            self.assertEqual(sync.main(["resolve-task-content", "native-24"]), 0)
+        return json.loads(out.getvalue())
+
+    def test_prose_read_first_is_one_bullet_without_doubled_dash(self):
+        description = self._created_description(self.PROSE)
+        self.assertIn(
+            "## Read First\n- docs/x.md freeze amendment items 5-7 (recipe, dispositions, OOM rule)\n",
+            description,
+        )
+
+    def test_bare_path_list_and_multiline_read_first_stay_bullets(self):
+        self.assertIn(
+            "## Read First\n- src/a.py\n- src/b.py\n",
+            self._created_description("src/a.py, src/b.py"),
+        )
+        self.assertIn(
+            "## Read First\n- src/a.py\n- notes (see, also)\n",
+            self._created_description("\n    - src/a.py\n    - notes (see, also)\n  "),
+        )
+
+    def test_resolver_reads_prose_read_first_back_as_one_item(self):
+        body = self._resolved(self._created_description(self.PROSE))
+        self.assertEqual(
+            body["read_first"],
+            ["docs/x.md freeze amendment items 5-7 (recipe, dispositions, OOM rule)"],
+        )
+
+    def test_action_and_verify_round_trip_byte_identical(self):
+        action = "Run:\n\n```sh\nuv run x \\\n  --y a,b\n```\n\nThen, if ok, stop."
+        description = self._created_description("src/a.py", action=action)
+        self.assertIn(f"## Action\n{action}\n", description)
+        self.assertEqual(self._resolved(description)["description"].count(action), 1)
+
+
+    def _sync_with_stored(self, mangle):
+        """Run create_issues over plan-single with a bd whose stored
+        description is mangle(sent); return the PLAN.md text afterwards."""
+        base = _make_bd_side_effect()
+
+        def side_effect(argv, **kwargs):
+            result = base(argv, **kwargs)
+            if argv[:2] == ["bd", "show"] and result.returncode == 0:
+                row = json.loads(result.stdout)[0]
+                if "description" in row:
+                    row["description"] = mangle(row["description"])
+                return _completed(0, stdout=json.dumps([row]) + "\n")
+            return result
+
+        text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("subprocess.run") as mock_run:
+            mock_run.side_effect = side_effect
+            plan = _write_plan_workspace(Path(tmp), text)
+            self.assertEqual(sync.create_issues(str(plan)), 0)
+            return plan.read_text(encoding="utf-8")
+
+    def test_strip_keeps_action_when_bd_stored_a_different_description(self):
+        out = self._sync_with_stored(lambda d: d.replace("Implement the thing.", "Implement the"))
+        self.assertIn("<action>Implement the thing.</action>", out)
+
+    def test_strip_proceeds_when_bd_stored_the_description_verbatim(self):
+        out = self._sync_with_stored(lambda d: d)
+        self.assertNotIn("Implement the thing.", out)
+        self.assertIn(sync.TASK_POINTER_PREFIX, out)
 
 
 class TestPhaseProjectRoot(unittest.TestCase):

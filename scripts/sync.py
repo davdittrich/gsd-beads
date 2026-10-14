@@ -905,7 +905,13 @@ def _task_description(task):
     """
     sections = []
     if task["read_first"]:
-        items = [f.strip() for f in task["read_first"].split(",") if f.strip()]
+        # gh#24: prose may carry commas, so a comma splits only when every
+        # piece is a bare path; otherwise one line is one item, verbatim.
+        lines = [ln.strip() for ln in task["read_first"].splitlines() if ln.strip()]
+        pieces = [f.strip() for f in lines[0].split(",") if f.strip()]
+        if len(lines) == 1 and not any(re.search(r"[\s()]", p) for p in pieces):
+            lines = pieces
+        items = [ln[2:].strip() if ln.startswith("- ") else ln for ln in lines]
         sections.append("## Read First\n" + "\n".join(f"- {f}" for f in items))
     if task["precondition"]:
         sections.append(f"## Precondition\n{task['precondition']}")
@@ -1048,6 +1054,18 @@ def resolve_task_content(issue_id):
         )
     )
     return 0
+
+
+def _stored_description_intact(issue_id, task):
+    """True when bd's stored description equals what _task_description
+    renders for the task; any bd failure counts as not intact."""
+    try:
+        row = _bd_show_row(run_bd(["bd", "show", issue_id, "--json"]), issue_id)
+    except (RuntimeError, OSError, subprocess.TimeoutExpired):
+        return False
+    expected = _task_description(task).strip()
+    stored = (row or {}).get("description") or ""
+    return isinstance(stored, str) and stored.strip() == expected
 
 
 def _checkpoint_task_description(task):
@@ -2949,7 +2967,19 @@ def create_issues(plan_arg, allow_strip=True):
                 "(gh-2: an unattended dispatch never performs the authoritative strip)"
             )
         elif newly_created_ids:
-            new_text = strip_task_bodies(new_text, newly_created_ids)
+            # gh#24: stripping deletes the only PLAN.md copy, so strip only
+            # tasks whose stored bd description matches what was sent.
+            by_id = dict(zip(task_ids, tasks))
+            # Only auto/tracer bodies are ever stripped (D-03); checkpoint
+            # tasks render through another builder and need no check.
+            checked = {i for i in newly_created_ids if by_id[i]["type"] in ("auto", "tracer")}
+            intact = {i for i in checked if _stored_description_intact(i, by_id[i])}
+            for issue_id in sorted(checked - intact):
+                print(
+                    f"beads-sync: {issue_id} stored description differs from the plan -- "
+                    "leaving its task content in PLAN.md"
+                )
+            new_text = strip_task_bodies(new_text, intact)
         try:
             _atomic_write_text(plan_path, new_text)
         except OSError as exc:
