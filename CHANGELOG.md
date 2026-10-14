@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.2
+
+Plugin 1.8.2, capability 0.9.2.
+
+### Fixed
+- **`PRIME.md` names the beads skills by their invocable ids.** The Sync points table listed `beads-recall`, `beads-sync` and `beads-status`; the Skill tool resolves only `gsd-beads-recall`, `gsd-beads-sync` and `gsd-beads-status`, so an agent following the table got `Unknown skill`. `tests/test-prime-skill-ids.sh` now fails CI when a table id matches no skill `name:`. Fixes #23.
+
 ## 0.9.1
 
 Plugin 1.8.1, capability 0.9.1.

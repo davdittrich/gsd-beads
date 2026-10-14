@@ -2130,7 +2130,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.9.1")
+        self.assertEqual(manifest["version"], "0.9.2")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -2176,12 +2176,12 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         ]
         prose = " ".join(readme.split())
         expected_versions = {
-            "plugin": (plugin["version"], "1.8.1"),
-            "capability": (self._manifest()["version"], "0.9.1"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.9.1"),
+            "plugin": (plugin["version"], "1.8.2"),
+            "capability": (self._manifest()["version"], "0.9.2"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.9.2"),
             "README Codex pin": (
                 codex_pin,
-                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.8.1"],
+                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.8.2"],
             ),
         }
         for surface, (actual, expected) in expected_versions.items():
