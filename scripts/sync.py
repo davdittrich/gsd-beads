@@ -907,12 +907,12 @@ def _task_description(task):
     if task["read_first"]:
         # gh#24: prose may carry commas, so a comma splits only when every
         # piece is a bare path; otherwise one line is one item, verbatim.
-        lines = [ln.strip() for ln in task["read_first"].splitlines() if ln.strip()]
+        lines = [ln.strip() for ln in task["read_first"].splitlines()]
         pieces = [f.strip() for f in lines[0].split(",") if f.strip()]
         if len(lines) == 1 and not any(re.search(r"[\s()]", p) for p in pieces):
             lines = pieces
         items = [ln[2:].strip() if ln.startswith("- ") else ln for ln in lines]
-        sections.append("## Read First\n" + "\n".join(f"- {f}" for f in items))
+        sections.append("## Read First\n" + "\n".join(f"- {f}" if f else "" for f in items))
     if task["precondition"]:
         sections.append(f"## Precondition\n{task['precondition']}")
     if task["behavior"]:
@@ -1056,16 +1056,52 @@ def resolve_task_content(issue_id):
     return 0
 
 
-def _stored_description_intact(issue_id, task):
-    """True when bd's stored description equals what _task_description
-    renders for the task; any bd failure counts as not intact."""
-    try:
-        row = _bd_show_row(run_bd(["bd", "show", issue_id, "--json"]), issue_id)
-    except (RuntimeError, OSError, subprocess.TimeoutExpired):
-        return False
-    expected = _task_description(task).strip()
-    stored = (row or {}).get("description") or ""
-    return isinstance(stored, str) and stored.strip() == expected
+def _normalized(text):
+    """Line-ending- and trailing-space-insensitive form for comparing what bd
+    stored with what was sent."""
+    if not isinstance(text, str):
+        return ""
+    return "\n".join(ln.rstrip() for ln in text.replace("\r\n", "\n").split("\n")).strip()
+
+
+def _intact_ids(by_id):
+    """Ids in by_id (issue id -> task) whose stored bd description and
+    acceptance criteria equal what create sent. One batched `bd show`; a
+    mismatch gets one repair rewrite and a re-check, because a task is only
+    strip-eligible in the run that created it. Any bd failure counts as not
+    intact."""
+
+    def stored():
+        try:
+            result = run_bd(["bd", "show", *sorted(by_id), "--json"])
+            payload = json.loads(result.stdout) if result.returncode == 0 else []
+        except (OSError, ValueError, subprocess.TimeoutExpired):
+            return {}
+        if isinstance(payload, dict):
+            payload = payload.get("data")
+        rows = payload if isinstance(payload, list) else []
+        return {r.get("id"): r for r in rows if isinstance(r, dict)}
+
+    def matches(row, task):
+        return _normalized(row.get("description")) == _normalized(_task_description(task)) and (
+            _normalized(row.get("acceptance_criteria")) == _normalized(task["acceptance_criteria"])
+        )
+
+    rows = stored()
+    intact = {i for i, row in rows.items() if i in by_id and matches(row, by_id[i])}
+    for issue_id in sorted(set(rows) & set(by_id) - intact):
+        task = by_id[issue_id]
+        argv = ["bd", "update", issue_id, "-d", _task_description(task)]
+        if task["acceptance_criteria"]:
+            argv += ["--acceptance", task["acceptance_criteria"]]
+        try:
+            run_bd(argv)
+        except (OSError, subprocess.TimeoutExpired):
+            continue
+    if len(intact) < len(by_id) and rows:
+        rows = stored()
+        intact |= {i for i, row in rows.items() if i in by_id and matches(row, by_id[i])}
+    return intact
 
 
 def _checkpoint_task_description(task):
@@ -2972,9 +3008,9 @@ def create_issues(plan_arg, allow_strip=True):
             by_id = dict(zip(task_ids, tasks))
             # Only auto/tracer bodies are ever stripped (D-03); checkpoint
             # tasks render through another builder and need no check.
-            checked = {i for i in newly_created_ids if by_id[i]["type"] in ("auto", "tracer")}
-            intact = {i for i in checked if _stored_description_intact(i, by_id[i])}
-            for issue_id in sorted(checked - intact):
+            checked = {i: by_id[i] for i in newly_created_ids if by_id[i]["type"] in ("auto", "tracer")}
+            intact = _intact_ids(checked) if checked else set()
+            for issue_id in sorted(set(checked) - intact):
                 print(
                     f"beads-sync: {issue_id} stored description differs from the plan -- "
                     "leaving its task content in PLAN.md"

@@ -116,14 +116,24 @@ def _make_bd_side_effect():
                 return _completed(0, stdout=json.dumps([{"id": i} for i in ids]) + "\n")
             return _completed(0, stdout="[]\n")
         if argv[:2] == ["bd", "show"]:
-            row = {"id": argv[2]}
-            if argv[2] in stored:
-                row["description"] = stored[argv[2]]
-            return _completed(0, stdout=json.dumps([row]) + "\n")
+            rows = []
+            for issue_id in (a for a in argv[2:] if not a.startswith("-")):
+                row = {"id": issue_id}
+                row.update(stored.get(issue_id, {}))
+                rows.append(row)
+            return _completed(0, stdout=json.dumps(rows) + "\n")
+        if argv[:2] == ["bd", "update"]:
+            fields = stored.setdefault(argv[2], {})
+            for flag, key in (("-d", "description"), ("--acceptance", "acceptance_criteria")):
+                if flag in argv:
+                    fields[key] = argv[argv.index(flag) + 1]
+            return _completed(0)
         if argv[:2] == ["bd", "create"]:
             counter["n"] += 1
-            if "-d" in argv:
-                stored[f"mock-e1.{counter['n']}"] = argv[argv.index("-d") + 1]
+            fields = stored.setdefault(f"mock-e1.{counter['n']}", {})
+            for flag, key in (("-d", "description"), ("--acceptance", "acceptance_criteria")):
+                if flag in argv:
+                    fields[key] = argv[argv.index(flag) + 1]
             return _completed(0, stdout=f"mock-e1.{counter['n']}\n")
         if argv[:3] == ["bd", "dep", "add"]:
             return _completed(0)
@@ -1797,35 +1807,79 @@ class TestVerbatimTaskText(unittest.TestCase):
         self.assertEqual(self._resolved(description)["description"].count(action), 1)
 
 
-    def _sync_with_stored(self, mangle):
-        """Run create_issues over plan-single with a bd whose stored
-        description is mangle(sent); return the PLAN.md text afterwards."""
+    def _sync_with_show(self, hook, text=None):
+        """Run create_issues with a bd whose `show` rows pass through
+        hook(row, call_number) (return None to fail the call). Returns
+        (PLAN.md text afterwards, the `bd show` argvs seen)."""
         base = _make_bd_side_effect()
+        shows = []
 
         def side_effect(argv, **kwargs):
             result = base(argv, **kwargs)
-            if argv[:2] == ["bd", "show"] and result.returncode == 0:
-                row = json.loads(result.stdout)[0]
-                if "description" in row:
-                    row["description"] = mangle(row["description"])
-                return _completed(0, stdout=json.dumps([row]) + "\n")
-            return result
+            if argv[:2] != ["bd", "show"]:
+                return result
+            shows.append(argv)
+            rows = [hook(row, len(shows)) for row in json.loads(result.stdout)]
+            if None in rows:
+                return _completed(1, stderr="boom")
+            return _completed(0, stdout=json.dumps(rows) + "\n")
 
-        text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
+        text = text or (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8")
         with tempfile.TemporaryDirectory() as tmp, mock.patch("subprocess.run") as mock_run:
             mock_run.side_effect = side_effect
             plan = _write_plan_workspace(Path(tmp), text)
             self.assertEqual(sync.create_issues(str(plan)), 0)
-            return plan.read_text(encoding="utf-8")
+            return plan.read_text(encoding="utf-8"), shows
+
+    @staticmethod
+    def _edit(row, **fields):
+        return {**row, **fields}
 
     def test_strip_keeps_action_when_bd_stored_a_different_description(self):
-        out = self._sync_with_stored(lambda d: d.replace("Implement the thing.", "Implement the"))
+        out, _ = self._sync_with_show(lambda r, n: self._edit(
+            r, description=r["description"].replace("Implement the thing.", "Implement the")))
+        self.assertIn("<action>Implement the thing.</action>", out)
+
+    def test_strip_keeps_action_when_bd_stored_different_acceptance(self):
+        out, _ = self._sync_with_show(lambda r, n: self._edit(r, acceptance_criteria="- other"))
+        self.assertIn("<action>Implement the thing.</action>", out)
+
+    def test_strip_keeps_action_when_bd_show_fails(self):
+        out, _ = self._sync_with_show(lambda r, n: None)
         self.assertIn("<action>Implement the thing.</action>", out)
 
     def test_strip_proceeds_when_bd_stored_the_description_verbatim(self):
-        out = self._sync_with_stored(lambda d: d)
+        out, _ = self._sync_with_show(lambda r, n: r)
         self.assertNotIn("Implement the thing.", out)
         self.assertIn(sync.TASK_POINTER_PREFIX, out)
+
+    def test_strip_proceeds_when_bd_normalizes_line_endings_and_trailing_space(self):
+        out, _ = self._sync_with_show(lambda r, n: self._edit(
+            r, description=r["description"].replace("\n", " \r\n")))
+        self.assertNotIn("Implement the thing.", out)
+
+    def test_mismatch_is_repaired_once_then_stripped(self):
+        out, shows = self._sync_with_show(lambda r, n: self._edit(
+            r, description="garbled") if n == 1 else r)
+        self.assertNotIn("Implement the thing.", out)
+        self.assertEqual(len(shows), 2)
+
+    def test_one_bd_show_covers_every_new_task(self):
+        _, shows = self._sync_with_show(lambda r, n: r, text=_three_task_plan_text())
+        self.assertEqual(len(shows), 1)
+        self.assertEqual(len([a for a in shows[0][2:] if not a.startswith("-")]), 3)
+
+    def test_mixed_prose_and_path_read_first_is_one_item(self):
+        self.assertIn(
+            "## Read First\n- src/a.py (new), src/b.py\n",
+            self._created_description("src/a.py (new), src/b.py"),
+        )
+
+    def test_blank_line_inside_multiline_read_first_is_kept(self):
+        self.assertIn(
+            "## Read First\n- src/a.py\n\n- src/b.py\n",
+            self._created_description("src/a.py\n\nsrc/b.py"),
+        )
 
 
 class TestPhaseProjectRoot(unittest.TestCase):
