@@ -1807,19 +1807,22 @@ class TestVerbatimTaskText(unittest.TestCase):
         self.assertEqual(self._resolved(description)["description"].count(action), 1)
 
 
-    def _sync_with_show(self, hook, text=None):
+    def _sync_with_show(self, hook, text=None, want_updates=False):
         """Run create_issues with a bd whose `show` rows pass through
-        hook(row, call_number) (return None to fail the call). Returns
-        (PLAN.md text afterwards, the `bd show` argvs seen)."""
+        hook(row, updates_so_far) (return None to fail the call). Returns
+        (PLAN.md text afterwards, the `bd show` argvs seen[, the `bd update`
+        argvs seen when want_updates])."""
         base = _make_bd_side_effect()
-        shows = []
+        shows, updates = [], []
 
         def side_effect(argv, **kwargs):
             result = base(argv, **kwargs)
+            if argv[:2] == ["bd", "update"]:
+                updates.append(argv)
             if argv[:2] != ["bd", "show"]:
                 return result
             shows.append(argv)
-            rows = [hook(row, len(shows)) for row in json.loads(result.stdout)]
+            rows = [hook(row, updates) for row in json.loads(result.stdout)]
             if None in rows:
                 return _completed(1, stderr="boom")
             return _completed(0, stdout=json.dumps(rows) + "\n")
@@ -1829,7 +1832,8 @@ class TestVerbatimTaskText(unittest.TestCase):
             mock_run.side_effect = side_effect
             plan = _write_plan_workspace(Path(tmp), text)
             self.assertEqual(sync.create_issues(str(plan)), 0)
-            return plan.read_text(encoding="utf-8"), shows
+            out = plan.read_text(encoding="utf-8")
+        return (out, shows, updates) if want_updates else (out, shows)
 
     @staticmethod
     def _edit(row, **fields):
@@ -1858,16 +1862,43 @@ class TestVerbatimTaskText(unittest.TestCase):
             r, description=r["description"].replace("\n", " \r\n")))
         self.assertNotIn("Implement the thing.", out)
 
-    def test_mismatch_is_repaired_once_then_stripped(self):
-        out, shows = self._sync_with_show(lambda r, n: self._edit(
-            r, description="garbled") if n == 1 else r)
+    def test_mismatch_is_repaired_by_bd_update_then_stripped(self):
+        out, shows, updates = self._sync_with_show(
+            lambda r, u: r if u else self._edit(r, description="garbled"), want_updates=True)
         self.assertNotIn("Implement the thing.", out)
         self.assertEqual(len(shows), 2)
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0][updates[0].index("-d") + 1][:13], "## Read First")
+        self.assertIn("--acceptance", updates[0])
+
+    def test_repair_clears_stale_acceptance_when_plan_has_none(self):
+        text = (FIXTURES_DIR / "plan-single.md").read_text(encoding="utf-8").replace(
+            "  <acceptance_criteria>\n    - src/example.py exists\n  </acceptance_criteria>\n", "")
+        out, _, updates = self._sync_with_show(
+            lambda r, u: r if u else self._edit(r, acceptance_criteria="stale"),
+            text=text, want_updates=True)
+        self.assertNotIn("Implement the thing.", out)
+        self.assertEqual(updates[0][updates[0].index("--acceptance") + 1], "")
+
+    def test_rejected_task_gets_no_native_tracker_id(self):
+        out, _ = self._sync_with_show(lambda r, u: self._edit(r, description="garbled"))
+        self.assertNotIn("tracker-id", out)
+        self.assertNotIn("<beads-tracker-id", out)
+
+    def test_verified_task_still_gets_native_tracker_id(self):
+        out, _ = self._sync_with_show(lambda r, u: r)
+        self.assertIn("tracker-id", out)
 
     def test_one_bd_show_covers_every_new_task(self):
         _, shows = self._sync_with_show(lambda r, n: r, text=_three_task_plan_text())
         self.assertEqual(len(shows), 1)
         self.assertEqual(len([a for a in shows[0][2:] if not a.startswith("-")]), 3)
+
+    def test_comma_prose_without_path_evidence_is_one_item(self):
+        self.assertIn(
+            "## Read First\n- Design, Implement\n",
+            self._created_description("Design, Implement"),
+        )
 
     def test_mixed_prose_and_path_read_first_is_one_item(self):
         self.assertIn(

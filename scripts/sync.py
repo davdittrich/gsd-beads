@@ -906,10 +906,10 @@ def _task_description(task):
     sections = []
     if task["read_first"]:
         # gh#24: prose may carry commas, so a comma splits only when every
-        # piece is a bare path; otherwise one line is one item, verbatim.
+        # piece is a bare path (no whitespace or parentheses, a `.` or `/`); otherwise one line is one item, verbatim.
         lines = [ln.strip() for ln in task["read_first"].splitlines()]
         pieces = [f.strip() for f in lines[0].split(",") if f.strip()]
-        if len(lines) == 1 and not any(re.search(r"[\s()]", p) for p in pieces):
+        if len(lines) == 1 and all(re.fullmatch(r"[^\s()]*[./][^\s()]*", p) for p in pieces):
             lines = pieces
         items = [ln[2:].strip() if ln.startswith("- ") else ln for ln in lines]
         sections.append("## Read First\n" + "\n".join(f"- {f}" if f else "" for f in items))
@@ -1092,8 +1092,7 @@ def _intact_ids(by_id):
     for issue_id in sorted(set(rows) & set(by_id) - intact):
         task = by_id[issue_id]
         argv = ["bd", "update", issue_id, "-d", _task_description(task)]
-        if task["acceptance_criteria"]:
-            argv += ["--acceptance", task["acceptance_criteria"]]
+        argv += ["--acceptance", task["acceptance_criteria"] or ""]
         try:
             run_bd(argv)
         except (OSError, subprocess.TimeoutExpired):
@@ -2987,9 +2986,6 @@ def create_issues(plan_arg, allow_strip=True):
         )
 
     if task_updates or placeholder_updates or native_updates or epic_created:
-        new_text = rewrite_plan(
-            text, epic_id, epic_created, task_updates, native_updates, placeholder_updates
-        )
         # D-01/D-05: strip content only for tasks whose issue was created in
         # THIS run (task_updates/placeholder_updates). Native task resolution
         # now provides the authoritative read path; the unattended hook
@@ -2997,6 +2993,7 @@ def create_issues(plan_arg, allow_strip=True):
         newly_created_ids = {issue_id for _, issue_id in task_updates} | {
             issue_id for _, issue_id in placeholder_updates
         }
+        intact = None
         if newly_created_ids and not allow_strip:
             print(
                 "beads-sync: hook-driven dispatch -- leaving task content in PLAN.md "
@@ -3010,11 +3007,19 @@ def create_issues(plan_arg, allow_strip=True):
             # tasks render through another builder and need no check.
             checked = {i: by_id[i] for i in newly_created_ids if by_id[i]["type"] in ("auto", "tracer")}
             intact = _intact_ids(checked) if checked else set()
-            for issue_id in sorted(set(checked) - intact):
+            rejected = set(checked) - intact
+            for issue_id in sorted(rejected):
                 print(
                     f"beads-sync: {issue_id} stored description differs from the plan -- "
                     "leaving its task content in PLAN.md"
                 )
+            # The native resolver reads bd with no PLAN.md fallback, so a
+            # rejected task must not gain a tracker-id that points at it.
+            native_updates[:] = [(pos, i) for pos, i in native_updates if i not in rejected]
+        new_text = rewrite_plan(
+            text, epic_id, epic_created, task_updates, native_updates, placeholder_updates
+        )
+        if intact is not None:
             new_text = strip_task_bodies(new_text, intact)
         try:
             _atomic_write_text(plan_path, new_text)
