@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.3
+
+Plugin 1.8.3, capability 0.9.3.
+
+### Fixed
+- **Prose in `<read_first>` reaches bd unaltered.** The task description split `<read_first>` on every comma into `- ` bullets, so `(recipe, dispositions, OOM rule)` became three bullets with a doubled `- -`. A single line now splits on commas only when every piece is a bare path; otherwise each line is one item, verbatim, and interior blank lines are kept.
+- **`authoritative` strips a task body only after bd confirms it.** One batched `bd show` must return the description and acceptance criteria that were sent (line endings and trailing spaces ignored). A mismatch gets one `bd update` repair and a re-check; if it still differs, or `bd` fails, the task stays in `PLAN.md`. Refs #24.
+
 ## 0.9.2
 
 Plugin 1.8.2, capability 0.9.2.
