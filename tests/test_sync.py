@@ -2372,23 +2372,40 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertNotIn("\\n", bootstrap)
         self.assertIn("os.execv(sys.executable", bootstrap)
         self.assertIn('"resolve-task-content", sys.argv[1]', bootstrap)
-        self.assertEqual(bootstrap.count("root.is_absolute() and str(root)!='/' or sys.exit("), 1)
+        self.assertEqual(bootstrap.count("no absolute GSD_HOME or HOME"), 1)
 
-    def test_resolver_bootstrap_refuses_an_empty_home_and_root_base(self):
-        # HOME="" makes Path.home() "/" (absolute): must fail closed, not try /.gsd/...
+    def _run_bootstrap(self, env_extra, cwd=None):
         invoke = self._manifest()["taskContentResolver"]["invoke"]
         argv = [invoke["binary"], *[a.replace("{{id}}", "bd-1") for a in invoke["args"]]]
-        base = {k: v for k, v in os.environ.items() if k not in ("GSD_HOME", "HOME")}
-        for home in ("", "/"):
-            with self.subTest(home=home):
-                result = subprocess.run(argv, env={**base, "HOME": home}, capture_output=True,
-                                        text=True, timeout=15)
-                self.assertEqual(result.returncode, 1, result)
-                self.assertIn("gsd-beads: no absolute GSD_HOME or HOME", result.stderr)
+        env = {k: v for k, v in os.environ.items() if k not in ("GSD_HOME", "HOME")}
+        env.update(env_extra)
+        return subprocess.run(argv, env=env, cwd=cwd, capture_output=True, text=True, timeout=15)
+
+    def test_resolver_bootstrap_refuses_every_base_that_resolves_to_root(self):
+        msg = "gsd-beads: no absolute GSD_HOME or HOME"
         with tempfile.TemporaryDirectory() as tmp:
-            result = subprocess.run(argv, env={**base, "HOME": tmp}, capture_output=True,
-                                    text=True, timeout=15)
-            self.assertEqual(result.returncode, 2, result)
+            link = Path(tmp) / "rootlink"
+            link.symlink_to("/")
+            cases = [{"HOME": h} for h in ("", "/", "//", "/..", "/tmp/..", "/./")]
+            cases += [{"GSD_HOME": g, "HOME": tmp} for g in ("/", "//", "/..", "/tmp/..", str(link))]
+            for env in cases:
+                with self.subTest(env=env):
+                    result = self._run_bootstrap(env)
+                    self.assertEqual(result.returncode, 1, result)
+                    self.assertIn(msg, result.stderr)
+
+    def test_resolver_bootstrap_reaches_the_script_for_a_valid_absolute_base(self):
+        for var in ("HOME", "GSD_HOME"):
+            with self.subTest(var=var), tempfile.TemporaryDirectory() as tmp:
+                script = Path(tmp) / ".gsd/capabilities/beads/scripts/sync.py"
+                script.parent.mkdir(parents=True)
+                script.write_text("open(%r, 'w').close()\n" % str(Path(tmp) / "ran"), encoding="utf-8")
+                env = {var: tmp}
+                if var == "GSD_HOME":
+                    env["HOME"] = "/nonexistent-home"
+                result = self._run_bootstrap(env)
+                self.assertEqual(result.returncode, 0, result)
+                self.assertTrue((Path(tmp) / "ran").exists())
 
     def test_resolver_bootstrap_refuses_a_relative_base(self):
         # HOME=. made the base ./.gsd/... i.e. a cloned repo's own sync.py.
@@ -2402,7 +2419,8 @@ class TestTaskContentResolverManifest(unittest.TestCase):
             env = {k: v for k, v in os.environ.items() if k != "GSD_HOME"}
             env["HOME"] = "."
             result = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True, timeout=15)
-            self.assertNotEqual(result.returncode, 0, result)
+            self.assertEqual(result.returncode, 1, result)
+            self.assertIn("gsd-beads: no absolute GSD_HOME or HOME", result.stderr)
             self.assertFalse((cwd / "ran").exists())
 
     def test_release_docs_record_completed_installed_cutover(self):
