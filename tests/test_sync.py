@@ -2356,6 +2356,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertNotIn("\\n", bootstrap)
         self.assertIn("os.execv(sys.executable", bootstrap)
         self.assertIn('"resolve-task-content", sys.argv[1]', bootstrap)
+        self.assertEqual(bootstrap.count("root.is_absolute() or sys.exit("), 1)
 
     def test_resolver_bootstrap_refuses_a_relative_base(self):
         # HOME=. made the base ./.gsd/... i.e. a cloned repo's own sync.py.
@@ -6440,6 +6441,33 @@ class TestBeadsMdRegeneration(unittest.TestCase):
             rows, ordinal_map={"evil|id": "01-01"}, task_status_by_id={"evil|id": "done"}
         )
         self.assertIn("| evil\\|id | t | open | done | 01-01 |  |", table)
+
+    def test_escape_table_cell_strips_controls_and_bounds_length(self):
+        esc = sync._escape_table_cell
+        for bad in ("\x1b[31mred", "a\x00b", "a\u0085b", "a\x7fb", "a\x9fb"):
+            out = esc(bad)
+            self.assertFalse(any(ord(c) < 32 or 0x7F <= ord(c) <= 0x9F for c in out), repr(out))
+        self.assertEqual(esc("\x1b[31mred"), "[31mred")
+        self.assertEqual(esc("a\nb\r"), "a b")
+        self.assertEqual(esc("a\tb"), "a\tb")
+        self.assertEqual(esc("plain | back\\slash"), "plain \\| back\\\\slash")
+        self.assertEqual(esc("x" * 200), "x" * 200)
+        self.assertEqual(esc("x" * 500), "x" * 200 + "\u2026")
+
+    @mock.patch("subprocess.run")
+    def test_beads_md_on_disk_has_no_control_chars_from_titles(self, mock_run):
+        title = "evil\x1b[31m\x00\u0085\x7f" + "y" * 500
+        rows = json.dumps([{"id": "regen-epic.1", "title": title, "status": "open", "dependencies": []}])
+        mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(Path(tmp), [("01-07", _regen_two_task_plan_text(), True)])
+            sync.regenerate_beads_md(str(phase_dir))
+            text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
+        self.assertIn("evil[31m", text)
+        self.assertIn("\u2026", text)
+        self.assertFalse(
+            any((ord(c) < 32 and c not in "\n\t") or 0x7F <= ord(c) <= 0x9F for c in text)
+        )
 
     def test_parse_beads_md_table_rows_survives_pipe_in_id(self):
         """WR-01: _parse_beads_md_table_rows must recover the original,
