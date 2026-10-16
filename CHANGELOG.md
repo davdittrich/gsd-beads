@@ -3,7 +3,7 @@
 ## Unreleased
 
 ### Changed
-- **`verify:post` closes the phase epic.** After `regenerate-beads-md`, `close-phase-epic` runs `bd close` on the epic only when `<NN>-VERIFICATION.md` has `status: passed`, `beads.epic_per` is `phase`, `BEADS.md` shows `blocking_open: 0` and `diverged: 0`, and the epic has at least one child, all closed. Otherwise the epic stays open and open child ids are printed. This supersedes the 0.9.0 "closes nothing" line. Refs #26.
+- **`close-phase-epic` closes the phase epic at `verify:post` and `ship:pre`.** A new `gsd-beads-close` skill, dispatched by two new `produces: []` capability steps, runs it. gsd-core 1.17 dispatches `verify:post` before the verifier writes `VERIFICATION.md` in execute-phase, and `--after-fingerprint` skips steps whose produced file exists, so the `BEADS.md`-producing status step is skipped in verify-work; `[]` never skips, and `ship:pre` steps run only when no gate blocks, after `VERIFICATION.md` is final. `close-phase-epic` regenerates `BEADS.md` first (acts only if that succeeds), then runs `bd close` on the epic only when `<NN>-VERIFICATION.md` has `status: passed` (case-insensitive), `beads.epic_per` is `phase`, `BEADS.md` shows `blocking_open: 0` and `diverged: 0`, the epic has at least one child, all closed, and it is not a milestone epic. Otherwise the epic stays open and open child ids are printed; already closed is a no-op. A `bd` timeout or failure appends a Blockers/Concerns note and never fails the phase. `beads-status` Step 2b is regenerate-only again. This supersedes the 0.9.0 "closes nothing" line. Refs #26.
 
 ## 0.9.3
 

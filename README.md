@@ -90,11 +90,18 @@ gsd-core's own lifecycle commands drive `bd` state directly:
    `status` is `complete` or absent; `halted`, `blocked`, `incomplete`, an unknown or an empty
    value is not complete).
 3. `/gsd:verify-work` — after verification, `beads-status` regenerates the projected `BEADS.md`
-   from live `bd` state, then closes the phase epic when `VERIFICATION.md` has `status: passed`,
-   `beads.epic_per` is `phase`, and the epic has at least one child, all closed. Otherwise the epic
-   stays open and the open child ids are printed. The milestone epic is never closed.
+   from live `bd` state and closes nothing.
 4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
-   refuse to ship while `blocking_open` or `diverged` is non-zero.
+   refuse to ship while `blocking_open` or `diverged` is non-zero. Then `gsd-beads-close` runs
+   `close-phase-epic`; a `verify:post` step of the same skill runs it earlier, for phases
+   verified inside `/gsd:execute-phase`.
+
+`close-phase-epic` regenerates `BEADS.md` first and acts only if that succeeds. It closes the
+phase epic only when `<NN>-VERIFICATION.md` has `status: passed` (case-insensitive),
+`beads.epic_per` is `phase`, `BEADS.md` shows `blocking_open: 0` and `diverged: 0`, and the epic
+has at least one child, all closed. Otherwise the epic stays open and the open child ids are
+printed. A milestone epic is never closed; an already-closed epic is a no-op. A `bd` timeout or
+failure appends a Blockers/Concerns note and never fails the phase.
 
 gsd-core dispatches `plan:post` and `verify:post` natively. The plugin's `PostToolUse`
 compatibility hook handles `plan:pre`, `execute:wave:pre`, and `execute:wave:post`;
@@ -114,8 +121,9 @@ See `AGENTS.md` in this repo for the full command reference.
 
 ### How the lifecycle steps get dispatched
 
-`capability.json` declares six `kind: "step"` hooks, one per lifecycle
-point. gsd-core dispatches `plan:post` and `verify:post` steps
+`capability.json` declares eight `kind: "step"` hooks, one per lifecycle
+point, plus two `gsd-beads-close` steps (`verify:post`, `ship:pre`; they produce no file, so
+`--after-fingerprint` never skips them). gsd-core dispatches `plan:post` and `verify:post` steps
 natively. The compatibility dispatcher probes the installed workflow files at
 those two points and stands down when native dispatch is present, preventing
 duplicate `bd` mutations.
@@ -201,7 +209,7 @@ Every skill and the hook apply one gate: the capability is disabled only when
 (no file, no `beads` object, no `enabled` key) falls through to the `capability.json` default of
 `true`.
 
-When disabled, every lifecycle step no-ops rather than fails, since all six steps are declared
+When disabled, every lifecycle step no-ops rather than fails, since all eight steps are declared
 `onError: skip`. Skills print a notice; the hook path (`lifecycle-dispatch`) returns silently.
 
 `epic_per` is re-read fresh from `.planning/config.json` at each epic-creation call site, not
