@@ -17,7 +17,7 @@ bd compact --force                # default 30-day retention window
 
 ## What it does NOT remove
 
-`bd compact` squashes **git commit history** for the Dolt data store, not issue content. No issue, comment, or dependency is deleted by it — closed issues stay closed and readable, `bd show` still returns everything. For actual semantic summarization of closed issues, that's a different command: `bd admin compact`. Confirm with `--dry-run` before running `--force` if you're unsure which one you meant.
+`bd compact` squashes **git commit history** for the Dolt data store, not issue content. No issue, comment, or dependency is deleted by it — closed issues stay closed and readable, `bd show` still returns everything. Semantic summarization of closed issues is a different command: `bd admin compact`.
 
 ## When it's worthwhile
 

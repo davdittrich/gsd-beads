@@ -17,7 +17,7 @@ gsd-core's `ship.md` `preflight_checks` has no generic loop over `gsd_run loop r
 
 ### Upstream status and revert condition
 
-The `ship:pre` **gate** half is upstream: open-gsd/gsd-core#3559 (PR #3608), shipped in gsd-core v1.11.0, so v2 of the patch carries only the **step** half. (#3554, cited in earlier revisions, was closed NOT_PLANNED and tracks nothing.) A machine still carrying the v1 marker runs a redundant gate loop; `check_patch` reporting "missing" is the signal to reapply v2.
+The `ship:pre` **gate** half is upstream: open-gsd/gsd-core#3559 (PR #3608), shipped in gsd-core v1.11.0, so v2 of the patch carries only the **step** half. A machine still carrying the v1 marker runs a redundant gate loop; `check_patch` reporting "missing" is the signal to reapply v2.
 
 Revert: once gsd-core ships a native generic `ship:pre` step dispatch, delete this patch, `check_patch`'s `ship-md` target, `beads-status` Step 2d, and `beads-recall` Step 3.5.
 
