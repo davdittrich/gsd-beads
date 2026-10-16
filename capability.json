@@ -6,7 +6,7 @@
     "trackerPrefix": "beads",
     "invoke": {
       "binary": "python3",
-      "args": ["-Ic", "import os,sys;from pathlib import Path;g=os.environ.get('GSD_HOME','');root=Path(g) if os.path.isabs(g) else Path.home();root.is_absolute() or sys.exit('gsd-beads: no absolute GSD_HOME or HOME');script=root/'.gsd'/'capabilities'/'beads'/'scripts'/'sync.py';os.execv(sys.executable,[sys.executable,'-I',str(script),\"resolve-task-content\", sys.argv[1]])", "{{id}}"],
+      "args": ["-Ic", "import os,sys;from pathlib import Path;g=os.environ.get('GSD_HOME','');root=Path(g) if os.path.isabs(g) else Path.home();root.is_absolute() and str(root)!='/' or sys.exit('gsd-beads: no absolute GSD_HOME or HOME');script=root/'.gsd'/'capabilities'/'beads'/'scripts'/'sync.py';os.execv(sys.executable,[sys.executable,'-I',str(script),\"resolve-task-content\", sys.argv[1]])", "{{id}}"],
       "timeoutMs": 10000
     }
   },

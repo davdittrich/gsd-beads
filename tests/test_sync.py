@@ -2356,7 +2356,23 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         self.assertNotIn("\\n", bootstrap)
         self.assertIn("os.execv(sys.executable", bootstrap)
         self.assertIn('"resolve-task-content", sys.argv[1]', bootstrap)
-        self.assertEqual(bootstrap.count("root.is_absolute() or sys.exit("), 1)
+        self.assertEqual(bootstrap.count("root.is_absolute() and str(root)!='/' or sys.exit("), 1)
+
+    def test_resolver_bootstrap_refuses_an_empty_home_and_root_base(self):
+        # HOME="" makes Path.home() "/" (absolute): must fail closed, not try /.gsd/...
+        invoke = self._manifest()["taskContentResolver"]["invoke"]
+        argv = [invoke["binary"], *[a.replace("{{id}}", "bd-1") for a in invoke["args"]]]
+        base = {k: v for k, v in os.environ.items() if k not in ("GSD_HOME", "HOME")}
+        for home in ("", "/"):
+            with self.subTest(home=home):
+                result = subprocess.run(argv, env={**base, "HOME": home}, capture_output=True,
+                                        text=True, timeout=15)
+                self.assertEqual(result.returncode, 1, result)
+                self.assertIn("gsd-beads: no absolute GSD_HOME or HOME", result.stderr)
+        with tempfile.TemporaryDirectory() as tmp:
+            result = subprocess.run(argv, env={**base, "HOME": tmp}, capture_output=True,
+                                    text=True, timeout=15)
+            self.assertEqual(result.returncode, 2, result)
 
     def test_resolver_bootstrap_refuses_a_relative_base(self):
         # HOME=. made the base ./.gsd/... i.e. a cloned repo's own sync.py.
@@ -6481,7 +6497,7 @@ class TestBeadsMdRegeneration(unittest.TestCase):
 
     @mock.patch("subprocess.run")
     def test_beads_md_on_disk_has_no_control_chars_from_titles(self, mock_run):
-        title = "evil\x1b[31m\x00\u0085\x7f" + "y" * 500
+        title = "evil\x1b[31m\x00\u0085\x7f\u2028\u2029\u202e\u200b\ufeff\ud800" + "y" * 500
         rows = json.dumps([{"id": "regen-epic.1", "title": title, "status": "open", "dependencies": []}])
         mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
         with tempfile.TemporaryDirectory() as tmp:
@@ -6490,9 +6506,24 @@ class TestBeadsMdRegeneration(unittest.TestCase):
             text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
         self.assertIn("evil[31m", text)
         self.assertIn("\u2026", text)
+        banned = {0x2028, 0x2029, 0x200B, 0x200C, 0x200D, 0xFEFF, *range(0x202A, 0x202F),
+                  *range(0x2066, 0x206A), *range(0xD800, 0xE000)}
         self.assertFalse(
-            any((ord(c) < 32 and c not in "\n\t") or 0x7F <= ord(c) <= 0x9F for c in text)
+            any((ord(c) < 32 and c not in "\n\t") or 0x7F <= ord(c) <= 0x9F or ord(c) in banned
+                for c in text)
         )
+
+    def test_escape_table_cell_cut_never_splits_an_escape_pair(self):
+        esc, cap = sync._escape_table_cell, 200
+        self.assertEqual(esc("|" * 300, max_len=cap), "\\|" * 200 + "\u2026")
+        self.assertEqual(esc("\\" * 300, max_len=cap), "\\\\" * 200 + "\u2026")
+        out = esc("x" * 199 + "\\|tail", max_len=cap)
+        self.assertEqual(out, "x" * 199 + "\\\\" + "\u2026")
+        self.assertEqual(esc("a\tb"), "a\tb")
+
+    def test_escape_table_cell_strips_bidi_zero_width_and_surrogates(self):
+        for ch in ("\u202a", "\u202e", "\u2066", "\u2069", "\u200b", "\u200d", "\ufeff", "\ud800", "\udfff"):
+            self.assertEqual(sync._escape_table_cell("a%sb" % ch), "ab", hex(ord(ch)))
 
     def test_parse_beads_md_table_rows_survives_pipe_in_id(self):
         """WR-01: _parse_beads_md_table_rows must recover the original,
