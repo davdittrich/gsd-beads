@@ -26,6 +26,14 @@ fi
 python3 -I "$SYNC_PY" close-phase-epic <phase directory>
 ```
 
-It closes the phase epic only when `{padded_phase}-VERIFICATION.md` has `status: passed` and every
-child is closed; otherwise it prints the open child ids. A `bd` failure never fails the phase.
-Report its stdout.
+It regenerates `{padded_phase}-BEADS.md` first, then closes the phase epic only when all hold:
+
+- `beads.epic_per` is `phase`.
+- `{padded_phase}-VERIFICATION.md` has `status: passed` (case-insensitive).
+- `BEADS.md` shows `blocking_open: 0` and `diverged: 0`.
+- The epic is not a milestone epic, is not already closed, and has at least one child.
+- Every child is closed.
+
+Otherwise the epic stays open. Wrong `epic_per` or a status other than `passed` print nothing; every
+other refusal prints its reason on stdout (for open children, their ids). A `bd` failure never fails
+the phase. Report its stdout.
