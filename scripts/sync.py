@@ -1551,11 +1551,7 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
             # when nothing matches, so an exact directory name (or full path)
             # still resolves as before.
             if not supplied.is_absolute() and len(supplied.parts) == 1 and phases_root.is_dir():
-                padded = phase_dir_prefix(supplied.name)
-                for candidate in sorted(phases_root.iterdir()):
-                    if candidate.is_dir() and candidate.name.split("-", 1)[0] == padded:
-                        phase_dir = candidate
-                        break
+                phase_dir = _phase_token_dir(phases_root, supplied.name)
             if phase_dir is None:
                 if not supplied.is_absolute():
                     supplied = (
@@ -3534,51 +3530,51 @@ def _age(created_at):
         return "age unknown"
 
 
-def _reconcile_blocker(phase_dir, message):
-    print(message, file=sys.stderr)
-    try:
-        append_state_blocker(
-            confined(phase_project_root(phase_dir), ".planning", "STATE.md"), message
-        )
-    except (ValueError, OSError):
-        pass
-
-
 def reconcile_report(phase_dir_arg):
     """gh-27/verify:post: read-only list of non-closed tickets (any status but
     `closed`, so `deferred` counts) to reconcile before the phase completes:
     (a) those BEADS-RECALL.md matched to the phase, (b) children of the phase
     epic that no plan task names. The phase epic itself is never listed. In
     milestone mode the epic is the milestone's, so (b) lists every milestone
-    child no plan of any phase names, for every phase. Prints nothing when none
-    are non-closed, and prints its full list on every run (no dedup). Never
-    closes or updates. A bd failure (error, timeout) notes STATE.md and exits
-    0. A degraded or unreadable plan, or a failed epic listing, drops (b) only;
-    a failed recall lookup drops (a) only; each prints a note above the list."""
-    phase_dir = Path(phase_dir_arg).resolve()
+    child no plan of any phase names, for every phase. Prints its full list on
+    every run (no dedup). Never closes or updates. A bd failure (error,
+    timeout) notes STATE.md and exits 0. A degraded or unreadable plan, or a
+    failed epic listing, drops (b) only; a failed or missing recall drops (a)
+    only. Every such note prints, with or without listed tickets; the heading
+    prints only with tickets. Prints nothing when nothing is degraded and
+    nothing is non-closed. A degraded plan adds no STATE.md blocker of its own
+    (the parse error already noted one). The argument is a phase directory path
+    or a bare phase token; one that names no directory prints a fixed line."""
+    phase_dir = _resolve_phase_arg(phase_dir_arg, "reconcile-report")
+    if phase_dir is None:
+        return 0
     if not bd_available():
         _skip_bd_unavailable(phase_dir, "reconcile")
         return 0
     epic_id = None
     children = []
     notes = []
+    children_note = "epic children unavailable: plan or epic listing failed"
     try:
         epic_id = resolve_phase_epic(phase_dir)
         degraded = []
         ordinal_map = _resolve_task_ordinal_map(phase_dir, degraded)
-        known = set(ordinal_map)
-        if _milestone_scoped(phase_dir) and epic_id:
-            known |= collect_scope_task_ids(phase_dir, epic_id)
         if degraded:
-            raise ValueError("degraded plan(s) " + ", ".join(degraded))
-        if epic_id:
+            # The parse error already noted its own STATE.md blocker.
+            notes.append(children_note)
+        elif epic_id:
+            known = set(ordinal_map)
+            if _milestone_scoped(phase_dir):
+                known |= collect_scope_task_ids(phase_dir, epic_id)
             rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
             if rows is None or not all(isinstance(r, dict) for r in rows):
                 raise ValueError("bd list --parent failed")
             children = [r for r in rows if r.get("id") not in known]
     except (ValueError, PlanParseError, EpicAuthorityError, OSError, subprocess.SubprocessError) as exc:
-        _reconcile_blocker(phase_dir, f"reconcile skipped epic children: {exc}")
-        notes.append("epic children unavailable: plan or epic listing failed")
+        _phase_blocker(
+            phase_dir, f"reconcile skipped epic children: {exc}", file=sys.stderr
+        )
+        notes.append(children_note)
     recalled_ids = _recalled_ids(phase_dir)
     recalled = []
     if recalled_ids is None:
@@ -3592,7 +3588,9 @@ def reconcile_report(phase_dir_arg):
                 raise ValueError("bd list --id failed")
             recalled = rows
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
-            _reconcile_blocker(phase_dir, f"reconcile recall lookup skipped: {exc}")
+            _phase_blocker(
+                phase_dir, f"reconcile recall lookup skipped: {exc}", file=sys.stderr
+            )
             notes.append("recall unavailable: bd lookup of recalled ids failed")
     seen = {epic_id} if epic_id else set()
     lines = []
@@ -3607,8 +3605,9 @@ def reconcile_report(phase_dir_arg):
         )
     if lines:
         print("Reconcile before completing (non-closed tickets)")
-        for note in notes:
-            print(f"({note})")
+    for note in notes:
+        print(f"({note})")
+    if lines:
         print("\n".join(lines))
     return 0
 
@@ -3865,7 +3864,9 @@ def regenerate_beads_md(phase_dir_arg):
 
 def close_phase_epic(phase_dir_arg):
     """gh-26: close the phase epic at verify:post. Always returns 0; every
-    refusal leaves the epic open.
+    refusal leaves the epic open. The argument is a phase directory path or
+    a bare phase token; one that names no directory prints a fixed line and
+    changes nothing.
 
     Closes only when epic_per is `phase`, VERIFICATION.md says `passed`
     (case-insensitive), a fresh `regenerate_beads_md` succeeded and wrote
@@ -3880,16 +3881,12 @@ def close_phase_epic(phase_dir_arg):
     not running. A timed-out `bd close` may still have closed the epic.
     bd unavailable is reported by the regenerate step (notice plus one
     blocker); the BEADS.md it leaves is not clean, so nothing closes."""
-    phase_dir = Path(phase_dir_arg).resolve()
+    phase_dir = _resolve_phase_arg(phase_dir_arg, "close-phase-epic")
+    if phase_dir is None:
+        return 0
 
     def blocker(msg, stdout_msg=None):
-        print(f"close-phase-epic: {stdout_msg or msg}")
-        try:
-            append_state_blocker(
-                confined(phase_project_root(phase_dir), ".planning", "STATE.md"), msg
-            )
-        except ValueError:
-            pass
+        _phase_blocker(phase_dir, msg, f"close-phase-epic: {stdout_msg or msg}")
 
     try:
         epic_per = read_epic_per(phase_project_root(phase_dir))
@@ -4008,6 +4005,51 @@ def _resolve_default_phase_dir(project_root):
         if candidate.is_dir() and candidate.name.split("-", 1)[0] == padded:
             return candidate
     return None
+
+
+def _phase_token_dir(phases_root, token):
+    """First child directory of phases_root whose leading `NN` token equals the
+    zero-padded `token` ("2", "02", "01.5"), else None."""
+    padded = phase_dir_prefix(token)
+    for candidate in sorted(phases_root.iterdir()):
+        if candidate.is_dir() and candidate.name.split("-", 1)[0] == padded:
+            return candidate
+    return None
+
+
+def _resolve_phase_arg(arg, command):
+    """Phase directory for reconcile-report/close-phase-epic's argument: a bare
+    token ("1", "01") is matched against `<project>/.planning/phases` like
+    lifecycle-dispatch does; anything else is taken as a path. When the result
+    is not an existing directory, prints one fixed stdout line naming `command`
+    (the arg is never echoed) and returns None."""
+    supplied = Path(arg)
+    if not supplied.is_absolute() and len(supplied.parts) == 1:
+        try:
+            phases_root = confined(find_project_root(Path.cwd()), ".planning", "phases")
+            hit = _phase_token_dir(phases_root, supplied.name) if phases_root.is_dir() else None
+        except (ValueError, OSError):
+            hit = None
+        if hit is not None:
+            return hit.resolve()
+    phase_dir = supplied.resolve()
+    if phase_dir.is_dir():
+        return phase_dir
+    print(f"{command}: phase directory not found -- skipped")
+    return None
+
+
+def _phase_blocker(phase_dir, message, shown=None, file=None):
+    """Print `shown or message` (stdout unless `file`) and record `message` as a
+    STATE.md blocker under phase_dir's project root. A STATE.md path that
+    cannot be confined or written is swallowed."""
+    print(shown or message, file=file or sys.stdout)
+    try:
+        append_state_blocker(
+            confined(phase_project_root(phase_dir), ".planning", "STATE.md"), message
+        )
+    except (ValueError, OSError):
+        pass
 
 
 def render_status_mapping(phase_dir_arg):
@@ -4518,11 +4560,13 @@ def _main(argv):
         help="Close the phase epic when VERIFICATION.md passed and every child is closed",
     )
     close_epic_p.add_argument("phase_dir")
+    close_epic_p.add_argument("ignored", nargs=argparse.REMAINDER)  # ship.md's `--auto <ws>` tail
     reconcile_report_p = sub.add_parser(
         "reconcile-report",
         help="Read-only: list open recalled and non-plan epic-child tickets to reconcile before completing (gh-27)",
     )
     reconcile_report_p.add_argument("phase_dir")
+    reconcile_report_p.add_argument("ignored", nargs=argparse.REMAINDER)  # ship.md's `--auto <ws>` tail
     wave_status_p = sub.add_parser(
         "wave-status-block",
         help="Regenerate BEADS.md then print a <beads_status> block naming this wave's issues",

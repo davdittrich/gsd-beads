@@ -6144,6 +6144,8 @@ class TestReconcileReport(unittest.TestCase):
         self.assertNotIn("other-9", out)
         id_call = next(c for c in calls if c[:3] == ["bd", "list", "--id"])
         self.assertEqual(id_call[3], "old-1,old-2")
+        # issue #27 AC: read-only -- no bd close/update verb is ever issued.
+        self.assertFalse([c for c in calls if len(c) > 1 and c[1] in ("close", "update")])
 
     def test_nothing_open_prints_nothing(self):
         epic = [{"id": "regen-epic.1", "title": "plan task", "status": "open"}]
@@ -6171,7 +6173,9 @@ class TestReconcileReport(unittest.TestCase):
         rc, out, state, _ = self._run(
             [], [], self.RECALL_OK, raises=subprocess.TimeoutExpired("bd", 15)
         )
-        self.assertEqual((rc, out), (0, ""))
+        self.assertEqual(rc, 0)
+        self.assertIn("epic children unavailable", out)
+        self.assertNotIn("Reconcile before completing", out)
         self.assertIn("reconcile skipped", state)
 
     def test_naive_and_long_fraction_created_at_list_with_age(self):
@@ -6224,12 +6228,14 @@ class TestReconcileReport(unittest.TestCase):
 
     def test_non_dict_epic_row_notes_blocker_and_exits_zero(self):
         rc, out, state, _ = self._run(["junk"], [], self.RECALL_FAILED)
-        self.assertEqual((rc, out), (0, ""))
+        self.assertEqual(rc, 0)
+        self.assertIn("epic children unavailable", out)
         self.assertIn("reconcile skipped", state)
 
     def test_non_dict_recalled_row_notes_blocker_and_exits_zero(self):
         rc, out, state, _ = self._run([], ["junk"], self.RECALL_OK)
-        self.assertEqual((rc, out), (0, ""))
+        self.assertEqual(rc, 0)
+        self.assertIn("recall unavailable: bd lookup", out)
         self.assertIn("reconcile recall lookup skipped", state)
 
     def test_milestone_scope_skips_sibling_phase_plan_tasks(self):
@@ -6244,8 +6250,33 @@ class TestReconcileReport(unittest.TestCase):
 
     def test_degraded_plan_exits_zero_and_notes_blocker(self):
         rc, out, state, _ = self._run([], [], self.RECALL_OK, plan_text=_regen_two_task_plan_text() + '\n<task type="auto">\n')
-        self.assertEqual((rc, out), (0, ""))
-        self.assertIn("reconcile skipped", state)
+        self.assertEqual(rc, 0)
+        self.assertIn("epic children unavailable", out)
+        self.assertNotIn("Reconcile before completing", out)
+        # one cause, one STATE.md bullet: the parse error's own note only.
+        self.assertIn("plan parse failed", state)
+        self.assertNotIn("reconcile skipped", state)
+        self.assertEqual(state.count("plan parse failed"), 1)
+
+    def test_absent_recall_and_all_children_closed_still_prints_note(self):
+        epic = [{"id": "regen-epic.8", "title": "Done", "status": "closed"}]
+        rc, out, _, _ = self._run(epic, [], None)
+        self.assertEqual(rc, 0)
+        self.assertIn("recall unavailable: BEADS-RECALL.md missing or failed", out)
+        self.assertNotIn("Reconcile before completing", out)
+
+    def test_recall_renderer_round_trips_through_recalled_ids(self):
+        issues = [{"id": "old-1", "title": "A | b", "status": "open"}, {"id": "old-2", "title": "B", "status": "open"}]
+        body = sync._render_beads_recall_body(
+            [(issues[0], "path"), (issues[1], "desc")], [{"id": "other-9", "title": "U", "status": "open"}]
+        )
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = Path(tmp) / "01-substrate"
+            phase_dir.mkdir()
+            (phase_dir / "01-BEADS-RECALL.md").write_text(
+                "---\nrecall_status: ok\n---\n\n" + body, encoding="utf-8"
+            )
+            self.assertEqual(sync._recalled_ids(phase_dir), ["old-1", "old-2"])
 
     def test_bd_unavailable_each_verify_post_step_notes_its_own_notice_and_blocker(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -6329,7 +6360,7 @@ class TestReconcileReport(unittest.TestCase):
         self.assertNotIn("regen-epic.9", out)
         self.assertIn("epic children unavailable", out)
         self.assertNotIn("recall unavailable", out)
-        self.assertIn("reconcile skipped", state)
+        self.assertNotIn("reconcile skipped", state)
         self.assertFalse([c for c in calls if c[:3] == ["bd", "list", "--parent"]])
 
     def test_phase_epic_is_never_listed_even_when_recalled(self):
@@ -13053,6 +13084,56 @@ class TestShipPreLiveRecheck(unittest.TestCase):
         self.assertIn("unknown", section)
         self.assertIn("Do not push", section)
         self.assertLess(section.index("SHIP BLOCKED"), section.index("ship-override <phase directory>"))
+
+
+class TestPhaseArgResolution(unittest.TestCase):
+    """reconcile-report and close-phase-epic accept ship.md's
+    `<PHASE_NUMBER> --auto <GSD_WS>` tail and resolve a bare phase token the
+    way lifecycle-dispatch does; an unresolvable arg is one fixed stdout
+    line, exit 0, and no STATE.md blocker."""
+
+    def _main(self, command, argv):
+        out = io.StringIO()
+        seen = []
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp).resolve()
+            phase_dir = _write_wave_workspace(tmp, [], with_state=True)
+            state_before = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
+            argv = [str(phase_dir) if a == "<path>" else a for a in argv]
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(sync, "bd_available", return_value=False), \
+                     mock.patch.object(sync, "read_epic_per", side_effect=lambda root: seen.append(root) or "milestone"), \
+                     mock.patch.object(sync, "phase_project_root", wraps=sync.phase_project_root) as ppr, \
+                     contextlib.redirect_stdout(out):
+                    rc = sync.main([command, *argv])
+            finally:
+                os.chdir(prev)
+            state_after = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
+            # main() itself probes with the raw argument first; the command's
+            # own call carries the resolved Path.
+            first = next((c.args[0] for c in ppr.call_args_list if isinstance(c.args[0], Path)), None)
+            return rc, out.getvalue(), first, phase_dir, state_before == state_after
+
+    def test_resolvable_args_reach_the_command(self):
+        for command in ("reconcile-report", "close-phase-epic"):
+            for argv in (["1", "--auto"], ["1", "--auto", "ws"], ["1"], ["01"], ["<path>"]):
+                with self.subTest(command=command, argv=argv):
+                    rc, out, first, phase_dir, _ = self._main(command, argv)
+                    self.assertEqual(rc, 0)
+                    self.assertNotIn("phase directory not found", out)
+                    self.assertEqual(first, phase_dir)
+
+    def test_unresolvable_arg_prints_one_fixed_line_and_no_blocker(self):
+        for command in ("reconcile-report", "close-phase-epic"):
+            for argv in (["99"], ["99", "--auto"], ["no/such/dir"]):
+                with self.subTest(command=command, argv=argv):
+                    rc, out, first, _, state_same = self._main(command, argv)
+                    self.assertEqual(rc, 0)
+                    self.assertEqual(out, f"{command}: phase directory not found -- skipped\n")
+                    self.assertIsNone(first)
+                    self.assertTrue(state_same)
 
 
 if __name__ == "__main__":
