@@ -68,3 +68,11 @@ BEADS
 /ponytail-everywhere/
 .codex/prompts/
 .planning/.gsd-beads.lock
+
+# Maintainer tooling: local only, never published
+.planning/
+.beads/
+.codex/
+.cursor/
+tasks/
+AGENTS.md
