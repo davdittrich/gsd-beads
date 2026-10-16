@@ -20,7 +20,6 @@ import secrets
 import shutil
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -1668,10 +1667,8 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
             finally:
                 # gh-27: after, and never lost to, the regenerate output; its
                 # own failure must not mask a propagating regenerate error.
-                # bd down: regenerate already printed the one notice.
                 try:
-                    if bd_available():
-                        reconcile_report(str(phase_dir))
+                    reconcile_report(str(phase_dir))
                 except Exception as exc:  # noqa: BLE001
                     print(f"lifecycle-dispatch verify:post: reconcile skipped ({exc})", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
@@ -3547,26 +3544,24 @@ def _reconcile_blocker(phase_dir, message):
         pass
 
 
-RECONCILE_STAMP = ".reconcile-stamp"
-RECONCILE_WINDOW = 120  # seconds: hook + skill Step 2b for one verify:post
-
-
 def reconcile_report(phase_dir_arg):
-    """gh-27/verify:post: read-only list of still-open tickets to reconcile
-    before the phase completes -- (a) those BEADS-RECALL.md matched to the
-    phase, (b) epic children no plan task names. Prints nothing when none
-    are open. Silent for 120s after a report (hook and skill both run). Never closes or updates; a bd failure (error, timeout) notes
-    STATE.md and exits 0. A failed recall lookup drops (a) only."""
+    """gh-27/verify:post: read-only list of non-closed tickets (any status but
+    `closed`, so `deferred` counts) to reconcile before the phase completes:
+    (a) those BEADS-RECALL.md matched to the phase, (b) children of the phase
+    epic that no plan task names. The phase epic itself is never listed. In
+    milestone mode the epic is the milestone's, so (b) lists every milestone
+    child no plan of any phase names, for every phase. Prints nothing when none
+    are non-closed, and prints its full list on every run (no dedup). Never
+    closes or updates. A bd failure (error, timeout) notes STATE.md and exits
+    0. A degraded or unreadable plan, or a failed epic listing, drops (b) only;
+    a failed recall lookup drops (a) only; each prints a note above the list."""
     phase_dir = Path(phase_dir_arg).resolve()
-    stamp = phase_dir / RECONCILE_STAMP
-    try:
-        if time.time() - stamp.stat().st_mtime < RECONCILE_WINDOW:
-            return 0  # already reported for this verify:post
-    except OSError:
-        pass
     if not bd_available():
         _skip_bd_unavailable(phase_dir, "reconcile")
         return 0
+    epic_id = None
+    children = []
+    notes = []
     try:
         epic_id = resolve_phase_epic(phase_dir)
         degraded = []
@@ -3576,19 +3571,19 @@ def reconcile_report(phase_dir_arg):
             known |= collect_scope_task_ids(phase_dir, epic_id)
         if degraded:
             raise ValueError("degraded plan(s) " + ", ".join(degraded))
-        children = []
         if epic_id:
             rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
             if rows is None or not all(isinstance(r, dict) for r in rows):
                 raise ValueError("bd list --parent failed")
             children = [r for r in rows if r.get("id") not in known]
     except (ValueError, PlanParseError, EpicAuthorityError, OSError, subprocess.SubprocessError) as exc:
-        _reconcile_blocker(phase_dir, f"reconcile skipped: {exc}")
-        return 0
+        _reconcile_blocker(phase_dir, f"reconcile skipped epic children: {exc}")
+        notes.append("epic children unavailable: plan or epic listing failed")
     recalled_ids = _recalled_ids(phase_dir)
     recalled = []
-    recall_failed = False
-    if recalled_ids:
+    if recalled_ids is None:
+        notes.append("recall unavailable: BEADS-RECALL.md missing or failed")
+    elif recalled_ids:
         try:
             rows = _checked_bd_list_rows(
                 run_bd(["bd", "list", "--id", ",".join(recalled_ids), "--all", "--json", "-n", "0"])
@@ -3598,9 +3593,8 @@ def reconcile_report(phase_dir_arg):
             recalled = rows
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             _reconcile_blocker(phase_dir, f"reconcile recall lookup skipped: {exc}")
-            recalled_ids = None
-            recall_failed = True
-    seen = set()
+            notes.append("recall unavailable: bd lookup of recalled ids failed")
+    seen = {epic_id} if epic_id else set()
     lines = []
     for r in recalled + children:
         rid = str(r.get("id") or "")
@@ -3612,15 +3606,10 @@ def reconcile_report(phase_dir_arg):
             f"{_age(r.get('created_at'))}] {_escape_table_cell(str(r.get('title', '')))}"
         )
     if lines:
-        print("Reconcile before completing")
-        if recalled_ids is None:
-            print("(recall unavailable: BEADS-RECALL.md missing or failed; epic children only)")
+        print("Reconcile before completing (non-closed tickets)")
+        for note in notes:
+            print(f"({note})")
         print("\n".join(lines))
-    if not recall_failed:
-        try:
-            _atomic_write_text(stamp, "")
-        except OSError:
-            pass
     return 0
 
 

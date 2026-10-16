@@ -6158,7 +6158,7 @@ class TestReconcileReport(unittest.TestCase):
                 rc, out, _, calls = self._run(epic, [], recall)
                 self.assertEqual(rc, 0)
                 self.assertIn("regen-epic.9", out)
-                self.assertIn("recall unavailable", out)
+                self.assertIn("BEADS-RECALL.md missing or failed", out)
                 self.assertFalse([c for c in calls if c[:3] == ["bd", "list", "--id"]])
 
     def test_bd_failure_exits_zero_and_notes_blocker(self):
@@ -6197,7 +6197,7 @@ class TestReconcileReport(unittest.TestCase):
         rc, out, state, _ = self._run(epic, [], self.RECALL_OK, id_fail=True)
         self.assertEqual(rc, 0)
         self.assertIn("regen-epic.9", out)
-        self.assertIn("recall unavailable", out)
+        self.assertIn("bd lookup of recalled ids failed", out)
         self.assertIn("reconcile recall lookup skipped", state)
 
     def test_recall_ok_with_empty_table_runs_no_id_query_and_no_note(self):
@@ -6205,7 +6205,7 @@ class TestReconcileReport(unittest.TestCase):
         epic = [{"id": "regen-epic.9", "title": "Stray", "status": "open"}]
         _, out, _, calls = self._run(epic, [], recall)
         self.assertFalse([c for c in calls if c[:3] == ["bd", "list", "--id"]])
-        self.assertNotIn("recall unavailable", out)
+        self.assertNotIn("unavailable", out)
         self.assertIn("regen-epic.9", out)
 
     def test_recalled_plan_task_is_listed_but_empty_id_rows_are_not(self):
@@ -6232,14 +6232,6 @@ class TestReconcileReport(unittest.TestCase):
         self.assertEqual((rc, out), (0, ""))
         self.assertIn("reconcile recall lookup skipped", state)
 
-    def test_no_stamp_when_recall_lookup_fails_so_retry_prints(self):
-        def retry(d):
-            self.assertFalse((d / ".reconcile-stamp").exists())
-
-        rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_OK, id_fail=True, twice=retry)
-        self.assertEqual(rc, 0)
-        self.assertIn("regen-epic.9", out)
-
     def test_milestone_scope_skips_sibling_phase_plan_tasks(self):
         epic = [
             {"id": "regen-epic.5", "title": "sibling task", "status": "open"},
@@ -6255,7 +6247,7 @@ class TestReconcileReport(unittest.TestCase):
         self.assertEqual((rc, out), (0, ""))
         self.assertIn("reconcile skipped", state)
 
-    def test_bd_unavailable_emits_one_notice_and_one_blocker(self):
+    def test_bd_unavailable_each_verify_post_step_notes_its_own_notice_and_blocker(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _write_wave_workspace(
                 Path(tmp), [("01-07", _regen_two_task_plan_text(), True)], with_state=True
@@ -6268,8 +6260,10 @@ class TestReconcileReport(unittest.TestCase):
                  contextlib.redirect_stdout(out):
                 sync.lifecycle_dispatch("verify:post", str(phase_dir))
             state = (Path(tmp) / ".planning" / "STATE.md").read_text(encoding="utf-8")
-        self.assertEqual(out.getvalue().count(sync.NOTICE), 1)
-        self.assertEqual(state.count("bd unavailable"), 1)
+        # regenerate and reconcile each print the notice and note their own blocker.
+        self.assertEqual(out.getvalue().count(sync.NOTICE), 2)
+        self.assertEqual(state.count("regen skipped"), 1)
+        self.assertEqual(state.count("reconcile skipped"), 1)
 
     def test_cli_boundary_returns_zero(self):
         with tempfile.TemporaryDirectory() as tmp, \
@@ -6310,37 +6304,51 @@ class TestReconcileReport(unittest.TestCase):
 
     OPEN_EPIC = [{"id": "regen-epic.9", "title": "Stray", "status": "open"}]
 
-    def test_second_call_within_window_prints_nothing(self):
-        rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_FAILED, twice=lambda d: None)
-        self.assertEqual((rc, out), (0, ""))
+    def test_every_run_prints_its_list_and_writes_no_stamp(self):
+        def again(d):
+            self.assertEqual([p.name for p in d.iterdir() if p.name.startswith(".")], [])
 
-    def test_call_after_window_prints_again(self):
-        def age(d):
-            old = time.time() - 3600
-            os.utime(d / ".reconcile-stamp", (old, old))
-
-        rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_FAILED, twice=age)
+        rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_FAILED, twice=again)
         self.assertEqual(rc, 0)
         self.assertIn("regen-epic.9", out)
 
-    def test_no_stamp_on_bd_failure_so_retry_prints(self):
-        def fail_then_ok(argv, **kw):
-            return _completed(0, stdout="[]\n") if argv[:3] == ["bd", "list", "--json"] else _completed(1, stderr="x")
+    def test_header_says_non_closed_and_deferred_is_listed(self):
+        epic = [{"id": "regen-epic.9", "title": "Later", "status": "deferred"}]
+        _, out, _, _ = self._run(epic, [], self.RECALL_FAILED)
+        self.assertIn("non-closed", out)
+        self.assertRegex(out, r"regen-epic\.9 \[deferred")
 
-        with tempfile.TemporaryDirectory() as tmp:
-            phase_dir = _write_wave_workspace(
-                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)], with_state=True
-            )
-            with mock.patch("subprocess.run", side_effect=fail_then_ok), \
-                 contextlib.redirect_stdout(io.StringIO()):
-                sync.reconcile_report(str(phase_dir))
-            self.assertFalse((phase_dir / ".reconcile-stamp").exists())
-
-    def test_unwritable_stamp_still_prints_and_exits_zero(self):
-        with mock.patch.object(sync, "_atomic_write_text", side_effect=OSError("ro")):
-            rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_FAILED)
+    def test_degraded_plan_still_lists_recalled_and_notes_children_unavailable(self):
+        recalled = [{"id": "old-1", "title": "Old open", "status": "open"}]
+        rc, out, state, calls = self._run(
+            self.OPEN_EPIC, recalled, self.RECALL_OK,
+            plan_text=_regen_two_task_plan_text() + '\n<task type="auto">\n',
+        )
         self.assertEqual(rc, 0)
-        self.assertIn("regen-epic.9", out)
+        self.assertIn("old-1", out)
+        self.assertNotIn("regen-epic.9", out)
+        self.assertIn("epic children unavailable", out)
+        self.assertNotIn("recall unavailable", out)
+        self.assertIn("reconcile skipped", state)
+        self.assertFalse([c for c in calls if c[:3] == ["bd", "list", "--parent"]])
+
+    def test_phase_epic_is_never_listed_even_when_recalled(self):
+        recall = self.RECALL_OK.replace("| old-2 |", "| regen-epic |")
+        recalled = [
+            {"id": "old-1", "title": "Old open", "status": "open"},
+            {"id": "regen-epic", "title": "The epic", "status": "open"},
+        ]
+        _, out, _, _ = self._run(self.OPEN_EPIC, recalled, recall)
+        self.assertIn("old-1", out)
+        self.assertNotRegex(out, r"regen-epic \[")
+
+    def test_recall_note_blames_the_lookup_or_the_file_not_both(self):
+        _, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_OK, id_fail=True)
+        self.assertIn("bd lookup of recalled ids failed", out)
+        self.assertNotIn("BEADS-RECALL.md", out)
+        _, out, _, _ = self._run(self.OPEN_EPIC, [], None)
+        self.assertIn("BEADS-RECALL.md missing or failed", out)
+        self.assertNotIn("bd lookup", out)
 
     def test_never_closes_or_updates(self):
         epic = [{"id": "regen-epic.9", "title": "Stray", "status": "open"}]
@@ -9080,7 +9088,7 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
         plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
         with self._in_workspace(plan_text=plan) as phase_dir:
             with mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regen, \
-                 mock.patch.object(sync, "bd_available", return_value=True), \
+                 mock.patch.object(sync, "bd_available", return_value=False), \
                  mock.patch.object(sync, "reconcile_report", side_effect=RuntimeError("x")) as rep:
                 rc = sync.lifecycle_dispatch("verify:post")
         self.assertEqual(rc, 0)
