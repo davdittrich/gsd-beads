@@ -1498,6 +1498,36 @@ def phase_dir_prefix(phase_num):
     return integer_part.zfill(2) + sep + frac_part
 
 
+def _confined_phase_dir(project_root, arg):
+    """Resolve an explicit phase argument to a direct, non-symlink child
+    directory of `<project_root>/.planning/phases`, else raise ValueError.
+
+    A bare token ("2", "01.5") is matched like STATE.md's current_phase:
+    zero-padded prefix match against the children. A bare name is a child of
+    phases_root, any other relative path is relative to project_root, an
+    absolute path is taken as is. One resolve-and-confine check covers every
+    spelling: a symlinked child is refused however it was spelled, including
+    a link to a sibling phase (it would still resolve to a direct child and
+    dispatch the wrong phase)."""
+    phases_root = confined(project_root, ".planning", "phases")
+    supplied = Path(arg)
+    phase_dir = None
+    if not supplied.is_absolute() and len(supplied.parts) == 1 and phases_root.is_dir():
+        phase_dir = _phase_token_dir(phases_root, supplied.name)
+    if phase_dir is None:
+        if not supplied.is_absolute():
+            supplied = (
+                phases_root / supplied if len(supplied.parts) == 1 else project_root / supplied
+            )
+        phase_dir = supplied
+    if phase_dir.is_symlink():
+        raise ValueError(f"phase directory {phase_dir} is a symlink")
+    phase_dir = phase_dir.resolve()
+    if phase_dir.parent != phases_root or not phase_dir.is_dir():
+        raise ValueError(f"phase directory must be a direct child of {phases_root}")
+    return phase_dir
+
+
 def lifecycle_dispatch(point, phase_dir_arg=None):
     """gh-2: run the beads operation a lifecycle point declares, entered from
     the plugin's `PostToolUse` hook rather than from gsd-core's workflow prose.
@@ -1542,35 +1572,7 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
         return 0
     if phase_dir_arg is not None:
         try:
-            phases_root = confined(project_root, ".planning", "phases")
-            supplied = Path(phase_dir_arg)
-            phase_dir = None
-            # A bare token ("2", "01.5") is resolved the same way STATE.md's
-            # current_phase is: zero-padded prefix match against phases_root's
-            # children. Falls through to the literal-name/path check below
-            # when nothing matches, so an exact directory name (or full path)
-            # still resolves as before.
-            if not supplied.is_absolute() and len(supplied.parts) == 1 and phases_root.is_dir():
-                phase_dir = _phase_token_dir(phases_root, supplied.name)
-            if phase_dir is None:
-                if not supplied.is_absolute():
-                    supplied = (
-                        phases_root / supplied
-                        if len(supplied.parts) == 1
-                        else project_root / supplied
-                    )
-                phase_dir = supplied
-            # One resolve-and-confine check for token, name and path alike: a
-            # symlinked child must be refused whichever way it was spelled,
-            # including a link to a sibling phase (it would still resolve to a
-            # direct child and dispatch the wrong phase).
-            if phase_dir.is_symlink():
-                raise ValueError(f"phase directory {phase_dir} is a symlink")
-            phase_dir = phase_dir.resolve()
-            if phase_dir.parent != phases_root or not phase_dir.is_dir():
-                raise ValueError(
-                    f"phase directory must be a direct child of {phases_root}"
-                )
+            phase_dir = _confined_phase_dir(project_root, phase_dir_arg)
         except Exception as exc:  # noqa: BLE001 -- onError: "skip": any bad input degrades to a notice
             print(
                 f"lifecycle-dispatch {point}: invalid explicit phase directory "
@@ -1850,6 +1852,11 @@ class BdTransientError(RuntimeError):
     timeout, crash). Distinct from absence: callers must not treat the
     record as stale, and create_issues takes its fail-open notice path."""
 
+
+# Everything a bd call can raise instead of returning a CompletedProcess
+# (run_bd's TimeoutExpired/OSError, and the checked helpers' BdTransientError/
+# RuntimeError); BdTransientError is a RuntimeError, named for the reader.
+_BD_CALL_ERRORS = (BdTransientError, RuntimeError, subprocess.TimeoutExpired, OSError)
 
 # `bd show <missing>` exits 1 with "Issue <id> not found" on stderr and a
 # {"error": "no issues found matching ..."} object on stdout.
@@ -3530,6 +3537,14 @@ def _age(created_at):
         return "age unknown"
 
 
+def _safe_row_id(row):
+    """A bd row's id when it is a string `SAFE_BD_ID_RE` accepts, else None:
+    a non-string (list, dict, number) or hostile id is never hashed, compared
+    or printed."""
+    rid = row.get("id")
+    return rid if isinstance(rid, str) and SAFE_BD_ID_RE.fullmatch(rid) else None
+
+
 def reconcile_report(phase_dir_arg):
     """gh-27/verify:post: read-only list of non-closed tickets (any status but
     `closed`, so `deferred` counts) to reconcile before the phase completes:
@@ -3540,8 +3555,11 @@ def reconcile_report(phase_dir_arg):
     every run (no dedup). Never closes or updates. A bd failure (error,
     timeout) notes STATE.md and exits 0. A degraded or unreadable plan, or a
     failed epic listing, drops (b) only; a failed or missing recall drops (a)
-    only. Every such note prints, with or without listed tickets; the heading
-    prints only with tickets. Prints nothing when nothing is degraded and
+    only (a bd call that raises counts as failed). Every such note prints, with
+    or without listed tickets; the heading prints only with tickets. A row
+    whose id is not a safe bd id string is skipped; status and title print
+    through `_sanitize_notice_value` (printable characters only, titles cut at
+    120). Prints nothing when nothing is degraded and
     nothing is non-closed. A degraded plan adds no STATE.md blocker of its own
     (the parse error already noted one). The argument is a phase directory path
     or a bare phase token; one that names no directory prints a fixed line."""
@@ -3569,8 +3587,8 @@ def reconcile_report(phase_dir_arg):
             rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
             if rows is None or not all(isinstance(r, dict) for r in rows):
                 raise ValueError("bd list --parent failed")
-            children = [r for r in rows if r.get("id") not in known]
-    except (ValueError, PlanParseError, EpicAuthorityError, OSError, subprocess.SubprocessError) as exc:
+            children = [r for r in rows if _safe_row_id(r) not in (None, *known)]
+    except (ValueError, PlanParseError, EpicAuthorityError, *_BD_CALL_ERRORS, subprocess.SubprocessError) as exc:
         _phase_blocker(
             phase_dir, f"reconcile skipped epic children: {exc}", file=sys.stderr
         )
@@ -3586,8 +3604,8 @@ def reconcile_report(phase_dir_arg):
             )
             if rows is None or not all(isinstance(r, dict) for r in rows):
                 raise ValueError("bd list --id failed")
-            recalled = rows
-        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            recalled = [r for r in rows if _safe_row_id(r) is not None]
+        except (ValueError, *_BD_CALL_ERRORS, subprocess.SubprocessError) as exc:
             _phase_blocker(
                 phase_dir, f"reconcile recall lookup skipped: {exc}", file=sys.stderr
             )
@@ -3595,13 +3613,13 @@ def reconcile_report(phase_dir_arg):
     seen = {epic_id} if epic_id else set()
     lines = []
     for r in recalled + children:
-        rid = str(r.get("id") or "")
-        if not rid or r.get("status") == "closed" or rid in seen:
+        rid = _safe_row_id(r)
+        if rid is None or r.get("status") == "closed" or rid in seen:
             continue
         seen.add(rid)
         lines.append(
-            f"- {_escape_table_cell(rid)} [{_escape_table_cell(str(r.get('status', '')))}, "
-            f"{_age(r.get('created_at'))}] {_escape_table_cell(str(r.get('title', '')))}"
+            f"- {rid} [{_sanitize_notice_value(r.get('status', ''))}, "
+            f"{_age(r.get('created_at'))}] {_sanitize_notice_value(r.get('title', ''), 120)}"
         )
     if lines:
         print("Reconcile before completing (non-closed tickets)")
@@ -3862,6 +3880,36 @@ def regenerate_beads_md(phase_dir_arg):
     return 0
 
 
+GSD_VERIFICATION_STATUSES = frozenset(
+    {"passed", "gaps_found", "human_needed", "missing", "unknown", "stale", "phase_dir_not_found"}
+)
+
+
+def _gsd_verification_status(phase_dir):
+    """gsd-core's own verdict on the phase's verification, from
+    `gsd-tools query verification.status <dir> --pick status` (present from
+    gsd-core 1.12.0): one of GSD_VERIFICATION_STATUSES, so `stale` (a SUMMARY
+    newer than the report) is seen even when the frontmatter still says
+    `passed`. None when gsd-tools is not installed under CLAUDE_CONFIG_DIR
+    (default ~/.claude), fails, times out or prints anything but exactly one
+    of those tokens: the caller then trusts the frontmatter alone."""
+    tools = (
+        Path(os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude")))
+        / "gsd-core" / "bin" / "gsd-tools.cjs"
+    )
+    try:
+        if not tools.is_file():
+            return None
+        result = subprocess.run(
+            ["node", str(tools), "query", "verification.status", str(phase_dir), "--pick", "status"],
+            capture_output=True, text=True, timeout=10, cwd=phase_project_root(phase_dir),
+        )
+    except (ValueError, RuntimeError, OSError, subprocess.SubprocessError):
+        return None
+    token = result.stdout.strip() if result.returncode == 0 and isinstance(result.stdout, str) else None
+    return token if token in GSD_VERIFICATION_STATUSES else None
+
+
 def close_phase_epic(phase_dir_arg):
     """gh-26: close the phase epic at verify:post. Always returns 0; every
     refusal leaves the epic open. The argument is a phase directory path or
@@ -3869,18 +3917,24 @@ def close_phase_epic(phase_dir_arg):
     changes nothing.
 
     Closes only when epic_per is `phase`, VERIFICATION.md says `passed`
-    (case-insensitive), a fresh `regenerate_beads_md` succeeded and wrote
-    blocking_open and diverged both 0, bd shows an open epic that is not a
-    milestone epic (a `gsd-key:milestone-*` label), and every child is
-    closed.
+    (case-insensitive) and gsd-core, when its `verification.status` query
+    answers, agrees (`_gsd_verification_status`: any other answer, e.g.
+    `stale`, refuses; no answer defers to the frontmatter), a fresh
+    `regenerate_beads_md` succeeded and wrote blocking_open and diverged both
+    0, bd shows an open epic that is not a milestone epic (a
+    `gsd-key:milestone-*` label), and every child is closed. After a
+    successful `bd close` BEADS.md is regenerated once more so it shows the
+    epic closed; a failed refresh prints one note and the exit stays 0.
 
-    Silent refusals: wrong epic_per, status not passed. Printed only: BEADS.md
-    regeneration failed or not clean, milestone epic, epic already closed,
-    open or zero children. Printed and recorded as a STATE.md blocker: epic
-    identity authority failure, and bd show/list/close failing, timing out or
-    not running. A timed-out `bd close` may still have closed the epic.
+    Silent refusals: wrong epic_per, status not passed. Printed only: gsd-core
+    not reporting `passed`, BEADS.md regeneration failed, BEADS.md absent (no
+    epic yet), BEADS.md counts `unknown` (bd unavailable), BEADS.md counts
+    not 0, milestone epic, epic already closed, open or zero children.
+    Printed and recorded as a STATE.md blocker: epic identity authority
+    failure, and bd show/list/close failing, timing out or not running (any of
+    `_BD_CALL_ERRORS`). A timed-out `bd close` may still have closed the epic.
     bd unavailable is reported by the regenerate step (notice plus one
-    blocker); the BEADS.md it leaves is not clean, so nothing closes."""
+    blocker); the BEADS.md it leaves has `unknown` counts, so nothing closes."""
     phase_dir = _resolve_phase_arg(phase_dir_arg, "close-phase-epic")
     if phase_dir is None:
         return 0
@@ -3900,6 +3954,10 @@ def close_phase_epic(phase_dir_arg):
     )
     if status is None or status.lower() != "passed":
         return 0
+    verdict = _gsd_verification_status(phase_dir)
+    if verdict not in (None, "passed"):
+        print(f"close-phase-epic: gsd-core reports verification {verdict} -- epic left open")
+        return 0
     if regenerate_beads_md(str(phase_dir)) != 0:
         print("close-phase-epic: BEADS.md regeneration failed -- epic left open")
         return 0
@@ -3914,7 +3972,13 @@ def close_phase_epic(phase_dir_arg):
         else ()
     )
     if counts.get("blocking_open") != "0" or counts.get("diverged") != "0":
-        print("close-phase-epic: BEADS.md not clean (blocking_open/diverged not 0) -- epic left open")
+        if not beads_text:
+            reason = "no epic yet (BEADS.md absent)"
+        elif "unknown" in (counts.get("blocking_open"), counts.get("diverged")):
+            reason = "bd unavailable (BEADS.md counts unknown)"
+        else:
+            reason = "BEADS.md not clean (blocking_open/diverged not 0)"
+        print(f"close-phase-epic: {reason} -- epic left open")
         return 0
     try:
         epic_id = resolve_phase_epic(phase_dir)
@@ -3932,7 +3996,7 @@ def close_phase_epic(phase_dir_arg):
 
     try:
         epic = _bd_show_row(run_bd(["bd", "show", epic_id, "--json"]), epic_id)
-    except (BdTransientError, RuntimeError, subprocess.TimeoutExpired, OSError):
+    except _BD_CALL_ERRORS:
         blocker(f"bd show {epic_id} failed -- epic left open")
         return 0
     if epic is None:
@@ -3950,7 +4014,7 @@ def close_phase_epic(phase_dir_arg):
 
     try:
         rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
-    except (subprocess.TimeoutExpired, OSError):
+    except _BD_CALL_ERRORS:
         rows = None
     if rows is None or not all(isinstance(r, dict) for r in rows):
         blocker(f"bd list for epic {epic_id} failed -- epic left open")
@@ -3969,13 +4033,21 @@ def close_phase_epic(phase_dir_arg):
 
     try:
         closed = run_bd(["bd", "close", epic_id, "--reason", f"phase verified: {phase_dir.name}"])
-    except (subprocess.TimeoutExpired, OSError):
+    except _BD_CALL_ERRORS:
         blocker(f"bd close {epic_id} timed out or failed to run -- the epic may have been closed; check `bd show {epic_id}`")
         return 0
     if closed.returncode != 0:
         blocker(f"bd close {epic_id} failed -- epic left open")
     else:
         print(f"close-phase-epic: closed epic {epic_id}")
+        # BEADS.md was generated while the epic was open; refresh it so the
+        # file on disk matches bd. A failure here changes nothing about the close.
+        try:
+            refreshed = regenerate_beads_md(str(phase_dir))
+        except (ValueError, *_BD_CALL_ERRORS):
+            refreshed = 1
+        if refreshed != 0:
+            print("close-phase-epic: BEADS.md refresh after close failed -- run regenerate-beads-md")
     return 0
 
 
@@ -4018,25 +4090,20 @@ def _phase_token_dir(phases_root, token):
 
 
 def _resolve_phase_arg(arg, command):
-    """Phase directory for reconcile-report/close-phase-epic's argument: a bare
-    token ("1", "01") is matched against `<project>/.planning/phases` like
-    lifecycle-dispatch does; anything else is taken as a path. When the result
-    is not an existing directory, prints one fixed stdout line naming `command`
-    (the arg is never echoed) and returns None."""
-    supplied = Path(arg)
-    if not supplied.is_absolute() and len(supplied.parts) == 1:
-        try:
-            phases_root = confined(find_project_root(Path.cwd()), ".planning", "phases")
-            hit = _phase_token_dir(phases_root, supplied.name) if phases_root.is_dir() else None
-        except (ValueError, OSError):
-            hit = None
-        if hit is not None:
-            return hit.resolve()
-    phase_dir = supplied.resolve()
-    if phase_dir.is_dir():
-        return phase_dir
-    print(f"{command}: phase directory not found -- skipped")
-    return None
+    """Phase directory for reconcile-report/close-phase-epic's argument,
+    resolved and confined exactly like lifecycle-dispatch's explicit phase
+    (`_confined_phase_dir`) against the project of the cwd: a bare token
+    ("1", "01"), a bare directory name ("03-x"), a path relative to the
+    project root, or an absolute path, each naming a direct non-symlink child
+    of `.planning/phases`. Anything else, including no project above the cwd,
+    prints one fixed stdout line naming `command` (the arg is never echoed)
+    and returns None."""
+    try:
+        return _confined_phase_dir(find_project_root(Path.cwd()), arg)
+    except (ValueError, OSError, RuntimeError):
+        # RuntimeError: Path.resolve() on a symlink loop before Python 3.13.
+        print(f"{command}: phase directory not found -- skipped")
+        return None
 
 
 def _phase_blocker(phase_dir, message, shown=None, file=None):
@@ -4614,11 +4681,20 @@ def _main(argv):
     # bd finds its database by walking up from cwd, so every verb pins it: a
     # verb without a path argument (status, migrate-todos, lifecycle-dispatch,
     # resolve-task-content) falls back to the process cwd, not to "unpinned".
+    resolves_phase = args.command in ("close-phase-epic", "reconcile-report")
     _set_bd_root(
-        args.phase_dir if getattr(args, "phase_dir", None)
+        args.phase_dir if getattr(args, "phase_dir", None) and not resolves_phase
         else Path(args.plan_path).resolve().parent if getattr(args, "plan_path", None)
         else None
     )
+    if resolves_phase:
+        # Pin bd from the resolved directory, never from the raw argument: a
+        # symlink or odd spelling must not select another project's database.
+        phase_dir = _resolve_phase_arg(args.phase_dir, args.command)
+        if phase_dir is None:
+            return 0
+        _set_bd_root(phase_dir)
+        args.phase_dir = str(phase_dir)
     if args.command == "resolve-task-content":
         return resolve_task_content(args.issue_id)
     if args.command == "create-issues":
