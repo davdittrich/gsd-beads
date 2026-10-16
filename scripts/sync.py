@@ -1662,6 +1662,7 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
                 )
                 return 0
             regenerate_beads_md(str(phase_dir))
+            close_phase_epic(str(phase_dir))
     except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
         # stderr, not stdout: stdout is promoted into Claude's context.
         print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})", file=sys.stderr)
@@ -3738,6 +3739,80 @@ def regenerate_beads_md(phase_dir_arg):
     return 0
 
 
+def close_phase_epic(phase_dir_arg):
+    """gh-26: close the phase epic at verify:post when epic_per is `phase`,
+    VERIFICATION.md says `status: passed`, and every epic child is closed.
+    Fails closed (epic stays open) and always returns 0."""
+    phase_dir = Path(phase_dir_arg).resolve()
+
+    def blocker(msg):
+        print(f"close-phase-epic: {msg}")
+        try:
+            append_state_blocker(
+                confined(phase_project_root(phase_dir), ".planning", "STATE.md"), msg
+            )
+        except ValueError:
+            pass
+
+    if not bd_available():
+        _skip_bd_unavailable(phase_dir, "close-phase-epic")
+        return 0
+    if read_epic_per(phase_project_root(phase_dir)) != "phase":
+        return 0
+    padded_phase = phase_dir.name.split("-", 1)[0]
+    try:
+        text = (phase_dir / f"{padded_phase}-VERIFICATION.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return 0
+    match = FRONTMATTER_RE.match(text)
+    if not match or not re.search(r"^status:[ \t]*passed[ \t]*\r?$", match.group(1), re.MULTILINE):
+        return 0
+    try:
+        epic_id = resolve_phase_epic(phase_dir)
+    except EpicAuthorityError as exc:
+        print(f"close-phase-epic: epic identity authority failed: {exc}", file=sys.stderr)
+        return 0
+    if epic_id is None or not SAFE_BD_ID_RE.fullmatch(epic_id):
+        return 0
+
+    shown = run_bd(["bd", "show", epic_id, "--json"])
+    if shown.returncode != 0:
+        blocker(f"bd show {epic_id} failed -- epic left open")
+        return 0
+    try:
+        payload = json.loads(shown.stdout)
+    except (UnicodeError, json.JSONDecodeError):
+        payload = None
+    if isinstance(payload, list):
+        payload = payload[0] if payload else None
+    if isinstance(payload, dict) and payload.get("status") == "closed":
+        print(f"close-phase-epic: epic {epic_id} already closed")
+        return 0
+
+    rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
+    if rows is None:
+        blocker(f"bd list for epic {epic_id} failed -- epic left open")
+        return 0
+    if not rows:
+        print(f"close-phase-epic: epic {epic_id} has no children -- left open")
+        return 0
+    open_ids = [r.get("id") for r in rows if r.get("status") != "closed"]
+    if open_ids:
+        safe = [i for i in open_ids if isinstance(i, str) and SAFE_BD_ID_RE.fullmatch(i)]
+        print(
+            f"close-phase-epic: epic {epic_id} left open, {len(open_ids)} open child(ren): "
+            + ", ".join(safe)
+        )
+        return 0
+
+    closed = run_bd(["bd", "close", epic_id, "--reason", f"phase verified: {phase_dir.name}"])
+    if closed.returncode != 0:
+        blocker(f"bd close {epic_id} failed -- epic left open")
+    else:
+        print(f"close-phase-epic: closed epic {epic_id}")
+    return 0
+
+
 def _resolve_default_phase_dir(project_root):
     """B13/D-08: with no explicit phase_dir argument, resolve the current/
     last-active phase from STATE.md's `current_phase` frontmatter -- zero-
@@ -4269,6 +4344,11 @@ def _main(argv):
         help="Fully overwrite BEADS.md from a live bd query (D-05..D-08 frontmatter/table shape)",
     )
     regen_p.add_argument("phase_dir")
+    close_epic_p = sub.add_parser(
+        "close-phase-epic",
+        help="Close the phase epic when VERIFICATION.md passed and every child is closed",
+    )
+    close_epic_p.add_argument("phase_dir")
     wave_status_p = sub.add_parser(
         "wave-status-block",
         help="Regenerate BEADS.md then print a <beads_status> block naming this wave's issues",
@@ -4345,6 +4425,8 @@ def _main(argv):
         return beads_recall(args.phase_dir)
     if args.command == "regenerate-beads-md":
         return regenerate_beads_md(args.phase_dir)
+    if args.command == "close-phase-epic":
+        return close_phase_epic(args.phase_dir)
     if args.command == "wave-status-block":
         return render_wave_status_block(args.phase_dir, args.plan_ids)
     if args.command == "ship-override":

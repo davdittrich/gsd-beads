@@ -65,9 +65,9 @@ Paste that block verbatim into **every** executor `Agent()` call's `prompt=` str
 before spawning any executor. Manifest-level fragments do not reach a spawned `Agent()` prompt, so
 this paste is your own next action. Done when each executor prompt contains the block.
 
-## Step 2b -- verify:post: regenerate BEADS.md
+## Step 2b -- verify:post: regenerate BEADS.md, close the phase epic
 
-One Bash call, passing only the phase directory:
+Two Bash calls in order, each passing only the phase directory. First:
 
 ```bash
 _B="${GSD_HOME:-${HOME:-}}"
@@ -87,10 +87,33 @@ python3 -I "$SYNC_PY" regenerate-beads-md <phase directory>
 It rewrites `BEADS.md` from live `bd` state, recomputing `blocking_open` and `diverged` for
 `ship:pre`'s gates, prints no block, and changes nothing in `bd`. Report its stdout.
 
+Then:
+
+```bash
+_B="${GSD_HOME:-${HOME:-}}"
+case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
+_G="$_B/.gsd/capabilities/beads"
+_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
+if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
+elif [ -f "$_P" ]; then SYNC_PY="$_P"
+else SYNC_PY=; fi
+if [ ! -f "$SYNC_PY" ]; then
+  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
+  exit 1
+fi
+python3 -I "$SYNC_PY" close-phase-epic <phase directory>
+```
+
+It closes the phase epic (`bd close <epic> --reason "phase verified: <phase>"`) only when
+`{padded_phase}-VERIFICATION.md` has `status: passed`, `beads.epic_per` is `phase`, and the epic has at
+least one child and every child is closed. Otherwise the epic stays open and the open child ids are
+printed. An already-closed epic is a no-op and a milestone epic is never closed. A `bd` failure
+appends a note to Blockers/Concerns and never fails the phase. Report its stdout.
+
 ## Step 2c -- ship:pre: re-check live state, record an override
 
 The ship gates already read the `verify:post` snapshot of `BEADS.md`; issues opened since then are
-unseen. First run Step 2b's command, which regenerates `BEADS.md` from live `bd`. Then read
+unseen. First run Step 2b's first command, which regenerates `BEADS.md` from live `bd`. Then read
 `{padded_phase}-BEADS.md`'s `blocking_open` and `diverged` frontmatter and `beads.ship_gate` from
 `.planning/config.json`. A field counts as nonzero when it is not `0` (`unknown` counts).
 
