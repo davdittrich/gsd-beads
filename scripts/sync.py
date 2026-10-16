@@ -3579,7 +3579,7 @@ def reconcile_report(phase_dir_arg):
         children = []
         if epic_id:
             rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
-            if rows is None:
+            if rows is None or not all(isinstance(r, dict) for r in rows):
                 raise ValueError("bd list --parent failed")
             children = [r for r in rows if r.get("id") not in known]
     except (ValueError, PlanParseError, EpicAuthorityError, OSError, subprocess.SubprocessError) as exc:
@@ -3587,17 +3587,19 @@ def reconcile_report(phase_dir_arg):
         return 0
     recalled_ids = _recalled_ids(phase_dir)
     recalled = []
+    recall_failed = False
     if recalled_ids:
         try:
             rows = _checked_bd_list_rows(
                 run_bd(["bd", "list", "--id", ",".join(recalled_ids), "--all", "--json", "-n", "0"])
             )
-            if rows is None:
+            if rows is None or not all(isinstance(r, dict) for r in rows):
                 raise ValueError("bd list --id failed")
-            recalled = [r for r in rows if r.get("id") not in known]
+            recalled = rows
         except (ValueError, OSError, subprocess.SubprocessError) as exc:
             _reconcile_blocker(phase_dir, f"reconcile recall lookup skipped: {exc}")
             recalled_ids = None
+            recall_failed = True
     seen = set()
     lines = []
     for r in recalled + children:
@@ -3614,10 +3616,11 @@ def reconcile_report(phase_dir_arg):
         if recalled_ids is None:
             print("(recall unavailable: BEADS-RECALL.md missing or failed; epic children only)")
         print("\n".join(lines))
-    try:
-        _atomic_write_text(stamp, "")
-    except OSError:
-        pass
+    if not recall_failed:
+        try:
+            _atomic_write_text(stamp, "")
+        except OSError:
+            pass
     return 0
 
 
