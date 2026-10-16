@@ -174,7 +174,7 @@ At `verify:post`, after `BEADS.md`, the hook also runs `reconcile-report <phase 
 "Reconcile before completing" list of still-open tickets that `BEADS-RECALL.md` matched to the phase
 (skipped with a note when that file is absent or `recall_status: failed`) or that sit under the epic
 with no plan task, each with status and age. It prints nothing when none are open, never closes or updates
-a ticket, does not feed `blocking_open` or `ship_override`, and on a `bd` failure notes it in
+a ticket, does not feed `blocking_open` or `ship_override`, and on a `bd` failure or timeout notes it in
 `STATE.md` Blockers/Concerns and exits `0`.
 
 The hook matches only a real invocation: a recognised tools shim (`gsd_run`, `gsd-tools`, or
