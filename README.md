@@ -170,6 +170,13 @@ Valid points are `plan:pre`, `plan:post`, `execute:wave:pre`, `execute:wave:post
 declare — and re-reads `beads.enabled` itself, because entering from a harness hook bypasses the
 capability registry that would normally evaluate each step's `when` condition.
 
+At `verify:post`, after `BEADS.md`, the hook also runs `reconcile-report <phase directory>`: a read-only
+"Reconcile before completing" list of still-open tickets that `BEADS-RECALL.md` matched to the phase
+(skipped with a note when that file is absent or `recall_status: failed`) or that sit under the epic
+with no plan task, each with status and age. It prints nothing when none are open, never closes or updates
+a ticket, does not feed `blocking_open` or `ship_override`, and on a `bd` failure notes it in
+`STATE.md` Blockers/Concerns and exits `0`.
+
 The hook matches only a real invocation: a recognised tools shim (`gsd_run`, `gsd-tools`, or
 `node …/gsd-tools.cjs`) in shell command position, followed by `loop render-hooks <point> --raw`.
 A command that merely quotes or greps that string does not dispatch. And a hook-driven

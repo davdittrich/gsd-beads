@@ -87,6 +87,11 @@ python3 -I "$SYNC_PY" regenerate-beads-md <phase directory>
 It rewrites `BEADS.md` from live `bd` state, recomputing `blocking_open` and `diverged` for
 `ship:pre`'s gates, prints no block, and changes nothing in `bd`. Report its stdout.
 
+Then run the same block with `reconcile-report <phase directory>` as its last line. It prints
+`Reconcile before completing` and one line per still-open ticket (id, status, age, title) that
+`BEADS-RECALL.md` matched to the phase or that sits under the epic with no plan task; nothing when none.
+Report its stdout. It never closes or updates; the ship gates ignore it.
+
 ## Step 2c -- ship:pre: re-check live state, record an override
 
 The ship gates already read the `verify:post` snapshot of `BEADS.md`; issues opened since then are
