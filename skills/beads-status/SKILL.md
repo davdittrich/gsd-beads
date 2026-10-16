@@ -91,7 +91,7 @@ Then run the same block with `reconcile-report <phase directory>` as its last li
 `Reconcile before completing` and one line per still-open ticket (id, status, age, title) that
 `BEADS-RECALL.md` matched to the phase or that sits under the epic with no plan task; nothing when none.
 Report its stdout. It never closes or updates; the ship gates ignore it. Recall file absent or
-failed: noted, children still listed. `bd` failure or timeout: `STATE.md` blocker, exit `0`.
+failed: noted, children still listed. `bd` failure or timeout: `STATE.md` blocker, exit `0`. Silent for 120s after a report, so the hook and this step never both print.
 
 ## Step 2c -- ship:pre: re-check live state, record an override
 

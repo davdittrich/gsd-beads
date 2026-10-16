@@ -20,6 +20,7 @@ import secrets
 import shutil
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 
@@ -3546,13 +3547,23 @@ def _reconcile_blocker(phase_dir, message):
         pass
 
 
+RECONCILE_STAMP = ".reconcile-stamp"
+RECONCILE_WINDOW = 120  # seconds: hook + skill Step 2b for one verify:post
+
+
 def reconcile_report(phase_dir_arg):
     """gh-27/verify:post: read-only list of still-open tickets to reconcile
     before the phase completes -- (a) those BEADS-RECALL.md matched to the
     phase, (b) epic children no plan task names. Prints nothing when none
-    are open. Never closes or updates; a bd failure (error, timeout) notes
+    are open. Silent for 120s after a report (hook and skill both run). Never closes or updates; a bd failure (error, timeout) notes
     STATE.md and exits 0. A failed recall lookup drops (a) only."""
     phase_dir = Path(phase_dir_arg).resolve()
+    stamp = phase_dir / RECONCILE_STAMP
+    try:
+        if time.time() - stamp.stat().st_mtime < RECONCILE_WINDOW:
+            return 0  # already reported for this verify:post
+    except OSError:
+        pass
     if not bd_available():
         _skip_bd_unavailable(phase_dir, "reconcile")
         return 0
@@ -3603,6 +3614,10 @@ def reconcile_report(phase_dir_arg):
         if recalled_ids is None:
             print("(recall unavailable: BEADS-RECALL.md missing or failed; epic children only)")
         print("\n".join(lines))
+    try:
+        _atomic_write_text(stamp, "")
+    except OSError:
+        pass
     return 0
 
 
