@@ -1665,8 +1665,14 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
                 regenerate_beads_md(str(phase_dir))
                 close_phase_epic(str(phase_dir))
             finally:
-                # gh-27: after, and never lost to, regenerate/close output.
-                reconcile_report(str(phase_dir))
+                # gh-27: after, and never lost to, the regenerate output; its
+                # own failure must not mask a propagating regenerate error.
+                # bd down: regenerate already printed the one notice.
+                try:
+                    if bd_available():
+                        reconcile_report(str(phase_dir))
+                except Exception as exc:  # noqa: BLE001
+                    print(f"lifecycle-dispatch verify:post: reconcile skipped ({exc})", file=sys.stderr)
     except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
         # stderr, not stdout: stdout is promoted into Claude's context.
         print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})", file=sys.stderr)
@@ -3509,25 +3515,43 @@ def _recalled_ids(phase_dir):
     ids = []
     for line in matched.splitlines():
         first = line.strip().strip("|").split("|", 1)[0].strip()
-        if line.lstrip().startswith("|") and first and first != "Issue" and not set(first) <= {"-", ":"}:
+        if (
+            line.lstrip().startswith("|")
+            and first != "Issue"
+            and SAFE_BD_ID_RE.fullmatch(first)  # argv trust boundary
+        ):
             ids.append(first)
     return ids
 
 
 def _age(created_at):
     try:
-        then = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        # Python < 3.11 fromisoformat rejects more than 6 fractional digits.
+        text = re.sub(r"(\.\d{6})\d+", r"\1", str(created_at).replace("Z", "+00:00"))
+        then = datetime.fromisoformat(text)
+        if then.tzinfo is None:
+            then = then.replace(tzinfo=timezone.utc)
         return f"{max((datetime.now(timezone.utc) - then).days, 0)}d"
-    except ValueError:
+    except (ValueError, TypeError):
         return "age unknown"
+
+
+def _reconcile_blocker(phase_dir, message):
+    print(message, file=sys.stderr)
+    try:
+        append_state_blocker(
+            confined(phase_project_root(phase_dir), ".planning", "STATE.md"), message
+        )
+    except (ValueError, OSError):
+        pass
 
 
 def reconcile_report(phase_dir_arg):
     """gh-27/verify:post: read-only list of still-open tickets to reconcile
     before the phase completes -- (a) those BEADS-RECALL.md matched to the
     phase, (b) epic children no plan task names. Prints nothing when none
-    are open. Never closes or updates; a bd failure notes STATE.md and
-    exits 0."""
+    are open. Never closes or updates; a bd failure (error, timeout) notes
+    STATE.md and exits 0. A failed recall lookup drops (a) only."""
     phase_dir = Path(phase_dir_arg).resolve()
     if not bd_available():
         _skip_bd_unavailable(phase_dir, "reconcile")
@@ -3547,30 +3571,27 @@ def reconcile_report(phase_dir_arg):
             if rows is None:
                 raise ValueError("bd list --parent failed")
             children = [r for r in rows if r.get("id") not in known]
-        recalled_ids = _recalled_ids(phase_dir)
-        recalled = []
-        if recalled_ids:
+    except (ValueError, PlanParseError, EpicAuthorityError, OSError, subprocess.SubprocessError) as exc:
+        _reconcile_blocker(phase_dir, f"reconcile skipped: {exc}")
+        return 0
+    recalled_ids = _recalled_ids(phase_dir)
+    recalled = []
+    if recalled_ids:
+        try:
             rows = _checked_bd_list_rows(
                 run_bd(["bd", "list", "--id", ",".join(recalled_ids), "--all", "--json", "-n", "0"])
             )
             if rows is None:
                 raise ValueError("bd list --id failed")
-            recalled = rows
-    except (ValueError, PlanParseError, EpicAuthorityError, OSError) as exc:
-        print(f"reconcile skipped: {exc}", file=sys.stderr)
-        try:
-            append_state_blocker(
-                confined(phase_project_root(phase_dir), ".planning", "STATE.md"),
-                f"reconcile skipped: {exc}",
-            )
-        except ValueError:
-            pass
-        return 0
+            recalled = [r for r in rows if r.get("id") not in known]
+        except (ValueError, OSError, subprocess.SubprocessError) as exc:
+            _reconcile_blocker(phase_dir, f"reconcile recall lookup skipped: {exc}")
+            recalled_ids = None
     seen = set()
     lines = []
     for r in recalled + children:
-        rid = str(r.get("id", ""))
-        if r.get("status") == "closed" or rid in seen:
+        rid = str(r.get("id") or "")
+        if not rid or r.get("status") == "closed" or rid in seen:
             continue
         seen.add(rid)
         lines.append(

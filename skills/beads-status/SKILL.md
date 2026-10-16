@@ -65,7 +65,7 @@ Paste that block verbatim into **every** executor `Agent()` call's `prompt=` str
 before spawning any executor. Manifest-level fragments do not reach a spawned `Agent()` prompt, so
 this paste is your own next action. Done when each executor prompt contains the block.
 
-## Step 2b -- verify:post: regenerate BEADS.md
+## Step 2b -- verify:post: regenerate BEADS.md and reconcile report
 
 One Bash call, passing only the phase directory:
 
@@ -90,12 +90,13 @@ It rewrites `BEADS.md` from live `bd` state, recomputing `blocking_open` and `di
 Then run the same block with `reconcile-report <phase directory>` as its last line. It prints
 `Reconcile before completing` and one line per still-open ticket (id, status, age, title) that
 `BEADS-RECALL.md` matched to the phase or that sits under the epic with no plan task; nothing when none.
-Report its stdout. It never closes or updates; the ship gates ignore it.
+Report its stdout. It never closes or updates; the ship gates ignore it. Recall file absent or
+failed: noted, children still listed. `bd` failure or timeout: `STATE.md` blocker, exit `0`.
 
 ## Step 2c -- ship:pre: re-check live state, record an override
 
 The ship gates already read the `verify:post` snapshot of `BEADS.md`; issues opened since then are
-unseen. First run Step 2b's command, which regenerates `BEADS.md` from live `bd`. Then read
+unseen. First run Step 2b's `regenerate-beads-md` command, which regenerates `BEADS.md` from live `bd`. Then read
 `{padded_phase}-BEADS.md`'s `blocking_open` and `diverged` frontmatter and `beads.ship_gate` from
 `.planning/config.json`. A field counts as nonzero when it is not `0` (`unknown` counts).
 
