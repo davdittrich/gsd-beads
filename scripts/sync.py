@@ -3093,7 +3093,12 @@ def create_issues(plan_arg, allow_strip=True):
     return 0
 
 
-_CELL_STRIP = str.maketrans("", "", "<>`")
+# C0 (minus \t \n \r, handled below), DEL and C1 controls are dropped too: a
+# title with ESC/NUL/U+0085 would reach BEADS.md and the executor prompt.
+_CELL_STRIP = str.maketrans("", "", "<>`" + "".join(
+    chr(c) for c in (*range(0x20), *range(0x7F, 0xA0)) if chr(c) not in "\t\n\r"
+))
+CELL_MAX_CHARS = 200  # longer cells are cut and end in an ellipsis
 
 
 def _escape_table_cell(text):
@@ -3105,10 +3110,10 @@ def _escape_table_cell(text):
     # <beads_status> executor-prompt block, which a `</beads_status>` in a
     # title would otherwise close.
     # `\` first: a literal `\|` must not read back as an escaped pipe.
-    return (
-        text.translate(_CELL_STRIP).replace("\\", "\\\\").replace("|", "\\|")
-        .replace("\r", "").replace("\n", " ")
-    )
+    text = text.translate(_CELL_STRIP).replace("\r", "").replace("\n", " ")
+    if len(text) > CELL_MAX_CHARS:
+        text = text[:CELL_MAX_CHARS] + "\u2026"
+    return text.replace("\\", "\\\\").replace("|", "\\|")
 
 
 def _beads_recall_argv():
