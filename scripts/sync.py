@@ -3095,13 +3095,15 @@ def create_issues(plan_arg, allow_strip=True):
 
 # C0 (minus \t \n \r, handled below), DEL and C1 controls are dropped too: a
 # title with ESC/NUL/U+0085 would reach BEADS.md and the executor prompt.
-_CELL_STRIP = str.maketrans("", "", "<>`" + "".join(
+# U+2028/U+2029 go as well: `str.splitlines()` splits on them, so one in a
+# title would make its BEADS.md row unparseable.
+_CELL_STRIP = str.maketrans("", "", "<>`\u2028\u2029" + "".join(
     chr(c) for c in (*range(0x20), *range(0x7F, 0xA0)) if chr(c) not in "\t\n\r"
 ))
-CELL_MAX_CHARS = 200  # longer cells are cut and end in an ellipsis
+CELL_MAX_CHARS = 200  # titles only: longer ones are cut and end in an ellipsis
 
 
-def _escape_table_cell(text):
+def _escape_table_cell(text, max_len=None):
     """Escape `|` and strip `\r`/`\n` from text before it enters a markdown
     table cell (T-02-03, matches gsd-core's own ship.md pattern) -- issue
     title/status text originates from a different principal (whoever filed
@@ -3111,8 +3113,8 @@ def _escape_table_cell(text):
     # title would otherwise close.
     # `\` first: a literal `\|` must not read back as an escaped pipe.
     text = text.translate(_CELL_STRIP).replace("\r", "").replace("\n", " ")
-    if len(text) > CELL_MAX_CHARS:
-        text = text[:CELL_MAX_CHARS] + "\u2026"
+    if max_len is not None and len(text) > max_len:
+        text = text[:max_len] + "\u2026"
     return text.replace("\\", "\\\\").replace("|", "\\|")
 
 
@@ -3131,7 +3133,7 @@ def _render_issue_table(rows, include_matched_via):
         lines = ["| Issue | Title | Status |", "|-------|-------|--------|"]
     for issue, via in rows:
         issue_id = _escape_table_cell(str(issue.get("id", "")))
-        title = _escape_table_cell(str(issue.get("title", "")))
+        title = _escape_table_cell(str(issue.get("title", "")), max_len=CELL_MAX_CHARS)
         status = _escape_table_cell(str(issue.get("status", "")))
         if include_matched_via:
             lines.append(f"| {issue_id} | {title} | {status} | matched via: {via} |")
@@ -3651,7 +3653,7 @@ def _render_beads_md_table(rows, ordinal_map, task_status_by_id):
     for row in rows:
         raw_issue_id = str(row.get("id", ""))
         issue_id = _escape_table_cell(raw_issue_id)
-        title = _escape_table_cell(str(row.get("title", "")))
+        title = _escape_table_cell(str(row.get("title", "")), max_len=CELL_MAX_CHARS)
         status = _escape_table_cell(str(row.get("status", "")))
         # task_status/plan_task are keyed on the raw (unescaped) id -- both
         # ordinal_map and task_status_by_id are built from bd's own ids
