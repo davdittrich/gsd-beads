@@ -70,8 +70,7 @@ def _capability_json_has_beads_md_gate():
     ship:pre gate whose predicate reads BEADS.md (i.e. 03-02 has landed) --
     the skip condition for TestShipPreGenericDispatch's fourth test."""
     try:
-        project_root = sync.find_project_root(Path(__file__).resolve().parent)
-        cap_path = project_root / "capability.json"
+        cap_path = Path(__file__).resolve().parents[1] / "capability.json"
         cap = json.loads(cap_path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
@@ -6881,7 +6880,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
         "gsd-tools.cjs / node not found, or Plan 02's ship:pre gates not yet in capability.json",
     )
     def test_beads_gate_hooks_excluded_step_hook_retained_when_ship_gate_false(self):
-        source_root = sync.find_project_root(Path(__file__).resolve().parent)
+        source_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmp:
             project_root = Path(tmp)
             # Stage only the capability allowlist: the repo root also holds
