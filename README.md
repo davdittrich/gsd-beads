@@ -121,8 +121,8 @@ See `AGENTS.md` in this repo for the full command reference.
 
 ### How the lifecycle steps get dispatched
 
-`capability.json` declares eight `kind: "step"` hooks, one per lifecycle
-point, plus two `gsd-beads-close` steps (`verify:post`, `ship:pre`; they produce no file, so
+`capability.json` declares eight `kind: "step"` hooks: the six per-point
+steps plus two `gsd-beads-close` steps (`verify:post`, `ship:pre`; they produce no file, so
 `--after-fingerprint` never skips them). gsd-core dispatches `plan:post` and `verify:post` steps
 natively. The compatibility dispatcher probes the installed workflow files at
 those two points and stands down when native dispatch is present, preventing
