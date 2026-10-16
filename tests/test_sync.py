@@ -6073,7 +6073,7 @@ class TestReconcileReport(unittest.TestCase):
     RECALL_FAILED = "---\nphase: 01-substrate\nrecall_status: failed\n---\n\nNo recall data.\n"
 
     def _run(self, epic_rows, recalled_rows, recall_text, bd_ok=True, id_fail=False,
-             raises=None, milestone=False, plan_text=None):
+             raises=None, milestone=False, plan_text=None, twice=None):
         calls = []
 
         def fake(argv, **kwargs):
@@ -6115,6 +6115,10 @@ class TestReconcileReport(unittest.TestCase):
                 (phase_dir / "01-BEADS-RECALL.md").write_text(recall_text, encoding="utf-8")
             with contextlib.redirect_stdout(out):
                 rc = sync.reconcile_report(str(phase_dir))
+                if twice:
+                    out.seek(0), out.truncate()
+                    twice(phase_dir)
+                    rc = sync.reconcile_report(str(phase_dir))
             state = (Path(tmp) / ".planning" / "STATE.md").read_text(encoding="utf-8")
         return rc, out.getvalue(), state, calls
 
@@ -6282,6 +6286,40 @@ class TestReconcileReport(unittest.TestCase):
         text = out.getvalue()
         self.assertLess(text.index("no epic yet"), text.index("Reconcile before completing"))
         self.assertIn("old-1", text)
+
+    OPEN_EPIC = [{"id": "regen-epic.9", "title": "Stray", "status": "open"}]
+
+    def test_second_call_within_window_prints_nothing(self):
+        rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_FAILED, twice=lambda d: None)
+        self.assertEqual((rc, out), (0, ""))
+
+    def test_call_after_window_prints_again(self):
+        def age(d):
+            old = time.time() - 3600
+            os.utime(d / ".reconcile-stamp", (old, old))
+
+        rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_FAILED, twice=age)
+        self.assertEqual(rc, 0)
+        self.assertIn("regen-epic.9", out)
+
+    def test_no_stamp_on_bd_failure_so_retry_prints(self):
+        def fail_then_ok(argv, **kw):
+            return _completed(0, stdout="[]\n") if argv[:3] == ["bd", "list", "--json"] else _completed(1, stderr="x")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)], with_state=True
+            )
+            with mock.patch("subprocess.run", side_effect=fail_then_ok), \
+                 contextlib.redirect_stdout(io.StringIO()):
+                sync.reconcile_report(str(phase_dir))
+            self.assertFalse((phase_dir / ".reconcile-stamp").exists())
+
+    def test_unwritable_stamp_still_prints_and_exits_zero(self):
+        with mock.patch.object(sync, "_atomic_write_text", side_effect=OSError("ro")):
+            rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_FAILED)
+        self.assertEqual(rc, 0)
+        self.assertIn("regen-epic.9", out)
 
     def test_never_closes_or_updates(self):
         epic = [{"id": "regen-epic.9", "title": "Stray", "status": "open"}]

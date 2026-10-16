@@ -76,3 +76,6 @@ BEADS
 .cursor/
 tasks/
 AGENTS.md
+
+# verify:post reconcile-report dedup stamp (per-phase runtime marker)
+.reconcile-stamp
