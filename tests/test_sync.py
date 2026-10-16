@@ -7315,6 +7315,46 @@ class TestBeadsCloseSteps(unittest.TestCase):
         self.assertNotIn("close-phase-epic", status)
 
 
+class TestReconcileSkillWiring(unittest.TestCase):
+    """gsd-beads-reconcile is its own skill with produces: [] steps so gsd-core's
+    --after-fingerprint skip (beads-status produces BEADS.md) never drops it."""
+
+    ROOT = Path(__file__).resolve().parents[1]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.manifest = json.loads((cls.ROOT / "capability.json").read_text(encoding="utf-8"))
+
+    def _steps(self, point, skill):
+        return [
+            (i, s) for i, s in enumerate(self.manifest["steps"])
+            if s["point"] == point and s["ref"]["skill"] == skill
+        ]
+
+    def test_skill_declared(self):
+        self.assertIn("beads-reconcile", self.manifest["skills"])
+
+    def test_one_step_per_point_after_beads_status(self):
+        for point, consumes in (("verify:post", []), ("ship:pre", ["BEADS.md"])):
+            with self.subTest(point=point):
+                (idx, step), = self._steps(point, "beads-reconcile")
+                (status_idx, _), = self._steps(point, "beads-status")
+                self.assertGreater(idx, status_idx)
+                self.assertEqual(step["produces"], [])
+                self.assertEqual(step["consumes"], consumes)
+                self.assertEqual(step["when"], "beads.enabled")
+                self.assertEqual(step["onError"], "skip")
+
+    def test_skill_file_name_and_fence(self):
+        text = (self.ROOT / "skills/beads-reconcile/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("\nname: gsd-beads-reconcile\n", text)
+        self.assertEqual(text.count('python3 -I "$SYNC_PY" reconcile-report <phase directory>'), 1)
+
+    def test_beads_status_has_no_reconcile(self):
+        text = (self.ROOT / "skills/beads-status/SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("reconcile-report", text)
+
+
 class TestCheckShipmdPatch(unittest.TestCase):
     """03-03 Task 2: check_patch is a pure read-and-warn function
     (never edits ship.md) reporting whether the local ship.md patch is
@@ -10408,6 +10448,7 @@ fi"""
         ("beads-status:patch-check", "beads-status/SKILL.md", ("check-patch ship-md",)),
         ("beads-status:status", "beads-status/SKILL.md", ("status [phase directory]",)),
         ("beads-status:close-wave", "beads-status/SKILL.md", ("close-wave <phase directory> <plan id> [<plan id> ...]",)),
+        ("beads-reconcile:reconcile-report", "beads-reconcile/SKILL.md", ("reconcile-report <phase directory>",)),
     )
     def _skill_path(self, relative):
         return self.ROOT / "skills" / relative

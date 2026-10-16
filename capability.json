@@ -6,7 +6,11 @@
     "trackerPrefix": "beads",
     "invoke": {
       "binary": "python3",
-      "args": ["-Ic", "import os,sys;from pathlib import Path;g=os.environ.get('GSD_HOME','');root=Path(g) if os.path.isabs(g) else Path.home();root.is_absolute() or sys.exit('gsd-beads: no absolute GSD_HOME or HOME');root.is_absolute() or sys.exit('gsd-beads: no absolute GSD_HOME or HOME');script=root/'.gsd'/'capabilities'/'beads'/'scripts'/'sync.py';os.execv(sys.executable,[sys.executable,'-I',str(script),\"resolve-task-content\", sys.argv[1]])", "{{id}}"],
+      "args": [
+        "-Ic",
+        "import os,sys;from pathlib import Path;g=os.environ.get('GSD_HOME','');root=Path(g) if os.path.isabs(g) else Path.home();root.is_absolute() or sys.exit('gsd-beads: no absolute GSD_HOME or HOME');root.is_absolute() or sys.exit('gsd-beads: no absolute GSD_HOME or HOME');script=root/'.gsd'/'capabilities'/'beads'/'scripts'/'sync.py';os.execv(sys.executable,[sys.executable,'-I',str(script),\"resolve-task-content\", sys.argv[1]])",
+        "{{id}}"
+      ],
       "timeoutMs": 10000
     }
   },
@@ -28,7 +32,8 @@
     "beads-status",
     "beads-close",
     "beads-recall",
-    "beads-migrate-todos"
+    "beads-migrate-todos",
+    "beads-reconcile"
   ],
   "agents": [],
   "hooks": [],
@@ -144,6 +149,16 @@
       "onError": "skip"
     },
     {
+      "point": "verify:post",
+      "ref": {
+        "skill": "beads-reconcile"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "beads.enabled",
+      "onError": "skip"
+    },
+    {
       "point": "ship:pre",
       "ref": {
         "skill": "beads-status"
@@ -159,6 +174,18 @@
       "point": "ship:pre",
       "ref": {
         "skill": "beads-close"
+      },
+      "produces": [],
+      "consumes": [
+        "BEADS.md"
+      ],
+      "when": "beads.enabled",
+      "onError": "skip"
+    },
+    {
+      "point": "ship:pre",
+      "ref": {
+        "skill": "beads-reconcile"
       },
       "produces": [],
       "consumes": [
