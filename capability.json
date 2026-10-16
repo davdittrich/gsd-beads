@@ -26,6 +26,7 @@
   "skills": [
     "beads-sync",
     "beads-status",
+    "beads-close",
     "beads-recall",
     "beads-migrate-todos"
   ],
@@ -133,9 +134,31 @@
       "onError": "skip"
     },
     {
+      "point": "verify:post",
+      "ref": {
+        "skill": "beads-close"
+      },
+      "produces": [],
+      "consumes": [],
+      "when": "beads.enabled",
+      "onError": "skip"
+    },
+    {
       "point": "ship:pre",
       "ref": {
         "skill": "beads-status"
+      },
+      "produces": [],
+      "consumes": [
+        "BEADS.md"
+      ],
+      "when": "beads.enabled",
+      "onError": "skip"
+    },
+    {
+      "point": "ship:pre",
+      "ref": {
+        "skill": "beads-close"
       },
       "produces": [],
       "consumes": [

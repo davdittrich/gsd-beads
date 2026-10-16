@@ -6971,6 +6971,91 @@ class TestShipPreGenericDispatch(unittest.TestCase):
             self.assertGreaterEqual(len(step_hooks), 1)
 
 
+class TestBeadsCloseSteps(unittest.TestCase):
+    """The close step is its own skill with produces [] so --after-fingerprint
+    (skips steps whose produces file exists) never skips it."""
+
+    ROOT = Path(__file__).resolve().parents[1]
+
+    def setUp(self):
+        self.cap = json.loads((self.ROOT / "capability.json").read_text(encoding="utf-8"))
+
+    def _steps(self, point, skill):
+        return [i for i, s in enumerate(self.cap["steps"])
+                if s["point"] == point and s["ref"]["skill"] == skill]
+
+    def test_skill_declared(self):
+        self.assertIn("beads-close", self.cap["skills"])
+
+    def test_verify_post_step(self):
+        (close,) = self._steps("verify:post", "beads-close")
+        step = self.cap["steps"][close]
+        self.assertEqual(step["produces"], [])
+        self.assertEqual(step["onError"], "skip")
+        self.assertEqual(step["when"], "beads.enabled")
+        self.assertGreater(close, self._steps("verify:post", "beads-status")[0])
+
+    def test_ship_pre_step(self):
+        (close,) = self._steps("ship:pre", "beads-close")
+        step = self.cap["steps"][close]
+        self.assertEqual(step["produces"], [])
+        self.assertEqual(step["consumes"], ["BEADS.md"])
+        self.assertEqual(step["onError"], "skip")
+        self.assertEqual(step["when"], "beads.enabled")
+        self.assertGreater(close, self._steps("ship:pre", "beads-status")[0])
+
+    def test_skill_files(self):
+        close = (self.ROOT / "skills/beads-close/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("\nname: gsd-beads-close\n", close)
+        self.assertIn("close-phase-epic <phase directory>", close)
+        status = (self.ROOT / "skills/beads-status/SKILL.md").read_text(encoding="utf-8")
+        self.assertNotIn("close-phase-epic", status)
+
+    @unittest.skipUnless(
+        _gsd_tools_path() is not None and shutil.which("node") is not None,
+        "gsd-tools.cjs / node not found",
+    )
+    def test_after_fingerprint_skips_status_but_keeps_close(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            project_root = Path(tmp)
+            src = project_root / "bundle-src"
+            src.mkdir()
+            for entry in ("capability.json", "scripts", "skills", "fragments", "GSD-CORE-PATCH.md"):
+                p = self.ROOT / entry
+                if p.is_dir():
+                    shutil.copytree(p, src / entry, ignore=shutil.ignore_patterns("__pycache__"))
+                else:
+                    shutil.copy2(p, src / entry)
+            (project_root / ".planning").mkdir()
+            (project_root / ".planning/config.json").write_text(
+                json.dumps({"beads": {"enabled": True}}), encoding="utf-8")
+            phase_dir = project_root / ".planning/phases/01-x"
+            phase_dir.mkdir(parents=True)
+            (phase_dir / "01-BEADS.md").write_text(
+                "---\nblocking_open: 0\ndiverged: 0\n---\n", encoding="utf-8")
+            home = project_root / "home"
+            home.mkdir()
+            env = {**os.environ, "HOME": str(home), "GSD_HOME": str(home)}
+            node = ["node", str(_gsd_tools_path())]
+            inst = subprocess.run(
+                node + ["capability", "install", str(src), "--scope", "project", "--yes"],
+                cwd=str(project_root), capture_output=True, text=True, timeout=30, env=env)
+            self.assertEqual(inst.returncode, 0, inst.stderr)
+            result = subprocess.run(
+                node + ["loop", "render-hooks", "verify:post", "--after-fingerprint", str(phase_dir), "--raw"],
+                cwd=str(project_root), capture_output=True, text=True, timeout=30, env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+
+            def skills(key):
+                return [h.get("ref", {}).get("skill") for h in payload.get(key, [])
+                        if h.get("capId") == "beads" and h.get("kind") == "step"]
+
+            self.assertIn("beads-close", skills("activeHooks"))
+            self.assertNotIn("beads-status", skills("activeHooks"))
+            self.assertIn("beads-status", skills("skippedHooks"))
+
+
 class TestCheckShipmdPatch(unittest.TestCase):
     """03-03 Task 2: check_patch is a pure read-and-warn function
     (never edits ship.md) reporting whether the local ship.md patch is
@@ -10048,7 +10133,7 @@ fi"""
         ("beads-migrate-todos:migrate", "beads-migrate-todos/SKILL.md", ("migrate-todos",)),
         ("beads-status:wave-status", "beads-status/SKILL.md", ("wave-status-block <phase directory> <plan id> [<plan id> ...]",)),
         ("beads-status:regenerate", "beads-status/SKILL.md", ("regenerate-beads-md <phase directory>",)),
-        ("beads-status:close-phase-epic", "beads-status/SKILL.md", ("close-phase-epic <phase directory>",)),
+        ("beads-close:close-phase-epic", "beads-close/SKILL.md", ("close-phase-epic <phase directory>",)),
         ("beads-status:ship-override", "beads-status/SKILL.md", ("ship-override <phase directory>",)),
         ("beads-status:patch-check", "beads-status/SKILL.md", ("check-patch ship-md",)),
         ("beads-status:status", "beads-status/SKILL.md", ("status [phase directory]",)),
