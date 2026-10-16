@@ -7341,49 +7341,14 @@ class TestBeadsCloseSteps(unittest.TestCase):
     def test_skill_files(self):
         close = (self.ROOT / "skills/beads-close/SKILL.md").read_text(encoding="utf-8")
         self.assertIn("\nname: gsd-beads-close\n", close)
-        self.assertIn("close-phase-epic <phase directory>", close)
+        both = ('python3 -I "$SYNC_PY" close-phase-epic <phase directory>\n'
+                'python3 -I "$SYNC_PY" reconcile-report <phase directory>\n```')
+        self.assertEqual(close.count(both), 1)
+        self.assertEqual(close.count("reconcile-report <phase directory>"), 1)
         status = (self.ROOT / "skills/beads-status/SKILL.md").read_text(encoding="utf-8")
         self.assertNotIn("close-phase-epic", status)
-
-
-class TestReconcileSkillWiring(unittest.TestCase):
-    """gsd-beads-reconcile is its own skill with produces: [] steps so gsd-core's
-    --after-fingerprint skip (beads-status produces BEADS.md) never drops it."""
-
-    ROOT = Path(__file__).resolve().parents[1]
-
-    @classmethod
-    def setUpClass(cls):
-        cls.manifest = json.loads((cls.ROOT / "capability.json").read_text(encoding="utf-8"))
-
-    def _steps(self, point, skill):
-        return [
-            (i, s) for i, s in enumerate(self.manifest["steps"])
-            if s["point"] == point and s["ref"]["skill"] == skill
-        ]
-
-    def test_skill_declared(self):
-        self.assertIn("beads-reconcile", self.manifest["skills"])
-
-    def test_one_step_per_point_after_beads_status(self):
-        for point, consumes in (("verify:post", []), ("ship:pre", ["BEADS.md"])):
-            with self.subTest(point=point):
-                (idx, step), = self._steps(point, "beads-reconcile")
-                (status_idx, _), = self._steps(point, "beads-status")
-                self.assertGreater(idx, status_idx)
-                self.assertEqual(step["produces"], [])
-                self.assertEqual(step["consumes"], consumes)
-                self.assertEqual(step["when"], "beads.enabled")
-                self.assertEqual(step["onError"], "skip")
-
-    def test_skill_file_name_and_fence(self):
-        text = (self.ROOT / "skills/beads-reconcile/SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("\nname: gsd-beads-reconcile\n", text)
-        self.assertEqual(text.count('python3 -I "$SYNC_PY" reconcile-report <phase directory>'), 1)
-
-    def test_beads_status_has_no_reconcile(self):
-        text = (self.ROOT / "skills/beads-status/SKILL.md").read_text(encoding="utf-8")
-        self.assertNotIn("reconcile-report", text)
+        self.assertNotIn("reconcile-report", status)
+        self.assertFalse((self.ROOT / "skills/beads-reconcile").exists())
 
 
 class TestCheckShipmdPatch(unittest.TestCase):
@@ -10474,12 +10439,11 @@ fi"""
         ("beads-migrate-todos:migrate", "beads-migrate-todos/SKILL.md", ("migrate-todos",)),
         ("beads-status:wave-status", "beads-status/SKILL.md", ("wave-status-block <phase directory> <plan id> [<plan id> ...]",)),
         ("beads-status:regenerate", "beads-status/SKILL.md", ("regenerate-beads-md <phase directory>",)),
-        ("beads-close:close-phase-epic", "beads-close/SKILL.md", ("close-phase-epic <phase directory>",)),
+        ("beads-close:close-phase-epic", "beads-close/SKILL.md", ("close-phase-epic <phase directory>", "reconcile-report <phase directory>")),
         ("beads-status:ship-override", "beads-status/SKILL.md", ("ship-override <phase directory>",)),
         ("beads-status:patch-check", "beads-status/SKILL.md", ("check-patch ship-md",)),
         ("beads-status:status", "beads-status/SKILL.md", ("status [phase directory]",)),
         ("beads-status:close-wave", "beads-status/SKILL.md", ("close-wave <phase directory> <plan id> [<plan id> ...]",)),
-        ("beads-reconcile:reconcile-report", "beads-reconcile/SKILL.md", ("reconcile-report <phase directory>",)),
     )
     def _skill_path(self, relative):
         return self.ROOT / "skills" / relative

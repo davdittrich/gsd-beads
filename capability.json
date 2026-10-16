@@ -32,8 +32,7 @@
     "beads-status",
     "beads-close",
     "beads-recall",
-    "beads-migrate-todos",
-    "beads-reconcile"
+    "beads-migrate-todos"
   ],
   "agents": [],
   "hooks": [],
@@ -149,16 +148,6 @@
       "onError": "skip"
     },
     {
-      "point": "verify:post",
-      "ref": {
-        "skill": "beads-reconcile"
-      },
-      "produces": [],
-      "consumes": [],
-      "when": "beads.enabled",
-      "onError": "skip"
-    },
-    {
       "point": "ship:pre",
       "ref": {
         "skill": "beads-status"
@@ -174,18 +163,6 @@
       "point": "ship:pre",
       "ref": {
         "skill": "beads-close"
-      },
-      "produces": [],
-      "consumes": [
-        "BEADS.md"
-      ],
-      "when": "beads.enabled",
-      "onError": "skip"
-    },
-    {
-      "point": "ship:pre",
-      "ref": {
-        "skill": "beads-reconcile"
       },
       "produces": [],
       "consumes": [

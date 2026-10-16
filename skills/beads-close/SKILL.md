@@ -1,6 +1,6 @@
 ---
 name: gsd-beads-close
-description: "Use when a gsd lifecycle point dispatches beads-close (verify:post, ship:pre), or when asked to close a verified phase's bd epic"
+description: "Use when a gsd lifecycle point dispatches beads-close (verify:post, ship:pre), or when asked to close a verified phase's bd epic: closes the phase epic when verified, then lists non-closed tickets to reconcile"
 argument-hint: "[phase directory]"
 allowed-tools:
   - Read
@@ -9,7 +9,12 @@ allowed-tools:
 
 Display `GSD > BEADS CLOSE` before any tool call.
 
-One Bash call, passing only the phase directory (the dispatch's phase directory, else `$ARGUMENTS`):
+Read `.planning/config.json`. Stop silently only when `config.beads.enabled` is explicitly `false`; a
+missing file, `beads` object, or `enabled` key means enabled.
+
+One Bash call. Only the phase directory (or a bare phase number, which the commands resolve) matters; use the
+dispatch's phase directory, else `$ARGUMENTS`. Flags such as `--auto <ws>` are ignored, so passing the whole
+`$ARGUMENTS` is acceptable.
 
 ```bash
 _B="${GSD_HOME:-${HOME:-}}"
@@ -24,9 +29,10 @@ if [ ! -f "$SYNC_PY" ]; then
   exit 1
 fi
 python3 -I "$SYNC_PY" close-phase-epic <phase directory>
+python3 -I "$SYNC_PY" reconcile-report <phase directory>
 ```
 
-It regenerates `{padded_phase}-BEADS.md` first, then closes the phase epic only when all hold:
+`close-phase-epic` regenerates `{padded_phase}-BEADS.md` first, then closes the phase epic only when all hold:
 
 - `beads.epic_per` is `phase`.
 - `{padded_phase}-VERIFICATION.md` has `status: passed` (case-insensitive).
@@ -36,4 +42,8 @@ It regenerates `{padded_phase}-BEADS.md` first, then closes the phase epic only 
 
 Otherwise the epic stays open. Wrong `epic_per` or a status other than `passed` print nothing; every
 other refusal prints its reason on stdout (for open children, their ids). A `bd` failure never fails
-the phase. Report its stdout.
+the phase. Report their stdout.
+
+`reconcile-report` is read-only: it lists non-closed tickets that `BEADS-RECALL.md` matched or that are epic
+children no plan task names. It prints nothing when there are none and no source degraded; a `bd` failure is
+never fatal.
