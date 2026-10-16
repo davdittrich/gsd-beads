@@ -8129,11 +8129,13 @@ class TestClosePhaseEpic(unittest.TestCase):
         self.addCleanup(setattr, sync, "_BD_CWD", None)
         return Path(tmp.name), phase_dir
 
-    def _bd(self, children, epic_status="open", fail=None, show_stdout=None):
+    def _bd(self, children, epic_status="open", fail=None, show_stdout=None, raises=None):
         calls = []
 
         def _side_effect(argv, **kwargs):
             calls.append(list(argv))
+            if raises is not None and argv[:2] == ["bd", raises[0]]:
+                raise raises[1]
             if fail is not None and argv[:2] == ["bd", fail]:
                 return _completed(1, stderr="boom")
             if argv[:2] == ["bd", "list"] and "--parent" in argv:
@@ -8146,13 +8148,17 @@ class TestClosePhaseEpic(unittest.TestCase):
 
         return calls, _side_effect
 
-    def _run(self, phase_dir, children, **bd_kwargs):
+    def _run(self, phase_dir, children, regen=0, via_main=False, **bd_kwargs):
         calls, side_effect = self._bd(children, **bd_kwargs)
         out = io.StringIO()
         with mock.patch.object(sync, "bd_available", return_value=True), \
+             mock.patch.object(sync, "regenerate_beads_md", return_value=regen) as self.regen, \
              mock.patch("subprocess.run", side_effect=side_effect), \
-             contextlib.redirect_stdout(out):
-            rc = sync.close_phase_epic(str(phase_dir))
+             contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            if via_main:
+                rc = sync.main(["close-phase-epic", str(phase_dir)])
+            else:
+                rc = sync.close_phase_epic(str(phase_dir))
         closes = [c for c in calls if c[:2] == ["bd", "close"]]
         return rc, closes, out.getvalue()
 
@@ -8242,7 +8248,9 @@ class TestClosePhaseEpic(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertEqual([c for c in calls if c[:2] == ["bd", "close"]], [])
         state = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
-        self.assertNotEqual(state.split("### Blockers/Concerns", 1)[1].strip(), "None yet.")
+        blockers = state.split("### Blockers/Concerns", 1)[1]
+        self.assertNotEqual(blockers.strip(), "None yet.")
+        self.assertEqual(blockers.count("bd unavailable"), 1)
 
     def test_quoted_and_commented_status_closes(self):
         for status in ('"passed"', "passed # ok"):
@@ -8310,6 +8318,83 @@ class TestClosePhaseEpic(unittest.TestCase):
         self._run(phase_dir, [{"id": "c1", "status": "closed"}], fail="list")
         state = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
         self.assertIn(f"bd list for epic {self.EPIC} failed", state)
+
+    def _blockers(self, tmp):
+        state = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
+        return state.split("### Blockers/Concerns", 1)[1]
+
+    def test_bd_timeout_or_oserror_fails_closed_with_blocker(self):
+        errs = (subprocess.TimeoutExpired(["bd"], 1), OSError("no bd"))
+        for verb in ("show", "list", "close"):
+            for err in errs:
+                for via_main in (False, True):
+                    with self.subTest(verb=verb, err=type(err).__name__, via_main=via_main):
+                        tmp, phase_dir = self._ws()
+                        rc, closes, _ = self._run(
+                            phase_dir, [{"id": "c1", "status": "closed"}],
+                            raises=(verb, err), via_main=via_main,
+                        )
+                        self.assertEqual(rc, 0)
+                        text = self._blockers(tmp)
+                        self.assertIn(f"bd {verb}", text)
+                        if verb == "close":
+                            self.assertIn("may have", text)
+
+    def test_epic_authority_error_records_blocker(self):
+        tmp, phase_dir = self._ws()
+        with mock.patch.object(sync, "resolve_phase_epic", side_effect=sync.EpicAuthorityError("dup")):
+            rc, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+        self.assertEqual((rc, closes), (0, []))
+        self.assertIn("dup", self._blockers(tmp))
+
+    def test_regenerate_failure_blocks_close_with_one_line(self):
+        _, phase_dir = self._ws()
+        rc, closes, out = self._run(phase_dir, [{"id": "c1", "status": "closed"}], regen=1)
+        self.assertEqual((rc, closes), (0, []))
+        self.assertEqual(len(out.strip().splitlines()), 1)
+        self.regen.assert_called_once_with(str(phase_dir))
+
+    def test_regenerate_runs_before_beads_md_is_read(self):
+        _, phase_dir = self._ws(counts=("0", "0"))
+
+        def regen(_):
+            (phase_dir / "01-BEADS.md").write_text(
+                f"---\nepic: {self.EPIC}\nblocking_open: 1\ndiverged: 0\n---\n", encoding="utf-8"
+            )
+            return 0
+
+        calls, side_effect = self._bd([{"id": "c1", "status": "closed"}])
+        with mock.patch.object(sync, "bd_available", return_value=True), \
+             mock.patch.object(sync, "regenerate_beads_md", side_effect=regen), \
+             mock.patch("subprocess.run", side_effect=side_effect), \
+             contextlib.redirect_stdout(io.StringIO()):
+            sync.close_phase_epic(str(phase_dir))
+        self.assertEqual([c for c in calls if c[:2] == ["bd", "close"]], [])
+
+    def test_milestone_epic_label_never_closes(self):
+        for label in ("gsd-key:milestone-v1", "gsd-key:milestone-"):
+            with self.subTest(label=label):
+                tmp, phase_dir = self._ws()
+                row = json.dumps([{"id": self.EPIC, "status": "open", "labels": ["x", label]}])
+                rc, closes, out = self._run(
+                    phase_dir, [{"id": "c1", "status": "closed"}], show_stdout=row
+                )
+                self.assertEqual((rc, closes), (0, []))
+                self.assertIn("milestone", out)
+                self.assertEqual(self._blockers(tmp).strip(), "None yet.")
+
+    def test_phase_epic_label_still_closes(self):
+        _, phase_dir = self._ws()
+        row = json.dumps([{"id": self.EPIC, "status": "open", "labels": ["gsd-key:01-epic"]}])
+        _, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}], show_stdout=row)
+        self.assertEqual(len(closes), 1)
+
+    def test_status_compare_is_case_insensitive(self):
+        for status in ("Passed", "PASSED"):
+            with self.subTest(status=status):
+                _, phase_dir = self._ws(status=status)
+                _, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+                self.assertEqual(len(closes), 1)
 
     def test_bd_absent_is_not_probed_when_cheap_gates_fail(self):
         _, phase_dir = self._ws(epic_per="milestone")

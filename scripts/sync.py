@@ -3740,13 +3740,26 @@ def regenerate_beads_md(phase_dir_arg):
 
 
 def close_phase_epic(phase_dir_arg):
-    """gh-26: close the phase epic at verify:post when epic_per is `phase`,
-    VERIFICATION.md says `status: passed`, and every epic child is closed.
-    Fails closed (epic stays open) and always returns 0."""
+    """gh-26: close the phase epic at verify:post. Always returns 0; every
+    refusal leaves the epic open.
+
+    Closes only when epic_per is `phase`, VERIFICATION.md says `passed`
+    (case-insensitive), a fresh `regenerate_beads_md` succeeded and wrote
+    blocking_open and diverged both 0, bd shows an open epic that is not a
+    milestone epic (a `gsd-key:milestone-*` label), and every child is
+    closed.
+
+    Silent refusals: wrong epic_per, status not passed. Printed only: BEADS.md
+    regeneration failed or not clean, milestone epic, epic already closed,
+    open or zero children. Printed and recorded as a STATE.md blocker: epic
+    identity authority failure, and bd show/list/close failing, timing out or
+    not running. A timed-out `bd close` may still have closed the epic.
+    bd unavailable is reported by the regenerate step (notice plus one
+    blocker); the BEADS.md it leaves is not clean, so nothing closes."""
     phase_dir = Path(phase_dir_arg).resolve()
 
-    def blocker(msg):
-        print(f"close-phase-epic: {msg}")
+    def blocker(msg, stdout_msg=None):
+        print(f"close-phase-epic: {stdout_msg or msg}")
         try:
             append_state_blocker(
                 confined(phase_project_root(phase_dir), ".planning", "STATE.md"), msg
@@ -3761,9 +3774,13 @@ def close_phase_epic(phase_dir_arg):
     if epic_per != "phase":
         return 0
     padded_phase = phase_dir.name.split("-", 1)[0]
-    if _normalize_summary_status(
+    status = _normalize_summary_status(
         _read_summary_status(phase_dir / f"{padded_phase}-VERIFICATION.md")
-    ) != "passed":
+    )
+    if status is None or status.lower() != "passed":
+        return 0
+    if regenerate_beads_md(str(phase_dir)) != 0:
+        print("close-phase-epic: BEADS.md regeneration failed -- epic left open")
         return 0
     try:
         beads_text = (phase_dir / f"{padded_phase}-BEADS.md").read_text(encoding="utf-8")
@@ -3781,18 +3798,20 @@ def close_phase_epic(phase_dir_arg):
     try:
         epic_id = resolve_phase_epic(phase_dir)
     except EpicAuthorityError as exc:
+        # The message can carry plan-supplied text: stdout gets a fixed line.
         print(f"close-phase-epic: epic identity authority failed: {exc}", file=sys.stderr)
+        blocker(
+            f"close-phase-epic: epic identity authority failed: {exc} -- epic left open",
+            "epic identity authority failed -- epic left open (details on stderr and in STATE.md)",
+        )
         return 0
     if epic_id is None or not SAFE_BD_ID_RE.fullmatch(epic_id):
         print("close-phase-epic: no safe epic id -- epic left open")
         return 0
-    if not bd_available():
-        _skip_bd_unavailable(phase_dir, "close-phase-epic")
-        return 0
 
     try:
         epic = _bd_show_row(run_bd(["bd", "show", epic_id, "--json"]), epic_id)
-    except (BdTransientError, RuntimeError):
+    except (BdTransientError, RuntimeError, subprocess.TimeoutExpired, OSError):
         blocker(f"bd show {epic_id} failed -- epic left open")
         return 0
     if epic is None:
@@ -3801,8 +3820,17 @@ def close_phase_epic(phase_dir_arg):
     if epic.get("status") == "closed":
         print(f"close-phase-epic: epic {epic_id} already closed")
         return 0
+    labels = epic.get("labels")
+    if isinstance(labels, list) and any(
+        isinstance(x, str) and x.startswith("gsd-key:milestone-") for x in labels
+    ):
+        print(f"close-phase-epic: epic {epic_id} is a milestone epic -- left open")
+        return 0
 
-    rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
+    try:
+        rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
+    except (subprocess.TimeoutExpired, OSError):
+        rows = None
     if rows is None or not all(isinstance(r, dict) for r in rows):
         blocker(f"bd list for epic {epic_id} failed -- epic left open")
         return 0
@@ -3818,7 +3846,11 @@ def close_phase_epic(phase_dir_arg):
         )
         return 0
 
-    closed = run_bd(["bd", "close", epic_id, "--reason", f"phase verified: {phase_dir.name}"])
+    try:
+        closed = run_bd(["bd", "close", epic_id, "--reason", f"phase verified: {phase_dir.name}"])
+    except (subprocess.TimeoutExpired, OSError):
+        blocker(f"bd close {epic_id} timed out or failed to run -- the epic may have been closed; check `bd show {epic_id}`")
+        return 0
     if closed.returncode != 0:
         blocker(f"bd close {epic_id} failed -- epic left open")
     else:
