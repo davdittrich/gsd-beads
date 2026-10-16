@@ -90,7 +90,9 @@ gsd-core's own lifecycle commands drive `bd` state directly:
    `status` is `complete` or absent; `halted`, `blocked`, `incomplete`, an unknown or an empty
    value is not complete).
 3. `/gsd:verify-work` — after verification, `beads-status` regenerates the projected `BEADS.md`
-   from live `bd` state (read-only: it closes nothing).
+   from live `bd` state, then closes the phase epic when `VERIFICATION.md` has `status: passed`,
+   `beads.epic_per` is `phase`, and the epic has at least one child, all closed. Otherwise the epic
+   stays open and the open child ids are printed. The milestone epic is never closed.
 4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
    refuse to ship while `blocking_open` or `diverged` is non-zero.
 

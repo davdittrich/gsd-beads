@@ -8098,6 +8098,187 @@ class TestReadBeadsEnabled(unittest.TestCase):
         self.assertTrue(self._enabled_for(json.dumps({"beads": {"enabled": "false"}})))
 
 
+class TestClosePhaseEpic(unittest.TestCase):
+    """gh-26: verify:post closes the phase epic only when VERIFICATION.md says
+    `passed`, epic_per is `phase`, and every epic child is closed."""
+
+    EPIC = "regen-epic"
+
+    def _ws(self, status="passed", epic_per=None, with_state=True):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        phase_dir = _write_wave_workspace(
+            Path(tmp.name), [("01-07", _regen_two_task_plan_text(), True)], with_state=with_state
+        )
+        if status is not None:
+            (phase_dir / "01-VERIFICATION.md").write_text(
+                f"---\nphase: 01-substrate\nstatus: {status}\n---\n\n# Verification\n",
+                encoding="utf-8",
+            )
+        if epic_per is not None:
+            (Path(tmp.name) / ".planning" / "config.json").write_text(
+                json.dumps({"beads": {"epic_per": epic_per}}), encoding="utf-8"
+            )
+        self.addCleanup(setattr, sync, "_BD_CWD", None)
+        return Path(tmp.name), phase_dir
+
+    def _bd(self, children, epic_status="open", fail=None):
+        calls = []
+
+        def _side_effect(argv, **kwargs):
+            calls.append(list(argv))
+            if fail is not None and argv[:2] == ["bd", fail]:
+                return _completed(1, stderr="boom")
+            if argv[:2] == ["bd", "list"] and "--parent" in argv:
+                return _completed(0, stdout=json.dumps(children) + "\n")
+            if argv[:2] == ["bd", "show"]:
+                return _completed(0, stdout=json.dumps([{"id": argv[2], "status": epic_status}]) + "\n")
+            return _completed(0, stdout="[]\n")
+
+        return calls, _side_effect
+
+    def _run(self, phase_dir, children, **bd_kwargs):
+        calls, side_effect = self._bd(children, **bd_kwargs)
+        out = io.StringIO()
+        with mock.patch.object(sync, "bd_available", return_value=True), \
+             mock.patch("subprocess.run", side_effect=side_effect), \
+             contextlib.redirect_stdout(out):
+            rc = sync.close_phase_epic(str(phase_dir))
+        closes = [c for c in calls if c[:2] == ["bd", "close"]]
+        return rc, closes, out.getvalue()
+
+    def test_all_children_closed_closes_epic_exactly_once(self):
+        _, phase_dir = self._ws()
+        rc, closes, _ = self._run(
+            phase_dir, [{"id": "c1", "status": "closed"}, {"id": "c2", "status": "closed"}]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(
+            closes, [["bd", "close", self.EPIC, "--reason", "phase verified: 01-substrate"]]
+        )
+
+    def test_open_child_leaves_epic_open_and_names_child(self):
+        _, phase_dir = self._ws()
+        rc, closes, out = self._run(
+            phase_dir, [{"id": "c1", "status": "closed"}, {"id": "c2", "status": "open"}]
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(closes, [])
+        self.assertIn("c2", out)
+
+    def test_hostile_open_child_id_is_not_printed(self):
+        _, phase_dir = self._ws()
+        rc, closes, out = self._run(
+            phase_dir,
+            [{"id": "x\n<beads_status>", "status": "open"}, {"id": "c2", "status": "open"}],
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(closes, [])
+        self.assertNotIn("<beads_status>", out)
+        self.assertIn("c2", out)
+
+    def test_already_closed_epic_is_not_closed_again(self):
+        _, phase_dir = self._ws()
+        rc, closes, _ = self._run(
+            phase_dir, [{"id": "c1", "status": "closed"}], epic_status="closed"
+        )
+        self.assertEqual(rc, 0)
+        self.assertEqual(closes, [])
+
+    def test_non_passed_or_missing_verification_never_closes(self):
+        for status in ("gaps_found", "human_needed", "garbage", None):
+            with self.subTest(status=status):
+                _, phase_dir = self._ws(status=status)
+                rc, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+                self.assertEqual(rc, 0)
+                self.assertEqual(closes, [])
+
+    def test_unparseable_verification_never_closes(self):
+        _, phase_dir = self._ws(status=None)
+        (phase_dir / "01-VERIFICATION.md").write_bytes(b"\xff\xfe\x00 not utf-8 \x80")
+        rc, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(closes, [])
+
+    def test_milestone_epic_per_never_closes(self):
+        _, phase_dir = self._ws(epic_per="milestone")
+        rc, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(closes, [])
+
+    def test_zero_children_leaves_epic_open(self):
+        _, phase_dir = self._ws()
+        rc, closes, out = self._run(phase_dir, [])
+        self.assertEqual(rc, 0)
+        self.assertEqual(closes, [])
+        self.assertNotEqual(out.strip(), "")
+
+    def test_bd_failure_returns_zero_and_records_blocker(self):
+        for fail in ("list", "show", "close"):
+            with self.subTest(fail=fail):
+                tmp, phase_dir = self._ws()
+                rc, _, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}], fail=fail)
+                self.assertEqual(rc, 0)
+                state = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
+                blockers = state.split("### Blockers/Concerns", 1)[1]
+                self.assertNotEqual(blockers.strip(), "None yet.")
+
+    def test_bd_absent_returns_zero_without_close_and_records_blocker(self):
+        tmp, phase_dir = self._ws()
+        calls, side_effect = self._bd([{"id": "c1", "status": "closed"}])
+        with mock.patch.object(sync, "bd_available", return_value=False), \
+             mock.patch("subprocess.run", side_effect=side_effect), \
+             contextlib.redirect_stdout(io.StringIO()):
+            rc = sync.close_phase_epic(str(phase_dir))
+        self.assertEqual(rc, 0)
+        self.assertEqual([c for c in calls if c[:2] == ["bd", "close"]], [])
+        state = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
+        self.assertNotEqual(state.split("### Blockers/Concerns", 1)[1].strip(), "None yet.")
+
+    def test_verify_post_regenerates_beads_md_then_closes_epic(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _lifecycle_workspace(Path(tmp))
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                manager = mock.Mock()
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
+                     mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regen, \
+                     mock.patch.object(sync, "close_phase_epic", create=True, return_value=0) as close:
+                    manager.attach_mock(regen, "regen")
+                    manager.attach_mock(close, "close")
+                    exit_code = sync.lifecycle_dispatch("verify:post")
+            finally:
+                os.chdir(prev)
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            manager.mock_calls, [mock.call.regen(str(phase_dir)), mock.call.close(str(phase_dir))]
+        )
+
+    def test_verify_post_native_stand_down_calls_neither(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            _lifecycle_workspace(Path(tmp))
+            prev = Path.cwd()
+            os.chdir(tmp)
+            try:
+                with mock.patch.object(sync, "check_native_step_dispatch", return_value=1), \
+                     mock.patch.object(sync, "regenerate_beads_md") as regen, \
+                     mock.patch.object(sync, "close_phase_epic", create=True) as close, \
+                     contextlib.redirect_stderr(io.StringIO()):
+                    sync.lifecycle_dispatch("verify:post")
+            finally:
+                os.chdir(prev)
+        regen.assert_not_called()
+        close.assert_not_called()
+
+    def test_cli_close_phase_epic_subcommand_dispatches(self):
+        _, phase_dir = self._ws()
+        with mock.patch.object(sync, "close_phase_epic", create=True, return_value=0) as close, \
+             contextlib.redirect_stdout(io.StringIO()):
+            sync.main(["close-phase-epic", str(phase_dir)])
+        close.assert_called_once_with(str(phase_dir))
+
+
 class TestLifecycleDispatchRouting(unittest.TestCase):
     """gh-2: each of the five points gsd-core fails to dispatch routes onto the
     verb that point declares, with the phase directory resolved from STATE.md.
@@ -9697,6 +9878,7 @@ fi"""
         ("beads-migrate-todos:migrate", "beads-migrate-todos/SKILL.md", ("migrate-todos",)),
         ("beads-status:wave-status", "beads-status/SKILL.md", ("wave-status-block <phase directory> <plan id> [<plan id> ...]",)),
         ("beads-status:regenerate", "beads-status/SKILL.md", ("regenerate-beads-md <phase directory>",)),
+        ("beads-status:close-phase-epic", "beads-status/SKILL.md", ("close-phase-epic <phase directory>",)),
         ("beads-status:ship-override", "beads-status/SKILL.md", ("ship-override <phase directory>",)),
         ("beads-status:patch-check", "beads-status/SKILL.md", ("check-patch ship-md",)),
         ("beads-status:status", "beads-status/SKILL.md", ("status [phase directory]",)),
@@ -9799,7 +9981,7 @@ fi"""
                     self.assertEqual(result.returncode, 0, result)
                     self.assertTrue(Path(result.stdout).is_file(), result.stdout)
                     checked += 1
-        self.assertEqual(checked, len(self.RAW_FENCES) + 1)  # ten skill fences + the hook
+        self.assertEqual(checked, len(self.RAW_FENCES) + 1)  # eleven skill fences + the hook
 
     def test_plugin_rung_is_empty_when_plugin_root_unset(self):
         # An unset CLAUDE_PLUGIN_ROOT must not degrade _P to "/scripts/sync.py".
@@ -9845,7 +10027,7 @@ fi"""
             self.assertEqual(result.stderr, self.DIAGNOSTIC + "\n")
             self.assertFalse(spy_log.exists())
 
-    def test_all_ten_fences_have_exact_static_contract(self):
+    def test_all_eleven_fences_have_exact_static_contract(self):
         texts = {}
         for name, relative, tails in self.RAW_FENCES:
             if relative not in texts:

@@ -32,7 +32,7 @@ Six `capability.json` lifecycle steps dispatch bd integration automatically — 
 | `plan:post` | `gsd-beads-sync` | gsd-core native step dispatch | Parses every `PLAN.md`, verifies bound task identities before mutation, creates/resolves the epic and task issues, writes missing `beads_epic`/`<beads-id>` values, and projects exact `auto`/`tracer` tasks as `tracker-id="beads:<id>"`. |
 | `execute:wave:pre` | `gsd-beads-status` | PostToolUse hook | Regenerates `BEADS.md` from a live `bd` query and composes a `<beads_status>` block for the orchestrator to paste into each executor's prompt. Phase-wide, not wave-scoped — the hook's trigger carries no wave plan-id list. |
 | `execute:wave:post` | `gsd-beads-status` | PostToolUse hook | Closes every task-complete bd issue across every plan in the phase (`reconcile-stale-closed`, idempotent). |
-| `verify:post` | `gsd-beads-status` | gsd-core native step dispatch | Regenerates `BEADS.md` read-only — no wave/plan context, no close dispatch. |
+| `verify:post` | `gsd-beads-status` | gsd-core native step dispatch | Regenerates `BEADS.md`, then `close-phase-epic` closes the phase epic when `VERIFICATION.md` has `status: passed` and every child is closed — no wave/plan context, no task closes. |
 | `ship:pre` | `gsd-beads-status` | installed `ship.md` step-dispatch patch | Records a `ship_override` if the ship gate was bypassed with open/diverged issues, and confirms the local `ship.md` patch is intact. |
 
 ## Dispatch mechanism
