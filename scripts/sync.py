@@ -4225,6 +4225,7 @@ def render_status_mapping(phase_dir_arg):
 # One cell = escape pairs (`\\`, `\|`) or non-pipe chars, then its closing pipe.
 CELL_RE = re.compile(r"((?:\\.|[^\\|])*)\|")
 CELL_UNESCAPE_RE = re.compile(r"\\([\\|])")
+SEPARATOR_CELL_RE = re.compile(r":?-+:?")
 
 
 def _parse_beads_md_table_rows(text):
@@ -4249,7 +4250,7 @@ def _parse_beads_md_table_rows(text):
         if cells and cells[0] == "":
             cells = cells[1:]
         cells = [CELL_UNESCAPE_RE.sub(r"\1", c.strip()) for c in cells]
-        if len(cells) < 3 or cells[0] in ("", "Issue") or set(cells[0]) == {"-"}:
+        if len(cells) < 3 or cells[0] in ("", "Issue") or all(SEPARATOR_CELL_RE.fullmatch(c) for c in cells):
             continue
         rows.append({"id": cells[0], "title": cells[1], "status": cells[2]})
     return rows

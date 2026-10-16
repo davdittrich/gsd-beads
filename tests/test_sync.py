@@ -6548,8 +6548,31 @@ class TestBeadsMdRegeneration(unittest.TestCase):
                 for c in text)
         )
 
-    def test_escape_table_cell_cut_never_splits_an_escape_pair(self):
+    def test_hyphen_only_id_is_a_row_not_the_separator(self):
+        rows = [{"id": "--", "title": "t", "status": "open", "dependencies": []},
+                {"id": "-", "title": "u", "status": "open", "dependencies": []}]
+        table = sync._render_beads_md_table(rows, ordinal_map={}, task_status_by_id={})
+        parsed = sync._parse_beads_md_table_rows(table)
+        self.assertEqual([r["id"] for r in parsed], ["--", "-"])
+
+    def test_safe_ids_round_trip_the_table_and_unsafe_ids_cannot_reach_it(self):
+        # render_wave_status_block compares plan ids with re-parsed (stripped,
+        # `<>`` removed) cell ids. SAFE_BD_ID_RE ids are unchanged by both;
+        # parse_plan strips whitespace around a <beads-id>; ids with `<>` or a
+        # backtick fail SAFE_BD_ID_RE and are refused wherever a plan id is used.
+        for i in ("x-1", "tracer-wave1.1", "A.b_c-9"):
+            self.assertTrue(sync.SAFE_BD_ID_RE.fullmatch(i))
+            self.assertEqual(sync._escape_table_cell(i).strip(), i)
+        for i in ("<z-3>", "y-2\t", "a`b"):
+            self.assertIsNone(sync.SAFE_BD_ID_RE.fullmatch(i))
+
+    def test_escape_table_cut_precedes_escaping_and_the_output_reparses(self):
         esc, cap = sync._escape_table_cell, 200
+        title = "x" * 199 + "\\|tail"
+        row = [{"id": "bd-1", "title": title, "status": "open", "dependencies": []}]
+        table = sync._render_beads_md_table(row, ordinal_map={}, task_status_by_id={})
+        self.assertEqual(sync._parse_beads_md_table_rows(table)[0]["title"],
+                         "x" * 199 + "\\" + "\u2026")
         self.assertEqual(esc("|" * 300, max_len=cap), "\\|" * 200 + "\u2026")
         self.assertEqual(esc("\\" * 300, max_len=cap), "\\\\" * 200 + "\u2026")
         out = esc("x" * 199 + "\\|tail", max_len=cap)
