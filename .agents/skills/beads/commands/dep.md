@@ -23,5 +23,3 @@ bd dep cycles                                                  # detect circular
 
 `bd dep add` rejects an edge that would create a cycle at creation time. `bd dep cycles` runs a standalone check across the whole graph, useful after a bulk `--file` import.
 
-Use `--no-cycle-check` to skip the per-edge check for speed during bulk wiring — a final whole-graph check still runs before commit on a bulk `--file` add.
-

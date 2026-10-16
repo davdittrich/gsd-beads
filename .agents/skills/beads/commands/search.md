@@ -20,5 +20,4 @@ bd search "api" --desc-contains "endpoint"             # search descriptions, no
 ## When search beats `bd list`
 
 - You don't know the issue's ID and need to find it by title fragment.
-- You want to check whether work already exists before creating a possible duplicate.
 - You need a description-body match (`--desc-contains`), which `bd list`'s status/type filters don't offer.
