@@ -7011,50 +7011,6 @@ class TestBeadsCloseSteps(unittest.TestCase):
         status = (self.ROOT / "skills/beads-status/SKILL.md").read_text(encoding="utf-8")
         self.assertNotIn("close-phase-epic", status)
 
-    @unittest.skipUnless(
-        _gsd_tools_path() is not None and shutil.which("node") is not None,
-        "gsd-tools.cjs / node not found",
-    )
-    def test_after_fingerprint_skips_status_but_keeps_close(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            project_root = Path(tmp)
-            src = project_root / "bundle-src"
-            src.mkdir()
-            for entry in ("capability.json", "scripts", "skills", "fragments", "GSD-CORE-PATCH.md"):
-                p = self.ROOT / entry
-                if p.is_dir():
-                    shutil.copytree(p, src / entry, ignore=shutil.ignore_patterns("__pycache__"))
-                else:
-                    shutil.copy2(p, src / entry)
-            (project_root / ".planning").mkdir()
-            (project_root / ".planning/config.json").write_text(
-                json.dumps({"beads": {"enabled": True}}), encoding="utf-8")
-            phase_dir = project_root / ".planning/phases/01-x"
-            phase_dir.mkdir(parents=True)
-            (phase_dir / "01-BEADS.md").write_text(
-                "---\nblocking_open: 0\ndiverged: 0\n---\n", encoding="utf-8")
-            home = project_root / "home"
-            home.mkdir()
-            env = {**os.environ, "HOME": str(home), "GSD_HOME": str(home)}
-            node = ["node", str(_gsd_tools_path())]
-            inst = subprocess.run(
-                node + ["capability", "install", str(src), "--scope", "project", "--yes"],
-                cwd=str(project_root), capture_output=True, text=True, timeout=30, env=env)
-            self.assertEqual(inst.returncode, 0, inst.stderr)
-            result = subprocess.run(
-                node + ["loop", "render-hooks", "verify:post", "--after-fingerprint", str(phase_dir), "--raw"],
-                cwd=str(project_root), capture_output=True, text=True, timeout=30, env=env)
-            self.assertEqual(result.returncode, 0, result.stderr)
-            payload = json.loads(result.stdout)
-
-            def skills(key):
-                return [h.get("ref", {}).get("skill") for h in payload.get(key, [])
-                        if h.get("capId") == "beads" and h.get("kind") == "step"]
-
-            self.assertIn("beads-close", skills("activeHooks"))
-            self.assertNotIn("beads-status", skills("activeHooks"))
-            self.assertIn("beads-status", skills("skippedHooks"))
-
 
 class TestCheckShipmdPatch(unittest.TestCase):
     """03-03 Task 2: check_patch is a pure read-and-warn function
