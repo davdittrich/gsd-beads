@@ -21,10 +21,6 @@ If that prints nothing, check whether the repository has an active Beads workspa
 bd where
 ```
 
-## Preferred Route
-
-Use the `bd` CLI when shell access is available. It is the most compact and direct Beads interface.
-
 ## Core CLI Workflow
 
 1. Find work:

@@ -33,17 +33,6 @@ An environment variable pointing `bd` at a workspace entirely outside the curren
 | Suppress git side effects for every future `bd prime` call | `bd config set no-git-ops true` |
 | Keep issue data completely outside the repository | `BEADS_DIR` pointed at an external path |
 
-## Setting up an AI tool for stealth use
-
-```bash
-bd init --stealth              # per-repo git-exclude config
-bd setup claude --stealth      # wires Claude-specific integration the same way
-bd setup cursor --stealth
-bd setup aider --stealth
-```
-
-Each `bd setup <tool> --stealth` call follows the same invisible-usage pattern for that tool's own integration points, without requiring a separate manual config step per tool.
-
 ## gsd-core framing
 
 This project does not run in stealth mode — `.beads/` is a normal, partially-tracked workspace here (see `.gitignore`'s beads stanzas). Stealth mode matters for a *downstream* install where a user adopts `bd` inside a repo they don't want beads-tracked-file noise in; gsd-core's own capability integration is agnostic to whether the underlying workspace is stealth or not.

@@ -49,9 +49,8 @@ The script parses every `<task>` block in the plan, verifies every existing `<be
 create, resolves or creates one phase epic, and resolves or creates one issue per task.
 `<beads-id>` is authoritative: a renamed task keeps its issue, and a title never identifies one.
 The script rewrites the plan with the resolved `beads_epic` and each missing `<beads-id>`; exact
-`auto` and `tracer` tasks also gain `tracker-id="beads:<id>"`. Checkpoints and tasks with a
-missing, partial, prefixed, case-variant, or unknown `type` never gain `tracker-id`; apart from the
-inserted `<beads-id>`, their bytes stay unchanged.
+`auto` and `tracer` tasks also gain `tracker-id="beads:<id>"`. Every other task keeps its bytes
+apart from the inserted `<beads-id>`.
 
 Omit `<beads-id>` entirely from a task not yet bound to an issue. A placeholder such as `TBD` is
 not an identity: one shaped like a bd id (lowercase, hyphenated, e.g. `gsd-beads-xy2`) reads as a
