@@ -2194,6 +2194,7 @@ SELECTED_PATHS=(
   gsd-beads-close
   gsd-beads-recall
   gsd-beads-migrate-todos
+  gsd-beads-reconcile
 )
 for _selected_path in "${SELECTED_PATHS[@]}"; do
   [ -d "$ACTUAL_SKILLS_ROOT/$_selected_path" ] \
