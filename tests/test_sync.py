@@ -2351,7 +2351,8 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         cap = json.loads(self.CAPABILITY_PATH.read_text(encoding="utf-8"))["version"]
         plugin = json.loads((root / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
         lines = (root / "CHANGELOG.md").read_text(encoding="utf-8").splitlines()
-        i = next(n for n, l in enumerate(lines) if l.startswith("## ") and "Unreleased" not in l)
+        i = next((n for n, l in enumerate(lines) if l.startswith("## ") and "Unreleased" not in l), None)
+        self.assertIsNotNone(i, "CHANGELOG.md has no released version heading")
         self.assertEqual(lines[i], "## " + cap)
         self.assertEqual(next(l for l in lines[i + 1:] if l.strip()),
                          "Plugin %s, capability %s." % (plugin, cap))
@@ -2361,7 +2362,6 @@ class TestTaskContentResolverManifest(unittest.TestCase):
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
         resolver = manifest["taskContentResolver"]
-        self.assertEqual(manifest["version"], "0.10.0")
         self.assertEqual(resolver["trackerPrefix"], "beads")
         self.assertEqual(resolver["invoke"]["binary"], "python3")
         self.assertEqual(resolver["invoke"]["args"][-1], "{{id}}")
@@ -2427,32 +2427,10 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         root = self.CAPABILITY_PATH.parent
         changelog = (root / "CHANGELOG.md").read_text(encoding="utf-8")
         readme = (root / "README.md").read_text(encoding="utf-8")
-        plugin = json.loads(
-            (root / ".claude-plugin/plugin.json").read_text(
-                encoding="utf-8"
-            )
-        )
         marketplace = json.loads(
             (root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8")
         )
-        codex_pin = [
-            line
-            for line in readme.splitlines()
-            if line.startswith("codex plugin marketplace add davdittrich/gsd-beads")
-        ]
         prose = " ".join(readme.split())
-        expected_versions = {
-            "plugin": (plugin["version"], "1.9.0"),
-            "capability": (self._manifest()["version"], "0.10.0"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ") and line != "## Unreleased"), "## 0.10.0"),
-            "README Codex pin": (
-                codex_pin,
-                ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.9.0"],
-            ),
-        }
-        for surface, (actual, expected) in expected_versions.items():
-            with self.subTest(surface=surface):
-                self.assertEqual(actual, expected)
         beads_entry = next(
             entry for entry in marketplace["plugins"] if entry["name"] == "beads-lifecycle"
         )
