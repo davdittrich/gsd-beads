@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.10.1
+
+Plugin 1.9.1, capability 0.10.1.
+
+### Fixed
+- `taskContentResolver` refuses any `HOME` or `GSD_HOME` that resolves to `/` (empty `HOME`, `//`, `/..`, symlink to `/`).
+- Table cells in `BEADS.md`, `BEADS-RECALL.md` and the beads-status orphan table have these removed: C0 controls except tab (CR is dropped, LF becomes a space), DEL, C1, U+2028/U+2029, bidi embedding/override/isolate controls and LRM/RLM/ALM, U+180E, U+200B, U+2060-U+2064, U+206A-U+206F, U+FEFF, Unicode tag characters U+E0000-U+E007F and lone surrogates. ZWNJ/ZWJ, soft hyphen U+00AD and variation selectors are kept. Titles over 200 characters end in `…`; ids, status and blocked-by are never cut.
+- The `BEADS.md` parser skips only real separator and header rows.
+
 ## 0.10.0
 
 Plugin 1.9.0, capability 0.10.0.
