@@ -41,7 +41,6 @@ RESEARCH CONTEXT:
 
 ## Anti-patterns
 
-- **Over-documenting simple work.** A one-line typo fix doesn't need an implementation guide. Match the detail to the actual resumption risk.
 - **Design details in Acceptance Criteria.** "Use approach X, call API Y, format as Z" locks the implementation instead of stating the outcome. Put design reasoning in Notes; keep Acceptance Criteria about the observable result.
 - **Raw, unformatted dumps.** A 100-line unformatted JSON blob pasted into notes is hard to resume from. Extract the relevant fields and show the structure, not the whole payload.
 

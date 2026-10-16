@@ -1,6 +1,6 @@
 # gsd-core + beads
 
-This project runs gsd-core's plan/execute/verify/ship lifecycle on top of `bd`. Bare `bd` CLI usage (`bd ready`, `bd show`, `bd update --claim`, etc.) lives in the `beads` skill — this file covers gsd-core integration only, nothing that repeats.
+This project runs gsd-core's plan/execute/verify/ship lifecycle on top of `bd`. Bare `bd` CLI usage (`bd ready`, `bd show`, `bd update --claim`, etc.) lives in the `beads` skill; this file covers gsd-core integration only.
 
 ## Ownership
 
@@ -18,7 +18,6 @@ This project runs gsd-core's plan/execute/verify/ship lifecycle on top of `bd`. 
   `tracer` tasks project that authority as `tracker-id="beads:<id>"`; excluded
   task types never gain `tracker-id`. A newly created excluded task still gains
   its missing `<beads-id>` on first sync; otherwise its task bytes remain unchanged.
-- A renamed task resolves to the same issue.
 - `PLAN.md` frontmatter carries `beads_epic` once the phase's tasks have synced.
 - `beads.epic_per` (`phase` default, or `milestone`) controls whether epics are per-phase or shared across a milestone.
 
@@ -54,10 +53,8 @@ Two consequences worth knowing:
 
 ## Failure mode
 
-- Every sync-point dispatch above is `onError: skip`.
-- A `bd` failure (binary absent, locked, unreachable) degrades the lifecycle to no-op for that step.
+- A `bd` failure (binary absent, locked, unreachable) degrades that step to a no-op.
 - The step appends a `### Blockers/Concerns` note to `STATE.md` when it degrades.
-- No sync-point dispatch ever fails a phase.
 
 ## Config keys
 

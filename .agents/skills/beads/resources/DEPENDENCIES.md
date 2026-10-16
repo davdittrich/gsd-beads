@@ -13,7 +13,7 @@
 | `parent-child` | No | Hierarchy: an epic and its subtasks |
 | `discovered-from` | No | Provenance: work found while doing other work |
 
-**Key insight:** only `blocks` gates readiness. Reach for `related` when you're tempted to use `blocks` for a preference rather than a real prerequisite — a common mistake that silently serializes work that could run in parallel.
+Only `blocks` gates readiness; use `related` for a preference, since a needless `blocks` silently serializes parallel work.
 
 ## Creating dependencies
 
@@ -39,8 +39,6 @@ bd dep tree <id>       # dependency tree rooted at an issue
 bd show <id>           # dependencies, dependents, related, discovered-from — all in one view
 ```
 
-`bd show` prints four sections for an issue: what blocks it, what it blocks, what it's related to, and what it was discovered from.
-
 ## gsd-core framing
 
 - A phase's epic is the `parent-child` parent of every task issue synced from that phase's plans (see `.beads/PRIME.md` — "Phase epics").
@@ -56,6 +54,5 @@ Ask in order:
 
 ## Common mistakes
 
-- **Using `blocks` for preferences.** "We'd rather do docs first" is not a `blocks` relationship — nothing technically prevents the feature from shipping without docs. Use `related`, or say it in the description.
 - **Using `discovered-from` for planned decomposition.** If you're breaking an epic into tasks you already knew you'd need, that's `parent-child`, not `discovered-from` — the latter is for genuinely emergent findings.
 - **Wrong direction.** `bd dep add database-schema api-endpoint` reads as "the schema depends on the endpoint," which is backwards. `bd dep add api-endpoint database-schema` is correct: the endpoint needs the schema, not the reverse.

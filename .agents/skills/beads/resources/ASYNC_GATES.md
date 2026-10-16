@@ -29,7 +29,7 @@ bd gate check --dry-run    # preview without closing anything
 bd gate resolve <gate-id> --reason "Reviewed and approved"   # human gates need this
 ```
 
-Only `timer`, `gh:run`, `gh:pr`, and `bead` gates auto-resolve via `bd gate check`. `bd gate create --type` accepts `human`, `timer`, `gh:run`, and `gh:pr`; `bead` gates come from formula steps. A `human` gate always needs an explicit `bd gate resolve`.
+`bd gate check` also auto-resolves `bead` gates, which come from formula steps, not `bd gate create --type`.
 
 ## Inspecting what a gate holds up
 
