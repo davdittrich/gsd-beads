@@ -90,11 +90,14 @@ gsd-core's own lifecycle commands drive `bd` state directly:
    `status` is `complete` or absent; `halted`, `blocked`, `incomplete`, an unknown or an empty
    value is not complete).
 3. `/gsd:verify-work` — after verification, `beads-status` regenerates the projected `BEADS.md`
-   from live `bd` state and closes nothing.
+   from live `bd` state and closes no task issues. The `verify:post` step of `gsd-beads-close`
+   can close the phase epic here (see item 4).
 4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
    refuse to ship while `blocking_open` or `diverged` is non-zero. Then `gsd-beads-close` runs
-   `close-phase-epic`; a `verify:post` step of the same skill runs it earlier, for phases
-   verified inside `/gsd:execute-phase`.
+   `close-phase-epic`. A `verify:post` step of the same skill runs it earlier, at
+   `/gsd:verify-work` and `/gsd:autonomous`, where `VERIFICATION.md` already reads `passed`.
+   Inside `/gsd:execute-phase` the `verify:post` dispatch fires before the report exists, so
+   the close does nothing there (the reconcile report still prints).
 
 `close-phase-epic` regenerates `BEADS.md` first and acts only if that succeeds. It closes the
 phase epic only when `<NN>-VERIFICATION.md` has `status: passed` (case-insensitive),
@@ -117,7 +120,7 @@ bd update <id> --claim
 bd close <id> --reason="Completed"
 ```
 
-See `AGENTS.md` in this repo for the full command reference.
+See `.agents/skills/beads/SKILL.md` in this repo for the full command reference.
 
 ### How the lifecycle steps get dispatched
 
@@ -179,7 +182,7 @@ names, so the same list repeats per phase. It never closes or updates a ticket a
 `ship_override`. It prints nothing when none are open and no source degraded; a degraded source (`BEADS-RECALL.md`
 absent or `recall_status: failed`, or an unreadable plan) prints a note instead of silence. A `bd` failure appends a
 `STATE.md` Blockers/Concerns note and never fails the phase. There is no dedup: on gsd-core 1.17 the list prints at
-each dispatch (execute-phase's `verify:post`, verify-work's `verify:post` and `ship:pre`). The hook
+each dispatch (execute-phase's, verify-work's and autonomous's `verify:post`, and `ship:pre`). The hook
 (`lifecycle-dispatch verify:post`) runs it only when the native-dispatch probe misses.
 
 The hook matches only a real invocation: a recognised tools shim (`gsd_run`, `gsd-tools`, or
