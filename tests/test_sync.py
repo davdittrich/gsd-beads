@@ -28,6 +28,26 @@ FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 sync._BD_VERSION_OK = True
 
 
+_MODULE_CWD = None
+_MODULE_TMP = None
+
+
+def setUpModule():
+    # ensure_issue falls back to find_project_root(Path.cwd()) when
+    # sync._BD_CWD is unset; run from a temp dir holding .planning/ so the
+    # suite does not depend on the repo root having one.
+    global _MODULE_CWD, _MODULE_TMP
+    _MODULE_CWD = os.getcwd()
+    _MODULE_TMP = tempfile.mkdtemp(prefix="sync-test-cwd-")
+    (Path(_MODULE_TMP) / ".planning").mkdir()
+    os.chdir(_MODULE_TMP)
+
+
+def tearDownModule():
+    os.chdir(_MODULE_CWD)
+    shutil.rmtree(_MODULE_TMP, ignore_errors=True)
+
+
 def _bd_on_path():
     return shutil.which("bd") is not None
 
