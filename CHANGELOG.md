@@ -1,10 +1,22 @@
 # Changelog
 
-## Unreleased
+## 0.10.0
+
+Plugin 1.9.0, capability 0.10.0.
+
+### Added
+- **`gsd-beads-close` skill closes the phase epic and prints a reconcile report.** It runs `sync.py close-phase-epic`, then the new read-only `sync.py reconcile-report`, in one resolver fence. Two `produces: []` capability steps dispatch it at `verify:post` and `ship:pre`. gsd-core 1.17 dispatches `verify:post` before the verifier writes `VERIFICATION.md` in execute-phase, and `--after-fingerprint` skips steps whose produced file exists, so the `BEADS.md`-producing status step is skipped in verify-work; `[]` never skips, and `ship:pre` steps run only when no gate blocks, after `VERIFICATION.md` is final. The epic therefore closes at verify-work and autonomous `verify:post` and at `ship:pre`; the earlier dispatch inside execute-phase does nothing. Refs #26, closes #27.
+- **`close-phase-epic` conditions.** It regenerates `BEADS.md` first (acts only if that succeeds), then runs `bd close` on the epic only when `<NN>-VERIFICATION.md` has `status: passed` (case-insensitive) and is not stale per gsd-core's `verification.status` query (frontmatter alone when the query is unavailable), `beads.epic_per` is `phase`, `BEADS.md` shows `blocking_open: 0` and `diverged: 0`, the epic has at least one child, all closed, and it is not a milestone epic. Otherwise the epic stays open and open child ids are printed ("no epic yet" or "bd unavailable" when that is the cause); already closed is a no-op. After a close it regenerates `BEADS.md`. A `bd` timeout or failure appends a Blockers/Concerns note and never fails the phase.
+- **`reconcile-report <phase>` lists what to reconcile.** It prints "Reconcile before completing" with id, status and age of every non-closed ticket (deferred counts as open) that `BEADS-RECALL.md` matched or that is an epic child no plan task names, never the phase epic itself; with `epic_per=milestone` every phase lists all milestone-epic children no plan names. Silent when none and nothing degraded; a degraded source prints a note; a `bd` failure adds a `STATE.md` blocker and exits `0`. No dedup. It never closes or updates and does not touch `blocking_open` or `ship_override`.
 
 ### Changed
-- **`close-phase-epic` closes the phase epic at `verify:post` and `ship:pre`.** A new `gsd-beads-close` skill, dispatched by two new `produces: []` capability steps, runs it. gsd-core 1.17 dispatches `verify:post` before the verifier writes `VERIFICATION.md` in execute-phase, and `--after-fingerprint` skips steps whose produced file exists, so the `BEADS.md`-producing status step is skipped in verify-work; `[]` never skips, and `ship:pre` steps run only when no gate blocks, after `VERIFICATION.md` is final. `close-phase-epic` regenerates `BEADS.md` first (acts only if that succeeds), then runs `bd close` on the epic only when `<NN>-VERIFICATION.md` has `status: passed` (case-insensitive), `beads.epic_per` is `phase`, `BEADS.md` shows `blocking_open: 0` and `diverged: 0`, the epic has at least one child, all closed, and it is not a milestone epic. Otherwise the epic stays open and open child ids are printed; already closed is a no-op. A `bd` timeout or failure appends a Blockers/Concerns note and never fails the phase. `beads-status` Step 2b is regenerate-only again. This supersedes the 0.9.0 "closes nothing" line. Refs #26.
-- **`gsd-beads-close` also prints a reconcile report.** New read-only `sync.py reconcile-report <phase directory>` runs in the same fence right after `close-phase-epic`, at the same two dispatch points (`verify:post`, `ship:pre`; `produces: []`, so `--after-fingerprint` never skips them). It prints "Reconcile before completing" with id, status and age of every non-closed ticket (deferred counts as open) that `BEADS-RECALL.md` matched or that is an epic child no plan task names, never the phase epic itself; with `epic_per=milestone` every phase lists all milestone-epic children no plan names. Silent when none and nothing degraded; a degraded source prints a note; a `bd` failure adds a `STATE.md` blocker and exits `0`. No dedup. It never closes or updates and does not touch `blocking_open` or `ship_override`. Closes #27.
+- `beads-status` Step 2b is regenerate-only again. This supersedes the 0.9.0 "closes nothing" line.
+- The phase argument of `close-phase-epic` and `reconcile-report` accepts a number, a name, or an in-project path, resolved and confined like `lifecycle-dispatch` (a direct non-symlink child of `.planning/phases`); trailing flags are ignored.
+- Tests no longer need a `.planning/` ancestor and run hermetically.
+
+### Fixed
+- **A raising `bd` call becomes the blocker/note path, not a traceback.** `close-phase-epic` (list, close) and `reconcile-report` (listing, recall lookup) catch the same errors as `bd show`.
+- **`reconcile-report` output is sanitized.** Ids are coerced and checked against the safe-id pattern before use; status and title print with control characters, `<`, `>` and backticks removed.
 
 ## 0.9.3
 
