@@ -1661,8 +1661,12 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
                     file=sys.stderr,
                 )
                 return 0
-            regenerate_beads_md(str(phase_dir))
-            close_phase_epic(str(phase_dir))
+            try:
+                regenerate_beads_md(str(phase_dir))
+                close_phase_epic(str(phase_dir))
+            finally:
+                # gh-27: after, and never lost to, regenerate/close output.
+                reconcile_report(str(phase_dir))
     except Exception as exc:  # noqa: BLE001 -- onError: "skip" is the declared contract
         # stderr, not stdout: stdout is promoted into Claude's context.
         print(f"lifecycle-dispatch {point}: skipped after an unexpected failure ({exc})", file=sys.stderr)
@@ -3489,6 +3493,98 @@ def _degrade_on_parse_error(phase_dir, plan_path):
         _note_plan_parse_error(phase_dir, plan_path, exc)
 
 
+def _recalled_ids(phase_dir):
+    """Ids in BEADS-RECALL.md's scope-matched table, or None when the file is
+    absent, unreadable, or `recall_status` is not `ok`. The Unscoped table is
+    every other open issue in the repo, not this phase's."""
+    padded = phase_dir.name.split("-", 1)[0]
+    try:
+        text = (phase_dir / f"{padded}-BEADS-RECALL.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return None
+    fm = FRONTMATTER_RE.match(text)
+    if not fm or not re.search(r"^recall_status:\s*ok\s*$", fm.group(1), re.MULTILINE):
+        return None
+    matched = text.split("\n## Unscoped", 1)[0]
+    ids = []
+    for line in matched.splitlines():
+        first = line.strip().strip("|").split("|", 1)[0].strip()
+        if line.lstrip().startswith("|") and first and first != "Issue" and not set(first) <= {"-", ":"}:
+            ids.append(first)
+    return ids
+
+
+def _age(created_at):
+    try:
+        then = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        return f"{max((datetime.now(timezone.utc) - then).days, 0)}d"
+    except ValueError:
+        return "age unknown"
+
+
+def reconcile_report(phase_dir_arg):
+    """gh-27/verify:post: read-only list of still-open tickets to reconcile
+    before the phase completes -- (a) those BEADS-RECALL.md matched to the
+    phase, (b) epic children no plan task names. Prints nothing when none
+    are open. Never closes or updates; a bd failure notes STATE.md and
+    exits 0."""
+    phase_dir = Path(phase_dir_arg).resolve()
+    if not bd_available():
+        _skip_bd_unavailable(phase_dir, "reconcile")
+        return 0
+    try:
+        epic_id = resolve_phase_epic(phase_dir)
+        degraded = []
+        ordinal_map = _resolve_task_ordinal_map(phase_dir, degraded)
+        known = set(ordinal_map)
+        if _milestone_scoped(phase_dir) and epic_id:
+            known |= collect_scope_task_ids(phase_dir, epic_id)
+        if degraded:
+            raise ValueError("degraded plan(s) " + ", ".join(degraded))
+        children = []
+        if epic_id:
+            rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
+            if rows is None:
+                raise ValueError("bd list --parent failed")
+            children = [r for r in rows if r.get("id") not in known]
+        recalled_ids = _recalled_ids(phase_dir)
+        recalled = []
+        if recalled_ids:
+            rows = _checked_bd_list_rows(
+                run_bd(["bd", "list", "--id", ",".join(recalled_ids), "--all", "--json", "-n", "0"])
+            )
+            if rows is None:
+                raise ValueError("bd list --id failed")
+            recalled = rows
+    except (ValueError, PlanParseError, EpicAuthorityError, OSError) as exc:
+        print(f"reconcile skipped: {exc}", file=sys.stderr)
+        try:
+            append_state_blocker(
+                confined(phase_project_root(phase_dir), ".planning", "STATE.md"),
+                f"reconcile skipped: {exc}",
+            )
+        except ValueError:
+            pass
+        return 0
+    seen = set()
+    lines = []
+    for r in recalled + children:
+        rid = str(r.get("id", ""))
+        if r.get("status") == "closed" or rid in seen:
+            continue
+        seen.add(rid)
+        lines.append(
+            f"- {_escape_table_cell(rid)} [{_escape_table_cell(str(r.get('status', '')))}, "
+            f"{_age(r.get('created_at'))}] {_escape_table_cell(str(r.get('title', '')))}"
+        )
+    if lines:
+        print("Reconcile before completing")
+        if recalled_ids is None:
+            print("(recall unavailable: BEADS-RECALL.md missing or failed; epic children only)")
+        print("\n".join(lines))
+    return 0
+
+
 def _render_beads_md_table(rows, ordinal_map, task_status_by_id):
     """D-06/D-08: 6-column issue/title/status/task-status/plan-task/
     blocked-by table -- Task Status names the task-completion side of a
@@ -4394,6 +4490,11 @@ def _main(argv):
         help="Close the phase epic when VERIFICATION.md passed and every child is closed",
     )
     close_epic_p.add_argument("phase_dir")
+    reconcile_report_p = sub.add_parser(
+        "reconcile-report",
+        help="Read-only: list open recalled and non-plan epic-child tickets to reconcile before completing (gh-27)",
+    )
+    reconcile_report_p.add_argument("phase_dir")
     wave_status_p = sub.add_parser(
         "wave-status-block",
         help="Regenerate BEADS.md then print a <beads_status> block naming this wave's issues",
@@ -4472,6 +4573,8 @@ def _main(argv):
         return regenerate_beads_md(args.phase_dir)
     if args.command == "close-phase-epic":
         return close_phase_epic(args.phase_dir)
+    if args.command == "reconcile-report":
+        return reconcile_report(args.phase_dir)
     if args.command == "wave-status-block":
         return render_wave_status_block(args.phase_dir, args.plan_ids)
     if args.command == "ship-override":

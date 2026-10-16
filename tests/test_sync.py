@@ -6056,6 +6056,103 @@ def _find_table_row(text, issue_id):
     raise AssertionError(f"no table row found for {issue_id!r} in:\n{text}")
 
 
+class TestReconcileReport(unittest.TestCase):
+    """gh-27: verify:post prints a read-only "Reconcile before completing"
+    list -- still-open tickets BEADS-RECALL.md matched to the phase, plus
+    epic children no plan task names. Never closes or updates anything."""
+
+    RECALL_OK = (
+        "---\nphase: 01-substrate\nrecall_status: ok\n---\n\n# Beads Recall\n\n"
+        "## Open issues touching this phase's scope\n\n"
+        "| Issue | Title | Status | Matched via |\n|---|---|---|---|\n"
+        "| old-1 | Old open | open | matched via: path |\n"
+        "| old-2 | Old closed | open | matched via: path |\n\n"
+        "## Unscoped\n\n| Issue | Title | Status |\n|---|---|---|\n"
+        "| other-9 | Unrelated | open |\n"
+    )
+    RECALL_FAILED = "---\nphase: 01-substrate\nrecall_status: failed\n---\n\nNo recall data.\n"
+
+    def _run(self, epic_rows, recalled_rows, recall_text, bd_ok=True):
+        calls = []
+
+        def fake(argv, **kwargs):
+            calls.append(list(argv))
+            if argv[:3] == ["bd", "list", "--json"]:
+                return _completed(0, stdout="[]\n")
+            if not bd_ok:
+                return _completed(1, stderr="boom")
+            if argv[:3] == ["bd", "list", "--parent"]:
+                return _completed(0, stdout=json.dumps(epic_rows))
+            if argv[:3] == ["bd", "list", "--id"]:
+                return _completed(0, stdout=json.dumps(recalled_rows))
+            return _completed(1, stderr=f"unexpected: {argv}")
+
+        out = io.StringIO()
+        with tempfile.TemporaryDirectory() as tmp, mock.patch("subprocess.run", side_effect=fake):
+            phase_dir = _write_wave_workspace(
+                Path(tmp), [("01-07", _regen_two_task_plan_text(), True)], with_state=True
+            )
+            if recall_text is not None:
+                (phase_dir / "01-BEADS-RECALL.md").write_text(recall_text, encoding="utf-8")
+            with contextlib.redirect_stdout(out):
+                rc = sync.reconcile_report(str(phase_dir))
+            state = (Path(tmp) / ".planning" / "STATE.md").read_text(encoding="utf-8")
+        return rc, out.getvalue(), state, calls
+
+    def test_lists_open_recalled_and_non_plan_child_only(self):
+        epic = [
+            {"id": "regen-epic.1", "title": "plan task", "status": "open"},
+            {"id": "regen-epic.9", "title": "Stray finding", "status": "in_progress",
+             "created_at": "2020-01-01T00:00:00Z"},
+            {"id": "regen-epic.8", "title": "Done stray", "status": "closed"},
+        ]
+        recalled = [
+            {"id": "old-1", "title": "Old open", "status": "blocked", "created_at": "2020-01-01T00:00:00Z"},
+            {"id": "old-2", "title": "Old closed", "status": "closed"},
+        ]
+        rc, out, _, calls = self._run(epic, recalled, self.RECALL_OK)
+        self.assertEqual(rc, 0)
+        self.assertIn("Reconcile before completing", out)
+        self.assertRegex(out, r"old-1.*blocked.*\d+d.*Old open")
+        self.assertRegex(out, r"regen-epic\.9.*in_progress.*\d+d.*Stray finding")
+        self.assertNotIn("old-2", out)
+        self.assertNotIn("regen-epic.1 ", out)
+        self.assertNotIn("regen-epic.8", out)
+        self.assertNotIn("other-9", out)
+        id_call = next(c for c in calls if c[:3] == ["bd", "list", "--id"])
+        self.assertEqual(id_call[3], "old-1,old-2")
+
+    def test_nothing_open_prints_nothing(self):
+        epic = [{"id": "regen-epic.1", "title": "plan task", "status": "open"}]
+        recalled = [{"id": "old-1", "title": "x", "status": "closed"}]
+        rc, out, _, _ = self._run(epic, recalled, self.RECALL_OK)
+        self.assertEqual((rc, out), (0, ""))
+
+    def test_failed_or_absent_recall_still_lists_epic_children_with_note(self):
+        epic = [{"id": "regen-epic.9", "title": "Stray", "status": "open"}]
+        for recall in (self.RECALL_FAILED, None):
+            with self.subTest(recall=recall is None):
+                rc, out, _, calls = self._run(epic, [], recall)
+                self.assertEqual(rc, 0)
+                self.assertIn("regen-epic.9", out)
+                self.assertIn("recall unavailable", out)
+                self.assertFalse([c for c in calls if c[:3] == ["bd", "list", "--id"]])
+
+    def test_bd_failure_exits_zero_and_notes_blocker(self):
+        rc, out, state, _ = self._run([], [], self.RECALL_OK, bd_ok=False)
+        self.assertEqual(rc, 0)
+        self.assertNotIn("Reconcile before completing", out)
+        self.assertIn("reconcile", state)
+
+    def test_never_closes_or_updates(self):
+        epic = [{"id": "regen-epic.9", "title": "Stray", "status": "open"}]
+        recalled = [{"id": "old-1", "title": "x", "status": "open"}]
+        _, _, _, calls = self._run(epic, recalled, self.RECALL_OK)
+        self.assertTrue(calls)
+        for argv in calls:
+            self.assertNotIn(argv[1], ("close", "update"))
+
+
 class TestBeadsMdRegeneration(unittest.TestCase):
     """B11: BEADS.md is regenerated from a live bd query at execute:wave:pre
     (read-only) -- D-05..D-08 frontmatter/table shape, full-file overwrite
@@ -8780,6 +8877,16 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
                 exit_code = sync.lifecycle_dispatch("verify:post")
         self.assertEqual(exit_code, 0)
         regen.assert_called_once_with(str(phase_dir))
+
+    def test_verify_post_dispatch_keeps_regenerate_output_when_reconcile_raises(self):
+        plan = '---\nphase: 07-demo\n---\n<task type="auto"><name>t</name></task>\n'
+        with self._in_workspace(plan_text=plan) as phase_dir:
+            with mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regen, \
+                 mock.patch.object(sync, "reconcile_report", side_effect=RuntimeError("x")) as rep:
+                rc = sync.lifecycle_dispatch("verify:post")
+        self.assertEqual(rc, 0)
+        regen.assert_called_once_with(str(phase_dir))
+        rep.assert_called_once_with(str(phase_dir))
 
     def test_plan_post_never_strips_task_bodies(self):
         """gh-2 regression. `strip_task_bodies` moves the ONLY copy of a task's
