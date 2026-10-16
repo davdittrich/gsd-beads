@@ -6451,8 +6451,33 @@ class TestBeadsMdRegeneration(unittest.TestCase):
         self.assertEqual(esc("a\nb\r"), "a b")
         self.assertEqual(esc("a\tb"), "a\tb")
         self.assertEqual(esc("plain | back\\slash"), "plain \\| back\\\\slash")
-        self.assertEqual(esc("x" * 200), "x" * 200)
-        self.assertEqual(esc("x" * 500), "x" * 200 + "\u2026")
+        self.assertEqual(esc("a\u2028b\u2029c"), "abc")
+        cap = sync.CELL_MAX_CHARS
+        self.assertEqual(esc("x" * 200, max_len=cap), "x" * 200)
+        self.assertEqual(esc("x" * 500, max_len=cap), "x" * 200 + "\u2026")
+        self.assertEqual(esc("x" * 500), "x" * 500)
+
+    def test_unicode_line_separators_do_not_drop_the_row_from_the_reparse(self):
+        title = "a\u2028b\u2029c"
+        rows = [{"id": "bd-7", "title": title, "status": "open", "dependencies": []}]
+        table = sync._render_beads_md_table(rows, ordinal_map={}, task_status_by_id={})
+        parsed = sync._parse_beads_md_table_rows(table)
+        self.assertEqual(parsed, [{"id": "bd-7", "title": "abc", "status": "open"}])
+
+    def test_long_ids_and_blocked_by_are_never_cut_but_titles_are(self):
+        long_id, long_dep = "bd-" + "i" * 300, "bd-" + "d" * 300
+        rows = [{
+            "id": long_id, "title": "t" * 500, "status": "open",
+            "dependencies": [{"type": "blocks", "depends_on_id": long_dep}],
+        }]
+        table = sync._render_beads_md_table(rows, ordinal_map={}, task_status_by_id={})
+        parsed = sync._parse_beads_md_table_rows(table)
+        self.assertEqual(parsed[0]["id"], long_id)
+        self.assertEqual(parsed[0]["title"], "t" * 200 + "\u2026")
+        self.assertIn(long_dep, table)
+        issue_table = sync._render_issue_table([(rows[0], None)], False)
+        self.assertIn(long_id, issue_table)
+        self.assertIn("t" * 200 + "\u2026", issue_table)
 
     @mock.patch("subprocess.run")
     def test_beads_md_on_disk_has_no_control_chars_from_titles(self, mock_run):
