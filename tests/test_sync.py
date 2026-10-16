@@ -2383,7 +2383,7 @@ class TestTaskContentResolverManifest(unittest.TestCase):
         expected_versions = {
             "plugin": (plugin["version"], "1.8.3"),
             "capability": (self._manifest()["version"], "0.9.3"),
-            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ")), "## 0.9.3"),
+            "changelog": (next(line for line in changelog.splitlines() if line.startswith("## ") and line != "## Unreleased"), "## 0.9.3"),
             "README Codex pin": (
                 codex_pin,
                 ["codex plugin marketplace add davdittrich/gsd-beads --ref v1.8.3"],
@@ -8104,12 +8104,19 @@ class TestClosePhaseEpic(unittest.TestCase):
 
     EPIC = "regen-epic"
 
-    def _ws(self, status="passed", epic_per=None, with_state=True):
+    def _ws(self, status="passed", epic_per=None, with_state=True, counts=("0", "0"), plan_text=None):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         phase_dir = _write_wave_workspace(
-            Path(tmp.name), [("01-07", _regen_two_task_plan_text(), True)], with_state=with_state
+            Path(tmp.name),
+            [("01-07", plan_text or _regen_two_task_plan_text(), True)],
+            with_state=with_state,
         )
+        if counts is not None:
+            (phase_dir / "01-BEADS.md").write_text(
+                f"---\nepic: {self.EPIC}\nblocking_open: {counts[0]}\ndiverged: {counts[1]}\n---\n",
+                encoding="utf-8",
+            )
         if status is not None:
             (phase_dir / "01-VERIFICATION.md").write_text(
                 f"---\nphase: 01-substrate\nstatus: {status}\n---\n\n# Verification\n",
@@ -8122,7 +8129,7 @@ class TestClosePhaseEpic(unittest.TestCase):
         self.addCleanup(setattr, sync, "_BD_CWD", None)
         return Path(tmp.name), phase_dir
 
-    def _bd(self, children, epic_status="open", fail=None):
+    def _bd(self, children, epic_status="open", fail=None, show_stdout=None):
         calls = []
 
         def _side_effect(argv, **kwargs):
@@ -8132,6 +8139,8 @@ class TestClosePhaseEpic(unittest.TestCase):
             if argv[:2] == ["bd", "list"] and "--parent" in argv:
                 return _completed(0, stdout=json.dumps(children) + "\n")
             if argv[:2] == ["bd", "show"]:
+                if show_stdout is not None:
+                    return _completed(0, stdout=show_stdout)
                 return _completed(0, stdout=json.dumps([{"id": argv[2], "status": epic_status}]) + "\n")
             return _completed(0, stdout="[]\n")
 
@@ -8235,6 +8244,82 @@ class TestClosePhaseEpic(unittest.TestCase):
         state = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
         self.assertNotEqual(state.split("### Blockers/Concerns", 1)[1].strip(), "None yet.")
 
+    def test_quoted_and_commented_status_closes(self):
+        for status in ('"passed"', "passed # ok"):
+            with self.subTest(status=status):
+                _, phase_dir = self._ws(status=status)
+                _, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+                self.assertEqual(len(closes), 1)
+
+    def test_duplicate_status_key_first_wins(self):
+        _, phase_dir = self._ws()
+        (phase_dir / "01-VERIFICATION.md").write_text(
+            "---\nstatus: passed\nstatus: gaps_found\n---\n", encoding="utf-8"
+        )
+        _, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+        self.assertEqual(len(closes), 1)
+
+    def test_beads_md_not_clean_never_closes(self):
+        for counts in (("1", "0"), ("0", "2"), ("unknown", "0"), ("0", "unknown"), None):
+            with self.subTest(counts=counts):
+                _, phase_dir = self._ws(counts=counts)
+                rc, closes, out = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+                self.assertEqual(rc, 0)
+                self.assertEqual(closes, [])
+                self.assertNotEqual(out.strip(), "")
+
+    def test_default_epic_per_closes(self):
+        _, phase_dir = self._ws(epic_per=None)
+        _, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+        self.assertEqual(len(closes), 1)
+
+    def test_non_dict_row_never_closes(self):
+        _, phase_dir = self._ws()
+        _, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "closed"}, "oops"])
+        self.assertEqual(closes, [])
+
+    def test_bd_show_invalid_json_never_closes_and_records_blocker(self):
+        tmp, phase_dir = self._ws()
+        _, closes, _ = self._run(
+            phase_dir, [{"id": "c1", "status": "closed"}], show_stdout="not json"
+        )
+        self.assertEqual(closes, [])
+        state = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
+        self.assertIn(f"bd show {self.EPIC}", state.split("### Blockers/Concerns", 1)[1])
+
+    def test_hostile_epic_id_in_plan_never_closes(self):
+        _, phase_dir = self._ws(
+            plan_text=_regen_two_task_plan_text().replace(
+                "beads_epic: regen-epic", "beads_epic: 'x; rm -rf'"
+            )
+        )
+        rc, closes, out = self._run(phase_dir, [{"id": "c1", "status": "closed"}])
+        self.assertEqual(rc, 0)
+        self.assertEqual(closes, [])
+        self.assertNotIn("rm -rf", out)
+
+    def test_open_children_without_safe_ids_print_count_only(self):
+        _, phase_dir = self._ws()
+        _, closes, out = self._run(phase_dir, [{"id": "x\ny", "status": "open"}])
+        self.assertEqual(closes, [])
+        self.assertIn("1 open child(ren)", out)
+        self.assertNotIn("x\ny", out)
+
+    def test_bd_failure_blocker_text_is_recorded(self):
+        tmp, phase_dir = self._ws()
+        self._run(phase_dir, [{"id": "c1", "status": "closed"}], fail="list")
+        state = (tmp / ".planning" / "STATE.md").read_text(encoding="utf-8")
+        self.assertIn(f"bd list for epic {self.EPIC} failed", state)
+
+    def test_bd_absent_is_not_probed_when_cheap_gates_fail(self):
+        _, phase_dir = self._ws(epic_per="milestone")
+        out = io.StringIO()
+        with mock.patch.object(sync, "bd_available", return_value=False) as avail, \
+             contextlib.redirect_stdout(out):
+            sync.close_phase_epic(str(phase_dir))
+        avail.assert_not_called()
+        self.assertEqual(out.getvalue(), "")
+
     def test_verify_post_regenerates_beads_md_then_closes_epic(self):
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _lifecycle_workspace(Path(tmp))
@@ -8244,7 +8329,7 @@ class TestClosePhaseEpic(unittest.TestCase):
                 manager = mock.Mock()
                 with mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
                      mock.patch.object(sync, "regenerate_beads_md", return_value=0) as regen, \
-                     mock.patch.object(sync, "close_phase_epic", create=True, return_value=0) as close:
+                     mock.patch.object(sync, "close_phase_epic", return_value=0) as close:
                     manager.attach_mock(regen, "regen")
                     manager.attach_mock(close, "close")
                     exit_code = sync.lifecycle_dispatch("verify:post")
@@ -8263,7 +8348,7 @@ class TestClosePhaseEpic(unittest.TestCase):
             try:
                 with mock.patch.object(sync, "check_native_step_dispatch", return_value=1), \
                      mock.patch.object(sync, "regenerate_beads_md") as regen, \
-                     mock.patch.object(sync, "close_phase_epic", create=True) as close, \
+                     mock.patch.object(sync, "close_phase_epic") as close, \
                      contextlib.redirect_stderr(io.StringIO()):
                     sync.lifecycle_dispatch("verify:post")
             finally:
@@ -8273,7 +8358,7 @@ class TestClosePhaseEpic(unittest.TestCase):
 
     def test_cli_close_phase_epic_subcommand_dispatches(self):
         _, phase_dir = self._ws()
-        with mock.patch.object(sync, "close_phase_epic", create=True, return_value=0) as close, \
+        with mock.patch.object(sync, "close_phase_epic", return_value=0) as close, \
              contextlib.redirect_stdout(io.StringIO()):
             sync.main(["close-phase-epic", str(phase_dir)])
         close.assert_called_once_with(str(phase_dir))

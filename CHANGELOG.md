@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- **`verify:post` closes the phase epic.** After `regenerate-beads-md`, `close-phase-epic` runs `bd close` on the epic only when `<NN>-VERIFICATION.md` has `status: passed`, `beads.epic_per` is `phase`, `BEADS.md` shows `blocking_open: 0` and `diverged: 0`, and the epic has at least one child, all closed. Otherwise the epic stays open and open child ids are printed. This supersedes the 0.9.0 "closes nothing" line. Refs #26.
+
 ## 0.9.3
 
 Plugin 1.8.3, capability 0.9.3.
