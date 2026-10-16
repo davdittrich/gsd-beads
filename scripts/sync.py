@@ -3105,8 +3105,8 @@ def create_issues(plan_arg, allow_strip=True):
 # rule: it would also drop legitimate U+0600-0605, U+06DD, U+070F, ...
 _CELL_STRIP = str.maketrans("", "", "<>`\u2028\u2029\u180e\u200b\u200e\u200f\u061c\ufeff" + "".join(
     chr(c) for c in (*range(0x20), *range(0x7F, 0xA0), *range(0x202A, 0x202F),
-                     *range(0x2060, 0x2065), *range(0x2066, 0x206A),
-                     *range(0x206A, 0x2070), *range(0xD800, 0xE000),
+                     *range(0x2060, 0x2065), *range(0x2066, 0x2070),
+                     *range(0xD800, 0xE000),
                      *range(0xE0000, 0xE0080))
     if chr(c) not in "\t\n\r"
 ))
@@ -4250,7 +4250,7 @@ def _parse_beads_md_table_rows(text):
         if cells and cells[0] == "":
             cells = cells[1:]
         cells = [CELL_UNESCAPE_RE.sub(r"\1", c.strip()) for c in cells]
-        if len(cells) < 3 or cells[0] in ("", "Issue") or all(SEPARATOR_CELL_RE.fullmatch(c) for c in cells):
+        if len(cells) < 3 or cells[0] == "" or tuple(cells[:3]) == ("Issue", "Title", "Status") or all(SEPARATOR_CELL_RE.fullmatch(c) for c in cells):
             continue
         rows.append({"id": cells[0], "title": cells[1], "status": cells[2]})
     return rows
