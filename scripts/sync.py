@@ -3754,18 +3754,29 @@ def close_phase_epic(phase_dir_arg):
         except ValueError:
             pass
 
-    if not bd_available():
-        _skip_bd_unavailable(phase_dir, "close-phase-epic")
+    try:
+        epic_per = read_epic_per(phase_project_root(phase_dir))
+    except (ValueError, OSError):
         return 0
-    if read_epic_per(phase_project_root(phase_dir)) != "phase":
+    if epic_per != "phase":
         return 0
     padded_phase = phase_dir.name.split("-", 1)[0]
-    try:
-        text = (phase_dir / f"{padded_phase}-VERIFICATION.md").read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
+    if _normalize_summary_status(
+        _read_summary_status(phase_dir / f"{padded_phase}-VERIFICATION.md")
+    ) != "passed":
         return 0
-    match = FRONTMATTER_RE.match(text)
-    if not match or not re.search(r"^status:[ \t]*passed[ \t]*\r?$", match.group(1), re.MULTILINE):
+    try:
+        beads_text = (phase_dir / f"{padded_phase}-BEADS.md").read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        beads_text = ""
+    fm = FRONTMATTER_RE.match(beads_text)
+    counts = dict(
+        re.findall(r"^(blocking_open|diverged):[ \t]*(\S+)[ \t]*\r?$", fm.group(1), re.MULTILINE)
+        if fm
+        else ()
+    )
+    if counts.get("blocking_open") != "0" or counts.get("diverged") != "0":
+        print("close-phase-epic: BEADS.md not clean (blocking_open/diverged not 0) -- epic left open")
         return 0
     try:
         epic_id = resolve_phase_epic(phase_dir)
@@ -3773,24 +3784,26 @@ def close_phase_epic(phase_dir_arg):
         print(f"close-phase-epic: epic identity authority failed: {exc}", file=sys.stderr)
         return 0
     if epic_id is None or not SAFE_BD_ID_RE.fullmatch(epic_id):
+        print("close-phase-epic: no safe epic id -- epic left open")
+        return 0
+    if not bd_available():
+        _skip_bd_unavailable(phase_dir, "close-phase-epic")
         return 0
 
-    shown = run_bd(["bd", "show", epic_id, "--json"])
-    if shown.returncode != 0:
+    try:
+        epic = _bd_show_row(run_bd(["bd", "show", epic_id, "--json"]), epic_id)
+    except (BdTransientError, RuntimeError):
         blocker(f"bd show {epic_id} failed -- epic left open")
         return 0
-    try:
-        payload = json.loads(shown.stdout)
-    except (UnicodeError, json.JSONDecodeError):
-        payload = None
-    if isinstance(payload, list):
-        payload = payload[0] if payload else None
-    if isinstance(payload, dict) and payload.get("status") == "closed":
+    if epic is None:
+        blocker(f"bd show {epic_id} found no epic -- epic left open")
+        return 0
+    if epic.get("status") == "closed":
         print(f"close-phase-epic: epic {epic_id} already closed")
         return 0
 
     rows = _checked_bd_list_rows(run_bd(_beads_md_argv(epic_id)))
-    if rows is None:
+    if rows is None or not all(isinstance(r, dict) for r in rows):
         blocker(f"bd list for epic {epic_id} failed -- epic left open")
         return 0
     if not rows:
@@ -3800,8 +3813,8 @@ def close_phase_epic(phase_dir_arg):
     if open_ids:
         safe = [i for i in open_ids if isinstance(i, str) and SAFE_BD_ID_RE.fullmatch(i)]
         print(
-            f"close-phase-epic: epic {epic_id} left open, {len(open_ids)} open child(ren): "
-            + ", ".join(safe)
+            f"close-phase-epic: epic {epic_id} left open, {len(open_ids)} open child(ren)"
+            + (": " + ", ".join(safe) if safe else "")
         )
         return 0
 
