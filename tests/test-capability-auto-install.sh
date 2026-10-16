@@ -1914,7 +1914,7 @@ wait "$AFTER_FINAL_HOOK_PID"
   || fail "case23b: after-observation publication emitted stderr"
 STALE_LEDGER_FINGERPRINT="$(awk '{print $4}' "$STATE_FILE")"
 MUTATED_FINGERPRINT="$(fixture_tree_hash "$SKILLS_ROOT" \
-  gsd-beads-recall gsd-beads-status gsd-beads-sync gsd-beads-close gsd-beads-migrate-todos gsd-beads-reconcile)"
+  gsd-beads-recall gsd-beads-status gsd-beads-sync gsd-beads-close gsd-beads-migrate-todos)"
 [ "$STALE_LEDGER_FINGERPRINT" != "$MUTATED_FINGERPRINT" ] \
   || fail "case23b: post-observation mutation did not invalidate the published row"
 WRITERS_BEFORE="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
@@ -1931,7 +1931,7 @@ cmp -s "$BUNDLE_DIR/skills/beads-status/SKILL.md" "$SKILLS_ROOT/gsd-beads-status
 [ "$(grep -c '^replace' "$R2_PUBLISH_SPY_LOG")" -eq $((REPLACES_BEFORE_REPAIR + 1)) ] \
   || fail "case23b: next SessionStart did not republish the repaired receipt"
 REPAIRED_FINGERPRINT="$(fixture_tree_hash "$SKILLS_ROOT" \
-  gsd-beads-recall gsd-beads-status gsd-beads-sync gsd-beads-close gsd-beads-migrate-todos gsd-beads-reconcile)"
+  gsd-beads-recall gsd-beads-status gsd-beads-sync gsd-beads-close gsd-beads-migrate-todos)"
 [ "$(awk '{print $4}' "$STATE_FILE")" = "$REPAIRED_FINGERPRINT" ] \
   || fail "case23b: repaired receipt does not match the restored selected surface"
 WRITERS_AFTER_REPAIR="$(grep -Ec '^capability (install|set)' "$STUB_LOG")"
@@ -2194,7 +2194,6 @@ SELECTED_PATHS=(
   gsd-beads-close
   gsd-beads-recall
   gsd-beads-migrate-todos
-  gsd-beads-reconcile
 )
 for _selected_path in "${SELECTED_PATHS[@]}"; do
   [ -d "$ACTUAL_SKILLS_ROOT/$_selected_path" ] \

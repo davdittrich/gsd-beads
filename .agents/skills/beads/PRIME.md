@@ -23,7 +23,7 @@ This project runs gsd-core's plan/execute/verify/ship lifecycle on top of `bd`. 
 
 ## Sync points
 
-Ten `capability.json` lifecycle steps dispatch bd integration automatically — none of them can fail a phase (`onError: skip` on every one). The **Dispatched by** column distinguishes current gsd-core native dispatch, compatibility-hook dispatch, and the installed ship patch.
+Eight `capability.json` lifecycle steps dispatch bd integration automatically — none of them can fail a phase (`onError: skip` on every one). The **Dispatched by** column distinguishes current gsd-core native dispatch, compatibility-hook dispatch, and the installed ship patch.
 
 | Point | Skill | Dispatched by | Effect |
 |---|---|---|---|
@@ -32,11 +32,9 @@ Ten `capability.json` lifecycle steps dispatch bd integration automatically — 
 | `execute:wave:pre` | `gsd-beads-status` | PostToolUse hook | Regenerates `BEADS.md` from a live `bd` query and composes a `<beads_status>` block for the orchestrator to paste into each executor's prompt. Phase-wide, not wave-scoped — the hook's trigger carries no wave plan-id list. |
 | `execute:wave:post` | `gsd-beads-status` | PostToolUse hook | Closes every task-complete bd issue across every plan in the phase (`reconcile-stale-closed`, idempotent). |
 | `verify:post` | `gsd-beads-status` | gsd-core native step dispatch | Regenerates `BEADS.md` only (closes nothing) — no wave/plan context, no task closes. |
-| `verify:post` | `gsd-beads-close` | gsd-core native step dispatch | Runs `close-phase-epic`. Needed because gsd-core dispatches `verify:post` before the verifier writes `VERIFICATION.md` in execute-phase, and `--after-fingerprint` skips steps whose produced file exists (the status step produces `BEADS.md`); produces `[]` never skips. |
-| `verify:post` | `gsd-beads-reconcile` | gsd-core native step dispatch | Runs `reconcile-report <phase directory>`: read-only list of non-closed tickets that `BEADS-RECALL.md` matched or that are epic children no plan task names. `produces: []`, so `--after-fingerprint` never skips it. |
-| `ship:pre` | `gsd-beads-close` | installed `ship.md` step-dispatch patch | Runs `close-phase-epic` once no gate blocks and `VERIFICATION.md` is final. Closes the phase epic only when `VERIFICATION.md` `status` is `passed`, `beads.epic_per` is `phase`, `BEADS.md` shows `blocking_open: 0` and `diverged: 0`, and the epic has at least one child, all closed; never a milestone epic. Otherwise it leaves the epic open and prints the open child ids. |
-| `ship:pre` | `gsd-beads-reconcile` | installed `ship.md` step-dispatch patch | Same report, after verification is final: also lists findings filed by code review, gap closure and the verifier. Runs only when no gate blocks. |
+| `verify:post` | `gsd-beads-close` | gsd-core native step dispatch | Runs `close-phase-epic`, then `reconcile-report <phase directory>`: a read-only list of non-closed tickets that `BEADS-RECALL.md` matched or that are epic children no plan task names. Needed because gsd-core dispatches `verify:post` before the verifier writes `VERIFICATION.md` in execute-phase, and `--after-fingerprint` skips steps whose produced file exists (the status step produces `BEADS.md`); produces `[]` never skips. |
 | `ship:pre` | `gsd-beads-status` | installed `ship.md` step-dispatch patch | Records a `ship_override` if the ship gate was bypassed with open/diverged issues, and confirms the local `ship.md` patch is intact. |
+| `ship:pre` | `gsd-beads-close` | installed `ship.md` step-dispatch patch | Runs `close-phase-epic`, then `reconcile-report` (the list also covers findings filed by code review, gap closure and the verifier), once no gate blocks and `VERIFICATION.md` is final. Closes the phase epic only when `VERIFICATION.md` `status` is `passed`, `beads.epic_per` is `phase`, `BEADS.md` shows `blocking_open: 0` and `diverged: 0`, and the epic has at least one child, all closed; never a milestone epic. Otherwise it leaves the epic open and prints the open child ids. |
 
 ## Dispatch mechanism
 

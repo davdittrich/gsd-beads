@@ -121,9 +121,9 @@ See `AGENTS.md` in this repo for the full command reference.
 
 ### How the lifecycle steps get dispatched
 
-`capability.json` declares ten `kind: "step"` hooks: the six per-point
-steps plus a `gsd-beads-close` and a `gsd-beads-reconcile` step at each of `verify:post` and
-`ship:pre` (they produce no file, so `--after-fingerprint` never skips them). gsd-core dispatches `plan:post` and `verify:post` steps
+`capability.json` declares eight `kind: "step"` hooks: the six per-point
+steps plus two `gsd-beads-close` steps (`verify:post`, `ship:pre`; they produce no file, so
+`--after-fingerprint` never skips them). gsd-core dispatches `plan:post` and `verify:post` steps
 natively. The compatibility dispatcher probes the installed workflow files at
 those two points and stands down when native dispatch is present, preventing
 duplicate `bd` mutations.
@@ -170,18 +170,17 @@ Valid points are `plan:pre`, `plan:post`, `execute:wave:pre`, `execute:wave:post
 declare — and re-reads `beads.enabled` itself, because entering from a harness hook bypasses the
 capability registry that would normally evaluate each step's `when` condition.
 
-The `gsd-beads-reconcile` skill runs `reconcile-report <phase directory>` at `verify:post` and again at
-`ship:pre`. Both steps declare `produces: []`, so gsd-core's `--after-fingerprint` skip (a step whose produced
-file exists, as `BEADS.md` does for `beads-status`) never drops them; the `ship:pre` run comes after verification
-is final, so it also lists findings filed by code review, gap closure and the verifier. The report is a read-only
-"Reconcile before completing" list of every non-closed ticket (deferred counts as open) that `BEADS-RECALL.md`
-matched to the phase (skipped with a note when that file is absent or `recall_status: failed`) or that is a child
-of the phase epic no plan task names, each with status and age. With `beads.epic_per=milestone` every phase lists all
-children of the milestone epic that no plan names. It never lists the phase epic itself, never closes or updates a
-ticket, does not feed `blocking_open` or `ship_override`, and prints nothing when none are open. A degraded plan still
-prints the recall list. A `bd` failure appends a `STATE.md` Blockers/Concerns note and never fails the phase. There is
-no dedup: every run prints its list. The hook (`lifecycle-dispatch verify:post`) runs the report only where
-gsd-core's native dispatch probe misses; when hook and skill both run, the list can print twice.
+The `gsd-beads-close` skill runs `reconcile-report <phase directory>` right after `close-phase-epic`, at the same
+two dispatch points (`verify:post`, `ship:pre`). The report is read-only: a "Reconcile before completing" list of
+every non-closed ticket (deferred counts as open) that is recall-matched (`BEADS-RECALL.md`; recalled tickets may
+include other phases' open plan-task issues, by design) or an epic child no plan task names, each with status and
+age. It excludes the phase epic. With `beads.epic_per=milestone` it lists all milestone-epic children no plan
+names, so the same list repeats per phase. It never closes or updates a ticket and does not feed `blocking_open` or
+`ship_override`. It prints nothing when none are open and no source degraded; a degraded source (`BEADS-RECALL.md`
+absent or `recall_status: failed`, or an unreadable plan) prints a note instead of silence. A `bd` failure appends a
+`STATE.md` Blockers/Concerns note and never fails the phase. There is no dedup: on gsd-core 1.17 the list prints at
+each dispatch (execute-phase's `verify:post`, verify-work's `verify:post` and `ship:pre`). The hook
+(`lifecycle-dispatch verify:post`) runs it only when the native-dispatch probe misses.
 
 The hook matches only a real invocation: a recognised tools shim (`gsd_run`, `gsd-tools`, or
 `node …/gsd-tools.cjs`) in shell command position, followed by `loop render-hooks <point> --raw`.
@@ -222,7 +221,7 @@ Every skill and the hook apply one gate: the capability is disabled only when
 (no file, no `beads` object, no `enabled` key) falls through to the `capability.json` default of
 `true`.
 
-When disabled, every lifecycle step no-ops rather than fails, since all ten steps are declared
+When disabled, every lifecycle step no-ops rather than fails, since all eight steps are declared
 `onError: skip`. Skills print a notice; the hook path (`lifecycle-dispatch`) returns silently.
 
 `epic_per` is re-read fresh from `.planning/config.json` at each epic-creation call site, not
