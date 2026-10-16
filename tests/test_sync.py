@@ -2341,6 +2341,22 @@ class TestTaskContentResolverManifest(unittest.TestCase):
             (self.CAPABILITY_PATH.parent / ".claude-plugin/plugin.json").read_text(encoding="utf-8")
         )
         self.assertEqual(plugin["skills"], ["./.agents/skills/beads"])
+        root = self.CAPABILITY_PATH.parent
+        market = json.loads((root / ".claude-plugin/marketplace.json").read_text(encoding="utf-8"))
+        entry = next(p for p in market["plugins"] if p["name"] == "beads-lifecycle")
+        self.assertEqual(entry["skills"], ["./.agents/skills/beads"])
+
+    def test_capability_plugin_changelog_and_readme_versions_agree(self):
+        root = self.CAPABILITY_PATH.parent
+        cap = json.loads(self.CAPABILITY_PATH.read_text(encoding="utf-8"))["version"]
+        plugin = json.loads((root / ".claude-plugin/plugin.json").read_text(encoding="utf-8"))["version"]
+        lines = (root / "CHANGELOG.md").read_text(encoding="utf-8").splitlines()
+        i = next(n for n, l in enumerate(lines) if l.startswith("## ") and "Unreleased" not in l)
+        self.assertEqual(lines[i], "## " + cap)
+        self.assertEqual(next(l for l in lines[i + 1:] if l.strip()),
+                         "Plugin %s, capability %s." % (plugin, cap))
+        readme = (root / "README.md").read_text(encoding="utf-8")
+        self.assertIn("--ref v" + plugin + "\n", readme)
 
     def test_single_native_resolver_has_exact_invocation_contract(self):
         manifest = self._manifest()
@@ -7443,6 +7459,11 @@ class TestBeadsCloseSteps(unittest.TestCase):
         self.assertNotIn("close-phase-epic", status)
         self.assertNotIn("reconcile-report", status)
         self.assertFalse((self.ROOT / "skills/beads-reconcile").exists())
+        self.assertIn("## Step 2b -- verify:post: regenerate BEADS.md\n", status)
+        prime = (self.ROOT / ".agents/skills/beads/PRIME.md").read_text(encoding="utf-8")
+        row = next(l for l in prime.splitlines()
+                   if l.startswith("| `verify:post` | `gsd-beads-status`"))
+        self.assertIn("Regenerates `BEADS.md` only (closes nothing)", row)
 
 
 class TestCheckShipmdPatch(unittest.TestCase):
