@@ -3093,16 +3093,21 @@ def create_issues(plan_arg, allow_strip=True):
     return 0
 
 
-# C0 (minus \t \n \r, handled below), DEL and C1 controls are dropped too: a
-# title with ESC/NUL/U+0085 would reach BEADS.md and the executor prompt.
-# U+2028/U+2029 go as well: `str.splitlines()` splits on them, so one in a
-# title would make its BEADS.md row unparseable. Bidi controls (U+202A-202E,
-# U+2066-2069) and zero-width characters (U+200B-200D, U+FEFF) hide or reorder
-# text; lone surrogates (U+D800-DFFF, reachable via json.loads of "\\ud800")
-# make the UTF-8 write of BEADS.md raise.
-_CELL_STRIP = str.maketrans("", "", "<>`\u2028\u2029\u200b\u200c\u200d\ufeff" + "".join(
+# Dropped from cells: C0 (minus \t \n \r, handled below), DEL and C1 controls (a
+# title with ESC/NUL/U+0085 would reach BEADS.md and the executor prompt);
+# U+2028/U+2029 (`str.splitlines()` splits on them, so one in a title would
+# make its BEADS.md row unparseable); bidi controls U+202A-202E, U+2066-2069,
+# U+200E/U+200F/U+061C; invisible U+180E, U+200B, U+2060-2064, U+206A-206F, U+FEFF;
+# Unicode tag characters U+E0000-E007F (hidden-instruction vector); lone
+# surrogates U+D800-DFFF (reachable via json.loads of "\\ud800"; the UTF-8
+# write of BEADS.md would raise). Kept on purpose: ZWNJ/ZWJ U+200C/U+200D
+# (Persian, Indic scripts, emoji sequences), U+00AD and variation selectors. No blanket category-Cf
+# rule: it would also drop legitimate U+0600-0605, U+06DD, U+070F, ...
+_CELL_STRIP = str.maketrans("", "", "<>`\u2028\u2029\u180e\u200b\u200e\u200f\u061c\ufeff" + "".join(
     chr(c) for c in (*range(0x20), *range(0x7F, 0xA0), *range(0x202A, 0x202F),
-                     *range(0x2066, 0x206A), *range(0xD800, 0xE000))
+                     *range(0x2060, 0x2065), *range(0x2066, 0x206A),
+                     *range(0x206A, 0x2070), *range(0xD800, 0xE000),
+                     *range(0xE0000, 0xE0080))
     if chr(c) not in "\t\n\r"
 ))
 CELL_MAX_CHARS = 200  # titles only: longer ones are cut and end in an ellipsis
@@ -3112,9 +3117,11 @@ def _escape_table_cell(text, max_len=None):
     """Sanitise text for a markdown table cell (T-02-03, matches gsd-core's own
     ship.md pattern) -- issue title/status text originates from a different
     principal (whoever filed it in bd) than the process rendering this
-    generated artifact. Drops control characters (C0 except tab, DEL, C1),
-    line/paragraph separators, bidi/zero-width characters and surrogates;
-    turns LF into a space and drops CR; cuts to `max_len` plus an ellipsis
+    generated artifact. Drops C0 controls except tab, DEL, C1, U+2028/U+2029,
+    bidi controls (U+202A-202E, U+2066-2069, U+200E, U+200F, U+061C), U+180E, U+200B,
+    U+2060-2064, U+206A-206F, U+FEFF, tag characters U+E0000-E007F and lone
+    surrogates (ZWNJ/ZWJ, U+00AD and variation selectors are kept); turns LF into a space and drops
+    CR; cuts to `max_len` plus an ellipsis
     BEFORE escaping; then escapes backslash and pipe."""
     # `<`, `>` and backticks are dropped: titles are re-printed inside the
     # <beads_status> executor-prompt block, which a `</beads_status>` in a

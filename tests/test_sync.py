@@ -6513,7 +6513,8 @@ class TestBeadsMdRegeneration(unittest.TestCase):
 
     @mock.patch("subprocess.run")
     def test_beads_md_on_disk_has_no_control_chars_from_titles(self, mock_run):
-        title = "evil\x1b[31m\x00\u0085\x7f\u2028\u2029\u202e\u200b\ufeff\ud800" + "y" * 500
+        title = ("evil\x1b[31m\x00\u0085\x7f\u2028\u2029\u202e\u200b\ufeff\ud800"
+                 "\U000e0001\U000e0041\u200e" + "y" * 500)
         rows = json.dumps([{"id": "regen-epic.1", "title": title, "status": "open", "dependencies": []}])
         mock_run.side_effect = _make_beads_md_bd_side_effect(rows)
         with tempfile.TemporaryDirectory() as tmp:
@@ -6522,8 +6523,8 @@ class TestBeadsMdRegeneration(unittest.TestCase):
             text = (phase_dir / "01-BEADS.md").read_text(encoding="utf-8")
         self.assertIn("evil[31m", text)
         self.assertIn("\u2026", text)
-        banned = {0x2028, 0x2029, 0x200B, 0x200C, 0x200D, 0xFEFF, *range(0x202A, 0x202F),
-                  *range(0x2066, 0x206A), *range(0xD800, 0xE000)}
+        banned = {0x2028, 0x2029, 0x200B, 0x200E, 0xFEFF, *range(0x202A, 0x202F),
+                  *range(0x2066, 0x206A), *range(0xD800, 0xE000), *range(0xE0000, 0xE0080)}
         self.assertFalse(
             any((ord(c) < 32 and c not in "\n\t") or 0x7F <= ord(c) <= 0x9F or ord(c) in banned
                 for c in text)
@@ -6535,11 +6536,27 @@ class TestBeadsMdRegeneration(unittest.TestCase):
         self.assertEqual(esc("\\" * 300, max_len=cap), "\\\\" * 200 + "\u2026")
         out = esc("x" * 199 + "\\|tail", max_len=cap)
         self.assertEqual(out, "x" * 199 + "\\\\" + "\u2026")
-        self.assertEqual(esc("a\tb"), "a\tb")
 
-    def test_escape_table_cell_strips_bidi_zero_width_and_surrogates(self):
-        for ch in ("\u202a", "\u202e", "\u2066", "\u2069", "\u200b", "\u200d", "\ufeff", "\ud800", "\udfff"):
-            self.assertEqual(sync._escape_table_cell("a%sb" % ch), "ab", hex(ord(ch)))
+    def test_escape_table_cell_strips_invisible_format_chars_and_keeps_joiners(self):
+        esc = sync._escape_table_cell
+        for cp in (0x202A, 0x202E, 0x2066, 0x2069, 0x200B, 0xFEFF, 0xD800, 0xDFFF,
+                   0xE0001, 0xE0041, 0xE007F, 0x180E, 0x200E, 0x200F, 0x061C, 0x2060, 0x2061,
+                   0x2064, 0x206A, 0x206F):
+            self.assertEqual(esc("a%sb" % chr(cp)), "ab", hex(cp))
+        for kept in ("\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645",
+                     "\u0915\u094d\u200d\u0937",
+                     "\U0001F468\u200d\U0001F469\u200d\U0001F467",
+                     "a\tb", "soft\u00adhyphen", "\u0600\u06dd\u070f"):
+            self.assertEqual(esc(kept), kept, ascii(kept))
+
+    def test_persian_zwnj_title_round_trips_and_tag_chars_are_dropped(self):
+        persian = "\u0645\u06cc\u200c\u062e\u0648\u0627\u0647\u0645"
+        tagged = "x" + "".join(chr(c) for c in (0xE0001, 0xE0041, 0xE007F)) + "y"
+        rows = [{"id": "bd-1", "title": persian, "status": "open", "dependencies": []},
+                {"id": "bd-2", "title": tagged, "status": "open", "dependencies": []}]
+        table = sync._render_beads_md_table(rows, ordinal_map={}, task_status_by_id={})
+        parsed = sync._parse_beads_md_table_rows(table)
+        self.assertEqual([r["title"] for r in parsed], [persian, "xy"])
 
     def test_parse_beads_md_table_rows_survives_pipe_in_id(self):
         """WR-01: _parse_beads_md_table_rows must recover the original,
