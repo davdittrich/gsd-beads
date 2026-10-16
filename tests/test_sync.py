@@ -85,6 +85,16 @@ def _completed(returncode=0, stdout="", stderr=""):
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr=stderr)
 
 
+@contextlib.contextmanager
+def _in_dir(path):
+    prev = Path.cwd()
+    os.chdir(path)
+    try:
+        yield
+    finally:
+        os.chdir(prev)
+
+
 def _key_aware(side_effect):
     """Give a create-capable bd fake the label lookup ensure_issue (RS3)
     performs before and after every create: `bd list -l gsd-key:...` is
@@ -6073,14 +6083,14 @@ class TestReconcileReport(unittest.TestCase):
     RECALL_FAILED = "---\nphase: 01-substrate\nrecall_status: failed\n---\n\nNo recall data.\n"
 
     def _run(self, epic_rows, recalled_rows, recall_text, bd_ok=True, id_fail=False,
-             raises=None, milestone=False, plan_text=None, twice=None):
+             raises=None, milestone=False, plan_text=None, twice=None, raises_on=None):
         calls = []
 
         def fake(argv, **kwargs):
             calls.append(list(argv))
             if argv[:3] == ["bd", "list", "--json"]:
                 return _completed(0, stdout="[]\n")
-            if raises is not None:
+            if raises is not None and (raises_on is None or argv[2] == raises_on):
                 raise raises
             if not bd_ok:
                 return _completed(1, stderr="boom")
@@ -6113,7 +6123,7 @@ class TestReconcileReport(unittest.TestCase):
                 )
             if recall_text is not None:
                 (phase_dir / "01-BEADS-RECALL.md").write_text(recall_text, encoding="utf-8")
-            with contextlib.redirect_stdout(out):
+            with contextlib.redirect_stdout(out), _in_dir(tmp):
                 rc = sync.reconcile_report(str(phase_dir))
                 if twice:
                     out.seek(0), out.truncate()
@@ -8507,6 +8517,10 @@ class TestClosePhaseEpic(unittest.TestCase):
                 json.dumps({"beads": {"epic_per": epic_per}}), encoding="utf-8"
             )
         self.addCleanup(setattr, sync, "_BD_CWD", None)
+        # phase arguments resolve against the cwd's project, like lifecycle-dispatch
+        prev = Path.cwd()
+        os.chdir(tmp.name)
+        self.addCleanup(os.chdir, prev)
         return Path(tmp.name), phase_dir
 
     def _bd(self, children, epic_status="open", fail=None, show_stdout=None, raises=None):
@@ -8532,7 +8546,10 @@ class TestClosePhaseEpic(unittest.TestCase):
         calls, side_effect = self._bd(children, **bd_kwargs)
         out = io.StringIO()
         with mock.patch.object(sync, "bd_available", return_value=True), \
-             mock.patch.object(sync, "regenerate_beads_md", return_value=regen) as self.regen, \
+             mock.patch.object(
+                 sync, "regenerate_beads_md",
+                 **({"side_effect": regen} if isinstance(regen, list) else {"return_value": regen}),
+             ) as self.regen, \
              mock.patch("subprocess.run", side_effect=side_effect), \
              contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             if via_main:
@@ -13098,6 +13115,363 @@ class TestPhaseArgResolution(unittest.TestCase):
                     self.assertEqual(out, f"{command}: phase directory not found -- skipped\n")
                     self.assertIsNone(first)
                     self.assertTrue(state_same)
+
+
+_BD_ERRORS = (
+    lambda: BdTransient(),
+    lambda: RuntimeError("boom"),
+    lambda: subprocess.TimeoutExpired(["bd"], 1),
+    lambda: OSError("no bd"),
+)
+
+
+def BdTransient():
+    return sync.BdTransientError("locked")
+
+
+class TestClosePhaseEpicHardening(unittest.TestCase):
+    """1.9.0 release review: exception tuples, message accuracy, gsd-core
+    freshness, BEADS.md refresh after the close."""
+
+    EPIC = TestClosePhaseEpic.EPIC
+    _ws = TestClosePhaseEpic._ws
+    _bd = TestClosePhaseEpic._bd
+    _run = TestClosePhaseEpic._run
+    _blockers = TestClosePhaseEpic._blockers
+    CLOSED = [{"id": "c1", "status": "closed"}]
+
+    def test_every_bd_handler_catches_every_error_class(self):
+        for verb in ("show", "list", "close"):
+            for make in _BD_ERRORS:
+                for via_main in (False, True):
+                    exc = make()
+                    with self.subTest(verb=verb, exc=type(exc).__name__, via_main=via_main):
+                        tmp, phase_dir = self._ws()
+                        rc, _, out = self._run(
+                            phase_dir, self.CLOSED, raises=(verb, exc), via_main=via_main
+                        )
+                        self.assertEqual(rc, 0)
+                        self.assertNotIn("Traceback", out)
+                        self.assertNotEqual(self._blockers(tmp).strip(), "None yet.")
+
+    def test_beads_md_absent_says_no_epic_yet(self):
+        _, phase_dir = self._ws(counts=None)
+        rc, closes, out = self._run(phase_dir, self.CLOSED)
+        self.assertEqual((rc, closes), (0, []))
+        self.assertIn("no epic yet", out)
+        self.assertNotIn("not clean", out)
+
+    def test_unknown_counts_say_bd_unavailable(self):
+        _, phase_dir = self._ws(counts=("unknown", "unknown"))
+        rc, closes, out = self._run(phase_dir, self.CLOSED)
+        self.assertEqual((rc, closes), (0, []))
+        self.assertIn("bd unavailable", out)
+        self.assertNotIn("not clean", out)
+
+    def test_real_counts_still_say_not_clean(self):
+        _, phase_dir = self._ws(counts=("2", "0"))
+        _, closes, out = self._run(phase_dir, self.CLOSED)
+        self.assertEqual(closes, [])
+        self.assertIn("not clean", out)
+
+    # -- gsd-core verification.status freshness -------------------------
+
+    def _fresh_run(self, phase_dir, query, tool=True):
+        """Run close with a fake gsd-tools; `query` is a CompletedProcess or an
+        exception to raise. Returns (closes, node_calls, out)."""
+        cfg = tempfile.TemporaryDirectory()
+        self.addCleanup(cfg.cleanup)
+        if tool:
+            tools = Path(cfg.name) / "gsd-core" / "bin" / "gsd-tools.cjs"
+            tools.parent.mkdir(parents=True)
+            tools.write_text("// fake\n", encoding="utf-8")
+        node_calls = []
+        bd_calls, bd_side = self._bd(self.CLOSED)
+
+        def side(argv, **kwargs):
+            if argv[0] == "node":
+                node_calls.append((list(argv), kwargs))
+                if isinstance(query, BaseException):
+                    raise query
+                return query
+            return bd_side(argv, **kwargs)
+
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": cfg.name}), \
+             mock.patch.object(sync, "bd_available", return_value=True), \
+             mock.patch.object(sync, "regenerate_beads_md", return_value=0), \
+             mock.patch("subprocess.run", side_effect=side), \
+             contextlib.redirect_stdout(out):
+            rc = sync.close_phase_epic(str(phase_dir))
+        self.assertEqual(rc, 0)
+        closes = [c for c in bd_calls if c[:2] == ["bd", "close"]]
+        return closes, node_calls, out.getvalue()
+
+    def test_stale_verification_refuses_to_close(self):
+        for token in ("stale", "gaps_found", "human_needed", "missing", "unknown"):
+            with self.subTest(token=token):
+                _, phase_dir = self._ws()
+                closes, nodes, out = self._fresh_run(phase_dir, _completed(0, stdout=token + "\n"))
+                self.assertEqual(closes, [])
+                self.assertIn(f"gsd-core reports verification {token}", out)
+                self.assertEqual(len(nodes), 1)
+
+    def test_fresh_verification_closes_and_query_is_hardened(self):
+        _, phase_dir = self._ws()
+        closes, nodes, _ = self._fresh_run(phase_dir, _completed(0, stdout="passed\n"))
+        self.assertEqual(len(closes), 1)
+        argv, kwargs = nodes[0]
+        self.assertEqual(argv[0], "node")
+        self.assertTrue(argv[1].endswith("gsd-tools.cjs"))
+        self.assertEqual(
+            argv[2:], ["query", "verification.status", str(phase_dir), "--pick", "status"]
+        )
+        self.assertIsNotNone(kwargs.get("timeout"))
+        self.assertFalse(kwargs.get("shell", False))
+
+    def test_unavailable_or_unusable_query_falls_back_to_frontmatter(self):
+        cases = {
+            "tool missing": (None, False),
+            "garbage": (_completed(0, stdout="rm -rf / passed\n"), True),
+            "empty": (_completed(0, stdout=""), True),
+            "nonzero": (_completed(1, stdout="stale\n", stderr="boom"), True),
+            "timeout": (subprocess.TimeoutExpired(["node"], 1), True),
+            "oserror": (OSError("no node"), True),
+        }
+        for name, (query, tool) in cases.items():
+            with self.subTest(case=name):
+                _, phase_dir = self._ws()
+                closes, _, _ = self._fresh_run(phase_dir, query, tool=tool)
+                self.assertEqual(len(closes), 1)
+
+    def test_stale_query_not_asked_when_frontmatter_not_passed(self):
+        _, phase_dir = self._ws(status="gaps_found")
+        closes, nodes, _ = self._fresh_run(phase_dir, _completed(0, stdout="passed\n"))
+        self.assertEqual((closes, nodes), ([], []))
+
+    # -- BEADS.md refresh after the close -------------------------------
+
+    def test_beads_md_regenerated_again_after_successful_close(self):
+        _, phase_dir = self._ws()
+        _, closes, _ = self._run(phase_dir, self.CLOSED)
+        self.assertEqual(len(closes), 1)
+        self.assertEqual(
+            self.regen.call_args_list, [mock.call(str(phase_dir)), mock.call(str(phase_dir))]
+        )
+
+    def test_no_second_regenerate_after_a_refusal(self):
+        _, phase_dir = self._ws()
+        _, closes, _ = self._run(phase_dir, [{"id": "c1", "status": "open"}])
+        self.assertEqual(closes, [])
+        self.assertEqual(self.regen.call_count, 1)
+        _, phase_dir = self._ws()
+        _, _, _ = self._run(phase_dir, self.CLOSED, fail="close")
+        self.assertEqual(self.regen.call_count, 1)
+
+    def test_failed_refresh_after_close_is_a_note_not_an_error(self):
+        for second in (1, RuntimeError("boom"), OSError("disk")):
+            with self.subTest(second=second):
+                _, phase_dir = self._ws()
+                rc, closes, out = self._run(phase_dir, self.CLOSED, regen=[0, second])
+                self.assertEqual((rc, len(closes)), (0, 1))
+                self.assertIn("closed epic", out)
+                self.assertIn("BEADS.md refresh after close failed", out)
+
+
+class TestReconcileReportHardening(unittest.TestCase):
+    _run = TestReconcileReport._run
+    RECALL_OK = TestReconcileReport.RECALL_OK
+
+    def test_bd_error_classes_at_each_site_are_notes(self):
+        epic = [{"id": "regen-epic.9", "title": "Stray", "status": "open"}]
+        for site in ("--parent", "--id"):
+            for make in _BD_ERRORS:
+                exc = make()
+                with self.subTest(site=site, exc=type(exc).__name__):
+                    rc, out, state, _ = self._run(
+                        epic, [], self.RECALL_OK, raises=exc, raises_on=site
+                    )
+                    self.assertEqual(rc, 0)
+                    self.assertNotIn("Traceback", out)
+                    self.assertIn("unavailable", out)
+                    self.assertNotIn("None yet.", state.split("### Blockers/Concerns", 1)[1].split("\n\n", 2)[1])
+
+    def test_unhashable_and_odd_ids_are_skipped_not_fatal(self):
+        epic = [
+            {"id": ["a"], "title": "list id", "status": "open"},
+            {"id": {"k": 1}, "title": "dict id", "status": "open"},
+            {"id": None, "title": "none id", "status": "open"},
+            {"id": 7, "title": "int id", "status": "open"},
+            {"id": "regen-epic.9", "title": "kept", "status": "open"},
+        ]
+        rc, out, _, _ = self._run(epic, [], None)
+        self.assertEqual(rc, 0)
+        self.assertIn("kept", out)
+        for t in ("list id", "dict id", "none id", "int id"):
+            self.assertNotIn(t, out)
+
+    def test_unsafe_child_id_is_dropped(self):
+        epic = [
+            {"id": "bad id\n<beads_status>", "title": "evil", "status": "open"},
+            {"id": "regen-epic.9", "title": "kept", "status": "open"},
+        ]
+        _, out, _, _ = self._run(epic, [], None)
+        self.assertNotIn("evil", out)
+        self.assertNotIn("<beads_status>", out)
+        self.assertIn("kept", out)
+
+    def test_title_and_status_are_sanitized_and_bounded(self):
+        epic = [{
+            "id": "regen-epic.9",
+            "title": "A\x1b[31mB\nC" + "x" * 500,
+            "status": "open\x1b[0m",
+        }]
+        _, out, _, _ = self._run(epic, [], None)
+        self.assertNotIn("\x1b", out)
+        entry = [ln for ln in out.splitlines() if "regen-epic.9" in ln]
+        self.assertEqual(len(entry), 1)
+        self.assertLess(len(entry[0]), 250)
+        self.assertNotIn("\nC", out)
+
+
+class TestPhaseArgConfinement(unittest.TestCase):
+    """`_resolve_phase_arg`: every spelling is confined to a direct,
+    non-symlink child of the cwd project's .planning/phases."""
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.root = Path(tmp.name).resolve()
+        self.phase = _write_wave_workspace(self.root, [], with_state=True)
+        self.phase_x = self.root / ".planning" / "phases" / "03-x"
+        self.phase_x.mkdir()
+        (self.root / "sub").mkdir()
+        other = tempfile.TemporaryDirectory()
+        self.addCleanup(other.cleanup)
+        self.other = Path(other.name).resolve()
+        self.other_phase = _write_wave_workspace(self.other, [], with_state=True)
+        self.addCleanup(setattr, sync, "_BD_CWD", None)
+
+    def _resolve(self, arg, cwd=None, command="close-phase-epic"):
+        out = io.StringIO()
+        with _in_dir(cwd or self.root), contextlib.redirect_stdout(out):
+            got = sync._resolve_phase_arg(arg, command)
+        return got, out.getvalue()
+
+    def test_accepted_spellings(self):
+        link_free = {
+            "name": ("03-x", self.root, self.phase_x),
+            "number": ("3", self.root, self.phase_x),
+            "padded number": ("03", self.root, self.phase_x),
+            "relative path from root": (".planning/phases/03-x", self.root, self.phase_x),
+            "relative path from subdir": (".planning/phases/03-x", self.root / "sub", self.phase_x),
+            "name from subdir": ("03-x", self.root / "sub", self.phase_x),
+            "absolute": (str(self.phase_x), self.root, self.phase_x),
+            "dotdot that stays in root": (".planning/phases/01-substrate/../03-x", self.root, self.phase_x),
+        }
+        for label, (arg, cwd, want) in link_free.items():
+            with self.subTest(label):
+                got, out = self._resolve(arg, cwd)
+                self.assertEqual((got, out), (want, ""))
+
+    def test_rejected_spellings_print_one_fixed_line(self):
+        (self.root / ".planning" / "phases" / "link").symlink_to(self.phase_x)
+        (self.root / ".planning" / "phases" / "out-link").symlink_to(self.other_phase)
+        rejected = {
+            "absolute outside root": str(self.other_phase),
+            "dotdot traversal": ".planning/phases/03-x/../..",
+            "dotdot to root": "..",
+            "project root": str(self.root),
+            "nested below a phase": ".planning/phases/03-x/sub",
+            "symlink by name": "link",
+            "symlink by relative path": ".planning/phases/link",
+            "symlink by absolute path": str(self.root / ".planning" / "phases" / "link"),
+            "symlink to other project": "out-link",
+            "missing": "99-none",
+            "empty": "",
+        }
+        (self.phase_x / "sub").mkdir()
+        for label, arg in rejected.items():
+            with self.subTest(label):
+                got, out = self._resolve(arg)
+                self.assertIsNone(got)
+                self.assertEqual(out, "close-phase-epic: phase directory not found -- skipped\n")
+
+    def test_main_pins_bd_from_the_resolved_directory(self):
+        # a symlinked phase dir pointing into another project must not pick
+        # that project's bd; the command is skipped and bd stays on the cwd's.
+        (self.root / ".planning" / "phases" / "out-link").symlink_to(self.other_phase)
+        for command in ("close-phase-epic", "reconcile-report"):
+            with self.subTest(command=command):
+                seen = []
+                with _in_dir(self.root), \
+                     mock.patch.object(sync, "bd_available", side_effect=lambda: seen.append(sync._BD_CWD) or False), \
+                     contextlib.redirect_stdout(io.StringIO()) as out:
+                    rc = sync.main([command, "out-link"])
+                self.assertEqual(rc, 0)
+                self.assertEqual(seen, [])
+                self.assertIn("not found", out.getvalue())
+
+    def test_main_pin_is_the_resolved_projects_root(self):
+        (self.root / ".planning" / "config.json").write_text(
+            json.dumps({"beads": {"epic_per": "phase"}}), encoding="utf-8"
+        )
+        (self.phase / "01-VERIFICATION.md").write_text("---\nstatus: passed\n---\n", encoding="utf-8")
+        for command in ("close-phase-epic", "reconcile-report"):
+            for arg in ("1", "01-substrate", ".planning/phases/01-substrate", str(self.phase)):
+                with self.subTest(command=command, arg=arg):
+                    seen = []
+                    with _in_dir(self.root / "sub"), \
+                         mock.patch.object(sync, "bd_available", side_effect=lambda: seen.append(sync._BD_CWD) or False), \
+                         contextlib.redirect_stdout(io.StringIO()):
+                        rc = sync.main([command, arg])
+                    self.assertEqual(rc, 0)
+                    self.assertEqual(seen, [str(self.root)])
+
+    def test_resolved_dir_epic_reaches_bd_for_both_commands_via_main(self):
+        # the non-vacuous case: bd available, epic_per phase, so the resolved
+        # directory's epic is what bd is asked about.
+        for command, want in (
+            ("close-phase-epic", ["bd", "show", "regen-epic", "--json"]),
+            ("reconcile-report", ["bd", "list", "--parent", "regen-epic", "--all", "--json", "-n", "0"]),
+        ):
+            for arg in ("1", "01-substrate", ".planning/phases/01-substrate"):
+                with self.subTest(command=command, arg=arg):
+                    tmp = tempfile.TemporaryDirectory()
+                    self.addCleanup(tmp.cleanup)
+                    root = Path(tmp.name).resolve()
+                    phase_dir = _write_wave_workspace(
+                        root, [("01-07", _regen_two_task_plan_text(), True)], with_state=True
+                    )
+                    (root / ".planning" / "config.json").write_text(
+                        json.dumps({"beads": {"epic_per": "phase"}}), encoding="utf-8"
+                    )
+                    (phase_dir / "01-VERIFICATION.md").write_text(
+                        "---\nstatus: passed\n---\n", encoding="utf-8"
+                    )
+                    (phase_dir / "01-BEADS.md").write_text(
+                        "---\nepic: regen-epic\nblocking_open: 0\ndiverged: 0\n---\n", encoding="utf-8"
+                    )
+                    calls = []
+
+                    def side(argv, **kwargs):
+                        calls.append(list(argv))
+                        if argv[:2] == ["bd", "show"]:
+                            return _completed(0, stdout=json.dumps([{"id": argv[2], "status": "closed"}]))
+                        return _completed(0, stdout="[]\n")
+
+                    cfg = tempfile.mkdtemp()
+                    self.addCleanup(shutil.rmtree, cfg, True)
+                    with _in_dir(root), \
+                         mock.patch.dict(os.environ, {"CLAUDE_CONFIG_DIR": cfg}), \
+                         mock.patch.object(sync, "bd_available", return_value=True), \
+                         mock.patch.object(sync, "regenerate_beads_md", return_value=0), \
+                         mock.patch("subprocess.run", side_effect=side), \
+                         contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                        rc = sync.main([command, arg])
+                    self.assertEqual(rc, 0)
+                    self.assertIn(want, calls)
+                    self.addCleanup(setattr, sync, "_BD_CWD", None)
 
 
 if __name__ == "__main__":
