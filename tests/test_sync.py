@@ -6090,7 +6090,7 @@ class TestReconcileReport(unittest.TestCase):
                 if id_fail:
                     return _completed(1, stderr="boom")
                 wanted = argv[3].split(",")
-                return _completed(0, stdout=json.dumps([r for r in recalled_rows if r.get("id") in wanted or not r.get("id")]))
+                return _completed(0, stdout=json.dumps([r for r in recalled_rows if not isinstance(r, dict) or r.get("id") in wanted or not r.get("id")]))
             return _completed(1, stderr=f"unexpected: {argv}")
 
         out = io.StringIO()
@@ -6208,7 +6208,7 @@ class TestReconcileReport(unittest.TestCase):
         self.assertNotIn("recall unavailable", out)
         self.assertIn("regen-epic.9", out)
 
-    def test_plan_task_recalled_and_empty_id_rows_are_not_listed(self):
+    def test_recalled_plan_task_is_listed_but_empty_id_rows_are_not(self):
         recall = self.RECALL_OK.replace("| old-2 |", "| regen-epic.1 |")
         recalled = [
             {"id": "regen-epic.1", "title": "plan task", "status": "open"},
@@ -6217,7 +6217,28 @@ class TestReconcileReport(unittest.TestCase):
         ]
         epic = [{"id": "", "title": "blank child", "status": "open"}]
         _, out, _, _ = self._run(epic, recalled, recall)
-        self.assertEqual(out, "")
+        self.assertRegex(out, r"regen-epic\.1 \[open")
+        self.assertNotIn("no id", out)
+        self.assertNotIn("missing id", out)
+        self.assertNotIn("blank child", out)
+
+    def test_non_dict_epic_row_notes_blocker_and_exits_zero(self):
+        rc, out, state, _ = self._run(["junk"], [], self.RECALL_FAILED)
+        self.assertEqual((rc, out), (0, ""))
+        self.assertIn("reconcile skipped", state)
+
+    def test_non_dict_recalled_row_notes_blocker_and_exits_zero(self):
+        rc, out, state, _ = self._run([], ["junk"], self.RECALL_OK)
+        self.assertEqual((rc, out), (0, ""))
+        self.assertIn("reconcile recall lookup skipped", state)
+
+    def test_no_stamp_when_recall_lookup_fails_so_retry_prints(self):
+        def retry(d):
+            self.assertFalse((d / ".reconcile-stamp").exists())
+
+        rc, out, _, _ = self._run(self.OPEN_EPIC, [], self.RECALL_OK, id_fail=True, twice=retry)
+        self.assertEqual(rc, 0)
+        self.assertIn("regen-epic.9", out)
 
     def test_milestone_scope_skips_sibling_phase_plan_tasks(self):
         epic = [
