@@ -218,4 +218,4 @@ a newly filed follow-up cannot close it. A listed id may be any open bd issue, n
 ## Step 3 -- Report
 
 Print the one-line summary `sync.py` printed: `Closed <n> issue(s) across <m> plan(s) (...)`, or
-the skip notice `bd unavailable -- sync skipped`.
+the skip notice (`bd unavailable -- sync skipped`, or the no-workspace notice naming `bd init`).

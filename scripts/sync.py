@@ -384,7 +384,7 @@ def bd_available():
     try:
         result = run_bd(["bd", "list", "--json", "-n", "1"])
         if result.returncode != 0:
-            # Exit code only, not stderr text: `bd where` fails iff no workspace.
+            # Exit code only, not stderr text: `bd where` fails when no workspace.
             _BD_NO_WORKSPACE = run_bd(["bd", "where"]).returncode != 0
     except (subprocess.TimeoutExpired, OSError):
         return False
@@ -3340,8 +3340,9 @@ def beads_recall(phase_dir_arg):
     if not bd_available():
         phase_dir = Path(phase_dir_arg).resolve()
         _skip_bd_unavailable(phase_dir, "beads-recall")
-        _write_beads_recall_failure(phase_dir, "bd unavailable")
-        print("BEADS-RECALL.md recall failed: bd unavailable")
+        reason = "no bd workspace (run `bd init`)" if _BD_NO_WORKSPACE else "bd unavailable"
+        _write_beads_recall_failure(phase_dir, reason)
+        print(f"BEADS-RECALL.md recall failed: {reason}")
         return 0
 
     phase_dir = Path(phase_dir_arg).resolve()
@@ -3827,7 +3828,7 @@ def regenerate_beads_md(phase_dir_arg):
 
     if not bd_available():
         if epic_id is not None:
-            write_unknown(["bd", "unavailable"])
+            write_unknown(["no", "bd", "workspace"] if _BD_NO_WORKSPACE else ["bd", "unavailable"])
         _skip_bd_unavailable(phase_dir, "beads-status regenerate-beads-md")
         return 0
 
@@ -4449,7 +4450,7 @@ def ship_override(phase_dir_arg):
             if comment_result.returncode != 0:
                 print(f"ship-override: bd comment failed: {comment_result.stderr.strip()}")
     else:
-        print("ship-override: bd unavailable -- comment mirror skipped (B6)")
+        print(f"ship-override: {'no bd workspace (run `bd init`)' if _BD_NO_WORKSPACE else 'bd unavailable'} -- comment mirror skipped (B6)")
 
     return 0 if git_ok else 1
 

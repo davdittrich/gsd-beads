@@ -1990,8 +1990,14 @@ class TestPhaseProjectRoot(unittest.TestCase):
         self.assertIn("label skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
 
     def _probe(self, list_rc, where_rc):
+        self.addCleanup(setattr, sync, "_BD_NO_WORKSPACE", False)
         rcs = {"list": list_rc, "where": where_rc}
-        run = lambda argv, **k: mock.Mock(returncode=rcs[argv[1]], stdout="", stderr="")
+
+        def run(argv, **k):
+            if isinstance(rcs[argv[1]], BaseException):
+                raise rcs[argv[1]]
+            return mock.Mock(returncode=rcs[argv[1]], stdout="", stderr="")
+
         with mock.patch.object(sync.shutil, "which", return_value="/bin/bd"), \
                 mock.patch.object(sync, "run_bd", side_effect=run):
             return sync.bd_available()
@@ -2005,6 +2011,19 @@ class TestPhaseProjectRoot(unittest.TestCase):
         self.assertIn("bd init", out.getvalue())
         self.assertNotIn(sync.NOTICE, out.getvalue())
         self.assertIn("bd init", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+    def test_recall_entrypoint_no_workspace_says_bd_init_only(self):
+        _, phase_dir, _ = self._ws()
+        self.assertFalse(self._probe(1, 1))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), mock.patch.object(sync, "bd_available", return_value=False):
+            sync.beads_recall(str(phase_dir))
+        self.assertIn("bd init", out.getvalue())
+        self.assertNotIn("bd unavailable", out.getvalue())
+
+    def test_where_timeout_keeps_unavailable_notice(self):
+        self.assertFalse(self._probe(1, subprocess.TimeoutExpired("bd", 1)))
+        self.assertFalse(sync._BD_NO_WORKSPACE)
 
     def test_other_bd_failure_keeps_unavailable_notice(self):
         _, phase_dir, _ = self._ws()
