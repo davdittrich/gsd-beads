@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 BD_TIMEOUT = 15  # seconds; bounded timeout on every bd subprocess call
 GIT_TIMEOUT = 15  # seconds; bounded timeout on every git subprocess call (ship_override)
 NOTICE = "bd unavailable -- sync skipped"
-NOTICE_NO_WORKSPACE = "beads enabled but no bd workspace here -- sync skipped; run `bd init`"
+NOTICE_NO_WORKSPACE = "beads enabled but no bd workspace and `bd init` failed -- sync skipped; run `bd init`"
 BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 # yyjh: marks every epic/task create so external tools can identify synced
 # issues without heuristics; hand-shaped todo migrations stay unlabelled.
@@ -386,6 +386,15 @@ def bd_available():
         if result.returncode != 0:
             # Exit code only, not stderr text: `bd where` fails when no workspace.
             _BD_NO_WORKSPACE = run_bd(["bd", "where"]).returncode != 0
+        if _BD_NO_WORKSPACE:
+            # gsd-beads-ifpb: beads is enabled, so create the missing workspace.
+            # Skips AGENTS.md and git hooks: only .beads/ is touched.
+            init = run_bd(["bd", "init", "--non-interactive", "--init-if-missing",
+                           "--skip-agents", "--skip-hooks", "-q"])
+            if init.returncode == 0:
+                print("bd init: created the missing beads workspace")
+                result = run_bd(["bd", "list", "--json", "-n", "1"])
+                _BD_NO_WORKSPACE = result.returncode != 0
     except (subprocess.TimeoutExpired, OSError):
         return False
     return result.returncode == 0

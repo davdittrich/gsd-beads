@@ -1989,9 +1989,9 @@ class TestPhaseProjectRoot(unittest.TestCase):
             sync._skip_bd_unavailable(phase_dir, "label")
         self.assertIn("label skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
 
-    def _probe(self, list_rc, where_rc):
+    def _probe(self, list_rc, where_rc, init_rc=1):
         self.addCleanup(setattr, sync, "_BD_NO_WORKSPACE", False)
-        rcs = {"list": list_rc, "where": where_rc}
+        rcs = {"list": list_rc, "where": where_rc, "init": init_rc}
 
         def run(argv, **k):
             if isinstance(rcs[argv[1]], BaseException):
@@ -2020,6 +2020,21 @@ class TestPhaseProjectRoot(unittest.TestCase):
             sync.beads_recall(str(phase_dir))
         self.assertIn("bd init", out.getvalue())
         self.assertNotIn("bd unavailable", out.getvalue())
+
+    def test_no_workspace_auto_init_success_makes_bd_available(self):
+        calls = []
+        rcs = iter([1, 1, 0, 0])  # list, where, init, list-after-init
+
+        def run(argv, **k):
+            calls.append(argv[1])
+            return mock.Mock(returncode=next(rcs), stdout="", stderr="")
+
+        with mock.patch.object(sync.shutil, "which", return_value="/bin/bd"), \
+                mock.patch.object(sync, "run_bd", side_effect=run), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertTrue(sync.bd_available())
+        self.assertEqual(calls, ["list", "where", "init", "list"])
+        self.assertFalse(sync._BD_NO_WORKSPACE)
 
     def test_where_timeout_keeps_unavailable_notice(self):
         self.assertFalse(self._probe(1, subprocess.TimeoutExpired("bd", 1)))
