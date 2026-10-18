@@ -1989,6 +1989,31 @@ class TestPhaseProjectRoot(unittest.TestCase):
             sync._skip_bd_unavailable(phase_dir, "label")
         self.assertIn("label skipped", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
 
+    def _probe(self, list_rc, where_rc):
+        rcs = {"list": list_rc, "where": where_rc}
+        run = lambda argv, **k: mock.Mock(returncode=rcs[argv[1]], stdout="", stderr="")
+        with mock.patch.object(sync.shutil, "which", return_value="/bin/bd"), \
+                mock.patch.object(sync, "run_bd", side_effect=run):
+            return sync.bd_available()
+
+    def test_no_workspace_notice_and_blocker_name_bd_init(self):
+        root, phase_dir, _ = self._ws()
+        self.assertFalse(self._probe(1, 1))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            sync._skip_bd_unavailable(phase_dir, "label")
+        self.assertIn("bd init", out.getvalue())
+        self.assertNotIn(sync.NOTICE, out.getvalue())
+        self.assertIn("bd init", (root / ".planning" / "STATE.md").read_text(encoding="utf-8"))
+
+    def test_other_bd_failure_keeps_unavailable_notice(self):
+        _, phase_dir, _ = self._ws()
+        self.assertFalse(self._probe(1, 0))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            sync._skip_bd_unavailable(phase_dir, "label")
+        self.assertIn(sync.NOTICE, out.getvalue())
+
     def test_main_pins_bd_to_the_real_root_for_phase_and_plan_args(self):
         root, phase_dir, _ = self._ws()
         seen = []
@@ -5571,7 +5596,8 @@ class TestFailOpen(unittest.TestCase):
 
     def test_bd_present_but_every_invocation_fails(self):
         def _always_fails(argv, **kwargs):
-            return _completed(1, stderr="simulated bd failure")
+            # `bd where` succeeding keeps this the generic-failure path
+            return _completed(0 if argv[1:2] == ["where"] else 1, stderr="simulated bd failure")
 
         with tempfile.TemporaryDirectory() as tmp:
             exit_code, stdout_text, state_text, beads_md = self._run(

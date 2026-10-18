@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 BD_TIMEOUT = 15  # seconds; bounded timeout on every bd subprocess call
 GIT_TIMEOUT = 15  # seconds; bounded timeout on every git subprocess call (ship_override)
 NOTICE = "bd unavailable -- sync skipped"
+NOTICE_NO_WORKSPACE = "beads enabled but no bd workspace here -- sync skipped; run `bd init`"
 BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 # yyjh: marks every epic/task create so external tools can identify synced
 # issues without heuristics; hand-shaped todo migrations stay unlabelled.
@@ -368,15 +369,23 @@ def _bd_version_ok():
     return _BD_VERSION_OK
 
 
+_BD_NO_WORKSPACE = False  # set by bd_available(): bd present but no workspace
+
+
 def bd_available():
     """B6/D-08 fail-open detection point: locate the binary, check its version
     floor, run one cheap read command. Absent, too old, non-zero exit, or
     timeout all take the same "unavailable" path -- this function is the
     single point of truth for that decision."""
+    global _BD_NO_WORKSPACE
+    _BD_NO_WORKSPACE = False
     if shutil.which("bd") is None or not _bd_version_ok():
         return False
     try:
         result = run_bd(["bd", "list", "--json", "-n", "1"])
+        if result.returncode != 0:
+            # Exit code only, not stderr text: `bd where` fails iff no workspace.
+            _BD_NO_WORKSPACE = run_bd(["bd", "where"]).returncode != 0
     except (subprocess.TimeoutExpired, OSError):
         return False
     return result.returncode == 0
@@ -487,14 +496,15 @@ def _skip_bd_unavailable(start, label):
     """B6/D-08: the shared bd-unavailable fail-open tail -- print NOTICE and
     record one STATE.md blocker naming `label` when a project root is found
     above `start` (none found: notice only)."""
-    print(NOTICE)
+    print(NOTICE_NO_WORKSPACE if _BD_NO_WORKSPACE else NOTICE)
     try:
         project_root = phase_project_root(start)
     except ValueError:
         return
+    reason = "beads enabled but no bd workspace (run `bd init`)" if _BD_NO_WORKSPACE else "bd unavailable"
     append_state_blocker(
         confined(project_root, ".planning", "STATE.md"),
-        f"bd unavailable -- {label} skipped (B6/D-08)",
+        f"{reason} -- {label} skipped (B6/D-08)",
     )
 
 
