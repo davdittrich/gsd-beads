@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.11.0
+
+Plugin 1.10.0, capability 0.11.0.
+
+### Added
+- When `bd` is installed but the project has no beads workspace (`bd where` exits non-zero), `sync.py` runs `bd init --non-interactive --init-if-missing --skip-agents --skip-hooks -q` and carries on. Init stages `.beads/` and `.gitignore` in git, creates `.beads.gate.lock`, and runs `git init` outside a repo. Closes #34.
+
+### Changed
+- If auto-init fails, the skip notice, `STATE.md` blocker, `BEADS-RECALL.md` and ship-override message say beads has no workspace and name `bd init`. Other unavailable causes keep the `bd unavailable` text.
+
 ## 0.10.1
 
 Plugin 1.9.1, capability 0.10.1.
