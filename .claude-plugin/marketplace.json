@@ -44,7 +44,7 @@
       "source": {
         "source": "url",
         "url": "https://github.com/davdittrich/pr-workflow.git",
-        "sha": "0818b09fe53f68a156f0b8cb985ae447e0d4e4ac"
+        "sha": "976b65f8984c232a2f6cf56be3ecfa06c72ce6a2"
       },
       "description": "Wraps gh CLI to read PR/check status for the current branch; execute:wave:post writes a gate-readable PR.md report, ship:pre gates advisorily on it."
     }
