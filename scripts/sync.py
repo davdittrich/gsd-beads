@@ -26,7 +26,7 @@ from pathlib import Path, PurePosixPath
 BD_TIMEOUT = 15  # seconds; bounded timeout on every bd subprocess call
 GIT_TIMEOUT = 15  # seconds; bounded timeout on every git subprocess call (ship_override)
 NOTICE = "bd unavailable -- sync skipped"
-NOTICE_NO_WORKSPACE = "beads enabled but no bd workspace and `bd init` failed -- sync skipped; run `bd init`"
+NOTICE_NO_WORKSPACE = "beads enabled but no bd workspace, and auto `bd init` did not succeed -- sync skipped; run `bd init`"
 BEADS_RECALL_STATUSES = "open,in_progress,blocked,deferred"
 # yyjh: marks every epic/task create so external tools can identify synced
 # issues without heuristics; hand-shaped todo migrations stay unlabelled.
@@ -372,11 +372,18 @@ def _bd_version_ok():
 _BD_NO_WORKSPACE = False  # set by bd_available(): bd present but no workspace
 
 
+def _unavailable_reason():
+    """Skip reason after a False bd_available(); the one place that reads the flag."""
+    return "no bd workspace (run `bd init`)" if _BD_NO_WORKSPACE else "bd unavailable"
+
+
 def bd_available():
     """B6/D-08 fail-open detection point: locate the binary, check its version
     floor, run one cheap read command. Absent, too old, non-zero exit, or
     timeout all take the same "unavailable" path -- this function is the
-    single point of truth for that decision."""
+    single point of truth for that decision. One exception: when the read
+    fails and `bd where` shows no workspace, it runs `bd init` (gsd-beads-ifpb)
+    and re-probes; it sets _BD_NO_WORKSPACE if the workspace is still missing."""
     global _BD_NO_WORKSPACE
     _BD_NO_WORKSPACE = False
     if shutil.which("bd") is None or not _bd_version_ok():
@@ -510,7 +517,7 @@ def _skip_bd_unavailable(start, label):
         project_root = phase_project_root(start)
     except ValueError:
         return
-    reason = "beads enabled but no bd workspace (run `bd init`)" if _BD_NO_WORKSPACE else "bd unavailable"
+    reason = _unavailable_reason()
     append_state_blocker(
         confined(project_root, ".planning", "STATE.md"),
         f"{reason} -- {label} skipped (B6/D-08)",
@@ -3349,7 +3356,7 @@ def beads_recall(phase_dir_arg):
     if not bd_available():
         phase_dir = Path(phase_dir_arg).resolve()
         _skip_bd_unavailable(phase_dir, "beads-recall")
-        reason = "no bd workspace (run `bd init`)" if _BD_NO_WORKSPACE else "bd unavailable"
+        reason = _unavailable_reason()
         _write_beads_recall_failure(phase_dir, reason)
         print(f"BEADS-RECALL.md recall failed: {reason}")
         return 0
@@ -4459,7 +4466,7 @@ def ship_override(phase_dir_arg):
             if comment_result.returncode != 0:
                 print(f"ship-override: bd comment failed: {comment_result.stderr.strip()}")
     else:
-        print(f"ship-override: {'no bd workspace (run `bd init`)' if _BD_NO_WORKSPACE else 'bd unavailable'} -- comment mirror skipped (B6)")
+        print(f"ship-override: {_unavailable_reason()} -- comment mirror skipped (B6)")
 
     return 0 if git_ok else 1
 

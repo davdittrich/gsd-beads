@@ -322,8 +322,9 @@ codex plugin remove beads-lifecycle@gsd-beads
   dependency, with one exception: the `ship:pre` gate fails closed, so an unavailable `bd`
   blocks shipping until `bd` is back or `ship_gate: false` records an override.
   With `bd` installed but no `.beads/` workspace, `sync.py` runs
-  `bd init --non-interactive --init-if-missing --skip-agents --skip-hooks` itself (creating
-  `.beads/` only); if that fails, the skip notice and the `STATE.md` note name `bd init` (the
+  `bd init --non-interactive --init-if-missing --skip-agents --skip-hooks -q` itself, from any
+  lifecycle step that needs `bd`. It writes `.beads/` and the root `.gitignore`, creates
+  `.beads.gate.lock`, and stages those files in git (and runs `git init` outside a repo); if that fails, the skip notice and the `STATE.md` note name `bd init` (the
   `ship:pre` message is unchanged).
 - **Add `.planning/.gsd-beads.lock` to your `.gitignore`.** `sync.py` creates this empty lock
   file on its first issue creation or `STATE.md` note. `bd init` (checked with bd 1.3.1) ignores

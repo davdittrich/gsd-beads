@@ -59,7 +59,8 @@ deleted issue, so sync reports a divergence and creates nothing for that task.
 ## Step 3 -- Report
 
 Print the one-line summary `sync.py` printed: `Synced <n> issue(s) -> epic <id>` or the skip
-notice (`bd unavailable -- sync skipped`, or the no-workspace notice naming `bd init`). `<n>` counts newly created issues only, so a re-run of a
+notice (`bd unavailable -- sync skipped`, or ``beads enabled but no bd workspace, and auto `bd init` did not succeed -- sync skipped; run `bd init` ``).
+`<n>` counts newly created issues only, so a re-run of a
 fully synced plan legitimately prints `Synced 0 issue(s)`.
 
 When every task's stored `<beads-id>` diverged from bd, `sync.py` also prints
