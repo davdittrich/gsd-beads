@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.12.0
+
+Plugin 1.11.0, capability 0.12.0.
 
 ### Removed
 - The local `ship.md` `ship:pre` step-dispatch patch and everything around it: `GSD-CORE-PATCH.md`, the `check-patch` verb (`ship-md` target) in `sync.py`, `beads-status` Step 2d and `beads-recall` Step 3.5. gsd-core 1.18.0 dispatches `kind == "step"` hooks natively at `ship:pre`, so keeping the patch dispatched `beads-status` and `beads-close` twice and the `plan:pre` warning about a missing patch was wrong. **gsd-core older than 1.18.0 no longer dispatches the `ship:pre` steps** (`ship_override` and the live ship-gate recheck do not run). Closes #35.
