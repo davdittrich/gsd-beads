@@ -52,7 +52,6 @@ jobs:
             scripts \
             skills \
             fragments \
-            GSD-CORE-PATCH.md \
             README.md \
             LICENSE \
             -x '*/__pycache__/*'
