@@ -34,7 +34,7 @@ PLUGIN_ROOT="$(cd -P "${CLAUDE_PLUGIN_ROOT:-$(dirname "$0")/..}" 2>/dev/null && 
 # carries dev-only content (tests/, .git, caches). Only an allowlist is ever
 # hashed or installed; it is staged below, once the transaction lock is held.
 [ -f "$PLUGIN_ROOT/capability.json" ] || exit 0
-BUNDLE_ALLOWLIST=(capability.json scripts skills fragments GSD-CORE-PATCH.md)
+BUNDLE_ALLOWLIST=(capability.json scripts skills fragments)
 
 # Hash an explicitly bounded tree as type-tagged, length-prefixed relative
 # paths plus file bytes. Relative framing avoids absolute-root drift and

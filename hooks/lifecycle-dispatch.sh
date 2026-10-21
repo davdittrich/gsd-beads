@@ -3,8 +3,8 @@
 #
 # gsd-core dispatches `plan:post` and `verify:post` natively. This PostToolUse
 # hook handles `plan:pre`, `execute:wave:pre`, and `execute:wave:post` by
-# matching their `gsd_run loop render-hooks <point> --raw` calls. The installed
-# GSD-CORE-PATCH.md step-dispatch patch handles `ship:pre`.
+# matching their `gsd_run loop render-hooks <point> --raw` calls. gsd-core 1.18.0+
+# dispatches `ship:pre` steps natively.
 #
 # Wired as `matcher: "Bash"`, so this runs after EVERY Bash tool call in every
 # session, and the payload carries the tool's full output -- megabytes, at
@@ -46,8 +46,8 @@ esac
 # whichever shim resolved: the `gsd_run` shell function, a `gsd-tools` on
 # PATH, or `node .../gsd-tools.cjs`.
 #
-# `ship:pre` is deliberately absent from POINTS -- it already dispatches
-# through this capability's ship.md patch, and matching it here would
+# `ship:pre` is deliberately absent from POINTS -- it dispatches
+# natively in gsd-core 1.18.0+, and matching it here would
 # double-record a ship_override.
 #
 # One python3 call extracts both fields; re-parsing the same payload for `cwd`

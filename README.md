@@ -108,7 +108,7 @@ failure appends a Blockers/Concerns note and never fails the phase.
 
 gsd-core dispatches `plan:post` and `verify:post` natively. The plugin's `PostToolUse`
 compatibility hook handles `plan:pre`, `execute:wave:pre`, and `execute:wave:post`;
-the installed gsd-core patch handles `ship:pre`. See
+gsd-core 1.18.0+ dispatches `ship:pre` natively. See
 [How the lifecycle steps get dispatched](#how-the-lifecycle-steps-get-dispatched).
 
 The bare `bd` CLI still works as a manual escape hatch for inspecting or driving the same
@@ -135,8 +135,7 @@ The remaining compatibility points enter through
 `gsd_run loop render-hooks <point> --raw`. The plugin's `PostToolUse` hook
 (`hooks/lifecycle-dispatch.sh`) matches that Bash call and runs the declared
 operation for `plan:pre`, `execute:wave:pre`, and `execute:wave:post`.
-`ship:pre` remains covered by this capability's installed `ship.md`
-step-dispatch patch. Every hook is `onError: skip`; before v0.3.0 the missing
+`ship:pre` is dispatched natively by gsd-core 1.18.0+. Every hook is `onError: skip`; before v0.3.0 the missing
 compatibility dispatch was silent, so a phase could plan and execute end-to-end
 with zero `bd` issues and nothing reporting it
 ([#2](https://github.com/davdittrich/gsd-beads/issues/2)).
@@ -231,7 +230,7 @@ When disabled, every lifecycle step no-ops rather than fails, since all eight st
 resolved once per session, and falls back to `phase` when the file is absent, the JSON is
 malformed, or the key is missing.
 
-`ship_gate` is read at `ship:pre` alongside `BEADS.md`'s `blocking_open`/`diverged` fields. The gates read the snapshot `verify:post` wrote; the patched `ship:pre` step then regenerates it from live `bd` and stops the ship on non-zero counts, so issues opened after verify are caught only while the local `ship.md` patch is intact.
+`ship_gate` is read at `ship:pre` alongside `BEADS.md`'s `blocking_open`/`diverged` fields. The gates read the snapshot `verify:post` wrote; the `ship:pre` step then regenerates it from live `bd` and stops the ship on non-zero counts, so issues opened after verify are caught only on gsd-core 1.18.0+, which dispatches that step.
 Setting it to `false` while either field is non-zero does not silently skip the gate: the bypass
 is recorded as a `Beads-Override:` git trailer on the amended ship commit plus a best-effort `bd`
 comment on the phase epic, and the amend is refused when HEAD is already pushed.
@@ -282,11 +281,11 @@ command yourself in a shell, never an agent on your behalf.
 | `CLAUDE_PLUGIN_ROOT` | `hooks/session-start.sh`, `hooks/capability-auto-install.sh` | `$(cd "$(dirname "$0")/.." && pwd)` | Resolves the plugin's own root directory. |
 | `GSD_RUNTIME` | `hooks/capability-auto-install.sh` | plugin-cache owner | Confirms the runtime only: when set, it must equal the plugin-cache owner (`codex` or `claude`), else the hook records nothing. |
 | `CODEX_HOME` | `hooks/capability-auto-install.sh` | `$HOME/.codex` | Locates the selected Codex runtime's gsd-core CLI; Codex skills remain under `$HOME/.agents/skills`. |
-| `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the selected Claude runtime's gsd-core CLI and skills, plus the surviving Patch 1 check against `gsd-core/workflows/ship.md`. |
+| `CLAUDE_CONFIG_DIR` | `hooks/capability-auto-install.sh`, `scripts/sync.py` | `$HOME/.claude` | Locates the selected Claude runtime's gsd-core CLI and skills. |
 | `GSD_HOME` | resolver bootstrap, `hooks/capability-auto-install.sh` | `Path.home()` / `$HOME` | Locates the installed native task-content resolver bundle and the shared per-capability `projection-v2` ledger. |
 
 gsd-beads only reads these — it never sets them — and every one has a working default, so none
-is required. The surviving `CLAUDE_CONFIG_DIR` patch check in `sync.py` probes the Claude runtime
+is required. The native-dispatch probe in `sync.py` probes the Claude runtime
 home only; it does not check other runtime homes such as `CODEX_HOME` or `CURSOR_CONFIG_DIR`.
 `sync.py`'s 15-second `bd` subprocess timeout is a module constant, not a configurable
 environment variable.
@@ -331,7 +330,7 @@ codex plugin remove beads-lifecycle@gsd-beads
   only `.beads/*.lock`, and the commit step of `/gsd:fast` runs `git add -A`, which stages it unless
   `commit_docs` is `false`.
 - **`resolves_issues` closes any open bd id.** A completed plan's `SUMMARY.md` frontmatter may list ids from outside the phase; they are syntax-checked only, so a typo or foreign id closes whatever it names.
-- **On a runtime without `PostToolUse`**, the native and patched points still run; drive the three
+- **On a runtime without `PostToolUse`**, the native points still run; drive the three
   compatibility points with `sync.py lifecycle-dispatch <point>`. The `execute:wave:pre`
   `<beads_status>` block is phase-wide because the hook carries no wave plan-id list: a superset of
   the wave's issues.
@@ -347,8 +346,7 @@ codex plugin remove beads-lifecycle@gsd-beads
   Claude Code cache behavior, not something this repo controls. The repository root is the
   plugin root (the marketplace entry's source is `./`), so `.planning/`, `.beads/`, and
   `tests/` are present in the cache too. The SessionStart auto-install hook installs only an
-  allowlist from it (`capability.json`, `scripts/`, `skills/`, `fragments/`,
-  `GSD-CORE-PATCH.md`), staged into a temporary directory, never the whole root. Installing
+  allowlist from it (`capability.json`, `scripts/`, `skills/`, `fragments/`), staged into a temporary directory, never the whole root. Installing
   is distinct from the GitHub Release archive, which ships only `.claude-plugin/`, `.agents/`,
   `hooks/`, the same capability allowlist, `README.md`, and `LICENSE`.
 - **`gsd-beads` is the source of exactly one capability, `beads`.** `ponytail-everywhere` and

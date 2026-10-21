@@ -240,44 +240,9 @@ SOLUTION_RE = re.compile(r"^##\s*Solution\s*\n(.*)", re.MULTILINE | re.DOTALL)
 # future idea, not a migrated todo's severity.
 SEVERITY_TO_PRIORITY = {"blocker": 0, "major": 1, "minor": 2, "cosmetic": 3}
 BEADS_MD_FIELD_RE = re.compile(r"^(\w+):\s*(.*)$", re.MULTILINE)
-# 03-03 Task 2: the literal marker bracketing the local ship.md patch
-# (GSD-CORE-PATCH.md) -- check_patch() does a plain substring check
-# against this, never a regex, since the marker is a fixed literal string.
-#
-# v2 (gsd-core 1.11.0): the patch shrank to step dispatch only. gsd-core
-# 1.11.0 landed PR #3608 for issue #3559, adding a native "Every other
-# capId" arm to ship.md's preflight step 6 -- so the v1 patch's generic GATE
-# dispatch is now upstream and was NOT reapplied. Generic STEP dispatch at
-# ship:pre still has no native equivalent (every `kind == "step"` mention in
-# 1.11.0's ship.md belongs to ship:post), so that half remains.
-#
-# The version bump is deliberate: a machine still carrying v1 has a
-# now-redundant gate loop running alongside the native one, and this checker
-# reporting "missing" is the signal to reapply the trimmed v2.
-SHIP_MD_PATCH_MARKER = "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->"
-# 17-04 Task 3 (D-08/D-10): the ship-md patch check `check_patch` reads.
-SHIP_MD_PATCH_PATH_PARTS = ("gsd-core", "workflows", "ship.md")
-SHIP_MD_PATCH_VERSION = "v2"
-SHIP_MD_FILENAME = "ship.md"
-SHIP_MD_NOT_FOUND_MSG = (
-    "⚠ {filename} not found at {path} -- cannot verify the local ship:pre dispatch "
-    "patch (only this runtime home was probed; other runtime homes such as "
-    "CODEX_HOME or CURSOR_CONFIG_DIR were not checked)"
-)
-SHIP_MD_COULD_NOT_READ_MSG = (
-    "⚠ {filename} at {path} could not be read ({exc}) -- cannot verify the "
-    "local ship:pre dispatch patch"
-)
-SHIP_MD_PRESENT_MSG = "{filename} ship:pre step-dispatch patch: present ({version}) at {path}"
-SHIP_MD_MISSING_MSG = (
-    "⚠ {filename}'s ship:pre generic STEP dispatch patch (beads, {version}) is "
-    "missing at {path} -- the ship_override step will not fire. The two ship:pre "
-    "GATES are unaffected: gsd-core >= 1.11.0 dispatches those natively (#3559 / PR "
-    "#3608). Reapply: see .gsd/capabilities/beads/GSD-CORE-PATCH.md"
-)
 # gh-2: the lifecycle points `lifecycle_dispatch` handles -- every `steps[]`
-# entry in capability.json EXCEPT `ship:pre`, which already dispatches
-# natively through this capability's own ship.md patch. Order is the
+# entry in capability.json EXCEPT `ship:pre`, which gsd-core 1.18.0+
+# dispatches natively. Order is the
 # lifecycle's, not alphabetical, and `hooks/lifecycle-dispatch.sh` carries
 # the same list: any change here must be mirrored there.
 LIFECYCLE_DISPATCH_POINTS = (
@@ -1441,16 +1406,11 @@ def check_sync_mode_value(project_root):
     project whose `.planning/config.json` stores a `beads.sync_mode` value
     outside the declared enum -- the retired `off` value, an empty string,
     a case/whitespace variant, or a non-string type. Called from
-    `lifecycle_dispatch`'s `plan:pre` branch, beside `check_patch()`
-    inside the same `try/except Exception`,
-    so a failure here degrades to at most one skipped notice and cannot
+    `lifecycle_dispatch`'s `plan:pre` branch inside its
+    `try/except Exception`, so a failure here degrades to at most one skipped notice and cannot
     take out `beads_recall`.
 
-    Prints to STDOUT -- the same stream `check_patch` uses for all four of
-    its message paths (`not_found_msg`, `could_not_read_msg`, `present_msg`,
-    `missing_msg`) (WR-01: this
-    function shares that convention, it is not
-    the opposite of it). `hooks/lifecycle-dispatch.sh` promotes only stdout
+    Prints to STDOUT -- `hooks/lifecycle-dispatch.sh` promotes only stdout
     into `additionalContext`; the whole point of this notice is that a user
     encounters it without taking any action, so a stderr line would be
     exactly the invisible outcome the D-04 migration answer rejects. Do
@@ -1579,8 +1539,8 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
     the call site that has to honour that contract: an unknown point, an
     opted-out project, a directory with no `.planning/`, an unresolvable
     current phase, and an unexpected failure inside a verb each degrade to
-    at most one notice line. `ship:pre` is deliberately absent -- it already
-    dispatches through this capability's own `ship.md` patch, and adding it
+    at most one notice line. `ship:pre` is deliberately absent -- it dispatches
+    natively in gsd-core 1.18.0+, and adding it
     here would double-record a `ship_override`.
     """
     if point not in LIFECYCLE_DISPATCH_POINTS:
@@ -1623,17 +1583,9 @@ def lifecycle_dispatch(point, phase_dir_arg=None):
     try:
         if point == "plan:pre":
             beads_recall(str(phase_dir))
-            # The patch-loss detector documented in beads-recall/SKILL.md's
-            # Step 3.5. It was wired at plan:pre precisely so it would be
-            # independent of the ship.md patch it checks -- but plan:pre was
-            # itself one of the dead points, so it shared the failure mode of
-            # the thing it protects. Reached from a harness hook it is finally
-            # independent of gsd-core's dispatch prose altogether.
-            check_patch()
             # 17-03 Task 2 (D-04 Case 2): stdout notice for an out-of-enum
-            # beads.sync_mode value -- both plan:pre checks above and
-            # here print to stdout and run inside this one try/except
-            # alongside beads_recall; see check_sync_mode_value's docstring
+            # beads.sync_mode value -- this prints to stdout and runs inside
+            # this one try/except alongside beads_recall; see check_sync_mode_value's docstring
             # for why stdout is the correct stream (WR-01).
             check_sync_mode_value(project_root)
         elif point == "plan:post":
@@ -4471,39 +4423,6 @@ def ship_override(phase_dir_arg):
     return 0 if git_ok else 1
 
 
-def check_patch(path_override=None):
-    """17-04 Task 3 (TRUTH-02): the retained Patch 1 ship-md check. Preserves the three-case return contract (not-found /
-    could-not-read / marker present-or-missing), the `CLAUDE_CONFIG_DIR`
-    idiom, and naming the exact path probed in every message (WR-03).
-    Read-only. Total by construction (T-17-04-02): both checks run inside
-    `lifecycle_dispatch`'s one `try/except` alongside `beads_recall`.
-    """
-    if path_override:
-        path = Path(path_override)
-    else:
-        path = Path(
-            os.environ.get("CLAUDE_CONFIG_DIR", str(Path.home() / ".claude"))
-        ).joinpath(*SHIP_MD_PATCH_PATH_PARTS)
-    if not path.exists():
-        print(SHIP_MD_NOT_FOUND_MSG.format(filename=SHIP_MD_FILENAME, path=path))
-        return 1
-    # WR-02/CR-02: degrade to "cannot verify" rather than raise -- an
-    # An unreadable target returns a checker result instead of raising so
-    # retained Patch 1 ship diagnostics can still complete.
-    try:
-        text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError) as exc:
-        print(SHIP_MD_COULD_NOT_READ_MSG.format(filename=SHIP_MD_FILENAME, path=path, exc=exc))
-        return 1
-    present = SHIP_MD_PATCH_MARKER in text
-    fmt = SHIP_MD_PRESENT_MSG if present else SHIP_MD_MISSING_MSG
-    # WR-01: stdout is deliberate here, not a convention to "fix" -- the
-    # hook (hooks/lifecycle-dispatch.sh) promotes only stdout into
-    # additionalContext, so a stderr line would silently vanish.
-    print(fmt.format(filename=SHIP_MD_FILENAME, path=path, version=SHIP_MD_PATCH_VERSION))
-    return 0 if present else 1
-
-
 def check_native_step_dispatch(point, workflow_path_override=None):
     """D-05 diagnostic (17-02 Task 1): report whether the installed gsd-core
     workflow file now dispatches `kind == "step"` hooks natively at this
@@ -4512,12 +4431,8 @@ def check_native_step_dispatch(point, workflow_path_override=None):
     to know so it can stand down at `plan:post`/`verify:post` rather than
     double-dispatch alongside gsd-core's own native loop.
 
-    Opposite polarity from check_patch(): it asks "is our
-    local patch still here" (missing is bad); this
-    asks "does upstream now do this natively" (present means the hook is
-    redundant here). Kept a SEPARATE function rather than a shared table
-    with those two for exactly that reason -- sharing one table would
-    produce a misleading unified pass/fail semantic.
+    Asks "does upstream now do this natively" (present means the hook is
+    redundant here).
 
     Region-scoped, not whole-file: a whole-file `kind == "step"` grep is a
     verified false positive on both shipped 1.11.0 workflow files --
@@ -4538,10 +4453,8 @@ def check_native_step_dispatch(point, workflow_path_override=None):
     failure direction (D-05). Never raises.
 
     WR-03: only the Claude runtime home (`CLAUDE_CONFIG_DIR`, default
-    `~/.claude`) is probed, matching the two patch checkers above; every
-    message names the exact path checked. Unlike those two (which print to
-    stdout, since their only caller today is plan:pre, an already-active
-    dispatch point), this probe's own diagnostics print to stderr: it is
+    `~/.claude`) is probed, every
+    message names the exact path checked. This probe's own diagnostics print to stderr: it is
     called unconditionally at the top of the plan:post/verify:post
     branches, before either knows whether there is anything to do, and
     stdout is what a PostToolUse hook promotes into Claude's context -- a
@@ -4696,13 +4609,6 @@ def _main(argv):
         help="Record a beads.ship_gate=false bypass via a git trailer plus a best-effort bd comment (D-05)",
     )
     ship_override_p.add_argument("phase_dir")
-    # 17-04 Task 3 (D-08): one verb reaches the retained patch-check target.
-    check_patch_p = sub.add_parser(
-        "check-patch",
-        help="Report whether the local GSD-CORE-PATCH.md ship-md patch is present",
-    )
-    check_patch_p.add_argument("target", choices=["ship-md"])
-    check_patch_p.add_argument("--path", default=None)
     lifecycle_p = sub.add_parser(
         "lifecycle-dispatch",
         help="Run the beads operation a lifecycle point declares (gh-2); entered from the "
@@ -4778,8 +4684,6 @@ def _main(argv):
         return render_wave_status_block(args.phase_dir, args.plan_ids)
     if args.command == "ship-override":
         return ship_override(args.phase_dir)
-    if args.command == "check-patch":
-        return check_patch(args.path)
     if args.command == "lifecycle-dispatch":
         return lifecycle_dispatch(args.point, args.phase_dir)
     if args.command == "migrate-todos":

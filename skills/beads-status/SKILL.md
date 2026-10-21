@@ -35,7 +35,7 @@ no plan ids.
 | `execute:wave:pre`, before any executor `Agent()` spawns | Step 2a |
 | `execute:wave:post`, after every plan in the wave merged | Step 2f, then Step 3 |
 | `verify:post`, once per phase | Step 2b |
-| `ship:pre`, once per phase | Step 2c, then Step 2d |
+| `ship:pre`, once per phase | Step 2c |
 | none (a direct `/gsd-beads-status [phase]` call) | Step 2e |
 
 ## Step 2a -- execute:wave:pre: compose the wave-status block
@@ -96,7 +96,7 @@ unseen. First run Step 2b's command, which regenerates `BEADS.md` from live `bd`
 
 - `beads.ship_gate` is not `false` and a field is nonzero: print `SHIP BLOCKED: beads reports
   blocking_open=<n> diverged=<n> since the gate read BEADS.md. Do not push or create a PR; resolve
-  them and rerun the ship.` Then stop; skip Step 2d. If HEAD is already pushed, the notice is advisory.
+  them and rerun the ship.` Then stop. If HEAD is already pushed, the notice is advisory.
 - `beads.ship_gate` is `false` and a field is nonzero: run the call below and report its summary
   (the git trailer, and the bd comment outcome or skip notice).
 - Otherwise print nothing.
@@ -115,30 +115,6 @@ if [ ! -f "$SYNC_PY" ]; then
 fi
 python3 -I "$SYNC_PY" ship-override <phase directory>
 ```
-
-## Step 2d -- ship:pre: verify the local ship.md patch
-
-Always runs at `ship:pre`, whether or not Step 2c did anything.
-
-```bash
-_B="${GSD_HOME:-${HOME:-}}"
-case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
-_G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
-if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
-elif [ -f "$_P" ]; then SYNC_PY="$_P"
-else SYNC_PY=; fi
-if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
-  exit 1
-fi
-python3 -I "$SYNC_PY" check-patch ship-md
-```
-
-When the command exits non-zero or its output lacks the word "present", show that output to the
-user verbatim. Let shipping proceed whatever it prints: the check is diagnostic. It confirms an intact patch but
-cannot detect a lost one, because this call site runs only through the patched loop;
-`beads-recall` Step 3.5 is the detector. Patch and upstream status: `GSD-CORE-PATCH.md`.
 
 ## Step 2e -- bare invocation: on-demand status
 
