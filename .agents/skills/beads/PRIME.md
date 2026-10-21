@@ -23,28 +23,28 @@ This project runs gsd-core's plan/execute/verify/ship lifecycle on top of `bd`. 
 
 ## Sync points
 
-Eight `capability.json` lifecycle steps dispatch bd integration automatically — none of them can fail a phase (`onError: skip` on every one). The **Dispatched by** column distinguishes current gsd-core native dispatch, compatibility-hook dispatch, and the installed ship patch.
+Eight `capability.json` lifecycle steps dispatch bd integration automatically — none of them can fail a phase (`onError: skip` on every one). The **Dispatched by** column distinguishes current gsd-core native dispatch, and compatibility-hook dispatch.
 
 | Point | Skill | Dispatched by | Effect |
 |---|---|---|---|
-| `plan:pre` | `gsd-beads-recall` | PostToolUse hook | Scans open bd issues, writes `BEADS-RECALL.md` naming any that may touch the phase about to be planned; consumed by the planner. Also runs the surviving Patch 1 loss check. |
+| `plan:pre` | `gsd-beads-recall` | PostToolUse hook | Scans open bd issues, writes `BEADS-RECALL.md` naming any that may touch the phase about to be planned; consumed by the planner. |
 | `plan:post` | `gsd-beads-sync` | gsd-core native step dispatch | Parses every `PLAN.md`, verifies bound task identities before mutation, creates/resolves the epic and task issues, writes missing `beads_epic`/`<beads-id>` values, and projects exact `auto`/`tracer` tasks as `tracker-id="beads:<id>"`. |
 | `execute:wave:pre` | `gsd-beads-status` | PostToolUse hook | Regenerates `BEADS.md` from a live `bd` query and composes a `<beads_status>` block for the orchestrator to paste into each executor's prompt. Phase-wide, not wave-scoped — the hook's trigger carries no wave plan-id list. |
 | `execute:wave:post` | `gsd-beads-status` | PostToolUse hook | Closes every task-complete bd issue across every plan in the phase (`reconcile-stale-closed`, idempotent). |
 | `verify:post` | `gsd-beads-status` | gsd-core native step dispatch | Regenerates `BEADS.md` only (closes nothing) — no wave/plan context, no task closes. |
 | `verify:post` | `gsd-beads-close` | gsd-core native step dispatch | Runs `close-phase-epic`, then `reconcile-report <phase directory>`: a read-only list of non-closed tickets that `BEADS-RECALL.md` matched or that are epic children no plan task names. It closes only where `VERIFICATION.md` already exists (verify-work, autonomous) and does nothing in execute-phase, where gsd-core dispatches `verify:post` before the verifier writes it. `--after-fingerprint` skips steps whose produced file exists (the status step produces `BEADS.md`); produces `[]` never skips. |
-| `ship:pre` | `gsd-beads-status` | installed `ship.md` step-dispatch patch | Records a `ship_override` if the ship gate was bypassed with open/diverged issues, and confirms the local `ship.md` patch is intact. |
-| `ship:pre` | `gsd-beads-close` | installed `ship.md` step-dispatch patch | Runs `close-phase-epic`, then `reconcile-report` (the list also covers findings filed by code review, gap closure and the verifier), once no gate blocks and `VERIFICATION.md` is final. Close conditions: see the `beads-close` skill. |
+| `ship:pre` | `gsd-beads-status` | gsd-core native step dispatch (1.18.0+) | Records a `ship_override` if the ship gate was bypassed with open/diverged issues |
+| `ship:pre` | `gsd-beads-close` | gsd-core native step dispatch (1.18.0+) | Runs `close-phase-epic`, then `reconcile-report` (the list also covers findings filed by code review, gap closure and the verifier), once no gate blocks and `VERIFICATION.md` is final. Close conditions: see the `beads-close` skill. |
 
 ## Dispatch mechanism
 
 Current gsd-core dispatches `plan:post` and `verify:post` steps natively. The compatibility dispatcher probes the installed workflow files at those two points and stands down when native dispatch is present, preventing duplicate `bd` mutations.
 
-The remaining compatibility points enter through `gsd_run loop render-hooks <point> --raw`. `hooks/lifecycle-dispatch.sh` is a `PostToolUse` hook that matches that Bash call and runs `sync.py lifecycle-dispatch <point>` for `plan:pre`, `execute:wave:pre`, and `execute:wave:post`. `ship:pre` remains covered by the installed `ship.md` step-dispatch patch.
+The remaining compatibility points enter through `gsd_run loop render-hooks <point> --raw`. `hooks/lifecycle-dispatch.sh` is a `PostToolUse` hook that matches that Bash call and runs `sync.py lifecycle-dispatch <point>` for `plan:pre`, `execute:wave:pre`, and `execute:wave:post`. gsd-core 1.18.0+ dispatches `ship:pre` natively.
 
 Two consequences worth knowing:
 
-- On a runtime without `PostToolUse`, `plan:post` and `verify:post` still dispatch natively. Drive `plan:pre`, `execute:wave:pre`, and `execute:wave:post` by resolving `SYNC_PY` with the resolver block in the `gsd-beads-sync` skill's fence (installed global script first, never a repository's own copy), then running `python3 -I "$SYNC_PY" lifecycle-dispatch <point>`; `ship:pre` still depends on the installed `ship.md` patch.
+- On a runtime without `PostToolUse`, `plan:post` and `verify:post` still dispatch natively. Drive `plan:pre`, `execute:wave:pre`, and `execute:wave:post` by resolving `SYNC_PY` with the resolver block in the `gsd-beads-sync` skill's fence (installed global script first, never a repository's own copy), then running `python3 -I "$SYNC_PY" lifecycle-dispatch <point>`; `ship:pre` depends on gsd-core 1.18.0+ dispatching it natively.
 - **`beads.enabled` is re-read by `sync.py`**, not by the capability registry — the hook bypasses the registry that evaluates each step's `when` condition.
 
 ## Ship gate

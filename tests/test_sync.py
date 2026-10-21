@@ -7569,14 +7569,14 @@ class TestBeadsCloseSteps(unittest.TestCase):
         self.assertIn("Regenerates `BEADS.md` only (closes nothing)", row)
 
 
-class TestPatchChecksTable(unittest.TestCase):
-    """The patch checker is gone from the public CLI."""
+class TestRetiredVerbs(unittest.TestCase):
+    """The retired and removed patch-check verbs are gone from the public CLI."""
 
     # -- 17-04 Task 3: retired-verb checks --
 
     def test_retired_verbs_are_gone_from_the_cli(self):
         """Caller assertion: sync.main raises SystemExit (argparse's
-        usage-error path) for either retired verb rather than routing to a
+        usage-error path) for each retired or removed verb rather than routing to a
         function -- the collapse actually removed the old subparsers, it did
         not just add a new one alongside them. Built from parts so this test
         itself does not trip the "zero surviving references to either
@@ -9260,8 +9260,8 @@ class TestLifecycleDispatchFailOpen(unittest.TestCase):
         self.assertEqual(err, "")
 
     def test_ship_pre_is_not_dispatched_here(self):
-        """ship:pre already dispatches through this capability's own ship.md
-        patch; dispatching it here too would double-record a ship_override."""
+        """gsd-core 1.18.0+ dispatches ship:pre natively;
+        dispatching it here too would double-record a ship_override."""
         self.assertNotIn("ship:pre", sync.LIFECYCLE_DISPATCH_POINTS)
         with tempfile.TemporaryDirectory() as tmp:
             _lifecycle_workspace(Path(tmp))
