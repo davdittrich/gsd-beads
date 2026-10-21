@@ -54,31 +54,6 @@ neither way is listed under "Unscoped", never dropped. A successful run carries
 `recall_status: ok`; a failed `bd list` overwrites the file with `recall_status: failed` and a
 `recall_error`, so one key tells a consumer which it is.
 
-## Step 3.5 -- verify the local gsd-core patch
-
-Always runs after Step 3, even when `bd` was unavailable (it reads only the installed workflow file):
-
-```bash
-_B="${GSD_HOME:-${HOME:-}}"
-case "$_B" in /?*) ;; *) echo "gsd-beads: no absolute GSD_HOME or HOME; refusing to resolve sync.py" >&2; exit 1;; esac
-_G="$_B/.gsd/capabilities/beads"
-_P="${CLAUDE_PLUGIN_ROOT:+$CLAUDE_PLUGIN_ROOT/scripts/sync.py}"; case "$_P" in /?*) ;; *) _P= ;; esac
-if [ -e "$_G/capability.json" ] || [ -L "$_G/capability.json" ]; then SYNC_PY="$_G/scripts/sync.py"
-elif [ -f "$_P" ]; then SYNC_PY="$_P"
-else SYNC_PY=; fi
-if [ ! -f "$SYNC_PY" ]; then
-  echo "gsd-beads: sync.py not found in global or plugin roots" >&2
-  exit 1
-fi
-python3 -I "$SYNC_PY" check-patch ship-md
-```
-
-When the command exits non-zero or its output lacks the word "present", show that output to the
-user verbatim. Let planning proceed whatever it prints: the check is diagnostic. This is the call that detects a
-lost `ship.md` patch; `beads-status` Step 2d only confirms an intact one. It stays independent of
-the patch because `hooks/lifecycle-dispatch.sh` dispatches `plan:pre`, so it fires whether or not
-the patch survived a `gsd-core` update.
-
 ## Step 4 -- Report
 
 Print the one-line summary `sync.py` printed: `BEADS-RECALL.md written: <n> matched, <m> unscoped

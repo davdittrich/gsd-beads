@@ -7434,7 +7434,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
             # .git/.planning/tests, which are not part of the bundle.
             capability_source = project_root / "bundle-src"
             capability_source.mkdir()
-            for entry in ("capability.json", "scripts", "skills", "fragments", "GSD-CORE-PATCH.md"):
+            for entry in ("capability.json", "scripts", "skills", "fragments"):
                 src = source_root / entry
                 if src.is_dir():
                     shutil.copytree(src, capability_source / entry, ignore=shutil.ignore_patterns("__pycache__"))
@@ -7569,142 +7569,8 @@ class TestBeadsCloseSteps(unittest.TestCase):
         self.assertIn("Regenerates `BEADS.md` only (closes nothing)", row)
 
 
-class TestCheckShipmdPatch(unittest.TestCase):
-    """03-03 Task 2: check_patch is a pure read-and-warn function
-    (never edits ship.md) reporting whether the local ship.md patch is
-    present, absent, or the file itself is missing."""
-
-    def test_reports_present_when_marker_found(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            ship_md = Path(tmp) / "ship.md"
-            ship_md.write_text(
-                f"...preamble...\n{sync.SHIP_MD_PATCH_MARKER}\n...body...\n",
-                encoding="utf-8",
-            )
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_patch(str(ship_md))
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("present", captured.getvalue())
-
-    def test_reports_missing_with_reapply_pointer_when_marker_absent(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            ship_md = Path(tmp) / "ship.md"
-            ship_md.write_text("no patch marker in this file\n", encoding="utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_patch(str(ship_md))
-
-        self.assertEqual(exit_code, 1)
-        out = captured.getvalue()
-        self.assertIn("GSD-CORE-PATCH.md", out)
-        self.assertIn("ship_override", out)
-
-    def test_reports_missing_with_reapply_pointer_when_file_absent(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            missing_path = Path(tmp) / "does-not-exist" / "ship.md"
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_patch(str(missing_path))
-
-        self.assertEqual(exit_code, 1)
-        self.assertIn(str(missing_path), captured.getvalue())
-
-    def test_reports_cannot_verify_when_file_is_not_valid_utf8(self):
-        """WR-02: a non-UTF-8 byte sequence in ship.md must degrade to the
-        same "cannot verify" exit code as the missing-file case, not raise
-        UnicodeDecodeError out of the function."""
-        with tempfile.TemporaryDirectory() as tmp:
-            ship_md = Path(tmp) / "ship.md"
-            ship_md.write_bytes(b"\xff\xfe not valid utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.check_patch(str(ship_md))
-
-        self.assertEqual(exit_code, 1)
-        self.assertIn("could not be read", captured.getvalue())
-
-    def test_never_writes_to_target_file(self):
-        """D-09: the retained Patch 1 ship-md checker is read-only and never
-        changes the target file."""
-        with tempfile.TemporaryDirectory() as tmp:
-            ship_md = Path(tmp) / "ship.md"
-            original = f"...preamble...\n{sync.SHIP_MD_PATCH_MARKER}\n...body...\n"
-            ship_md.write_text(original, encoding="utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_patch(str(ship_md))
-            self.assertEqual(ship_md.read_text(encoding="utf-8"), original)
-
-    def test_cli_routes_through_main_and_returns_function_exit_code(self):
-        """D-09/17-04 Task 3: the retained Patch 1 CLI routes the ship-md
-        target through the generic `check-patch` verb and returns the
-        checker exit code."""
-        with tempfile.TemporaryDirectory() as tmp:
-            ship_md = Path(tmp) / "ship.md"
-            ship_md.write_text(f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                exit_code = sync.main(["check-patch", "ship-md", "--path", str(ship_md)])
-
-        self.assertEqual(exit_code, 0)
-        self.assertIn("present", captured.getvalue())
-
-
-
 class TestPatchChecksTable(unittest.TestCase):
-    """Retained Patch 1 coverage pins the ship-md marker, version,
-    consequence text, generic table invariant, and public CLI behavior."""
-
-    def test_ship_md_marker_literal_string(self):
-        self.assertEqual(
-            sync.SHIP_MD_PATCH_MARKER,
-            "<!-- gsd-beads-patch:ship-pre-generic-dispatch v2 -->",
-        )
-
-    def test_ship_md_present_message_carries_v2_token(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            ship_md = Path(tmp) / "ship.md"
-            ship_md.write_text(f"{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_patch(str(ship_md))
-        self.assertIn("(v2)", captured.getvalue())
-
-    def test_ship_md_missing_message_names_ship_pre_gates_unaffected(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            ship_md = Path(tmp) / "ship.md"
-            ship_md.write_text("no patch marker in this file\n", encoding="utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_patch(str(ship_md))
-        out = captured.getvalue()
-        self.assertIn("ship_override step will not fire", out)
-        self.assertIn("ship:pre GATES are", out)
-        self.assertIn("unaffected", out)
-
-    # -- 18-03 Task 1 (D-03.1): not-found/could-not-read now carry the same
-    # marker missing_msg already does, one test per target per case so a
-    # merge that collapses the two targets' wording cannot pass on the
-    # other target's message. --
-
-    def test_ship_md_not_found_message_carries_the_marker(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            missing_path = Path(tmp) / "does-not-exist" / "ship.md"
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_patch(str(missing_path))
-        self.assertTrue(captured.getvalue().startswith("⚠ "))
-
-    def test_ship_md_could_not_read_message_carries_the_marker(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            ship_md = Path(tmp) / "ship.md"
-            ship_md.write_bytes(b"\xff\xfe not valid utf-8")
-            captured = io.StringIO()
-            with contextlib.redirect_stdout(captured):
-                sync.check_patch(str(ship_md))
-        self.assertTrue(captured.getvalue().startswith("⚠ "))
+    """The patch checker is gone from the public CLI."""
 
     # -- 17-04 Task 3: retired-verb checks --
 
@@ -7717,11 +7583,14 @@ class TestPatchChecksTable(unittest.TestCase):
         retired verb" caller-assertion grep."""
         retired_ship_verb = "check-shipmd" + "-patch"
         retired_execute_verb = "check-execute-plan" + "-patch"
+        removed_verb = "check" + "-patch"
         with contextlib.redirect_stderr(io.StringIO()):
             with self.assertRaises(SystemExit):
                 sync.main([retired_ship_verb, "--ship-md-path", "/tmp/x"])
             with self.assertRaises(SystemExit):
                 sync.main([retired_execute_verb, "--execute-plan-path", "/tmp/x"])
+            with self.assertRaises(SystemExit):
+                sync.main([removed_verb, "ship-md"])
 
 
 def _write_todo_pending_workspace(tmp_path, with_state=True):
@@ -9072,17 +8941,14 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             finally:
                 os.chdir(prev)
 
-    def test_plan_pre_runs_recall_then_two_diagnostics(self):
-        """The retained Patch 1 loss detector and sync-mode diagnostic run
-        after recall at plan:pre."""
+    def test_plan_pre_runs_recall_then_sync_mode_diagnostic(self):
+        """The sync-mode diagnostic runs after recall at plan:pre."""
         with self._in_workspace() as phase_dir:
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0) as ship, \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0) as sm:
                 exit_code = sync.lifecycle_dispatch("plan:pre")
         self.assertEqual(exit_code, 0)
         recall.assert_called_once_with(str(phase_dir))
-        ship.assert_called_once_with()
         sm.assert_called_once()
 
     def test_explicit_phase_dir_overrides_state_current_phase(self):
@@ -9095,7 +8961,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             requested_phase_dir = state_phase_dir.parent / "08-requested"
             requested_phase_dir.mkdir()
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0), \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0):
                 exit_code = sync.lifecycle_dispatch(
                     "plan:pre", str(requested_phase_dir)
@@ -9111,7 +8976,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             requested_phase_dir = state_phase_dir.parent / "08-requested"
             requested_phase_dir.mkdir()
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0), \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0):
                 for token in ("8", "08"):
                     with self.subTest(token=token):
@@ -9170,7 +9034,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             phases_root = state_phase_dir.parent
             (phases_root / "04-esc").symlink_to(phases_root.parents[1], target_is_directory=True)
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0), \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0):
                 for token in ("04", "4", "04-esc"):
                     with self.subTest(token=token):
@@ -9187,7 +9050,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             target.mkdir(exist_ok=True)
             (phases_root / "08-alias").symlink_to(target, target_is_directory=True)
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0), \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0):
                 for arg in ("08", "8", "08-alias", str(phases_root / "08-alias")):
                     with self.subTest(arg=arg):
@@ -9212,7 +9074,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             with mock.patch.object(sync, "_resolve_default_phase_dir",
                                    side_effect=AssertionError("default resolved")), \
                  mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0), \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0):
                 self.assertEqual(sync.lifecycle_dispatch("plan:pre", str(requested)), 0)
             recall.assert_called_once_with(str(requested))
@@ -9225,7 +9086,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
                 shutil.rmtree(phases_root)
                 phases_root.symlink_to(outside, target_is_directory=True)
                 with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                     mock.patch.object(sync, "check_patch", return_value=0), \
                      mock.patch.object(sync, "check_sync_mode_value", return_value=0):
                     for arg in ("08-x", "8", str(phases_root / "08-x")):
                         with self.subTest(arg=arg):
@@ -9239,7 +9099,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
                 (phases_root / name).mkdir()
             expected = {"1": "01-a", "10": "10-x", "2": "02-b", "2.1": "02.1-dec", "02.1": "02.1-dec"}
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0), \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0):
                 for token, name in expected.items():
                     with self.subTest(token=token):
@@ -9253,7 +9112,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             requested_phase_dir.mkdir()
             relative = requested_phase_dir.relative_to(state_phase_dir.parents[2])
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0), \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0):
                 for phase_dir in (str(relative), str(requested_phase_dir)):
                     with self.subTest(phase_dir=phase_dir):
@@ -9271,7 +9129,6 @@ class TestLifecycleDispatchRouting(unittest.TestCase):
             requested_plan = requested_phase_dir / "08-01-PLAN.md"
             requested_plan.write_text(plan, encoding="utf-8")
             with mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                 mock.patch.object(sync, "check_patch", return_value=0), \
                  mock.patch.object(sync, "check_sync_mode_value", return_value=0), \
                  mock.patch.object(sync, "check_native_step_dispatch", return_value=0), \
                  mock.patch.object(sync, "create_issues", return_value=0) as create, \
@@ -9978,8 +9835,7 @@ class TestLifecycleDispatchNativeGate(unittest.TestCase):
             os.chdir(tmp)
             try:
                 with mock.patch.object(sync, "check_native_step_dispatch", return_value=1), \
-                     mock.patch.object(sync, "beads_recall", return_value=0) as recall, \
-                     mock.patch.object(sync, "check_patch", return_value=0):
+                     mock.patch.object(sync, "beads_recall", return_value=0) as recall:
                     exit_code = sync.lifecycle_dispatch("plan:pre")
             finally:
                 os.chdir(prev)
@@ -10660,13 +10516,11 @@ fi"""
     RAW_FENCES = (
         ("beads-sync:create-issues", "beads-sync/SKILL.md", ("create-issues <PLAN.md path>",)),
         ("beads-recall:recall", "beads-recall/SKILL.md", ("beads-recall <phase directory>",)),
-        ("beads-recall:patch-check", "beads-recall/SKILL.md", ("check-patch ship-md",)),
         ("beads-migrate-todos:migrate", "beads-migrate-todos/SKILL.md", ("migrate-todos",)),
         ("beads-status:wave-status", "beads-status/SKILL.md", ("wave-status-block <phase directory> <plan id> [<plan id> ...]",)),
         ("beads-status:regenerate", "beads-status/SKILL.md", ("regenerate-beads-md <phase directory>",)),
         ("beads-close:close-phase-epic", "beads-close/SKILL.md", ("close-phase-epic <phase directory>", "reconcile-report <phase directory>")),
         ("beads-status:ship-override", "beads-status/SKILL.md", ("ship-override <phase directory>",)),
-        ("beads-status:patch-check", "beads-status/SKILL.md", ("check-patch ship-md",)),
         ("beads-status:status", "beads-status/SKILL.md", ("status [phase directory]",)),
         ("beads-status:close-wave", "beads-status/SKILL.md", ("close-wave <phase directory> <plan id> [<plan id> ...]",)),
     )
@@ -10916,8 +10770,6 @@ fi"""
             argv_cases = (
                 ("create-issues", str(base / "PLAN path.md")),
                 ("beads-recall", phase),
-                ("check-patch", "ship-md"),
-                ("check-patch", "execute-plan"),
                 ("migrate-todos",),
                 ("wave-status-block", phase, "01", "02"),
                 ("reconcile-stale-closed", phase),
@@ -11872,29 +11724,6 @@ class TestBdUnavailableSkip(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn(sync.NOTICE, out.getvalue())
         blocker.assert_not_called()
-
-
-class TestCheckPatchCli(unittest.TestCase):
-    """gsd-beads-cjbc.15: argparse `choices` bound the target, so the only
-    reachable check_patch target is ship-md; an unknown target never
-    reaches check_patch."""
-
-    def test_ship_md_via_main_reports_present(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            p = Path(tmp) / "ship.md"
-            p.write_text(f"x\n{sync.SHIP_MD_PATCH_MARKER}\n", encoding="utf-8")
-            out = io.StringIO()
-            with contextlib.redirect_stdout(out):
-                rc = sync.main(["check-patch", "ship-md", "--path", str(p)])
-        self.assertEqual(rc, 0)
-        self.assertIn("present", out.getvalue())
-
-    def test_unknown_target_is_rejected_by_argparse(self):
-        with mock.patch.object(sync, "check_patch") as cp, \
-             contextlib.redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit):
-                sync.main(["check-patch", "bogus"])
-        cp.assert_not_called()
 
 
 class TestParserNits27(unittest.TestCase):
@@ -13260,7 +13089,7 @@ class TestShipPreLiveRecheck(unittest.TestCase):
     def _step_2c(self):
         text = self.SKILL.read_text(encoding="utf-8")
         start = text.index("## Step 2c")
-        return text[start:text.index("## Step 2d", start)]
+        return text[start:text.index("## Step 2e", start)]
 
     def test_regenerates_before_reading_or_recording(self):
         section = self._step_2c()

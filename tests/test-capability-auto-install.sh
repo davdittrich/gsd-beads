@@ -16,7 +16,7 @@ fail() { echo "FAIL: $1"; exit 1; }
 pass() { echo "PASS: $1"; }
 
 # The repo root is the plugin root; only this allowlist is the capability bundle.
-BUNDLE_ALLOWLIST=(capability.json scripts skills fragments GSD-CORE-PATCH.md)
+BUNDLE_ALLOWLIST=(capability.json scripts skills fragments)
 copy_allowlist() {
   local _entry
   mkdir -p "$2"
@@ -281,7 +281,7 @@ grep -qx 'query skills-root codex --raw' "$STUB_LOG" \
   || fail "case1: public Codex skills-root query was not invoked"
 grep -Eq '^capability install /[^ ]+ --scope global$' "$STUB_LOG" \
   || fail "case1: stub argv missing absolute staged bundle path (or auto-consented)"
-[ "$(cat "$SCRATCH/staged.ls")" = "GSD-CORE-PATCH.md capability.json fragments scripts skills " ] \
+[ "$(cat "$SCRATCH/staged.ls")" = "capability.json fragments scripts skills " ] \
   || fail "case1: staged bundle is not exactly the allowlist: $(cat "$SCRATCH/staged.ls")"
 [ ! -s "$SCRATCH/staged.noise" ] || fail "case1: staged bundle contains tests/ or __pycache__"
 case "$(cat "$SCRATCH/staged.path")" in "$PLUGIN_DIR"*) fail "case1: install source is inside the plugin root" ;; esac
@@ -430,7 +430,7 @@ for _prior in present absent; do
   setup 0
   seed_selected "$SKILLS_ROOT"
   # Installed bytes differ from the bundle: the install is genuinely needed.
-  printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+  printf 'x' >> "$INSTALLED_BUNDLE/skills/beads-sync/SKILL.md"
   PRIOR_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source/beads"
   if [ "$_prior" = present ]; then
     mkdir -p "$PRIOR_SOURCE"
@@ -462,7 +462,7 @@ for _prior in present absent; do
     || fail "case3h($_prior): consent run did not install the stable source with --yes once: $(cat "$STUB_LOG")"
   [ "$(cat "$STDOUT_FILE")" = "Auto-installed capability: beads (user scope)" ] && [ -z "$(cat "$STDERR_FILE")" ] \
     || fail "case3h($_prior): consent run did not complete: $(cat "$STDERR_FILE")"
-  cmp -s "$PLUGIN_DIR/GSD-CORE-PATCH.md" "$PRIOR_SOURCE/GSD-CORE-PATCH.md" \
+  cmp -s "$PLUGIN_DIR/skills/beads-sync/SKILL.md" "$PRIOR_SOURCE/skills/beads-sync/SKILL.md" \
     && [ ! -e "$PRIOR_SOURCE/previous.marker" ] \
     || fail "case3h($_prior): consent run did not publish the candidate as the stable source"
   [ -f "$STATE_FILE" ] || fail "case3h($_prior): consent run recorded no ledger row"
@@ -501,7 +501,7 @@ teardown
 for _prior in present absent; do
   setup 1
   seed_selected "$SKILLS_ROOT"
-  printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+  printf 'x' >> "$INSTALLED_BUNDLE/skills/beads-sync/SKILL.md"
   PRIOR_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source/beads"
   if [ "$_prior" = present ]; then
     mkdir -p "$PRIOR_SOURCE"
@@ -1000,7 +1000,7 @@ teardown
 # outcome: the parked previous source is the only copy of consented bytes.
 setup 0
 seed_selected "$SKILLS_ROOT"
-printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+printf 'x' >> "$INSTALLED_BUNDLE/skills/beads-sync/SKILL.md"
 STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source"
 copy_allowlist "$PLUGIN_DIR" "$STABLE_SOURCE/beads"
 mkdir -p "$GSD_HOME/.gsd/.capability-auto-install-beads.prev.KILLED/source/beads"
@@ -1038,7 +1038,7 @@ teardown
 # only trace that the next run must remove it.
 setup 0
 seed_selected "$SKILLS_ROOT"
-printf 'x' >> "$INSTALLED_BUNDLE/GSD-CORE-PATCH.md"
+printf 'x' >> "$INSTALLED_BUNDLE/skills/beads-sync/SKILL.md"
 STABLE_SOURCE="$GSD_HOME/.gsd/capability-auto-install-beads.source"
 STUB_KILL_INSTALL=1 run_script beads
 [ -d "$STABLE_SOURCE/beads" ] || fail "case8h4: the killed holder never swapped in the candidate"
@@ -1064,7 +1064,6 @@ for _claude_cache in older newer; do
   CODEX_PLUGIN_DIR="$PLUGIN_DIR"
   CLAUDE_PLUGIN_DIR="$CLAUDE_CONFIG_DIR/plugins/cache/gsd-beads/beads-lifecycle/test"
   make_plugin_root "$CLAUDE_PLUGIN_DIR"
-  printf '\nclaude cache content\n' >> "$CLAUDE_PLUGIN_DIR/GSD-CORE-PATCH.md"
   printf '\nclaude cache skill\n' >> "$CLAUDE_PLUGIN_DIR/skills/beads-sync/SKILL.md"
   touch -d '2001-01-01' "$CODEX_PLUGIN_DIR/capability.json"
   if [ "$_claude_cache" = older ]; then
@@ -2456,7 +2455,7 @@ consent_by_user() {
 }
 for _round in first-install update; do
   if [ "$_round" = update ]; then
-    printf '\nconsent round two\n' >> "$CONSENT_PLUGIN/GSD-CORE-PATCH.md"
+    printf '\nconsent round two\n' >> "$CONSENT_PLUGIN/skills/beads-sync/SKILL.md"
   fi
   SOURCE_BEFORE="absent"
   [ ! -e "$CONSENT_SOURCE" ] || SOURCE_BEFORE="$(fixture_tree_hash "$CONSENT_SOURCE")"
@@ -2483,7 +2482,7 @@ for _round in first-install update; do
   [ "$(grep -c -- '--yes' "$CONSENT_SPY_LOG")" -eq 1 ] \
     && grep -qx "capability install $CONSENT_SOURCE/beads --scope global --yes" "$CONSENT_SPY_LOG" \
     || fail "case24b($_round): consent run did not install the stable source with --yes once: $(cat "$CONSENT_SPY_LOG")"
-  cmp -s "$CONSENT_PLUGIN/GSD-CORE-PATCH.md" "$CONSENT_HOME/.gsd/capabilities/beads/GSD-CORE-PATCH.md" \
+  cmp -s "$CONSENT_PLUGIN/skills/beads-sync/SKILL.md" "$CONSENT_HOME/.gsd/capabilities/beads/skills/beads-sync/SKILL.md" \
     || fail "case24b($_round): consent run did not install the candidate"
   grep -q '^projection-v2 codex ' "$CONSENT_LEDGER" || fail "case24b($_round): consent run recorded no ledger row"
   consent_session
