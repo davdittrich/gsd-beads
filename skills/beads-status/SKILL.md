@@ -90,7 +90,9 @@ It rewrites `BEADS.md` from live `bd` state, recomputing `blocking_open` and `di
 ## Step 2c -- ship:pre: re-check live state, record an override
 
 The ship gate already reads the `verify:post` snapshot of `BEADS.md`; issues opened since then are
-unseen. First run Step 2b's command, which regenerates `BEADS.md` from live `bd`. Then read
+unseen. First check `beads.legacy_phases` in `.planning/config.json`. A phase listed there is
+exempt: print nothing and stop. For any other phase, run Step 2b's command, which regenerates
+`BEADS.md` from live `bd`. Then read
 `{padded_phase}-BEADS.md`'s `blocking_open` and `diverged` frontmatter and `beads.ship_gate` from
 `.planning/config.json`. A field counts as nonzero when it is not `0` (`unknown` counts).
 

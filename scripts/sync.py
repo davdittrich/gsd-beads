@@ -3765,9 +3765,8 @@ def regenerate_beads_md(phase_dir_arg):
         return 1
 
     def write_unknown(argv):
-        # Fail closed: a non-numeric sentinel never equals 0, so the
-        # artifact-frontmatter-equals ship:pre gates block (gsd-core 1.12 and
-        # 1.16 compare by === / String()); never write a count we do not know.
+        # Fail closed: ship_gate exits 1 for anything but "0", this sentinel
+        # included, so ship:pre blocks; never write a count we do not know.
         # The file keeps epic/blocking_open/diverged so ship_override can still
         # record its audit trailer.
         generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -4279,11 +4278,13 @@ def render_wave_status_block(phase_dir_arg, plan_ids):
     return 0
 
 
-def _read_beads_md_frontmatter(phase_dir):
+def _read_beads_md_frontmatter(phase_dir, label="ship-override", stream=None):
     """Return {key: raw value string} for every top-level frontmatter line in
     {padded_phase}-BEADS.md, or {} when the file is absent (or malformed --
     same degrade-cleanly posture as every other bd-adjacent read in this
-    script). ship_override's sole read of BEADS.md; never a live bd query."""
+    script). The only read of BEADS.md for ship_override and ship_gate (they
+    pass their own `label` and `stream` for the reason a rejected file prints);
+    never a live bd query."""
     phase_dir = Path(phase_dir)
     padded_phase = phase_dir.name.split("-", 1)[0]
     beads_md_path = phase_dir / f"{padded_phase}-BEADS.md"
@@ -4293,13 +4294,14 @@ def _read_beads_md_frontmatter(phase_dir):
     # counts would misstate what was bypassed.
     extras = _beads_md_extras(phase_dir, beads_md_path)
     if extras:
-        print("ship-override: other BEADS file(s) the gate may read: "
-              + ", ".join(_sanitize_notice_value(e.name, 200) for e in extras))
+        print(f"{label}: other BEADS file(s) the gate may read: "
+              + ", ".join(_sanitize_notice_value(e.name, 200) for e in extras), file=stream)
         return {}
     if not _is_generated_beads_md(beads_md_path):
         print(
-            f"ship-override: {_sanitize_notice_value(beads_md_path.name, 200)} has no "
-            "generated_from frontmatter"
+            f"{label}: {_sanitize_notice_value(beads_md_path.name, 200)} has no "
+            "generated_from frontmatter",
+            file=stream,
         )
         return {}
     text = beads_md_path.read_text(encoding="utf-8")
@@ -4349,18 +4351,23 @@ def ship_gate(phase_dir_arg):
     blocking_open and diverged are both 0. Everything else, including an
     unreadable config, blocks: an epic-less phase that is not listed may be a
     failed plan:post sync, so absence is never taken as "never had beads"."""
-    phase_dir = Path(phase_dir_arg).resolve()
     try:
+        # The manifest passes ${PHASE_NUMBER}, not ${PHASE_DIR}: gsd-core pastes
+        # placeholders into `sh -c` source, and a directory name is repo-chosen.
+        if Path(phase_dir_arg).is_absolute():
+            phase_dir = Path(phase_dir_arg).resolve()
+        else:
+            phase_dir = _confined_phase_dir(find_project_root(Path.cwd()), phase_dir_arg)
         project_root = phase_project_root(phase_dir)
-    except ValueError as exc:
-        print(f"ship-gate: {exc}", file=sys.stderr)
+    except (ValueError, OSError, RuntimeError) as exc:
+        print(f"ship-gate: phase directory not resolved ({_sanitize_notice_value(exc)})", file=sys.stderr)
         return 1
     if not read_beads_enabled(project_root):
         return 0
     if phase_dir.name.split("-", 1)[0] in read_beads_config(project_root, "legacy_phases", []):
         return 0
     try:
-        fields = _read_beads_md_frontmatter(phase_dir)
+        fields = _read_beads_md_frontmatter(phase_dir, "ship-gate", sys.stderr)
     except (OSError, UnicodeDecodeError) as exc:
         print(f"ship-gate: BEADS.md unreadable ({_sanitize_notice_value(exc)})", file=sys.stderr)
         return 1

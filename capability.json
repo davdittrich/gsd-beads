@@ -189,7 +189,7 @@
       "check": {
         "predicate": {
           "kind": "command-exit-zero",
-          "command": "_B=\"${GSD_HOME:-${HOME:-}}\"; case \"$_B\" in /?*) ;; *) echo \"gsd-beads: no absolute GSD_HOME or HOME\" >&2; exit 1;; esac; exec python3 -I \"$_B/.gsd/capabilities/beads/scripts/sync.py\" ship-gate \"${PHASE_DIR}\""
+          "command": "_B=\"${GSD_HOME:-${HOME:-}}\"; case \"$_B\" in /?*) ;; *) echo \"gsd-beads: no absolute GSD_HOME or HOME\" >&2; exit 1;; esac; exec python3 -I \"$_B/.gsd/capabilities/beads/scripts/sync.py\" ship-gate '${PHASE_NUMBER}'"
         }
       },
       "when": "beads.ship_gate",
