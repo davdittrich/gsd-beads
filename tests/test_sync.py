@@ -7411,8 +7411,8 @@ class TestShipPreGenericDispatch(unittest.TestCase):
             shutil.copytree(
                 source_root / "scripts", installed / "scripts", ignore=shutil.ignore_patterns("__pycache__")
             )
-            phase_dir = Path(tmp) / "03-enforcement"
-            phase_dir.mkdir()
+            phase_dir = Path(tmp) / ".planning" / "phases" / "03-enforcement"
+            phase_dir.mkdir(parents=True)
             outcomes = []
             for beads_md in (None, self._beads_md_text(blocking_open=0, diverged=0)):
                 if beads_md is not None:
@@ -7423,6 +7423,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
                         "--predicate", json.dumps(predicate),
                         "--project-dir", str(project_dir),
                         "--phase-dir", str(phase_dir),
+                        "--phase-number", "03",
                         "--raw",
                     ],
                     capture_output=True, text=True, timeout=30,
@@ -7431,6 +7432,16 @@ class TestShipPreGenericDispatch(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 outcomes.append(json.loads(result.stdout)["block"])
         self.assertEqual(outcomes, [True, False])
+        # gsd-core pastes ${...} into sh source before parsing it, so a repo-chosen
+        # directory name must never travel that way; the phase number can't carry shell syntax.
+        self.assertNotIn("PHASE_DIR", predicate["command"])
+        self.assertIn("${PHASE_NUMBER}", predicate["command"])
+
+    def test_ship_step_checks_legacy_phases_before_blocking(self):
+        text = (Path(__file__).resolve().parents[1] / "skills/beads-status/SKILL.md").read_text(encoding="utf-8")
+        step = text[text.index("## Step 2c"):]
+        self.assertLess(step.index("beads.legacy_phases"), step.index("SHIP BLOCKED"))
+        self.assertLess(step.index("beads.legacy_phases"), step.index("Step 2b's command"))
 
     @unittest.skipUnless(
         _gsd_tools_path() is not None and shutil.which("node") is not None,
@@ -13558,17 +13569,41 @@ class TestShipGate(unittest.TestCase):
     other outcome blocks. Only a disabled project or a phase the user listed in
     `beads.legacy_phases` may pass without BEADS.md."""
 
-    def _run(self, beads_md=None, config=None):
+    def _run(self, beads_md=None, config=None, arg=None):
+        """`arg` is a phase token resolved from the project root (the shape
+        the manifest gate passes); default is the absolute phase dir."""
         with tempfile.TemporaryDirectory() as tmp:
             phase_dir = _write_ship_override_workspace(Path(tmp), beads_md)
             if config is not None:
                 (Path(tmp) / ".planning" / "config.json").write_text(
                     json.dumps({"beads": config}), encoding="utf-8"
                 )
-            err = io.StringIO()
-            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
-                code = sync.main(["ship-gate", str(phase_dir)])
+            out, err = io.StringIO(), io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(out), _in_dir(tmp):
+                code = sync.main(["ship-gate", str(phase_dir) if arg is None else arg])
+        self.last_stdout = out.getvalue()
         return code, err.getvalue()
+
+    def test_phase_token_resolves_from_the_project_root(self):
+        self.assertEqual(self._run(config={"legacy_phases": ["01"]}, arg="01")[0], 0)
+
+    def test_unresolvable_phase_token_blocks(self):
+        code, err = self._run(config={"legacy_phases": ["99"]}, arg="99")
+        self.assertEqual(code, 1)
+        self.assertIn("ship-gate:", err)
+
+    def test_shell_metacharacters_in_the_argument_never_resolve(self):
+        self.assertEqual(self._run(arg="01-$(touch gate-probe)")[0], 1)
+
+    def test_diagnostics_are_labelled_ship_gate_on_stderr(self):
+        text = _ship_override_beads_md_text(blocking_open=0, diverged=0).replace(
+            'generated_from: "bd list --parent ship-epic --all --json -n 0"\n', ""
+        )
+        code, err = self._run(text)
+        self.assertEqual(code, 1)
+        self.assertEqual(self.last_stdout, "")
+        self.assertNotIn("ship-override", err)
+        self.assertIn("ship-gate:", err)
 
     def test_disabled_project_passes_without_beads_md(self):
         self.assertEqual(self._run(config={"enabled": False})[0], 0)
