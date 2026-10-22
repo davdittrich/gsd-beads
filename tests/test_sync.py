@@ -65,7 +65,7 @@ def _gsd_tools_path():
     return path if path.exists() else None
 
 
-def _capability_json_has_beads_md_gate():
+def _capability_json_has_ship_gate():
     """True when this project's real capability.json already declares a
     ship:pre gate whose predicate reads BEADS.md (i.e. 03-02 has landed) --
     the skip condition for TestShipPreGenericDispatch's fourth test."""
@@ -76,7 +76,7 @@ def _capability_json_has_beads_md_gate():
         return False
     for gate in cap.get("gates", []):
         predicate = gate.get("check", {}).get("predicate", {})
-        if predicate.get("artifact") == "BEADS.md":
+        if predicate.get("artifact") == "BEADS.md" or "ship-gate" in predicate.get("command", ""):
             return True
     return False
 
@@ -2384,8 +2384,9 @@ class TestTaskContentResolverManifest(unittest.TestCase):
             for g in self._manifest()["gates"]
             if g["point"] == "ship:pre" and g.get("blocking") is True
         ]
-        self.assertEqual(len(gates), 2)
-        self.assertEqual([g["onError"] for g in gates], ["halt", "halt"])
+        self.assertEqual(len(gates), 1)
+        self.assertEqual(gates[0]["onError"], "halt")
+        self.assertEqual(gates[0]["check"]["predicate"]["kind"], "command-exit-zero")
 
     def test_engines_floor_is_the_first_release_that_honours_halt(self):
         """cjbc.61: gsd-core 1.10 ship.md drops the whole ship:pre gate;
@@ -7394,6 +7395,47 @@ class TestShipPreGenericDispatch(unittest.TestCase):
         _gsd_tools_path() is not None and shutil.which("node") is not None,
         "gsd-tools.cjs / node not found",
     )
+    def test_manifest_ship_gate_command_passes_and_blocks_live(self):
+        """gh#37: the declared gate, run by gsd-core's evaluator, interpolates
+        ${PHASE_DIR} into the installed sync.py ship-gate verb."""
+        source_root = Path(__file__).resolve().parents[1]
+        (predicate,) = [
+            g["check"]["predicate"]
+            for g in json.loads((source_root / "capability.json").read_text(encoding="utf-8"))["gates"]
+            if g["point"] == "ship:pre"
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            project_dir = self._fake_project_dir(tmp)
+            home = Path(tmp) / "home"
+            installed = home / ".gsd" / "capabilities" / "beads"
+            shutil.copytree(
+                source_root / "scripts", installed / "scripts", ignore=shutil.ignore_patterns("__pycache__")
+            )
+            phase_dir = Path(tmp) / "03-enforcement"
+            phase_dir.mkdir()
+            outcomes = []
+            for beads_md in (None, self._beads_md_text(blocking_open=0, diverged=0)):
+                if beads_md is not None:
+                    (phase_dir / "03-BEADS.md").write_text(beads_md, encoding="utf-8")
+                result = subprocess.run(
+                    [
+                        "node", str(_gsd_tools_path()), "check", "predicate",
+                        "--predicate", json.dumps(predicate),
+                        "--project-dir", str(project_dir),
+                        "--phase-dir", str(phase_dir),
+                        "--raw",
+                    ],
+                    capture_output=True, text=True, timeout=30,
+                    env={**os.environ, "GSD_HOME": str(home), "HOME": str(home)},
+                )
+                self.assertEqual(result.returncode, 0, result.stderr)
+                outcomes.append(json.loads(result.stdout)["block"])
+        self.assertEqual(outcomes, [True, False])
+
+    @unittest.skipUnless(
+        _gsd_tools_path() is not None and shutil.which("node") is not None,
+        "gsd-tools.cjs / node not found",
+    )
     def test_fail_open_precheck_skips_missing_artifact_before_evaluator_would_block(self):
         with tempfile.TemporaryDirectory() as tmp:
             project_dir = self._fake_project_dir(tmp)
@@ -7423,7 +7465,7 @@ class TestShipPreGenericDispatch(unittest.TestCase):
     @unittest.skipUnless(
         _gsd_tools_path() is not None
         and shutil.which("node") is not None
-        and _capability_json_has_beads_md_gate(),
+        and _capability_json_has_ship_gate(),
         "gsd-tools.cjs / node not found, or Plan 02's ship:pre gates not yet in capability.json",
     )
     def test_beads_gate_hooks_excluded_step_hook_retained_when_ship_gate_false(self):
@@ -13509,6 +13551,67 @@ class TestPhaseArgConfinement(unittest.TestCase):
                     self.assertEqual(rc, 0)
                     self.assertIn(want, calls)
                     self.addCleanup(setattr, sync, "_BD_CWD", None)
+
+
+class TestShipGate(unittest.TestCase):
+    """gh#37: the one blocking ship:pre gate. Exit 0 passes the ship; every
+    other outcome blocks. Only a disabled project or a phase the user listed in
+    `beads.legacy_phases` may pass without BEADS.md."""
+
+    def _run(self, beads_md=None, config=None):
+        with tempfile.TemporaryDirectory() as tmp:
+            phase_dir = _write_ship_override_workspace(Path(tmp), beads_md)
+            if config is not None:
+                (Path(tmp) / ".planning" / "config.json").write_text(
+                    json.dumps({"beads": config}), encoding="utf-8"
+                )
+            err = io.StringIO()
+            with contextlib.redirect_stderr(err), contextlib.redirect_stdout(io.StringIO()):
+                code = sync.main(["ship-gate", str(phase_dir)])
+        return code, err.getvalue()
+
+    def test_disabled_project_passes_without_beads_md(self):
+        self.assertEqual(self._run(config={"enabled": False})[0], 0)
+
+    def test_listed_legacy_phase_passes_without_beads_md(self):
+        self.assertEqual(self._run(config={"legacy_phases": ["01"]})[0], 0)
+
+    def test_unlisted_epic_less_phase_blocks(self):
+        code, err = self._run(config={"legacy_phases": ["02"]})
+        self.assertEqual(code, 1)
+        self.assertIn("BEADS.md", err)
+
+    def test_missing_beads_md_without_config_blocks(self):
+        self.assertEqual(self._run()[0], 1)
+
+    def test_non_list_legacy_phases_blocks(self):
+        self.assertEqual(self._run(config={"legacy_phases": "01"})[0], 1)
+
+    def test_zero_counts_pass(self):
+        text = _ship_override_beads_md_text(blocking_open=0, diverged=0)
+        self.assertEqual(self._run(text)[0], 0)
+
+    def test_non_zero_or_unknown_counts_block(self):
+        for blocking_open, diverged in ((2, 0), (0, 1), ("unknown", 0), (0, "unknown")):
+            with self.subTest(blocking_open=blocking_open, diverged=diverged):
+                text = _ship_override_beads_md_text(blocking_open=blocking_open, diverged=diverged)
+                self.assertEqual(self._run(text)[0], 1)
+
+    def test_unreadable_beads_md_blocks_with_a_reason(self):
+        with mock.patch.object(sync, "_read_beads_md_frontmatter", side_effect=OSError("denied")):
+            code, err = self._run()
+        self.assertEqual(code, 1)
+        self.assertIn("denied", err)
+
+    def test_beads_md_without_generated_from_blocks(self):
+        text = _ship_override_beads_md_text(blocking_open=0, diverged=0).replace(
+            'generated_from: "bd list --parent ship-epic --all --json -n 0"\n', ""
+        )
+        self.assertEqual(self._run(text)[0], 1)
+
+    def test_listed_legacy_phase_is_exempt_whatever_beads_md_says(self):
+        text = _ship_override_beads_md_text(blocking_open=2, diverged=0)
+        self.assertEqual(self._run(text, {"legacy_phases": ["01"]})[0], 0)
 
 
 if __name__ == "__main__":
