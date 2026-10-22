@@ -4342,6 +4342,39 @@ def _head_already_pushed(project_root):
         return False
 
 
+def ship_gate(phase_dir_arg):
+    """gh#37: the blocking ship:pre gate (a command-exit-zero predicate, so
+    gsd-core blocks on any non-zero exit). Exits 0 only when beads is disabled,
+    the phase is listed in `beads.legacy_phases`, or BEADS.md says
+    blocking_open and diverged are both 0. Everything else, including an
+    unreadable config, blocks: an epic-less phase that is not listed may be a
+    failed plan:post sync, so absence is never taken as "never had beads"."""
+    phase_dir = Path(phase_dir_arg).resolve()
+    try:
+        project_root = phase_project_root(phase_dir)
+    except ValueError as exc:
+        print(f"ship-gate: {exc}", file=sys.stderr)
+        return 1
+    if not read_beads_enabled(project_root):
+        return 0
+    if phase_dir.name.split("-", 1)[0] in read_beads_config(project_root, "legacy_phases", []):
+        return 0
+    try:
+        fields = _read_beads_md_frontmatter(phase_dir)
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"ship-gate: BEADS.md unreadable ({_sanitize_notice_value(exc)})", file=sys.stderr)
+        return 1
+    for key in ("blocking_open", "diverged"):
+        if fields.get(key) != "0":
+            print(
+                f"ship-gate: BEADS.md missing, not generated, or {key} is not 0 "
+                f"(got {_sanitize_notice_value(fields.get(key))!r})",
+                file=sys.stderr,
+            )
+            return 1
+    return 0
+
+
 def ship_override(phase_dir_arg):
     """D-05: record a `beads.ship_gate=false` bypass. Always attempts a
     durable `git commit --amend --trailer` first (load-bearing, never
@@ -4609,6 +4642,11 @@ def _main(argv):
         help="Record a beads.ship_gate=false bypass via a git trailer plus a best-effort bd comment (D-05)",
     )
     ship_override_p.add_argument("phase_dir")
+    ship_gate_p = sub.add_parser(
+        "ship-gate",
+        help="Exit 0 when the ship:pre gate passes (beads disabled, legacy phase, or BEADS.md counts 0), else 1 (gh#37)",
+    )
+    ship_gate_p.add_argument("phase_dir")
     lifecycle_p = sub.add_parser(
         "lifecycle-dispatch",
         help="Run the beads operation a lifecycle point declares (gh-2); entered from the "
@@ -4684,6 +4722,8 @@ def _main(argv):
         return render_wave_status_block(args.phase_dir, args.plan_ids)
     if args.command == "ship-override":
         return ship_override(args.phase_dir)
+    if args.command == "ship-gate":
+        return ship_gate(args.phase_dir)
     if args.command == "lifecycle-dispatch":
         return lifecycle_dispatch(args.point, args.phase_dir)
     if args.command == "migrate-todos":

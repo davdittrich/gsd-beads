@@ -188,24 +188,8 @@
       "point": "ship:pre",
       "check": {
         "predicate": {
-          "kind": "artifact-frontmatter-equals",
-          "artifact": "BEADS.md",
-          "field": "blocking_open",
-          "equals": 0
-        }
-      },
-      "when": "beads.ship_gate",
-      "blocking": true,
-      "onError": "halt"
-    },
-    {
-      "point": "ship:pre",
-      "check": {
-        "predicate": {
-          "kind": "artifact-frontmatter-equals",
-          "artifact": "BEADS.md",
-          "field": "diverged",
-          "equals": 0
+          "kind": "command-exit-zero",
+          "command": "_B=\"${GSD_HOME:-${HOME:-}}\"; case \"$_B\" in /?*) ;; *) echo \"gsd-beads: no absolute GSD_HOME or HOME\" >&2; exit 1;; esac; exec python3 -I \"$_B/.gsd/capabilities/beads/scripts/sync.py\" ship-gate \"${PHASE_DIR}\""
         }
       },
       "when": "beads.ship_gate",

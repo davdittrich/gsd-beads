@@ -92,8 +92,8 @@ gsd-core's own lifecycle commands drive `bd` state directly:
 3. `/gsd:verify-work` — after verification, `beads-status` regenerates the projected `BEADS.md`
    from live `bd` state and closes no task issues. The `verify:post` step of `gsd-beads-close`
    can close the phase epic here (see item 4).
-4. Shipping — immediately before ship, two blocking gates read `BEADS.md` frontmatter and
-   refuse to ship while `blocking_open` or `diverged` is non-zero. Then `gsd-beads-close` runs
+4. Shipping — immediately before ship, one blocking gate (`sync.py ship-gate`) reads `BEADS.md` frontmatter and
+   refuses to ship while `blocking_open` or `diverged` is non-zero, or `BEADS.md` is missing. Then `gsd-beads-close` runs
    `close-phase-epic`. A `verify:post` step of the same skill runs it earlier, at
    `/gsd:verify-work` and `/gsd:autonomous`, where `VERIFICATION.md` already reads `passed`.
    Inside `/gsd:execute-phase` the `verify:post` dispatch fires before the report exists, so
@@ -202,7 +202,8 @@ object, and the shipped defaults are declared in
 | :--- | :--- | :--- | :--- | :--- |
 | `beads.enabled` | boolean | `true` / `false` | `true` | Master toggle for the beads issue-tracking capability. |
 | `beads.sync_mode` | enum | `authoritative`, `mirror` | `"authoritative"` | Governs whether an explicit `sync.py create-issues <plan>` strips synced task bodies out of `PLAN.md`: `authoritative` strips because native task resolution reads authoritative content from `bd`, `mirror` never strips. `authoritative` strips a task only after one batched `bd show` returns the description and acceptance criteria that were sent (line endings and trailing spaces ignored). A mismatch gets one `bd update` repair and a re-check; if that still differs, or `bd` fails, the task stays in `PLAN.md` and is not retried by later syncs. Never governs the hook-driven `plan:post` dispatch, which never strips either way. |
-| `beads.ship_gate` | boolean | `true` / `false` | `true` | When true, `ship:pre` blocks on `BEADS.md`'s `blocking_open` or `diverged` frontmatter fields being non-zero; both gates are blocking. |
+| `beads.ship_gate` | boolean | `true` / `false` | `true` | When true, `ship:pre` blocks on `BEADS.md`'s `blocking_open` or `diverged` frontmatter fields being non-zero, or `BEADS.md` is missing. The gate passes without `BEADS.md` only when `beads.enabled` is `false` or the phase is listed in `beads.legacy_phases`. |
+| `beads.legacy_phases` | list of strings | zero-padded phase numbers, e.g. `["01", "02"]` | `[]` | Phases that predate beads: `ship:pre` skips the gate for them. Any other phase without a synced epic still blocks, since that can be a failed `plan:post` sync. Not a declared gsd-core config slice (those have no list type); `sync.py` reads it from `.planning/config.json`. A non-list value counts as empty. |
 | `beads.epic_per` | enum | `phase`, `milestone` | `"phase"` | `phase`: one epic per phase, as today. `milestone`: one epic shared across every phase in the current milestone. |
 
 ```json
@@ -230,7 +231,7 @@ When disabled, every lifecycle step no-ops rather than fails, since all eight st
 resolved once per session, and falls back to `phase` when the file is absent, the JSON is
 malformed, or the key is missing.
 
-`ship_gate` is read at `ship:pre` alongside `BEADS.md`'s `blocking_open`/`diverged` fields. The gates read the snapshot `verify:post` wrote; the `ship:pre` step then regenerates it from live `bd` and stops the ship on non-zero counts, so issues opened after verify are caught only on gsd-core 1.18.0+, which dispatches that step.
+`ship_gate` is read at `ship:pre` alongside `BEADS.md`'s `blocking_open`/`diverged` fields. The gate reads the snapshot `verify:post` wrote; the `ship:pre` step then regenerates it from live `bd` and stops the ship on non-zero counts, so issues opened after verify are caught only on gsd-core 1.18.0+, which dispatches that step.
 Setting it to `false` while either field is non-zero does not silently skip the gate: the bypass
 is recorded as a `Beads-Override:` git trailer on the amended ship commit plus a best-effort `bd`
 comment on the phase epic, and the amend is refused when HEAD is already pushed.
