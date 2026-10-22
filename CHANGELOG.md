@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0
+
+Plugin 1.12.0, capability 0.13.0.
+
+### Changed
+- The two blocking `ship:pre` gates that read `BEADS.md` are now one `command-exit-zero` gate running the new `sync.py ship-gate` verb. It passes when `beads.enabled` is `false`, when the phase is listed in `beads.legacy_phases` in `.planning/config.json`, or when `BEADS.md` reports `blocking_open` and `diverged` as 0. A missing `BEADS.md` for any other phase still blocks, since it may be a failed `plan:post` sync. Closes #37.
+- The gate passes `${PHASE_NUMBER}`, not `${PHASE_DIR}`: gsd-core pastes placeholders into `sh -c` source and a directory name is repo-chosen (open-gsd/gsd-core#5318). `ship-gate` resolves the directory itself.
+- `beads-status` Step 2c skips a phase listed in `beads.legacy_phases`.
 ## 0.12.0
 
 Plugin 1.11.0, capability 0.12.0.
